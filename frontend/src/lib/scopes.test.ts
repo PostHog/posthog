@@ -1,10 +1,7 @@
-import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
-    API_SCOPE_GROUPS,
     API_SCOPES,
-    API_SCOPES_OMITTED_FROM_MODAL,
     type ScopePickerRow,
     clampScopeLevel,
     getScopeDescription,
@@ -13,13 +10,6 @@ import {
     scopeMatchesSearch,
     summarizeScopesByGroup,
 } from 'lib/scopes'
-
-import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
-
-const OAUTH_HIDDEN_SCOPE_OBJECTS = new Set(OAUTH_SCOPES_HIDDEN.map((scope) => scope.split(':')[0]))
-
-// The pickers never show an OAuth-hidden object, so only the rest need a row and a group.
-const PICKER_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi).filter((obj) => !OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -35,13 +25,6 @@ describe('getScopeDescription', () => {
         expect(getScopeDescription('user:read')).toBe('Read access to users')
     })
 
-    it('uses customer task labels in the scope picker', () => {
-        expect(API_SCOPES.find(({ key }) => key === 'customer_task')).toMatchObject({
-            objectName: 'Customer task',
-            objectPlural: 'customer tasks',
-        })
-    })
-
     it('derives a readable label for OAuth-hidden scopes absent from API_SCOPES', () => {
         expect(getScopeDescription('wizard_session:write')).toBe('Write access to wizard session')
     })
@@ -52,47 +35,6 @@ describe('getScopeDescription', () => {
 
     it('returns the bare scope string when there is no colon separator', () => {
         expect(getScopeDescription('baretoken')).toBe('baretoken')
-    })
-})
-
-describe('API_SCOPES modal coverage', () => {
-    const offered = new Set(API_SCOPES.map(({ key }) => key))
-    const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
-
-    it('offers or explicitly omits every scope object', () => {
-        // The enum is generated from posthog/scopes.py, so a new backend scope object fails here
-        // until someone offers it in the key-creation modal or gives a reason to omit it.
-        const uncovered = PICKER_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
-        expect(uncovered).toEqual([])
-    })
-
-    it('never both offers and omits the same scope', () => {
-        const overlap = [...omitted].filter((obj) => offered.has(obj as ScopeObjectEnumApi))
-        expect(overlap).toEqual([])
-    })
-})
-
-describe('API_SCOPE_GROUPS', () => {
-    const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
-
-    it('files every picker scope object in exactly one group', () => {
-        // A new scope object fails here until someone picks the product area it belongs to.
-        const duplicates = [...new Set(filed.filter((obj, index) => filed.indexOf(obj) !== index))]
-        const missing = PICKER_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
-        expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
-    })
-
-    it('keeps OAuth-hidden scope objects out of every picker', () => {
-        // A hidden object with a row would show in the key picker, and a group that exists only for
-        // hidden objects carries a label that no person should ever see.
-        const shown = [...filed, ...API_SCOPES.map(({ key }) => key)]
-        const hidden = shown.filter((obj) => OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
-        expect(hidden).toEqual([])
-    })
-
-    it('uses each group label once', () => {
-        const labels = API_SCOPE_GROUPS.map(({ label }) => label)
-        expect(labels).toEqual([...new Set(labels)])
     })
 })
 
@@ -212,7 +154,7 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.access_type).toBe('all')
         })
 
-        it('uses the generated Agent CLI scopes with key-disabled writes removed', () => {
+        it('uses the generated Agent CLI scopes with key-disabled and opt-in-only writes removed', () => {
             const preset = findPreset('agent_cli')
             expect(preset.scopes).toEqual(AGENT_CLI_API_KEY_SCOPES)
             expect(preset.scopes).toEqual(
@@ -222,6 +164,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
+    })
+
+    it('leaves integration write for a person to choose instead of adding it in the MCP Server preset', () => {
+        const preset = findPreset('mcp_server')
+        expect(preset.scopes).toContain('integration:read')
+        expect(preset.scopes).not.toContain('integration:write')
     })
 
     it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(

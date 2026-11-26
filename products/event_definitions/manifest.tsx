@@ -1,7 +1,3 @@
-import { ProductManifest } from '~/types'
+import { ProductManifest } from '../../frontend/src/types'
 
-export const manifest: ProductManifest = {
-    name: 'Event definitions',
-    treeItemsNew: [],
-    treeItemsProducts: [],
-}
+export const manifest: ProductManifest = { name: 'EventDefinitions' }

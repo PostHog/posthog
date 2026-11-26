@@ -94,6 +94,10 @@ tools:
             the PR-scoped lead-time figures to that team's authors: deploy counts stay repo-wide. deploy_data_available
             is false when the deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not
             re-querying.
+    engineering-analytics-enable:
+        operation: engineering_analytics_enable
+        enabled: false
+        disabled_reason: The in-app setup state enables the product; an agent should not opt a project into background work.
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
@@ -146,6 +150,10 @@ tools:
             still running that are left out of the estimate. Key by_run by (ci_engine, run_id, run_attempt). This covers
             curated work and excludes suppressed relay/wait overhead; it is not an invoice total.
         feature_flag: engineering-analytics
+    engineering-analytics-revert-outcomes:
+        operation: engineering_analytics_revert_outcomes
+        enabled: false
+        disabled_reason: The route must deploy before clients see the tool. Enable in a follow-up change.
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
         enabled: true

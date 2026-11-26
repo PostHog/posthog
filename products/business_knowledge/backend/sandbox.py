@@ -19,7 +19,7 @@ from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
 from products.tasks.backend.facade.profiles import TaskRunOptions
 
 from . import task_profiles
-from .constants import BK_MCP_SCOPES
+from .constants import BK_MCP_SCOPES, DOCS_SEARCH_TOOL
 from .github_repos import repository_tools_enabled
 from .logic import KnowledgeSearchResult, get_always_on_context
 
@@ -33,43 +33,7 @@ BK_SEARCH_TOOL = "business-knowledge-documents-search"
 BK_WINDOW_TOOL = "business-knowledge-document-window-retrieve"
 BK_REPO_SEARCH_TOOL = "business-knowledge-repositories-search"
 BK_REPO_FILE_TOOL = "business-knowledge-repositories-file-retrieve"
-DOCS_SEARCH_TOOL = "docs-search"
 BK_DISPLAY_TOOLS = frozenset({BK_SEARCH_TOOL, BK_WINDOW_TOOL, BK_REPO_SEARCH_TOOL, BK_REPO_FILE_TOOL})
-# Read tools the token's scopes unlock but the answer never needs. Knowledge content can carry
-# injected instructions, so hide anything that reads the asker's own data.
-BK_HIDDEN_TOOLS = [
-    DOCS_SEARCH_TOOL,
-    "user-get",
-    "user-home-settings-get",
-    "llma-personal-spend",
-    "reminder-get",
-    "reminders-list",
-    "project-get",
-    "mcp-connections-list",
-    "mcp-connection-tools-list",
-    "tasks-list",
-    "tasks-retrieve",
-    "tasks-runs-list",
-    "tasks-runs-retrieve",
-    "tasks-runs-session-logs-retrieve",
-    "tasks-artifacts-list",
-    "tasks-config-list",
-    "tasks-me-config-list",
-    "tasks-models-retrieve",
-    "channel-list",
-    "channel-retrieve",
-    "channel-instructions-retrieve",
-    "inbox-reports-list",
-    "inbox-reports-retrieve",
-    "inbox-report-artefacts-list",
-    "inbox-report-artefacts-retrieve",
-    "inbox-report-checks-list",
-    "inbox-report-checks-retrieve",
-    "inbox-source-configs-list",
-    "inbox-source-configs-retrieve",
-    "task-context-wiki-channel-resolve",
-    "task-context-wiki-page-retrieve",
-]
 _RECOGNIZED_TOOLS = BK_DISPLAY_TOOLS | {DOCS_SEARCH_TOOL}
 # A follow-up run is a new process. These pins live on the previous run, not on the task.
 _RESUMED_RUN_STATE_KEYS = (
@@ -277,10 +241,7 @@ def start_sandbox_run(
                 mcp_scopes=BK_MCP_SCOPES,
                 output_schema=SandboxAnswer.model_json_schema(),
             ),
-            extra_run_state={
-                "mcp_exclude_tools": BK_HIDDEN_TOOLS,
-                "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
-            },
+            extra_run_state={"config_snapshot": {"connectors": {"mcp_installation_ids": []}}},
         )
         if created.latest_run is None:
             raise RuntimeError("Sandbox task was created without a run")
@@ -323,12 +284,15 @@ def resume_sandbox_run(
         # another one exists, or that turn starts showing the new answer.
         if before_create is not None:
             before_create(previous)
-        run = tasks_facade.create_run(
-            task_id,
-            mode="background",
-            acting_user_id=user_id,
-            extra_state=_resumed_run_state(question=question, previous=previous, user_id=user_id),
-        )
+        try:
+            run = tasks_facade.create_run(
+                task_id,
+                mode="background",
+                acting_user_id=user_id,
+                extra_state=_resumed_run_state(question=question, previous=previous, user_id=user_id),
+            )
+        except tasks_facade.TaskRunAlreadyLiveError as error:
+            raise SandboxRunInProgress() from error
         created = CreatedTaskDTO(task_id=run.task_id, team_id=run.team_id, latest_run=run)
         if on_admitted is not None:
             on_admitted(created)

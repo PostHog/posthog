@@ -62,10 +62,23 @@
 
 **Skills:** `/skill`
 
+<!-- What the person who directed the work checked themselves: the diff or the files they read, the behavior they ran, the design they decided. Record only what that person stated in the session, and update the line when they check more.
+     - Do not infer it. Approving a plan, answering a question, or saying "looks good" to a summary is not a check of the code. Checks the agent ran go under "How did you test this code?", never here.
+     - Write "Not yet checked by the driver" when the person has stated nothing. That is a complete answer, and it tells the reviewer no person has read the diff yet.
+     - Write "No human driver" when Autonomy is "Fully autonomous".
+     - A person editing this body by hand fills the line with what they checked. -->
+
+**Driver checked:** [what the driver read, ran or decided, or "Not yet checked by the driver"]
+
+<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
+
+**Security review:** [needed or not needed]
+
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
-     - New events schema: Backend CI reruns the paths in `.github/new-events-schema-targets.txt` against the native-JSON events table. A new directory of tests that read event properties is added to that file. Add `test-new-events-schema` when the diff should run the whole backend suite on both tables: event ingestion or cleaning, or event reads whose tests are outside the list. Apply it while draft, or push another commit after labeling, because label events do not start Backend CI. State the result under "How did you test this code?".
+     - New events schema: Backend CI reruns the paths in `.github/new-events-schema-targets.txt` against the native-JSON events table. A test whose result can differ between the two events tables is added to that file, as its header describes. Add `test-new-events-schema` when the diff should run the whole backend suite on both tables: event ingestion or cleaning, or event reads whose tests are outside the list. Apply it while draft, or push another commit after labeling, because label events do not start Backend CI. State the result under "How did you test this code?".
+     - Test ownership: every test file this PR adds resolves to a team (`hogli owners:who <path>`). Say under "How did you test this code?" which team you named for any that had none, and why.
      - CI report: every section of the "🤖 CI report" comment is ✅, or you considered each finding: fixed it, explained in the PR body why it does not apply, or escalated it to a person. Warn-only sections, such as eager graph budgets, pass the checks while still open. See AGENTS.md, "The CI report".
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->

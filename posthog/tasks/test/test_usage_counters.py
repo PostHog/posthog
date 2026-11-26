@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.tasks import usage_report
 from posthog.usage_counters import (
     COUNTER_FLAG_NAMES,
+    PLAN_DEFERRED_COUNTERS,
     SHADOW_FAILURES,
     UsageCounter,
     UsageCounterCaller,
@@ -31,6 +32,7 @@ from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
 SANDBOX_COMPUTE_RESOURCE_KEYS = (
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+    "teams_with_ai_compute_credits_used_in_period",
 )
 
 
@@ -149,6 +151,7 @@ class TestUsageCounterReport(SimpleTestCase):
             "get_teams_with_logs_bytes_in_period": self.legacy[UsageCounter.LOGS_BYTES],
             "get_teams_with_ai_credits_used_in_period": self.legacy[UsageCounter.AI_CREDITS],
             "get_teams_with_signals_credits_used_in_period": self.legacy[UsageCounter.SIGNALS_CREDITS],
+            "get_teams_with_signals_spend_credits_used_in_period": self.legacy[UsageCounter.SIGNALS_SPEND_CREDITS],
             "get_teams_with_posthog_code_credits_used_in_period": self.legacy[UsageCounter.POSTHOG_CODE_CREDITS],
             "get_teams_with_replay_vision_credits_used_in_period": self.legacy[UsageCounter.REPLAY_VISION_CREDITS],
             "get_teams_with_billable_event_count_in_period": self.events,
@@ -165,13 +168,20 @@ class TestUsageCounterReport(SimpleTestCase):
             ],
             "get_teams_with_survey_responses_count_in_period": self.legacy[UsageCounter.SURVEY_RESPONSES],
             "get_teams_with_ai_event_count_in_period": self.legacy[UsageCounter.AI_EVENTS],
+            "get_teams_with_ai_overage_bytes_in_period": self.legacy[UsageCounter.AI_OVERAGE_BYTES],
             "get_teams_with_exceptions_captured_in_period": self.exceptions,
             "get_teams_with_cdp_billable_invocations_in_period": self.legacy[UsageCounter.CDP_INVOCATIONS],
             "get_teams_with_feature_flag_requests_count_in_period": Mock(
                 side_effect=lambda begin, end, kind: self.legacy[
-                    UsageCounter.FEATURE_FLAG_REQUESTS
-                    if kind == usage_report.FlagRequestType.DECIDE
-                    else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+                    {
+                        usage_report.FlagRequestType.DECIDE: UsageCounter.FEATURE_FLAG_REQUESTS,
+                        usage_report.FlagRequestType.LOCAL_EVALUATION: (
+                            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+                        ),
+                        usage_report.FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: (
+                            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS
+                        ),
+                    }[kind]
                 ](begin, end)
             ),
             "get_teams_with_workflow_emails_sent_in_period": self.legacy[UsageCounter.WORKFLOW_EMAILS],
@@ -217,13 +227,14 @@ class TestUsageCounterReport(SimpleTestCase):
             report = service.fetch_report(period, plan=plan)
             assert flag.call_count == len(COUNTER_FLAG_NAMES)
 
+        planned_counters = [counter for counter in UsageCounter if counter not in PLAN_DEFERRED_COUNTERS]
         assert report.counts == {
-            **{key: [] for key in (*UsageCounter, *SANDBOX_COMPUTE_RESOURCE_KEYS)},
+            **{key: [] for key in (*planned_counters, *SANDBOX_COMPUTE_RESOURCE_KEYS)},
             UsageCounter.CDP_INVOCATIONS.value: [(1, 12)],
             UsageCounter.WORKFLOW_EMAILS.value: [(1, 3)],
         }
         assert report.usage_sources == {
-            **{counter.value.removeprefix("teams_with_"): "legacy" for counter in UsageCounter},
+            **{counter.value.removeprefix("teams_with_"): "legacy" for counter in planned_counters},
             "cdp_billable_invocations_in_period": "both",
         }
         assert report.counter_comparisons == (
@@ -397,6 +408,7 @@ class TestUsageCounterReport(SimpleTestCase):
                     legacy_by_team={}, realtime_by_team={}
                 )
                 for counter in COUNTER_FLAG_NAMES
+                if counter not in PLAN_DEFERRED_COUNTERS
             }
 
     @parameterized.expand([("success",), ("records",), ("legacy_comparison",)])
@@ -462,20 +474,29 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.MOBILE_BILLABLE_RECORDINGS: ("mobile_replay_recordings", 104),
             UsageCounter.SURVEY_RESPONSES: ("survey_responses", 105),
             UsageCounter.AI_EVENTS: ("ai_events", 106),
+            UsageCounter.AI_OVERAGE_BYTES: ("ai_overage_bytes", 116),
             UsageCounter.EXCEPTIONS: ("exceptions", 107),
             UsageCounter.CDP_INVOCATIONS: ("cdp_billable_invocations", 111),
             UsageCounter.FEATURE_FLAG_REQUESTS: ("feature_flag_requests", 108),
             UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: ("feature_flag_local_evaluation_requests", 109),
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS: (
+                "feature_flag_local_evaluation_not_modified_requests",
+                115,
+            ),
             UsageCounter.WORKFLOW_EMAILS: ("workflow_emails_sent", 112),
             UsageCounter.WORKFLOW_PUSH: ("workflow_push_sent", 113),
             UsageCounter.WORKFLOW_SMS: ("workflow_sms_sent", 114),
             UsageCounter.WORKFLOW_INVOCATIONS: ("workflow_billable_invocations", 110),
         }
-        flag_counters = {UsageCounter.FEATURE_FLAG_REQUESTS, UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS}
+        flag_counters = {
+            UsageCounter.FEATURE_FLAG_REQUESTS,
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS,
+        }
         for index, counter in enumerate(counter_keys):
             self.legacy[counter].return_value = [("1" if counter in flag_counters else 1, index + 1)]
         self.exceptions.side_effect = None
-        self.exceptions.return_value = ({"web": [[1, 3]], "web_lite": [[1, 5]]}, [[1, 8]])
+        self.exceptions.return_value = ({"web": [[1, 3]], "web_lite": [[1, 5]]}, [[1, 9]])
         self.records.return_value = UsageRecordTotals(
             totals=[
                 UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=key, quantity=quantity)
@@ -491,6 +512,8 @@ class TestUsageCounterReport(SimpleTestCase):
                 )
             ),
             patch("posthoganalytics.get_feature_flag", return_value=mode if source == "flag" else "legacy"),
+            # Deferred counters read their record keys once they join plans, so check those keys here too.
+            patch("posthog.usage_counters.PLAN_DEFERRED_COUNTERS", frozenset()),
         ):
             service = UsageCounterService()
             plan = service.resolve_plan(period, complete=True, counters=tuple(counter_keys))
@@ -612,6 +635,7 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.LOGS_RETENTION_BYTE_DAYS,
             UsageCounter.AI_CREDITS,
             UsageCounter.SIGNALS_CREDITS,
+            UsageCounter.SIGNALS_SPEND_CREDITS,
             UsageCounter.POSTHOG_CODE_CREDITS,
             UsageCounter.SANDBOX_COMPUTE_CREDITS,
             UsageCounter.REPLAY_VISION_CREDITS,
@@ -637,6 +661,7 @@ class TestUsageCounterReport(SimpleTestCase):
             credits=expected[UsageCounter.SANDBOX_COMPUTE_CREDITS],
             cpu_millicore_seconds=[(1, 29)],
             memory_mib_seconds=[(2, 31)],
+            ai_credits=[(1, 37)],
         )
         expected.update(
             {
@@ -644,6 +669,7 @@ class TestUsageCounterReport(SimpleTestCase):
                 "teams_with_logs_retention_90d_bytes_in_period": [(2, 23)],
                 "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": [(1, 29)],
                 "teams_with_sandbox_compute_memory_mib_seconds_in_period": [(2, 31)],
+                "teams_with_ai_compute_credits_used_in_period": [(1, 37)],
             }
         )
         with patch("posthoganalytics.get_feature_flag", return_value=flag_mode) as flag:

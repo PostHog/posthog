@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
 import { organizationLogic } from 'scenes/organizationLogic'
+import type { OrganizationUpdatePayload } from 'scenes/organizationLogic'
 
 import type { OrganizationMemberNoticeApi } from '~/generated/core/api.schemas'
 import { OrganizationType } from '~/types'
@@ -72,6 +73,8 @@ export interface organizationMemberNoticeLogicActions {
                       | 'default_role_id'
                       | 'enforce_2fa'
                       | 'enforce_verified_domains'
+                      | 'ip_restrictions'
+                      | 'ip_restrictions_enabled'
                       | 'is_ai_data_processing_approved'
                       | 'is_ai_training_opted_in'
                       | 'logo_media_id'
@@ -87,7 +90,7 @@ export interface organizationMemberNoticeLogicActions {
             | undefined
     ) => {
         currentOrganization: OrganizationType | null
-        payload?: import('scenes/organizationLogic').OrganizationUpdatePayload
+        payload?: OrganizationUpdatePayload
     } // organizationLogic
     removeMemberNotice: () => {
         value: true

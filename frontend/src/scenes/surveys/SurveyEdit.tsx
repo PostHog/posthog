@@ -40,6 +40,7 @@ import { formatDate } from 'lib/utils/datetime'
 import { ValueOf } from 'lib/utils/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { getSurveyUrl } from 'scenes/surveys/CopySurveyLink'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { SurveyActionTrigger } from 'scenes/surveys/SurveyActionTrigger'
 import { SurveyCancelEventTrigger, SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
@@ -295,6 +296,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         translationErrorsForField,
         aiGeneratedTranslationFields,
     } = useValues(surveyLogic)
+    const exampleIdentifiedSurveyUrl = `${getSurveyUrl('01984280-fc8a-0000-28a5-01078e2d553f')}?distinct_id=${encodeURIComponent(
+        user?.email ?? 'john@acme.co'
+    )}`
     const {
         setSurveyValue,
         resetTargeting,
@@ -785,13 +789,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                         query parameter to the URL. Here's an example:
                                                                         {'\n'}
                                                                         <Link
-                                                                            to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${
-                                                                                user?.email ?? 'john@acme.co'
-                                                                            }`}
+                                                                            to={exampleIdentifiedSurveyUrl}
                                                                             target="_blank"
-                                                                        >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${
-                                                                            user?.email ?? 'john@acme.co'
-                                                                        }`}</Link>
+                                                                        >
+                                                                            {exampleIdentifiedSurveyUrl}
+                                                                        </Link>
                                                                     </li>
                                                                     <li>
                                                                         • Check more details about identifying
@@ -1614,7 +1616,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                   <LemonField.Pure
                                                                       label="Link to a specific flag variant"
                                                                       info="Choose which variant of the feature flag to link to this survey.
-                                                              Requires posthog-js v1.259.0 or greater or posthog-react-native v4.4.0 or greater"
+                                                              Requires at least posthog-js 1.259.0, posthog-react-native 4.4.0, posthog-ios 3.78.0, posthog-android 3.67.0, or posthog_flutter 5.47.0."
                                                                   >
                                                                       <div className="flex flex-col gap-2">
                                                                           <LemonSegmentedButton

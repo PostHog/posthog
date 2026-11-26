@@ -1,9 +1,10 @@
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import AnyStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, QuantileStatistic, StatisticError
 from ..shared.utils import get_sample_size
 from .utils import (
     calculate_confidence_interval,
@@ -18,6 +19,9 @@ from .utils import (
     validate_quantile_inputs,
     validate_sample_sizes,
 )
+
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
 
 
 @dataclass
@@ -79,7 +83,8 @@ class StatisticalTest(ABC):
         treatment_stat: AnyStatistic,
         control_stat: AnyStatistic,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
-        **kwargs,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> TestResult:
         """
         Run the statistical test.
@@ -88,7 +93,7 @@ class StatisticalTest(ABC):
             treatment_stat: Treatment group statistic
             control_stat: Control group statistic
             difference_type: Type of difference to calculate
-            **kwargs: Additional test-specific parameters
+            relative_effect_baseline: Raw baseline moments for CUPED relative effects (default: the control)
 
         Returns:
             TestResult object
@@ -112,17 +117,21 @@ class TwoSidedTTest(StatisticalTest):
         treatment_stat: AnyStatistic,
         control_stat: AnyStatistic,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
-        **kwargs,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> TestResult:
         """Run two-sided t-test."""
         validate_sample_sizes(treatment_stat, control_stat)
         validate_quantile_inputs(treatment_stat, control_stat)
 
-        unadjusted_mean = kwargs.get("unadjusted_mean")
-        point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type, unadjusted_mean)
+        point_estimate = calculate_point_estimate(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
 
         # Calculate variance and degrees of freedom
-        pooled_variance = calculate_variance_pooled(treatment_stat, control_stat, difference_type, unadjusted_mean)
+        pooled_variance = calculate_variance_pooled(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
         degrees_of_freedom = calculate_welch_satterthwaite_df(treatment_stat, control_stat)
 
         # Calculate test statistic and p-value
@@ -175,20 +184,32 @@ class SequentialTwoSidedTTest(StatisticalTest):
     def p_value_type(self) -> str:
         return "two_sided"
 
+    @staticmethod
+    def _sequential_sample_size(statistic: AnyStatistic) -> int:
+        # Users are the randomized unit, so counting exposed users gives the tuning parameter the same meaning for
+        # every metric. A quantile statistic counts events in n and exposed users in n_clusters.
+        if isinstance(statistic, QuantileStatistic):
+            return statistic.n_clusters
+        return get_sample_size(statistic)
+
     def run_test(
         self,
         treatment_stat: AnyStatistic,
         control_stat: AnyStatistic,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
-        **kwargs,
+        *,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> TestResult:
         validate_sample_sizes(treatment_stat, control_stat)
         validate_quantile_inputs(treatment_stat, control_stat)
 
-        unadjusted_mean = kwargs.get("unadjusted_mean")
-        point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type, unadjusted_mean)
-        pooled_variance = calculate_variance_pooled(treatment_stat, control_stat, difference_type, unadjusted_mean)
-        n = get_sample_size(treatment_stat) + get_sample_size(control_stat)
+        point_estimate = calculate_point_estimate(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
+        pooled_variance = calculate_variance_pooled(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
+        n = self._sequential_sample_size(treatment_stat) + self._sequential_sample_size(control_stat)
 
         # No t-distribution in the always-valid construction, so neither the degrees of
         # freedom nor a t-statistic carry meaning here. Surface both as NaN so downstream

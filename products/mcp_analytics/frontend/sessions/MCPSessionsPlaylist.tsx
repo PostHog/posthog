@@ -56,7 +56,7 @@ function valueToSorting(value: MCPSessionOrderBy): MCPSessionSorting {
 
 export function MCPSessionsPlaylist(): JSX.Element {
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { dateFilter, sessionsLoading, toolCallsLoading } = useValues(mcpSessionsLogic)
+    const { dateFilter, sessionsLoading, toolCallsBySessionLoading } = useValues(mcpSessionsLogic)
     const { setDateFilter, refreshSessions } = useActions(mcpSessionsLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
     const isVerticalLayout = isWindowLessThan('xl')
@@ -67,7 +67,7 @@ export function MCPSessionsPlaylist(): JSX.Element {
                 pageKey="mcp-sessions"
                 dataAttrPrefix="mcp-sessions"
                 onRefresh={refreshSessions}
-                refreshing={sessionsLoading || toolCallsLoading}
+                refreshing={sessionsLoading || toolCallsBySessionLoading}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -200,11 +200,7 @@ function SessionsListPanel(): JSX.Element {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto" data-attr="mcp-sessions-list">
                 {sessionsLoading && sessions.length === 0 ? (
-                    <div className="flex flex-col gap-2 p-2" data-quill>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                            <Skeleton key={i} className="h-12 w-full" />
-                        ))}
-                    </div>
+                    <MCPSessionPreviewSkeletons />
                 ) : sessions.length === 0 ? (
                     <div className="p-4 text-center text-sm text-secondary">
                         {hasActiveFilters ? 'No sessions match these filters' : 'No MCP sessions yet'}
@@ -242,6 +238,33 @@ function SessionsListPanel(): JSX.Element {
     )
 }
 
+const SESSION_PREVIEW_ROW = 'border-l-2 px-2 py-1.5 flex flex-col gap-1'
+
+const SESSION_PREVIEW_SKELETONS = 20
+
+function MCPSessionPreviewSkeletons(): JSX.Element {
+    return (
+        <ul
+            className="flex flex-col list-none pl-0 m-0 h-full overflow-hidden divide-y divide-primary"
+            data-quill
+            aria-hidden
+        >
+            {Array.from({ length: SESSION_PREVIEW_SKELETONS }, (_, i) => (
+                <li key={i} className={cn(SESSION_PREVIEW_ROW, 'border-l-transparent')}>
+                    <div className="flex h-4 items-center justify-between gap-2">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-3 w-16" />
+                    </div>
+                    <div className="flex h-4 items-center justify-between gap-2">
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="h-3 w-10" />
+                    </div>
+                </li>
+            ))}
+        </ul>
+    )
+}
+
 // memo relies on stable identities: kea replaces the sessions array wholesale on load
 // (so unchanged rows keep their reference) and selectSession is a stable bound action.
 // A selector that maps or clones sessions would silently defeat this.
@@ -264,7 +287,8 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
             aria-pressed={isActive}
             onClick={() => onSelect(session.session_id)}
             className={cn(
-                'w-full text-left cursor-pointer border-l-2 px-2 py-1.5 text-xs flex flex-col gap-1',
+                'w-full text-left cursor-pointer text-xs',
+                SESSION_PREVIEW_ROW,
                 isActive
                     ? 'border-l-accent bg-accent-highlight-secondary'
                     : 'border-l-transparent hover:bg-accent-highlight-secondary'

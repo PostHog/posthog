@@ -27,6 +27,7 @@ from redis.exceptions import (
     TimeoutError as RedisTimeoutError,
 )
 
+from posthog.models.team.team import Team
 from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL
 
 from products.posthog_ai.eval_harness.long_lived_subprocess import LongLivedSubprocessManager, SubprocessStartupError
@@ -115,7 +116,7 @@ def _ai_gateway_compose(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def start_ai_gateway() -> Callable[[], None]:
+def start_ai_gateway(capture_url: str | None = None) -> Callable[[], None]:
     """Start the Go ai-gateway on a non-default port, in resolver mode.
 
     It shares the Postgres and Valkey containers of the gateway repo's compose file
@@ -154,6 +155,17 @@ def start_ai_gateway() -> Callable[[], None]:
             "AI_GATEWAY_LOG_LEVEL": "info",
         }
     )
+    if capture_url is not None:
+        env["AI_GATEWAY_CAPTURE_URL"] = capture_url
+        # The gateway emits to capture only signed events, so the local sink needs a secret too.
+        env["AI_GATEWAY_SIGNING_SECRET"] = secrets.token_urlsafe(32)
+    # Open-weight models such as DeepSeek run on Baseten. The host is declared only with a key,
+    # because the gateway refuses to boot a declared host that has no credential.
+    if baseten_api_key := os.environ.get("AI_GATEWAY_BASETEN_API_KEY"):
+        env["AI_GATEWAY_BASETEN_API_KEY"] = baseten_api_key
+        env["AI_GATEWAY_SERVED_HOSTS"] = json.dumps(
+            [{"id": "baseten", "kind": "baseten", "base_url": "https://inference.baseten.co/v1"}]
+        )
     binary = _ai_gateway_binary()
     migrate = subprocess.run([str(binary), "migrate"], env=env, capture_output=True, text=True, timeout=120)
     if migrate.returncode != 0:
@@ -238,6 +250,13 @@ async def maintain_ai_gateway_mint_key(team_id: int, mint_key: str) -> AsyncIter
             task.cancel()
 
 
+def _team_organization_id(team_id: int) -> str:
+    try:
+        return str(Team.objects.only("organization_id").get(pk=team_id).organization_id)
+    finally:
+        close_old_connections()
+
+
 def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
     """Give the master demo team a ``phs_`` key the worker mints per-run tokens with.
 
@@ -252,7 +271,7 @@ def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
 
     base_url = f"http://localhost:{AI_GATEWAY_PORT}"
     credits = requests.post(
-        f"{base_url}/internal/teams/{team_id}/credits",
+        f"{base_url}/internal/accounts/{_team_organization_id(team_id)}/credits",
         json={"amount_usd": AI_GATEWAY_EVAL_CREDITS_USD, "reason": "Local eval test credits"},
         headers={
             "Authorization": f"Bearer {_AI_GATEWAY_INTERNAL_TOKEN}",
@@ -326,17 +345,12 @@ def start_mcp_server(
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
         # Force the selected behavior via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # revamped-py-notebooks gates the markdown notebook tools (create-markdown,
-        # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
-        # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
-        # being mutually exclusive makes unavoidable — an eval of the legacy tools
-        # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode. dashboard-widgets gates the widget batch tools that
-        # the dashboard widget evals exercise.
+        # mcp-exec-skills follows the run's skill delivery mode. dashboard-widgets gates
+        # the widget batch tools that the dashboard widget evals exercise.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
-                "revamped-py-notebooks": True,
                 "dashboard-widgets": True,
+                "notebook-app-builder": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
         ),

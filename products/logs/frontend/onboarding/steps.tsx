@@ -2,7 +2,6 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { LogsSDKInstructions } from 'scenes/onboarding/sdks/logs/LogsSDKInstructions'
 import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -21,5 +20,4 @@ export const logsOnboarding: ProductOnboardingProvider = {
             render: () => <OnboardingInstallStep sdkInstructionMap={LogsSDKInstructions} hideInstallationCheck />,
         },
     ],
-    completeRedirectUrl: () => urls.logs(),
 }

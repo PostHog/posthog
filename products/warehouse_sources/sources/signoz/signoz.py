@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -28,14 +28,34 @@ DEFAULT_LOOKBACK_DAYS = 30
 # versions this API in the endpoint path, not via a request header, and this source has always
 # queried the v5 `query_range` endpoint. So the framework's legacy unversioned label and this
 # explicit label resolve to the same requests — new sources are stamped "v5" while existing pins
-# keep syncing byte-for-byte. The management REST endpoints (rules, dashboards, channels) are
-# unversioned v1 and stay hardcoded in settings.py.
+# keep using the same telemetry API. Management endpoint versions are defined in settings.py.
 SIGNOZ_API_VERSION_V5 = "v5"
 
 QUERY_RANGE_PATH = "/api/v5/query_range"
 
+METER_STEP_SECONDS = 86400
+DAY_MS = METER_STEP_SECONDS * 1000
+# Meter data aggregates hourly, so a day can still change shortly after it ends.
+METER_REREAD_DAYS = 1
+
 HOST_NOT_ALLOWED_ERROR = "SigNoz host is not allowed"
 NON_JSON_RESPONSE_ERROR = "SigNoz host returned a non-JSON response"
+
+INVALID_HOST_ERROR = (
+    "Enter your SigNoz host as a domain name or IP address, for example example.signoz.io. "
+    "PostHog connects over HTTPS on port 443, so leave out any port."
+)
+TLS_ERROR = (
+    "PostHog couldn't verify your SigNoz host's TLS certificate. "
+    "Use a host with a certificate that a public certificate authority signed, then try again."
+)
+CONNECTION_ERROR = (
+    "PostHog couldn't connect to your SigNoz host. "
+    "Check the host and that it's reachable from the internet over HTTPS, then try again."
+)
+UNEXPECTED_RESPONSE_ERROR = (
+    "Your SigNoz host returned an unexpected response. Check the host and API key, then try again."
+)
 
 
 class SigNozRetryableError(Exception):
@@ -122,10 +142,10 @@ def validate_credentials(
     try:
         normalized = normalize_host(host)
     except Exception:
-        return False, "Invalid SigNoz host"
+        return False, INVALID_HOST_ERROR
 
     if not normalized or not re.match(r"^[A-Za-z0-9.\-]+$", normalized):
-        return False, "Invalid SigNoz host"
+        return False, INVALID_HOST_ERROR
 
     # The host is fully customer-controlled (cloud tenant or self-hosted URL), so block hosts
     # that resolve to private/internal addresses (SSRF). Only enforced on cloud — see _is_host_safe.
@@ -134,7 +154,7 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    url = f"https://{normalized}/api/v1/rules"
+    url = f"https://{normalized}/api/v1/channels"
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address,
         # defeating the host check above (SSRF). capture=False keeps the probe out of HTTP
@@ -142,8 +162,11 @@ def validate_credentials(
         response = make_tracked_session(redact_values=(api_key,), capture=False).get(
             url, headers=_get_headers(api_key), timeout=10, allow_redirects=False
         )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    # Never return str(e): it carries the host, URL and raw urllib3 detail.
+    except requests.exceptions.SSLError:
+        return False, TLS_ERROR
+    except requests.exceptions.RequestException:
+        return False, CONNECTION_ERROR
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
@@ -165,7 +188,7 @@ def validate_credentials(
             return True, None
         return False, "Your SigNoz API key lacks the required permissions for this endpoint."
 
-    return False, f"SigNoz credential validation failed (status {response.status_code})."
+    return False, UNEXPECTED_RESPONSE_ERROR
 
 
 def _build_query_range_body(
@@ -225,6 +248,86 @@ def _raw_row_to_item(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _build_meter_query_body(
+    config: SigNozEndpointConfig, metric_name: str, *, window: SyncWindow[int]
+) -> dict[str, Any]:
+    return {
+        "start": window.start,
+        "end": window.end,
+        "requestType": "time_series",
+        "compositeQuery": {
+            "queries": [
+                {
+                    "type": "builder_query",
+                    "spec": {
+                        "name": "A",
+                        "signal": "metrics",
+                        "source": "meter",
+                        "stepInterval": METER_STEP_SECONDS,
+                        "aggregations": [
+                            {"metricName": metric_name, "timeAggregation": "increase", "spaceAggregation": "sum"}
+                        ],
+                        "groupBy": [{"name": name} for name in config.group_by],
+                    },
+                }
+            ]
+        },
+    }
+
+
+def _label_column(name: str) -> str:
+    return name.replace(".", "_")
+
+
+def _extract_meter_rows(response_json: Any, config: SigNozEndpointConfig, metric_name: str) -> list[dict[str, Any]]:
+    """Turn a v5 time_series response into one row per series and day.
+
+    Shape: ``{"data": {"type": "time_series", "data": {"results": [{"queryName": "A",
+    "aggregations": [{"series": [{"labels": [{"key": {"name": ...}, "value": ...}],
+    "values": [{"timestamp": ..., "value": ..., "partial": ...}]}]}]}]}}}``.
+    """
+    data = response_json.get("data") if isinstance(response_json, dict) else None
+    inner = data.get("data") if isinstance(data, dict) else None
+    results = inner.get("results") if isinstance(inner, dict) else None
+    if not isinstance(results, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        aggregations = result.get("aggregations") if isinstance(result, dict) else None
+        for aggregation in aggregations if isinstance(aggregations, list) else []:
+            series_list = aggregation.get("series") if isinstance(aggregation, dict) else None
+            for series in series_list if isinstance(series_list, list) else []:
+                if not isinstance(series, dict):
+                    continue
+                labels = {
+                    label["key"]["name"]: label.get("value")
+                    for label in series.get("labels") or []
+                    if isinstance(label, dict) and isinstance(label.get("key"), dict) and "name" in label["key"]
+                }
+                # A missing label is stored as "" so the primary key never holds a null.
+                label_columns = {
+                    _label_column(name): "" if labels.get(name) is None else str(labels[name])
+                    for name in config.group_by
+                }
+                for point in series.get("values") or []:
+                    # A partial step is a day the window cuts off, so its value is incomplete.
+                    if not isinstance(point, dict) or point.get("partial") or point.get("value") is None:
+                        continue
+                    timestamp = point.get("timestamp")
+                    if not isinstance(timestamp, int | float):
+                        continue
+                    rows.append(
+                        {
+                            "metric_name": metric_name,
+                            "timestamp": datetime.fromtimestamp(timestamp / 1000, tz=UTC),
+                            **label_columns,
+                            "value": point["value"],
+                        }
+                    )
+    return rows
+
+
 def _extract_config_items(response_json: Any, config: SigNozEndpointConfig) -> list[dict[str, Any]]:
     """Pull records out of a management endpoint response (``{"status": ..., "data": ...}``)."""
     node = response_json.get("data") if isinstance(response_json, dict) else None
@@ -233,6 +336,23 @@ def _extract_config_items(response_json: Any, config: SigNozEndpointConfig) -> l
     if not isinstance(node, list):
         return []
     items = [item for item in node if isinstance(item, dict)]
+    if config.name == "alert_rules":
+        items = [
+            {
+                **item,
+                **{
+                    key: item[legacy_key]
+                    for key, legacy_key in (
+                        ("createdAt", "createAt"),
+                        ("createdBy", "createBy"),
+                        ("updatedAt", "updateAt"),
+                        ("updatedBy", "updateBy"),
+                    )
+                    if key not in item and legacy_key in item
+                },
+            }
+            for item in items
+        ]
     if config.allowed_fields is not None:
         # Strict allowlist — drop everything else so credential-bearing fields never leak
         # into the warehouse table (see SigNozEndpointConfig.allowed_fields).
@@ -246,6 +366,43 @@ def _parse_retry_after(response: requests.Response) -> float | None:
     if raw and raw.strip().isdigit():
         return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
     return None
+
+
+def _get_config_rows(
+    base: str, config: SigNozEndpointConfig, fetch: Callable[[str], Any]
+) -> Iterator[list[dict[str, Any]]]:
+    if config.legacy_path is None:
+        items = _extract_config_items(fetch(f"{base}{config.path}"), config)
+        if items:
+            yield items
+        return
+
+    # Prefer the v1 list while the instance still serves it: it returns full rule and dashboard
+    # definitions, so existing tables keep their columns. SigNoz v0.150+ removed these routes.
+    legacy_config = dataclasses.replace(config, data_keys=config.legacy_data_keys, allowed_fields=None)
+    try:
+        legacy_response = fetch(f"{base}{config.legacy_path}")
+    except (requests.HTTPError, SigNozNonJSONResponseError) as error:
+        if isinstance(error, requests.HTTPError) and (error.response is None or error.response.status_code != 404):
+            raise
+        # Removed routes can return the SPA's HTML with status 200 instead of a 404.
+    else:
+        items = _extract_config_items(legacy_response, legacy_config)
+        if items:
+            yield items
+        return
+
+    page_size = min(config.page_size, 200)
+    offset = 0
+    while True:
+        response = fetch(f"{base}{config.path}?limit={page_size}&offset={offset}&sort=created_at&order=asc")
+        items = _extract_config_items(response, config)
+        if not items:
+            return
+        yield items
+        offset += len(items)
+        if offset >= response["data"]["total"]:
+            return
 
 
 def _retry_wait(retry_state: RetryCallState) -> float:
@@ -269,6 +426,58 @@ def _initial_window(
         lookback_days = config.default_lookback_days or DEFAULT_LOOKBACK_DAYS
         start_ms = int((datetime.now(UTC) - timedelta(days=lookback_days)).timestamp() * 1000)
     return SyncWindow(start=start_ms, end=end_ms)
+
+
+def _meter_window(
+    config: SigNozEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> SyncWindow[int]:
+    """Whole UTC days only: a window edge inside a day would return that day as a partial step."""
+    today_ms = int(datetime.now(UTC).timestamp() * 1000) // DAY_MS * DAY_MS
+    start_ms: int | None = None
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        last_ms = _to_epoch_ms(db_incremental_field_last_value)
+        if last_ms is not None:
+            start_ms = last_ms // DAY_MS * DAY_MS - METER_REREAD_DAYS * DAY_MS
+    if start_ms is None:
+        start_ms = today_ms - (config.default_lookback_days or DEFAULT_LOOKBACK_DAYS) * DAY_MS
+    return SyncWindow(start=start_ms, end=today_ms)
+
+
+def _get_meter_rows(
+    base: str,
+    config: SigNozEndpointConfig,
+    fetch: Callable[..., Any],
+    resumable_source_manager: ResumableSourceManager[SigNozResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    # The resume offset is the index of the next metric to query.
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None:
+        window: SyncWindow[int] = SyncWindow(start=resume.window_start_ms, end=resume.window_end_ms)
+        next_metric = resume.offset
+    else:
+        window = _meter_window(config, should_use_incremental_field, db_incremental_field_last_value)
+        next_metric = 0
+
+    if window.start >= window.end:
+        return
+
+    url = f"{base}{QUERY_RANGE_PATH}"
+    for index in range(next_metric, len(config.metric_names)):
+        metric_name = config.metric_names[index]
+        rows = _extract_meter_rows(
+            fetch(url, json_body=_build_meter_query_body(config, metric_name, window=window)), config, metric_name
+        )
+        resumable_source_manager.save_state(
+            SigNozResumeConfig(window_start_ms=window.start, window_end_ms=window.end, offset=index + 1)
+        )
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -338,9 +547,13 @@ def get_rows(
             raise
 
     if config.kind == "config":
-        items = _extract_config_items(fetch(f"{base}{config.path}"), config)
-        if items:
-            yield items
+        yield from _get_config_rows(base, config, fetch)
+        return
+
+    if config.kind == "meter":
+        yield from _get_meter_rows(
+            base, config, fetch, resumable_source_manager, should_use_incremental_field, db_incremental_field_last_value
+        )
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -419,10 +632,10 @@ def signoz_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=list(config.primary_keys),
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
+        partition_format=config.partition_format if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )

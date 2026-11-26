@@ -90,8 +90,6 @@ const cloudSetupMocks = mswDecorator({
     },
 })
 
-/** The onboarding install step: the full layout and the simple flow's compact layout. */
-
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding/Install Step',
     parameters: {
@@ -127,11 +125,9 @@ type Story = StoryObj
 /** Lands on the install step for product analytics. */
 function installStepStory({
     featureFlags = {},
-    simple = false,
     cloud = false,
 }: {
     featureFlags?: Record<string, string | boolean>
-    simple?: boolean
     cloud?: boolean
 }): Story {
     return {
@@ -140,12 +136,6 @@ function installStepStory({
             const { setProduct } = useActions(onboardingLogic)
 
             useDelayedOnMountEffect(() => {
-                if (simple) {
-                    router.actions.push(urls.simpleOnboarding(), {
-                        step: `${OnboardingStepKey.INSTALL}:${ProductKey.PRODUCT_ANALYTICS}`,
-                    })
-                    return
-                }
                 setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
                 router.actions.push(
                     urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
@@ -166,25 +156,7 @@ function installStepStory({
 /** The intro, the CLI command block, and the framework badges. */
 export const ControlArm: Story = installStepStory({})
 
-/** The simple flow's compact install step. */
-export const SimpleFlow: Story = installStepStory({
-    simple: true,
-    featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
-})
-
 export const CloudSetup: Story = {
     ...installStepStory({ cloud: true, featureFlags: { [FEATURE_FLAGS.WIZARD_ONBOARDING_CLOUD_RUNS_ENABLED]: true } }),
-    decorators: [cloudSetupMocks],
-}
-
-export const SimpleCloudSetup: Story = {
-    ...installStepStory({
-        simple: true,
-        cloud: true,
-        featureFlags: {
-            [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test',
-            [FEATURE_FLAGS.WIZARD_ONBOARDING_CLOUD_RUNS_ENABLED]: true,
-        },
-    }),
     decorators: [cloudSetupMocks],
 }

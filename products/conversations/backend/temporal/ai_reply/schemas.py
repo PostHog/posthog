@@ -44,6 +44,8 @@ class SupportReplyInput:
     # 0 = first draft. Coordinator sets this to ai_triage.clarification_rounds when
     # re-engaging after a customer answers a public clarifying question.
     clarification_round: int = 0
+    # What started the run. A manual run never publishes to the customer.
+    trigger: str = "first_message"
 
 
 @dataclass(frozen=False)
@@ -208,11 +210,15 @@ class PersistReplyInput:
     findings_reason: str = ""
     # Follow-up round only. If awaiting_clarification was already cleared, do not post.
     require_awaiting_clarification: bool = False
+    # The workflow run that produced this note. Empty on histories recorded before the field existed.
+    run_id: str = ""
 
 
 @dataclass(frozen=False)
 class PersistReplyOutput:
     posted: bool = True
+    # The note was written as a public reply the customer can see.
+    published: bool = False
 
 
 @dataclass
@@ -233,6 +239,8 @@ class ClarifyInput:
     unknowns: list[str] = field(default_factory=list)
     citations: list[str] = field(default_factory=list)
     confidence: float = 0.0
+    # The workflow run that produced this note. Empty on histories recorded before the field existed.
+    run_id: str = ""
 
 
 @dataclass(frozen=False)

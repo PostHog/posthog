@@ -10,6 +10,10 @@ export class RepoNotFoundError extends Error {
     }
 }
 
+export function isNotFoundError(error: unknown): boolean {
+    return error instanceof RepoNotFoundError || (error as { status?: number } | null)?.status === 404
+}
+
 // GitHub treats owner and repo names as case-insensitive, so a link typed by hand still resolves.
 // A repo that was deleted and connected again has two rows with the same name, and the newest one is live.
 export function findRepoByFullName(repos: RepoApi[], repoFullName: string): RepoApi | null {
@@ -90,6 +94,19 @@ export async function resolveRepoId(projectId: string, repoFullName: string): Pr
         throw new RepoNotFoundError(repoFullName)
     }
     return repo.id
+}
+
+// For loaders that run beside visualReviewRepoLogic: that logic shows NotFound for a missing repo,
+// so these loaders return their empty value instead of failing a second time.
+export async function resolveRepoIdOrNull(projectId: string, repoFullName: string): Promise<string | null> {
+    try {
+        return await resolveRepoId(projectId, repoFullName)
+    } catch (error) {
+        if (error instanceof RepoNotFoundError) {
+            return null
+        }
+        throw error
+    }
 }
 
 export async function resolveRepoFullName(projectId: string, repoId: string): Promise<string> {

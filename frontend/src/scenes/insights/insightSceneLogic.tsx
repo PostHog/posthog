@@ -23,7 +23,7 @@ import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
+import { analyticsParentBreadcrumb } from 'scenes/analytics/analyticsParentBreadcrumb'
 import {
     SEARCH_PARAM_FILTERS_KEY,
     dashboardSearchParamsFromOverrides,
@@ -44,7 +44,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
-import { isDataTableNode, isInsightVizNode } from '~/queries/schema/node-guards'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DashboardFilter,
@@ -71,6 +71,7 @@ import {
 } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -78,7 +79,7 @@ import type { QuerySchema } from '../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../types'
 import { insightDataLogic } from './insightDataLogic'
 import type { insightDataLogicType } from './insightDataLogic'
-import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
+import { getInsightIconTypeFromQuery, opensOutsideInsightScene, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 let insightStartedTimeout: ReturnType<typeof setTimeout> | undefined
@@ -88,6 +89,33 @@ function normalizeItemId(itemId: string | undefined): number | null {
         return null
     }
     return Number(itemId) || null
+}
+
+// Editing discards a dashboard's overrides, as the Edit button warns, so a save cannot write them into the insight
+function withoutDashboardOverrides(search: string): string {
+    const params = new URLSearchParams(search)
+    for (const key of ['filters_override', 'variables_override', 'tile_filters_override']) {
+        params.delete(key)
+    }
+    const remaining = params.toString()
+    return remaining ? `?${remaining}` : ''
+}
+
+// Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
+function newInsightUrlOutsideScene(q: unknown, dashboard: unknown, tileGroup: unknown): string | null {
+    const query = typeof q === 'string' ? parseDraftQueryFromURL(q) : (q as Node | undefined)
+    if (!opensOutsideInsightScene(query)) {
+        return null
+    }
+    // The SQL editor keeps only a visualization node's source, so carry table settings and filters inside one
+    const editorQuery = isHogQLQuery(query)
+        ? { kind: NodeKind.DataVisualizationNode, source: query }
+        : convertDataTableNodeToDataVisualizationNode(query as Node)
+    return urls.insightNew({
+        query: editorQuery as Node,
+        dashboardId: dashboard ? Number(dashboard) : undefined,
+        tileGroupKey: typeof tileGroup === 'string' ? tileGroup : undefined,
+    })
 }
 
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
@@ -319,6 +347,11 @@ export type insightSceneLogicType = MakeLogicType<
     Record<string, any>,
     insightSceneLogicMeta
 >
+
+// A dashboard tile mounts insightLogic for the same insight and dashboard. Sharing its instance would hand the
+// editor the tile's query, which has the dashboard's filters merged in, and saving it would write them into the insight.
+export const insightSceneTabId = (dashboardId: DashboardType['id'] | null | undefined): string | undefined =>
+    dashboardId != null ? 'insight-scene' : undefined
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -591,24 +624,24 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 // The Analytics list that opened the insight names the way back, like the dashboard scene allows.
                 const backLink = analyticsBackLink(searchParams, featureFlags)
+                const dashboardsParent = analyticsParentBreadcrumb(searchParams, featureFlags, {
+                    key: Scene.Dashboards,
+                    name: 'Dashboards',
+                    path: urls.dashboards(),
+                    iconType: 'dashboard',
+                })
+                const productAnalyticsParent = analyticsParentBreadcrumb(searchParams, featureFlags, {
+                    key: Scene.SavedInsights,
+                    name: 'Product analytics',
+                    path: urls.savedInsights(),
+                    iconType: 'product_analytics',
+                })
                 return [
                     ...(backLink && dashboardId === null
-                        ? [
-                              {
-                                  key: backLink.url,
-                                  name: backLink.name,
-                                  path: backLink.url,
-                                  iconType: 'product_analytics' as FileSystemIconType,
-                              },
-                          ]
+                        ? [productAnalyticsParent]
                         : dashboardId !== null
                           ? [
-                                {
-                                    key: Scene.Dashboards,
-                                    name: 'Dashboards',
-                                    path: urls.dashboards(),
-                                    iconType: 'dashboard' as FileSystemIconType,
-                                },
+                                dashboardsParent,
                                 {
                                     key: Scene.Dashboard,
                                     name: dashboardLabel,
@@ -639,12 +672,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                               path: urls.endpoints(),
                                               iconType: 'endpoints' as FileSystemIconType,
                                           }
-                                        : {
-                                              key: Scene.SavedInsights,
-                                              name: 'Product analytics',
-                                              path: urls.savedInsights(),
-                                              iconType: 'product_analytics' as FileSystemIconType,
-                                          },
+                                        : productAnalyticsParent,
                             ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
@@ -741,6 +769,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: insightSceneTabId(values.dashboardId),
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -861,6 +890,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // The :shortId pattern greedily matches it, so bail out before triggering a loadInsight
             // for a non-existent short_id.
             if (shortId === 'quick-start') {
+                return
+            }
+            const outsideSceneUrl =
+                shortId === 'new' ? newInsightUrlOutsideScene(q, dashboard, searchParams.tile_group) : null
+            if (outsideSceneUrl) {
+                router.actions.replace(outsideSceneUrl)
                 return
             }
             const insightMode =
@@ -1022,8 +1057,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return [urls.insightNew(), window.location.search, window.location.hash]
             }
 
-            const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
-            return [baseUrl, window.location.search, window.location.hash]
+            if (insightMode === ItemMode.View) {
+                return [urls.insightView(insightId), window.location.search, window.location.hash]
+            }
+            return [
+                urls.insightEdit(insightId),
+                withoutDashboardOverrides(window.location.search),
+                window.location.hash,
+            ]
         }
 
         return {

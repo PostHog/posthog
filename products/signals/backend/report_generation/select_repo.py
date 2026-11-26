@@ -3,6 +3,7 @@
 Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
 Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
 (LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
+along with invalid agent output and failed sandbox runs
 into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
 fallback, so the shared module's operational-vs-semantic distinction has
 nowhere to land; `summary.py` treats `repository=None` as
@@ -26,12 +27,15 @@ from products.signals.backend.report_monitoring_provenance import (
     MonitoringRepositorySources,
     monitoring_repository_sources,
 )
-from products.tasks.backend.facade import api as tasks_facade
+from products.signals.backend.task_profiles import REPO_SELECTION, REPO_SELECTION_WITHOUT_REPORT
+from products.tasks.backend.facade.agents import SandboxRunFailed
+from products.tasks.backend.facade.profiles import SourceKind, TaskSource
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
     RepoSelectionResult,
     RepoSelectionUnavailableError,
+    list_team_connected_repositories,
     resolve_team_github_integration,
     select_repository,
 )
@@ -50,7 +54,9 @@ __all__ = [
     "RepoSelectionRejectedError",
     "RepoSelectionResult",
     "persisted_repo_selection",
+    "repo_selection_set_by_person",
     "resolve_team_github_integration",
+    "saved_repository_connected",
     "select_repository_for_report",
     "select_repository_for_team",
 ]
@@ -72,6 +78,26 @@ def persisted_repo_selection(report_id: str) -> RepoSelectionResult | None:
     return RepoSelectionResult.model_validate_json(artefact.content)
 
 
+def repo_selection_set_by_person(team_id: int, report_id: str) -> bool:
+    """Whether a person wrote the report's latest ``repo_selection``, so no agent stage may replace it."""
+    return (
+        SignalReportArtefact.latest_person_content(team_id=team_id, report_id=report_id, model=RepoSelectionResult)
+        is not None
+    )
+
+
+def saved_repository_connected(team_id: int, repository: str) -> bool:
+    """Whether the team's GitHub installation still reaches a repository a report saved earlier.
+
+    A team that removes an installation and connects another keeps the old repository on every
+    saved report, and a scout can save one the installation never reached. Both fail at clone.
+    The cached list is read as is, so an installation whose cache was never synced reads as
+    unknown, not as unreachable.
+    """
+    connected = list_team_connected_repositories(team_id)
+    return not connected or repository.lower() in connected
+
+
 async def select_repository_for_team(
     team_id: int,
     user_id: int,
@@ -91,8 +117,8 @@ async def select_repository_for_team(
     """Select the most relevant repository for a free-form request against the team's repos.
 
     ``request_section`` is the caller-rendered string describing the request (e.g. rendered
-    signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
-    unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
+    signals or a custom agent's initial prompt). Rejection, unavailability, invalid output,
+    and failed sandbox runs collapse into ``RepoSelectionResult(repository=None, ...)``
     — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
     "no match / requires human input".
 
@@ -112,11 +138,11 @@ async def select_repository_for_team(
             team_id=team_id,
             user_id=user_id,
             context=request_section,
-            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            profile=REPO_SELECTION if signal_report_id else REPO_SELECTION_WITHOUT_REPORT,
+            source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=signal_report_id) if signal_report_id else None,
             # Report generation runs in the background, so its repository cache refresh yields first.
             priority=Priority.BATCH,
             step_name=step_name,
-            signal_report_id=signal_report_id,
             spend_signal_id=spend_signal_id,
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
@@ -149,6 +175,13 @@ async def select_repository_for_team(
         # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
         return RepoSelectionResult(repository=None, reason=exc.reason)
+    except (ValueError, SandboxRunFailed):
+        logger.exception("repo selection agent failed", extra={"team_id": team_id, "report_id": signal_report_id})
+        return RepoSelectionResult(
+            repository=None,
+            reason="Repository selection failed. Choose a repository to continue.",
+            autostart_eligible=False,
+        )
 
 
 async def select_repository_for_report(

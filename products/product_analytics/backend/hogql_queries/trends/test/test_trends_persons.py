@@ -41,7 +41,7 @@ from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.facade.enums import PropertyType
 from products.event_definitions.backend.facade.testing import create_property_definition
@@ -1699,7 +1699,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_actions(self):
         self._create_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome or safari",
             steps_json=[
@@ -1730,7 +1730,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[0]), "person3")
         self.assertEqual(get_event_count(result[0]), 1)
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome and left",
             steps_json=[

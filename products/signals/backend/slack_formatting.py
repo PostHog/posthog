@@ -70,7 +70,7 @@ def strip_chart_references(text: str) -> str:
 # (`<@U…>`, `<#C…>`, `<!here>`, `<!subteam^S…>`) and the labelled link form, whose `<dest|label>`
 # shape lets the label say one thing while the link goes somewhere else. A bare `<https://…>` is
 # neither — it links to exactly what it displays — so it is left for Slack to render.
-_SLACK_TOKEN_RE = re.compile(r"<(?:[@#!][^<>]*|[^<>|]*\|[^<>]*)>")
+_SLACK_TOKEN_RE = re.compile(r"<(?:[@#!][^<>]*|[^<>|]*\|[^<>]*)>|<(?=[@#!])")
 
 
 def defuse_slack_tokens(text: str) -> str:
@@ -81,6 +81,7 @@ def defuse_slack_tokens(text: str) -> str:
     label hides its destination. Escaping the angle brackets stops all three, and Slack renders the
     escaped form back as the literal characters.
 
+    Incomplete mention prefixes must also be escaped because conversion can add a closing bracket.
     Only a token is rewritten. Escaping every `<` instead corrupts the three things that carry
     angle brackets innocently: a code span (`Vec<T>`), a CommonMark autolink, and an angle-bracket
     link destination, none of which decode the entity back.

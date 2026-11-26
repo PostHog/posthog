@@ -17,14 +17,15 @@ const NOTHING_TO_TRIAGE = 'No reports in this view need a pull request'
 // pinned: autocapture selector. Triage usage insights filter clicks on this data-attr.
 const TRIAGE_DATA_ATTR = 'inbox-triage-mode'
 
-function triageLabel(count: number | null, compact: boolean): string {
+export function triageLabel(count: number | null, countIsCapped: boolean, compact: boolean): string {
     if (count === null) {
         return compact ? 'Triage' : 'Triage mode'
     }
+    const shownCount = `${humanFriendlyNumber(count)}${countIsCapped ? '+' : ''}`
     if (compact) {
-        return `Triage ${humanFriendlyNumber(count)}`
+        return `Triage ${shownCount}`
     }
-    return `Triage ${humanFriendlyNumber(count)} ${count === 1 ? 'report' : 'reports'}`
+    return `Triage ${shownCount} ${count === 1 && !countIsCapped ? 'report' : 'reports'}`
 }
 
 /**
@@ -34,15 +35,17 @@ function triageLabel(count: number | null, compact: boolean): string {
  * `compact` drops the hotkey hint for the narrow tab row. The scene binds `t` either way.
  */
 export function InboxTriageButton({ compact = false }: { compact?: boolean }): JSX.Element {
-    const { count } = useValues(reportListLogic(sectionListLogicProps(INBOX_PRIMARY_REPORT_SECTION_KEY)))
+    const { count, countIsCapped } = useValues(reportListLogic(sectionListLogicProps(INBOX_PRIMARY_REPORT_SECTION_KEY)))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    // Experiment: does a neutral button change how often people open triage mode?
+    const neutralStyle = useFeatureFlag('INBOX_TRIAGE_BUTTON_COLOR', 'test')
     const disabledReason = count === 0 ? NOTHING_TO_TRIAGE : undefined
-    const label = triageLabel(count, compact)
+    const label = triageLabel(count, countIsCapped, compact)
 
     if (todayRailNav) {
         return (
             <Button
-                variant="primary"
+                variant={neutralStyle ? 'outline' : 'primary'}
                 render={<LinkPrimitive to={urls.inboxTriage()} />}
                 tooltip={TRIAGE_TOOLTIP}
                 disabledReason={disabledReason}
@@ -55,7 +58,7 @@ export function InboxTriageButton({ compact = false }: { compact?: boolean }): J
     }
     return (
         <LemonButton
-            type="primary"
+            type={neutralStyle ? 'secondary' : 'primary'}
             size="small"
             to={urls.inboxTriage()}
             sideIcon={compact ? undefined : <KeyboardShortcut t />}

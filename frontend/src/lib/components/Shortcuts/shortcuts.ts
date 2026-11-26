@@ -18,6 +18,8 @@ export const keyBinds: Record<string, string[]> = {
     escape: ['escape'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
+    undo: ['command', 'z'],
+    redo: ['command', 'shift', 'z'],
     filter: [...baseModifier, 'f'],
     refresh: [...baseModifier, 'r'],
     run: [...baseModifier, 'enter'],
@@ -37,4 +39,5 @@ export const keyBinds: Record<string, string[]> = {
     allProducts: ['g', 'then', '2'],
     theme: ['g', 'then', 't'],
     jumpToTimestamp: ['j', 'then', 't'],
+    hesoyam: ['h', 'then', 'e', 'then', 's', 'then', 'o', 'then', 'y', 'then', 'a', 'then', 'm'],
 }

@@ -1,4 +1,4 @@
-import { viewAllFor } from './commandKFilterOptions'
+import { buildFilterOptions, viewAllFor } from './commandKFilterOptions'
 import { FilterOptions, QueryChip, ResolvedQuery, resolveQuery } from './commandKQuery'
 
 const chip = (value: string, label: string, overrides: Partial<QueryChip> = {}): QueryChip => ({
@@ -132,6 +132,24 @@ describe('viewAllFor', () => {
         ],
     ])('names the list page for %s', (_, chips, freeText, name, href) => {
         expect(viewAllFor(resolved(chips, freeText))?.item).toMatchObject({ name, href })
+    })
+
+    test.each([
+        ['alert', 'alert', 'View all insight alerts', '/alerts?alert_type=insights'],
+        ['ticket', 'ticket', 'View all tickets', '/support/tickets'],
+        ['destination', 'hog_function/destination', 'View all destinations', '/data-management/destinations'],
+        [
+            'transformation',
+            'hog_function/transformation',
+            'View all transformations',
+            '/data-management/transformations',
+        ],
+        ['endpoint', 'endpoints', 'View all endpoints', '/endpoints'],
+        ['people', 'person', 'View all persons', '/persons'],
+    ])('resolves is:%s to its type and names its list page', (typed, value, name, href) => {
+        const typedQuery = resolveQuery(`is:${typed}`, [], buildFilterOptions([], null, []))
+        expect(typedQuery.filters).toEqual([expect.objectContaining({ key: 'is', value, negated: false })])
+        expect(viewAllFor(typedQuery)?.item).toMatchObject({ name, href })
     })
 
     test.each([

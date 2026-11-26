@@ -95,6 +95,7 @@ import {
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconcileFoldedThread'
+import { type ReplySuggestions, parseReplySuggestionsParams } from '../utils/replySuggestions'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { parseTurnSuggestionParams } from '../utils/turnSuggestions'
 import { computeTurnTrailers } from '../utils/turnTrailers'
@@ -1244,7 +1245,9 @@ function isAgentMessageEntry(entry: StoredLogEntry): boolean {
     return (
         entry.notification.method === 'session/update' &&
         isRecord(update) &&
-        (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_message')
+        (update.sessionUpdate === 'agent_message_chunk' ||
+            update.sessionUpdate === 'agent_message' ||
+            update.sessionUpdate === 'agent_thought_chunk')
     )
 }
 
@@ -2667,6 +2670,8 @@ export interface runStreamLogicValues {
         maxAttempts: number
         phase: RecoveryPhase
     } | null
+    replySuggestions: ReplySuggestions | null
+    replySuggestionsFrame: ReplySuggestions | null
     resolvedPermissionRequestIds: Set<string>
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
@@ -2675,6 +2680,8 @@ export interface runStreamLogicValues {
     runStarted: boolean
     sdkSession: SdkSession | null
     seenPermissionRequestIds: Set<string>
+    sessionEffort: string | null
+    sessionModel: string | null
     showThinkingIndicator: boolean
     sseStatus: RunSseStatus
     streamHasEnded: boolean
@@ -2745,13 +2752,13 @@ export interface runStreamLogicActions {
         taskRuntime?: string | null
         traceId?: string
     }) => {
-        justCreatedRun?: boolean | undefined
-        pagedHistory?: boolean | undefined
-        retainedMessage?: string | undefined
+        justCreatedRun?: boolean
+        pagedHistory?: boolean
+        retainedMessage?: string
         runId: string
         taskId: string
-        taskRuntime?: string | null | undefined
-        traceId?: string | undefined
+        taskRuntime?: string | null
+        traceId?: string
     }
     cancelPermissionDelivery: () => {
         value: true
@@ -2789,8 +2796,8 @@ export interface runStreamLogicActions {
         replayedFromHistory?: boolean
         status: RunStatus
     }) => {
-        errorMessage?: string | null | undefined
-        replayedFromHistory?: boolean | undefined
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
         status: RunStatus
     }
     ingestAcpFrame: (
@@ -2846,9 +2853,9 @@ export interface runStreamLogicActions {
     }
     openSseForRun: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
         runId: string
-        startLatest?: boolean | undefined
+        startLatest?: boolean
         taskId: string
-        traceId?: string | undefined
+        traceId?: string
     }
     permissionResponseFailed: (requestId: string) => {
         requestId: string
@@ -2910,8 +2917,8 @@ export interface runStreamLogicActions {
         optionId: string
         requestId: string
     }) => {
-        answers?: Record<string, string> | undefined
-        customInput?: string | undefined
+        answers?: Record<string, string>
+        customInput?: string
         optionId: string
         requestId: string
     }
@@ -2958,11 +2965,21 @@ export interface runStreamLogicActions {
     setPendingRunMessage: (message: PendingRunMessage | null) => {
         message: PendingRunMessage | null
     }
+    setReplySuggestions: (replySuggestions: ReplySuggestions | null) => {
+        replySuggestions: ReplySuggestions | null
+    }
     setRunOpening: (opening: boolean) => {
         opening: boolean
     }
     setSdkSession: (session: SdkSession) => {
         session: SdkSession
+    }
+    setSessionConfig: (
+        model: string | null,
+        effort: string | null
+    ) => {
+        effort: string | null
+        model: string | null
     }
     setStreamHasEnded: (ended: boolean) => {
         ended: boolean
@@ -3031,6 +3048,11 @@ export interface runStreamLogicMeta {
             bootstrappedTaskId: string | null,
             historyTurnBase: number
         ) => TurnSuggestion | null
+        replySuggestions: (
+            replySuggestionsFrame: ReplySuggestions | null,
+            threadItems: ThreadItem[],
+            historyTurnBase: number
+        ) => ReplySuggestions | null
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         hasThreadItems: (threadItems: ThreadItem[]) => boolean
@@ -3262,6 +3284,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         handleStreamError: (envelope: StreamErrorEnvelope) => envelope,
         // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
+        // The model and effort the agent confirmed, from its `config_option_update` frames.
+        setSessionConfig: (model: string | null, effort: string | null) => ({ model, effort }),
         setCurrentProgress: (progress: string | null) => ({ progress }),
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
@@ -3274,6 +3298,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
         recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
         markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
+        setReplySuggestions: (replySuggestions: ReplySuggestions | null) => ({ replySuggestions }),
         markTurnSuggestionExpanded: (turnIndex: number) => ({ turnIndex }),
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
@@ -3637,6 +3662,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
+        // A resumed run replays its ancestors' logs. Each run starts with `run_started`, and Claude reports no
+        // config at boot, so an earlier run's confirmed model must not outlive its run.
+        sessionModel: [
+            null as string | null,
+            {
+                setSessionConfig: (state, { model }) => model ?? state,
+                markRunStarted: () => null,
+                prepareResumeRun: () => null,
+                reset: () => null,
+            },
+        ],
+        sessionEffort: [
+            null as string | null,
+            {
+                setSessionConfig: (state, { effort }) => effort ?? state,
+                markRunStarted: () => null,
+                prepareResumeRun: () => null,
+                reset: () => null,
+            },
+        ],
         currentProgress: [
             null as string | null,
             {
@@ -3694,6 +3739,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
         // The turn whose card this tab accepted. That card stays up to show what it created, while
         // every other tab hides it so a second accept cannot create a duplicate.
+        replySuggestionsFrame: [
+            null as ReplySuggestions | null,
+            {
+                setReplySuggestions: (state, { replySuggestions }) =>
+                    state && replySuggestions && replySuggestions.turnIndex < state.turnIndex
+                        ? state
+                        : replySuggestions,
+                pushHumanMessage: () => null,
+                reset: () => null,
+            },
+        ],
         turnSuggestionAcceptedHere: [
             null as number | null,
             {
@@ -3885,6 +3941,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     offer.turnIndex in outcomesHere ||
                     ledger.resolvedTurns.includes(offer.turnIndex)
                 return muted || resolved ? null : offer
+            },
+        ],
+        replySuggestions: [
+            (s) => [s.replySuggestionsFrame, s.threadItems, s.historyTurnBase],
+            (
+                frame: ReplySuggestions | null,
+                threadItems: ThreadItem[],
+                historyTurnBase: number
+            ): ReplySuggestions | null => {
+                if (!frame) {
+                    return null
+                }
+                const latestPromptIndex =
+                    historyTurnBase + threadItems.filter((item) => item.type === 'human_message').length - 1
+                return frame.turnIndex === latestPromptIndex ? frame : null
             },
         ],
         latestTurnTraceId: [
@@ -4572,6 +4643,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.markRunStarted()
                 return
             }
+            if (method === '_posthog/reply_suggestions') {
+                actions.setReplySuggestions(parseReplySuggestionsParams(notification.params))
+                return
+            }
             if (method === '_posthog/turn_suggestion') {
                 // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
                 // no tab of this conversation was open. Read once per task, when it first has an offer.
@@ -4759,6 +4834,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (update.sessionUpdate === 'current_mode_update') {
                 actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
+                return
+            }
+            if (update.sessionUpdate === 'config_option_update') {
+                const currentValue = (id: string): string | null => {
+                    const value = update.configOptions?.find((option) => option?.id === id)?.currentValue
+                    return typeof value === 'string' && value ? value : null
+                }
+                actions.setSessionConfig(currentValue('model'), currentValue('effort'))
                 return
             }
             if (update.sessionUpdate === 'tool_call') {

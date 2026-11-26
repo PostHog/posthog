@@ -197,7 +197,6 @@ class TestClassifyTaskNeedsRepo:
             assert classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)]) is True
 
         build_client.assert_called_once_with(
-            product="slack_app_routing",
             ai_product="slack_app",
             trace_id=None,
             properties={CLASSIFIER_PROPERTY: "task_needs_repo"},

@@ -4,6 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -13,6 +14,8 @@ from posthog.models.utils import (
     generate_random_token_secret,
     hash_key_value,
 )
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -58,6 +61,85 @@ class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
         assert response.status_code == 200
 
+    def _become_project_admin(self, access: str | None, resource: str = "business_knowledge") -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+        if access is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                access_level=access,
+                organization_member=self.organization_membership,
+            )
+
+    @parameterized.expand([("default_access", None, 201), ("viewer", "viewer", 201), ("no_access", "none", 403)])
+    def test_create_business_knowledge_read_scope_needs_business_knowledge_access(
+        self, _name, business_knowledge_access, expected_status
+    ):
+        self._become_project_admin(business_knowledge_access)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "agent key", "scopes": ["business_knowledge:read"]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_roll_business_knowledge_read_key_needs_business_knowledge_access(self):
+        self._become_project_admin("none")
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="agent key", secure_value="sha256$agent", scopes=["business_knowledge:read"]
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == 403, response.json()
+        key.refresh_from_db()
+        assert key.secure_value == "sha256$agent"
+
+    @parameterized.expand(
+        [
+            ("dataset:read", "llm_analytics", "none", False),
+            ("dataset:write", "llm_analytics", "viewer", False),
+            ("llm_analytics:write", "llm_analytics", "viewer", False),
+            ("evaluation:read", "evaluation", "none", False),
+            ("evaluation:write", "evaluation", "viewer", False),
+            ("llm_analytics:read", "llm_analytics", "viewer", True),
+            ("evaluation:write", "evaluation", "editor", True),
+        ]
+    )
+    def test_observability_grants_and_rotation_require_resource_access(self, scope, resource, access, allowed):
+        self._become_project_admin(access, resource)
+        url = f"/api/projects/{self.team.id}/project_secret_api_keys/"
+        create = self.client.post(url, {"label": "New key", "scopes": [scope]})
+        assert create.status_code == (201 if allowed else 403), create.data
+
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="Existing key", scopes=["endpoint:read"], secure_value="original"
+        )
+        key_url = f"{url}{key.id}/"
+        update = self.client.patch(key_url, {"scopes": [scope]})
+        assert update.status_code == (200 if allowed else 403), update.data
+        key.refresh_from_db()
+        if not allowed:
+            assert key.scopes == ["endpoint:read"]
+            key.scopes = [scope]
+            key.save(update_fields=["scopes"])
+        roll = self.client.post(f"{key_url}roll/")
+        assert roll.status_code == (200 if allowed else 403), roll.data
+        key.refresh_from_db()
+        assert (key.secure_value != "original") == allowed
+
 
 class TestProjectSecretAPIKeysAPI(APIBaseTest):
     def setUp(self):
@@ -65,10 +147,11 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    def test_create_project_secret_api_key(self):
+    @parameterized.expand([("endpoint:read",), ("person:write",)])
+    def test_create_project_secret_api_key(self, scope: str):
         label = "the key to rule them all"
         response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys", {"label": label, "scopes": ["endpoint:read"]}
+            f"/api/projects/{self.team.id}/project_secret_api_keys", {"label": label, "scopes": [scope]}
         )
         assert response.status_code == 201
         data = response.json()
@@ -76,7 +159,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key = ProjectSecretAPIKey.objects.get(id=data["id"])
         assert data["id"] == key.id
         assert data["label"] == label
-        assert data["scopes"] == ["endpoint:read"]
+        assert data["scopes"] == [scope]
         assert data["last_rolled_at"] is None
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
@@ -212,6 +295,38 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         key.refresh_from_db()
         assert (key.secure_value != "sha256$owner") == (expected_status == 200)
+
+    @parameterized.expand(
+        [
+            (scope, mirrors_legacy_token, expected_status)
+            for scope in [
+                "business_knowledge:read",
+                "person:write",
+                "dataset:read",
+                "evaluation:write",
+                "llm_analytics:write",
+            ]
+            for mirrors_legacy_token, expected_status in [(True, 400), (False, 200)]
+        ]
+    )
+    def test_update_adding_restricted_scope_is_refused_for_the_legacy_token_key(
+        self, scope, mirrors_legacy_token, expected_status
+    ):
+        self.team.secret_api_token = "phs_" + "l" * 40
+        self.team.save()
+        secure_value = hash_key_value(self.team.secret_api_token if mirrors_legacy_token else "phs_" + "o" * 40)
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="existing key", secure_value=secure_value, scopes=["feature_flag:read"]
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": ["feature_flag:read", scope]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        key.refresh_from_db()
+        assert (scope in key.scopes) == (expected_status == 200)
 
     @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
     def test_staff_update_adding_llm_gateway_scope(self, _name, existing_scopes):
@@ -447,6 +562,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert context["project_name"] == self.team.name
         assert context["scopes"] == ["endpoint:read"]
         assert context["created_by_email"] == self.user.email
+        assert context["ai_credential"] == response.json()["ai_credential"]
+        assert context["previous_ai_credential"] is None
 
     def test_activity_log_on_update(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
@@ -479,8 +596,9 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             {"label": "roll me", "scopes": ["endpoint:read"]},
         )
         key_id = response.json()["id"]
+        credential_before_roll = response.json()["ai_credential"]
 
-        self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
+        roll_response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
 
         logs = ActivityLog.objects.filter(scope="ProjectSecretAPIKey", item_id=str(key_id), activity="updated")
         assert len(logs) == 1
@@ -495,6 +613,11 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert changes["mask_value"]["after"].startswith("phs_...")
         assert changes["last_rolled_at"]["before"] is None
         assert changes["last_rolled_at"]["after"] is not None
+
+        context = logs[0].detail["context"]
+        assert context["previous_ai_credential"] == credential_before_roll
+        assert context["ai_credential"] == roll_response.json()["ai_credential"]
+        assert context["ai_credential"] != credential_before_roll
 
     def test_activity_log_on_delete(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
@@ -512,6 +635,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert logs[0].detail is not None
         assert logs[0].detail["name"] == "delete me"
         assert logs[0].team_id == self.team.id
+        assert logs[0].detail["context"]["ai_credential"] == response.json()["ai_credential"]
 
 
 class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
@@ -642,6 +766,8 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
                 ["account:read", "loop:write"],
             ),
             ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], []),
+            ("grants_ai_observability", ["project:write", "llm_analytics:write"], ["llm_analytics:read"], []),
+            ("lacks_ai_observability", ["project:write"], ["llm_analytics:write"], ["llm_analytics:write"]),
             ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], []),
             ("wildcard", ["*"], ["account:read", "loop:write"], []),
         ]

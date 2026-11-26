@@ -64,6 +64,7 @@ use personhog_coordination::authority::AuthorityClock;
 use crate::config::{FENCING_ABORT_ATTEMPTS, FENCING_COMMIT_ATTEMPTS};
 use crate::inflight::InflightTracker;
 use crate::kafka::changelog_message_key;
+use crate::warming::changelog_kafka;
 
 /// The fencing scope is the partition: every owner of partition `p`
 /// shares its lane ids, so a new owner's init fences the old one.
@@ -947,17 +948,15 @@ impl FencedChangelogProducers {
     /// Each producer's queue is its share of the aggregate under the generation's partition count.
     fn dial(&self, partition: u32, target: &ChangelogTarget) -> Dial {
         let producers = fenced_producer_count(target.partitions, self.lanes);
+        let kafka = changelog_kafka(&self.kafka, target.cluster.as_ref());
         Dial {
             kafka: KafkaConfig {
-                kafka_producer_queue_mib: queue_share(
-                    self.kafka.kafka_producer_queue_mib,
-                    producers,
-                ),
+                kafka_producer_queue_mib: queue_share(kafka.kafka_producer_queue_mib, producers),
                 kafka_producer_queue_messages: queue_share(
-                    self.kafka.kafka_producer_queue_messages,
+                    kafka.kafka_producer_queue_messages,
                     producers,
                 ),
-                ..self.kafka.clone()
+                ..kafka
             },
             topic: target.topic.clone(),
             partition,
@@ -2523,7 +2522,7 @@ mod tests {
     use envconfig::Envconfig;
 
     #[test]
-    fn a_producer_queue_is_its_share_under_the_generation_it_dials() {
+    fn a_producer_dials_its_generations_cluster_with_its_queue_share() {
         let mut kafka = KafkaConfig::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         kafka.kafka_producer_queue_mib = 1024;
         kafka.kafka_producer_queue_messages = 64_000;
@@ -2541,6 +2540,7 @@ mod tests {
             let target = ChangelogTarget {
                 topic: format!("g{partitions}"),
                 partitions,
+                cluster: None,
             };
             let dial = producers.dial(0, &target);
             assert_eq!(
@@ -2552,6 +2552,24 @@ mod tests {
                 "{partitions} partitions"
             );
         }
+        let moved = ChangelogTarget {
+            topic: "g8".to_string(),
+            partitions: 8,
+            cluster: Some(personhog_coordination::types::ClusterEndpoint {
+                name: "dedicated".to_string(),
+                hosts: "d:9092".to_string(),
+                tls: true,
+            }),
+        };
+        let dial = producers.dial(0, &moved);
+        assert_eq!(
+            (
+                dial.kafka.kafka_hosts.as_str(),
+                dial.kafka.kafka_tls,
+                dial.kafka.kafka_producer_queue_mib
+            ),
+            ("d:9092", true, 64)
+        );
     }
 
     /// The verdict the caller acts on, as a truth table over the two

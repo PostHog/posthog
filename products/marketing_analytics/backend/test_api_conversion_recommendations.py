@@ -18,7 +18,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -270,7 +270,7 @@ class TestConversionRecommendations(APIBaseTest):
                 )
             ]
         )
-        with patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client):
+        with patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client):
             ConversionRecommendationService(child, self.user).execute(run_id)
         run = ConversionRecommendationRun.objects.for_team(child.pk).get(pk=run_id)
         self.assertEqual(run.status, ConversionRecommendationRun.Status.COMPLETED, run.error)
@@ -330,7 +330,7 @@ class TestConversionRecommendations(APIBaseTest):
             patch(
                 "posthog.hogql.query.execute_hogql_query", side_effect=AssertionError("No event scan allowed")
             ) as query,
-            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
+            patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client),
         ):
             ConversionRecommendationService(self.team, self.user).execute(str(run.id))
         run.refresh_from_db()
@@ -402,7 +402,7 @@ class TestConversionRecommendations(APIBaseTest):
         )
         EventDefinition.objects.create(team=self.team, name="order_settled")
         EventDefinition.objects.create(team=self.team, name="trial_started")
-        with patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client):
+        with patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client):
             ConversionRecommendationService(self.team, self.user).execute(str(run.id))
         payload = json.loads(client.messages.create.call_args.kwargs["messages"][0]["content"])
         self.assertEqual(
@@ -455,8 +455,8 @@ class TestConversionRecommendations(APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=now)
         EventDefinition.objects.create(team=self.team, name="old_event", last_seen_at=now - timedelta(days=40))
         EventDefinition.objects.create(team=self.team, name="activity_date_unknown")
-        action = Action.objects.create(team=self.team, name="Accepted applications", description="Approved requests.")
-        Action.objects.create(team=self.team, name="Deleted action", deleted=True)
+        action = create_action(team=self.team, name="Accepted applications", description="Approved requests.")
+        create_action(team=self.team, name="Deleted action", deleted=True)
         EventProperty.objects.create(team=self.team, event="booking_confirmed", property="price")
         EventProperty.objects.create(team=self.team, event="booking_confirmed", property="private_amount")
         PropertyDefinition.objects.create(team=self.team, name="price", is_numerical=True)
@@ -492,7 +492,7 @@ class TestConversionRecommendations(APIBaseTest):
             ),
         ]
         with (
-            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
+            patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client),
             patch(
                 "products.marketing_analytics.backend.services.conversion_recommendations.MAX_CATALOG_CHARACTERS", 1600
             ),
@@ -509,7 +509,7 @@ class TestConversionRecommendations(APIBaseTest):
         requests = client.messages.create.call_args_list
         catalog = json.loads(requests[0].kwargs["messages"][0]["content"])["catalog"]
         refs = {entry["source_ref"] for entry in catalog}
-        self.assertIn(f"action:{action.pk}", refs)
+        self.assertIn(f"action:{action.id}", refs)
         self.assertIn("event:activity_date_unknown", refs)
         self.assertFalse({"event:hidden_event", "event:$pageview", "event:old_event"} & refs)
         self.assertEqual(

@@ -1,6 +1,7 @@
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from 'scenes/onboarding/shared/sdkHealth/sdkConstants'
 import type { SdkType } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
 
@@ -37,12 +38,39 @@ const statusTag = (entry: UsageEntry, migrationRequired: boolean): JSX.Element =
     return entry.status_reason ? <Tooltip title={entry.status_reason}>{tag}</Tooltip> : tag
 }
 
+const usageColumns = (migrationRequired: boolean): LemonTableColumns<UsageEntry> => [
+    {
+        title: 'Version',
+        key: 'lib_version',
+        render: (_, entry) => <code className="text-xs">{entry.lib_version}</code>,
+    },
+    {
+        title: 'Events (7d)',
+        key: 'count',
+        align: 'right',
+        render: (_, entry) => (entry.count ?? 0).toLocaleString(),
+        sorter: (a, b) => (a.count ?? 0) - (b.count ?? 0),
+    },
+    {
+        title: 'Last seen',
+        key: 'max_timestamp',
+        render: (_, entry) => <TZLabel time={entry.max_timestamp} />,
+        sorter: (a, b) => dayjs(a.max_timestamp).valueOf() - dayjs(b.max_timestamp).valueOf(),
+    },
+    {
+        title: 'Status',
+        key: 'status',
+        render: (_, entry) => statusTag(entry, migrationRequired),
+    },
+]
+
 export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Element => {
     const sdkName = issue.payload.sdk_name as SdkType | undefined
     const latestVersion = issue.payload.latest_version as string | undefined
     const reason = issue.payload.reason as string | undefined
     const usage = issue.payload.usage as UsageEntry[] | undefined
     const migrationRequired = typeof issue.payload.migration_target === 'string'
+    const migrationGuideUrl = issue.payload.migration_guide_url as string | null | undefined
 
     if (!sdkName) {
         return <></>
@@ -59,6 +87,11 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                 </span>
                 {links && (
                     <div className="flex gap-2">
+                        {migrationGuideUrl && (
+                            <Link to={migrationGuideUrl} target="_blank" targetBlankIcon className="text-xs">
+                                Migration guide
+                            </Link>
+                        )}
                         <Link to={links.releases} target="_blank" targetBlankIcon className="text-xs">
                             Releases
                         </Link>
@@ -70,30 +103,15 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
             </div>
             {reason && <div className="text-muted mb-2">{reason}</div>}
             {usage && usage.length > 0 && (
-                <table className="w-full text-xs border-collapse">
-                    <thead>
-                        <tr className="text-muted">
-                            <th className="text-left font-medium py-1 pr-2">Version</th>
-                            <th className="text-right font-medium py-1 pr-2">Events (7d)</th>
-                            <th className="text-left font-medium py-1 pr-2">Last seen</th>
-                            <th className="text-left font-medium py-1">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {usage.map((entry) => (
-                            <tr key={entry.lib_version} className="border-t border-border-light">
-                                <td className="py-1 pr-2">
-                                    <code className="text-xs">{entry.lib_version}</code>
-                                </td>
-                                <td className="text-right py-1 pr-2">{(entry.count ?? 0).toLocaleString()}</td>
-                                <td className="py-1 pr-2">
-                                    <TZLabel time={entry.max_timestamp} />
-                                </td>
-                                <td className="py-1">{statusTag(entry, migrationRequired)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                <LemonTable
+                    dataSource={usage}
+                    columns={usageColumns(migrationRequired)}
+                    rowKey="lib_version"
+                    // Several of these tables share the Health page, and URL sorting shares one `order` param.
+                    useURLForSorting={false}
+                    embedded
+                    size="small"
+                />
             )}
         </div>
     )

@@ -1,24 +1,19 @@
 # Choosing an AI gateway
 
-✅ **Default to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway)** for new callers and features.
+✅ **Use [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway)** for every caller, new or existing.
 
-⚠️ **Use `services/llm-gateway` temporarily** only when an active caller is blocked by a gap below.
+⛔ **`services/llm-gateway` takes no changes and is being removed.**
+It last served inference on 2026-11-18 in US and 2026-11-04 in EU.
 
 ## Migration policy
 
-`services/llm-gateway` is under an unofficial code freeze. Everyone should move to the Go gateway unless they can name a contract it does not support.
+No PR changes the Python gateway.
+A gap in the Go gateway is fixed in `PostHog/ai-gateway`.
+To move a caller, read `/migrating-llm-gateway-callers`.
+A new Django caller builds its client with `build_openai_client` or `build_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py).
 
-A PR that changes the Python gateway must:
-
-1. Name the active caller and its use case.
-2. Name the exact Go gateway parity gap.
-3. Explain why the change cannot wait for or land in the Go gateway.
-4. Limit the Python change to the blocked caller's needs.
-5. Update this document when it discovers or closes a gap.
-
-Bug, security, and reliability fixes for blocked callers are valid reasons. Convenience, an existing Python client, or an unfamiliar Go API are not parity gaps.
-
-When a gap closes, new work uses the Go gateway and affected callers should migrate. Do not add the same feature to both gateways by default.
+The use-case tables below record the parity gaps as they stood before the removal.
+They stay until the service is deleted.
 
 ## Choose by use case
 
@@ -32,9 +27,9 @@ When a gap closes, new work uses the Go gateway and affected callers should migr
 | Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                                        |
 | Gateway-managed routing       | The caller accepts operator-managed provider plans and health-aware selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or configured Modal, Fireworks, and Baseten hosts. |
 
-Existing Django callers should use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). The builders forward product attribution and caller-selected metadata while keeping a temporary Python fallback during rollout.
+Existing Django callers use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). They reach only the Go gateway and raise `GatewayNotConfiguredError` when it is not configured.
 
-### ⛔ Stay on the Python gateway for now
+### ⛔ Gaps that kept callers on the Python gateway
 
 | Use case                                                   | Blocking contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

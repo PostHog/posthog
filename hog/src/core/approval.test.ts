@@ -3,7 +3,14 @@ import { describe, expect, test } from 'bun:test'
 import { COMMANDS } from '@/commands'
 import { fakeRuntime } from '@/testing'
 
-import { resumeApproval, type ApprovalFlow, type PendingApproval, type PollOutcome } from './approval'
+import {
+    PendingApprovalSchema,
+    resumeApproval,
+    waitIdentity,
+    type ApprovalFlow,
+    type PendingApproval,
+    type PollOutcome,
+} from './approval'
 import { Context } from './context'
 import { HogError } from './errors'
 import type { GlobalOptions } from './globals'
@@ -30,14 +37,15 @@ describe('resumeApproval', () => {
         const ctx = new Context(
             runtime,
             {} as GlobalOptions,
-            { agent: 'test', agentReason: '', format: 'json', color: false, columns: undefined, ci: false },
+            { agent: 'test', agentReason: '', format: 'json', color: false, columns: undefined, isCI: false },
             COMMANDS
         )
         const remaining: PollOutcome<string>[] = [...outcomes]
         const polledAt: number[] = []
         const flow: ApprovalFlow<PendingApproval, string> = {
-            command: 'hog thing start',
+            ...waitIdentity('hog thing start'),
             noun: 'thing',
+            pending: PendingApprovalSchema,
             start: async () => PENDING,
             poll: async () => {
                 polledAt.push(runtime.now() - START)
@@ -45,8 +53,9 @@ describe('resumeApproval', () => {
             },
         }
 
-        const outcome = await resumeApproval(ctx, flow).catch((error: unknown) =>
-            error instanceof HogError ? error.code : error
+        const outcome = await resumeApproval(ctx, flow).then(
+            ({ value }) => value,
+            (error: unknown) => (error instanceof HogError ? error.code : error)
         )
 
         expect(outcome).toBe(expected)

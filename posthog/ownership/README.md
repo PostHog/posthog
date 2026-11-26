@@ -13,6 +13,7 @@ A pull request can edit ownership files, so a read at its head would let it name
 
 - `repo_files.py`: `GitHubRepoFiles`, the anonymous source, plus the `RepoFiles` protocol and the `OwnershipUnavailable` errors.
 - `github_files.py`: `GitHubFilesFetcher`, the authenticated reader, `AuthenticatedRepoFiles`, the source built on it, and `fetcher_for_team`.
+  `AuthenticatedRepoTree` also answers whether the commit holds a path as a file or a directory, from one batched lookup, so the resolver can report the owners of additions (`Resolution.added`).
 - `paths.py`: `resolve_path_owners`, the entry point, and the `PathOwnership` contract it returns.
 
 ## Callers

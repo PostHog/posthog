@@ -177,20 +177,24 @@ Most low-value tests are one of these — recognize them and extend an existing 
 
 #### Weight tests down the pyramid
 
-Each rung is roughly an order of magnitude slower and flakier than the one below:
+Each level is slower and flakier than the one below:
 
 ```text
-pure function  →  kea logic test  →  Django TestCase  →  ClickHouse-backed test  →  Playwright e2e
-   cheapest                                                                          most expensive
+pure function  →  kea logic test  →  Django TestCase / Node service test  →  ClickHouse-backed test  →  Node serial lane / Playwright e2e
+   cheapest                                                                                                         most expensive
 ```
 
 Aim for a ratio, not a cap: many tests at the bottom, very few at the top — if you want more coverage, add it at the bottom.
-When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test that directly rather than standing up a database, a request, and a render.
-Escalating to the next rung is the last resort, not the default.
+Pick the lowest level where the behavior exists and its outcome is visible: a lower level that sees only an internal call or a mock is not a cheaper test of the same behavior.
+An outcome is what a caller can observe: a return value, a response, a stored row, a kea logic's values, or the request, message, or email a boundary fake recorded. A call to your own helper is not an outcome.
+Break the line each test guards and watch the test fail. A test that stays green guards nothing, so rewrite it or delete it.
+When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test it through its own interface rather than standing up a database, a request, and a render.
+Don't mock the tangled code's internal helpers to make it cheap instead, and when the behavior lives in a query, a transaction, or the wiring, test it at the level where a caller observes it.
 
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
-- Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
-- Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
+- Take a real dependency (Postgres, ClickHouse, Redis) only when the behavior reads or writes it, and then use the real one, not a mock. For services CI can't reach, use a fake that answers like the real service, or a stub at that boundary when the test needs one specific answer, such as a canned success or a 500. Either way, assert the outcome, not that the stub was called. Don't mock your own internal helpers; that's how change-detector tests are born.
+- Node (`nodejs/`): drive the consumer or service entry point with the real dependencies its behavior uses (`createHub` when it takes a hub), and assert what a boundary recorded. Keep case matrices out of `*.serial.test.ts` files, which run one at a time and add straight to CI time; the serial lane is for tests that share infrastructure they can't isolate or cover a flow across services.
+- Frontend: prefer a kea logic test over a full component render whenever the behavior lives in the logic: call its actions as a component would and assert on the values a component reads. Don't snapshot large rendered trees — assert specific fields instead.
 - Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `time_machine.travel(..., tick=False)` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
 
 #### Fast developer ("unit") tests

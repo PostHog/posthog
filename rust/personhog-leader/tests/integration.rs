@@ -2066,6 +2066,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         pod_name: "cancel-pod".to_string(),
         recv_timeout: Duration::from_secs(2),
         pool_size: 1,
+        cluster: None,
     })
     .unwrap();
 
@@ -2078,6 +2079,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         offset: 0,
         partition: 0,
         stream: personhog_leader::cache::Stream {
+            cluster: None,
             topic: std::sync::Arc::from(mock_cluster.topic.as_str()),
             partition: 0,
         },
@@ -2105,8 +2107,6 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         uuid: "00000000-0000-0000-0000-000000000007".to_string(),
         team_id: 1,
         properties: serde_json::to_vec(&serde_json::json!({"k": "v"})).unwrap(),
-        properties_last_updated_at: Vec::new(),
-        properties_last_operation: Vec::new(),
         created_at: 1_700_000_000,
         version: 1,
         is_identified: false,
@@ -2130,6 +2130,66 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         .fetch_person_at(&mark, &key)
         .await
         .expect("the pool must survive cancellations");
+    assert_eq!(recovered.id, 7);
+}
+
+#[tokio::test]
+async fn a_mark_on_another_cluster_recovers_from_its_broker() {
+    use personhog_coordination::types::ClusterEndpoint;
+    use rdkafka::producer::FutureRecord;
+
+    let Some(secondary) = common::secondary_kafka_bootstrap() else {
+        return;
+    };
+    let old_topic = common::owned_broker_topic_on(&secondary, 1).await;
+    let producer = common::create_kafka_producer_on(&secondary).await;
+    let person = Person {
+        id: 7,
+        uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+        team_id: 1,
+        properties: b"{}".to_vec(),
+        created_at: 1_700_000_000,
+        version: 1,
+        is_identified: false,
+        is_user_id: None,
+        last_seen_at: None,
+        is_deleted: false,
+    };
+    producer
+        .send(
+            FutureRecord::to(&old_topic.topic)
+                .key("1:7")
+                .partition(0)
+                .payload(&person.encode_to_vec()),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("produce");
+
+    let recovery = test_recovery(KAFKA_BOOTSTRAP);
+    let mark = DirtyMark {
+        version: person.version,
+        offset: 0,
+        partition: 0,
+        stream: personhog_leader::cache::Stream {
+            cluster: Some(std::sync::Arc::new(ClusterEndpoint {
+                name: "old-cluster".to_string(),
+                hosts: secondary,
+                tls: false,
+            })),
+            topic: std::sync::Arc::from(old_topic.topic.as_str()),
+            partition: 0,
+        },
+        is_deleted: false,
+    };
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 7,
+    };
+    let recovered = recovery
+        .fetch_person_at(&mark, &key)
+        .await
+        .expect("recovers from the mark's cluster");
     assert_eq!(recovered.id, 7);
 }
 
@@ -2508,6 +2568,41 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         payload["team_id"], 2,
         "team 1's third warning must be suppressed by the throttle"
     );
+
+    // The depth warning has its own budget, apart from team 1's spent size budget.
+    let too_deep = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
+    let err = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                force_update: false,
+                team_id: 1,
+                person_id: PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: too_deep.into_bytes(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            },
+            routing_partition,
+        ))
+        .await
+        .expect_err("a too-deep update is rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let next = loop {
+        match consumer.poll(Duration::from_millis(200)) {
+            Some(Ok(message)) => break message,
+            _ => assert!(Instant::now() < deadline, "the depth warning must arrive"),
+        }
+    };
+    let payload: serde_json::Value = serde_json::from_slice(next.payload().unwrap()).unwrap();
+    assert_eq!(payload["type"], "person_properties_depth_violation");
+    assert_eq!(payload["team_id"], 1);
+    let details: serde_json::Value =
+        serde_json::from_str(payload["details"].as_str().unwrap()).unwrap();
+    assert!(details["personId"].as_str().unwrap().contains('-'));
+    assert!(details["message"].as_str().unwrap().contains("128 levels"));
 
     // NUL bytes are sanitized at admission (`\u{0000}` → `\u{FFFD}`,
     // matching the Node pipeline): Postgres jsonb refuses NUL, so an

@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.visitor import Visitor
 
 
@@ -129,11 +129,10 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
-        from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+        from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
@@ -152,8 +151,8 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
                 table_type = table_type.table_type
             return (
                 (
-                    isinstance(table_type, ast.TableType)
-                    and isinstance(table_type.table, EventsTable | FlagEvaluationsTable)
+                    isinstance(table_type, ast.TableType | ast.LazyTableType)
+                    and isinstance(table_type.table, EVENT_ROW_TABLES)
                     and resolved_field.name == "timestamp"
                 )
                 or (
@@ -262,7 +261,7 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)
@@ -369,7 +368,7 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)
@@ -500,7 +499,7 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
+        raise QueryError("Resolve placeholders before you analyze timestamps in the query.")
 
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)

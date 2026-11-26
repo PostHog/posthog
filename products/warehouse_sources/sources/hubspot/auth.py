@@ -1,8 +1,22 @@
+from collections.abc import Mapping
+from dataclasses import field
+from http import HTTPStatus
+from typing import cast
+
+from django.db import transaction
+
 import requests
 import structlog
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.sources.sdk import credentials_service, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    ExternalDataSource,
+    LegacyOAuthGrantUnusable,
+    credentials_service,
+    frozen,
+    make_tracked_session,
+    redact_request_urls,
+)
 from products.warehouse_sources.sources.sdk.internals import SourceInputsStore
 
 logger = structlog.get_logger(__name__)
@@ -21,6 +35,42 @@ class HubspotRetryableError(Exception):
         super().__init__(message)
         # Seconds HubSpot asked us to wait (from a 429 Retry-After), if any.
         self.retry_after = retry_after
+
+
+class HubspotTokenRefreshError(Exception):
+    """HubSpot rejected the token refresh."""
+
+    def __init__(self, message: str, grant_rejected: bool = False) -> None:
+        super().__init__(message)
+        # HubSpot said the refresh token itself is invalid, expired or revoked. Any other refusal, such as one
+        # of PostHog's app credentials, says nothing about the grant.
+        self.grant_rejected = grant_rejected
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
+
+    408, 429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the
+    non-standard 477 HubSpot's edge has been observed returning during brief incidents) aren't
+    actionable client errors, so treat any unknown 4xx as transient too instead of crashing the
+    import on it.
+    """
+    if status_code in (408, 429) or status_code >= 500:
+        return True
+    if 400 <= status_code < 500:
+        try:
+            HTTPStatus(status_code)
+        except ValueError:
+            return True
+    return False
+
+
+@frozen
+class HubspotLegacyGrant:
+    external_id: str
+    config: Mapping[str, object]
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
 
 
 def _parse_retry_after(res: requests.Response) -> float | None:
@@ -51,6 +101,19 @@ def _error_message_from_response(res: requests.Response) -> str:
         return res.text
 
 
+def _is_grant_rejection(res: requests.Response) -> bool:
+    """HubSpot's OAuth error body names a rejected refresh token with `invalid_grant` (RFC 6749), or with its own
+    older `BAD_REFRESH_TOKEN` status. `BAD_HUB` (with `access_denied`) means the portal of the grant was deleted or
+    disconnected, which `posthog/models/integration/refresh_tracking.py` also treats as a dead grant."""
+    try:
+        body = res.json()
+    except Exception:
+        return False
+    if not isinstance(body, Mapping):
+        return False
+    return body.get("error") == "invalid_grant" or body.get("status") in ("BAD_REFRESH_TOKEN", "BAD_HUB")
+
+
 def _hubspot_app_credentials() -> dict[str, str]:
     """PostHog's own HubSpot app id and secret, as the token endpoint wants them named."""
     resolved = credentials_service.get_secrets(["HUBSPOT_APP_CLIENT_ID", "HUBSPOT_APP_CLIENT_SECRET"])
@@ -70,7 +133,7 @@ def _hubspot_app_credentials() -> dict[str, str]:
     wait=_wait_strategy,
     reraise=True,
 )
-def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
+def _hubspot_refresh_token_payload(refresh_token: str) -> Mapping[str, object]:
     res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
@@ -93,14 +156,67 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
         # and retry rather than failing the sync (and disabling the schema) on a transient state.
         if "migration in progress" in err_message.lower():
             raise HubspotRetryableError(err_message)
-        raise Exception(err_message)
+        raise HubspotTokenRefreshError(err_message, grant_rejected=_is_grant_rejection(res))
 
-    access_token = res.json()["access_token"]
+    payload = res.json()
+    if not isinstance(payload, Mapping):
+        raise HubspotTokenRefreshError("HubSpot returned an invalid token response")
+    return payload
+
+
+def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
+    access_token = cast(str, _hubspot_refresh_token_payload(refresh_token)["access_token"])
 
     if source_id:
         _update_source_job_inputs(source_id, access_token)
 
     return access_token
+
+
+def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
+    if not refresh_token:
+        raise LegacyOAuthGrantUnusable("The legacy refresh token is missing")
+    try:
+        payload = _hubspot_refresh_token_payload(refresh_token)
+        access_token = payload.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise LegacyOAuthGrantUnusable("HubSpot returned no access token")
+        rotated_refresh_token = payload.get("refresh_token") or refresh_token
+        if not isinstance(rotated_refresh_token, str):
+            raise LegacyOAuthGrantUnusable("HubSpot returned an invalid refresh token")
+        # The token is part of the URL, so transport logs must hide it.
+        with redact_request_urls():
+            res = make_tracked_session().get(
+                "https://api.hubapi.com/oauth/v1/access-tokens/" + access_token,
+            )
+        if _is_retryable_status(res.status_code):
+            raise HubspotRetryableError("HubSpot could not return token information")
+        if res.status_code != 200:
+            raise LegacyOAuthGrantUnusable("HubSpot rejected the token information request")
+        token_info = res.json()
+        if not isinstance(token_info, Mapping):
+            raise HubspotRetryableError("HubSpot returned invalid token information")
+        hub_id = token_info.get("hub_id")
+        if isinstance(hub_id, bool) or not isinstance(hub_id, (int, str)) or not hub_id:
+            raise LegacyOAuthGrantUnusable("HubSpot returned no hub id")
+        config = {
+            key: value for key, value in payload.items() if key not in {"access_token", "refresh_token", "id_token"}
+        }
+        config.update({key: token_info.get(key) for key in ("hub_id", "hub_domain", "user", "user_id", "scopes")})
+        return HubspotLegacyGrant(
+            external_id=str(hub_id),
+            config=config,
+            access_token=access_token,
+            refresh_token=rotated_refresh_token,
+        )
+    except HubspotTokenRefreshError as e:
+        # Only a confirmed rejection of the refresh token lets the cleanup clear the tokens. A timeout, a malformed
+        # body or a refusal of PostHog's app credentials says nothing about the grant.
+        if not e.grant_rejected:
+            raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None
+        raise LegacyOAuthGrantUnusable("The legacy HubSpot grant could not be exchanged") from None
+    except (HubspotRetryableError, requests.RequestException, ValueError):
+        raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None
 
 
 def hubspot_access_token_is_valid(access_token: str) -> bool:
@@ -111,19 +227,18 @@ def hubspot_access_token_is_valid(access_token: str) -> bool:
 
 
 def _update_source_job_inputs(source_id: str, access_token: str) -> None:
-    from products.warehouse_sources.sources.sdk import ExternalDataSource
-
     try:
-        # nosemgrep: idor-lookup-without-team -- pre-existing, file moved out of temporal/; source_id comes from the sync job, not a request
-        source = ExternalDataSource.objects.get(id=source_id)
-        job_inputs = SourceInputsStore.load(source)
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team -- pre-existing, file moved out of temporal/; source_id comes from the sync job, not a request
+            source = ExternalDataSource.objects.select_related(None).select_for_update(of=("self",)).get(id=source_id)
+            job_inputs = SourceInputsStore.load_stored(source)
 
-        # Only persist for legacy sources that store credentials directly in job_inputs
-        if "hubspot_integration_id" in job_inputs:
-            return
+            # Only persist for legacy sources that store credentials directly in job_inputs
+            if "hubspot_integration_id" in job_inputs:
+                return
 
-        # Not `save`: a token refresh never changes the row that the source uses, so it leaves the reference column alone.
-        SourceInputsStore.update_oauth_inputs(source, {"hubspot_secret_key": access_token}, extra_update_fields=())
+            # Not `save`: a token refresh never changes the row that the source uses, so it leaves the reference column alone.
+            SourceInputsStore.update_oauth_inputs(source, {"hubspot_secret_key": access_token}, extra_update_fields=())
     except Exception:
         logger.exception("Failed to update job_inputs after HubSpot token refresh", source_id=source_id)
 

@@ -10,9 +10,11 @@ reader's warehouse access, or the text of other exceptions, which is written for
 
 import re
 from dataclasses import replace
+from datetime import UTC
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
+from posthog.errors import internal_ch_error_user_message
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 
 from products.experiments.backend.facade.contracts import (
@@ -21,6 +23,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.events_received import joined
@@ -36,6 +39,7 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckValues,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -107,6 +111,9 @@ _VALIDATION_ERROR = re.compile(
 # pydantic's text for a stored definition that its schema rejects. The rest of the text quotes the stored values.
 _SCHEMA_ERROR = re.compile(r"^\d+ validation errors? for (?P<model>\w+)")
 _TYPE_MISMATCH = re.compile(r"There is no supertype for types|Cannot convert string .* to type")
+_TYPE_MISMATCH_MESSAGES = frozenset(
+    internal_ch_error_user_message(code) for code in ("NO_COMMON_TYPE", "TYPE_MISMATCH", "CANNOT_CONVERT_TYPE")
+)
 _NO_DATA = re.compile(r"No control variant found|No exposures for the '.*' variant yet")
 # Django's text when the query names a cohort that was deleted. It names no cohort, so the wording can't say where.
 _DELETED_COHORT = re.compile(r"Cohort matching query does not exist")
@@ -163,6 +170,27 @@ _EXPOSURE_QUERY = _Wording(
     "query, so no metric can be calculated. Check them, or contact support if they look right.",
     every_metric=True,
 )
+
+
+def calculated_metric_values(calculation: LatestCalculation) -> dict[ExperimentHealthValueKey, int | str | None]:
+    finished_at = calculation.finished_at
+    return {
+        ExperimentHealthValueKey.METRIC_COUNT: calculation.metric_count,
+        ExperimentHealthValueKey.COMPLETED_METRIC_COUNT: calculation.completed_count,
+        ExperimentHealthValueKey.CALCULATED_AT: None
+        if finished_at is None
+        else finished_at.astimezone(UTC).isoformat(),
+    }
+
+
+def metric_calculation_values(ctx: HealthContext) -> CheckValues:
+    calculation = ctx.latest_calculation
+    if calculation is None or calculation.metric_count == 0:
+        return {}
+    return {
+        **calculated_metric_values(calculation),
+        ExperimentHealthValueKey.FAILED_METRIC_COUNT: len(calculation.failures),
+    }
 
 
 def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
@@ -435,7 +463,7 @@ def _settings(failure: MetricCalculationFailure) -> _Wording | None:
             "A filter uses a cohort that doesn't exist anymore. Check the cohorts in the metric's filters, the "
             "exposure criteria and the project's test account filters.",
         )
-    if _TYPE_MISMATCH.search(message):
+    if message in _TYPE_MISMATCH_MESSAGES or _TYPE_MISMATCH.search(message):
         return _setting(
             "type_mismatch",
             "A filter or an expression of the metric compares values of different types, such as text with a "

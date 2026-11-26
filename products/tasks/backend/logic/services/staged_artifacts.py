@@ -4,14 +4,13 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
 
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun, team_task_artifacts_s3_prefix
 from products.tasks.backend.redis import get_tasks_cache
 
 STAGED_TASK_ARTIFACT_CACHE_TTL_SECONDS = 24 * 60 * 60
@@ -31,10 +30,7 @@ def build_task_staged_artifact_cache_key(task_id: str, artifact_id: str) -> str:
 
 def build_task_staged_artifact_storage_path(task: Task, artifact_id: str, name: str) -> str:
     safe_name = get_safe_artifact_name(name)
-    return (
-        f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}"
-        f"/staged/{artifact_id}/{safe_name}"
-    )
+    return f"{team_task_artifacts_s3_prefix(task.team_id)}task_{task.id}/staged/{artifact_id}/{safe_name}"
 
 
 def build_task_run_artifact_storage_path(task_run: TaskRun, artifact_id: str, name: str) -> str:
@@ -91,17 +87,6 @@ def get_task_staged_artifacts(task: Task, artifact_ids: list[str]) -> tuple[list
         artifacts.append(artifact)
 
     return artifacts, missing_ids
-
-
-def consume_task_staged_artifacts(task: Task, artifact_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
-    artifacts, missing_ids = get_task_staged_artifacts(task, artifact_ids)
-    if missing_ids:
-        return [], missing_ids
-
-    for artifact_id in artifact_ids:
-        get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
-
-    return artifacts, []
 
 
 def get_task_run_artifacts_by_id(task_run: TaskRun, artifact_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:

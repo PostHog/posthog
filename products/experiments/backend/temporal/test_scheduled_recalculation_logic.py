@@ -17,6 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
+from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -28,7 +29,6 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
-    EXPERIMENT_RECALCULATION_MAX_AGE_DAYS,
     EXPOSURE_BACKOFF_INTERVAL,
     EXPOSURE_BACKOFF_KEY_PREFIX,
     EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS,
@@ -214,9 +214,9 @@ class TestScheduledRecalculationLogic(BaseTest):
         [
             ("too_new", 3, False),
             ("just_old_enough", 13, True),
-            ("too_old", 24 * 61, False),
+            ("too_old", (DAILY_CALCULATION_DAYS + 1) * 24, False),
             ("min_age_boundary", MIN_EXPERIMENT_AGE.total_seconds() / 3600, True),
-            ("max_age_boundary", EXPERIMENT_RECALCULATION_MAX_AGE_DAYS * 24, True),
+            ("max_age_boundary", DAILY_CALCULATION_DAYS * 24, True),
         ]
     )
     def test_age_bounds(self, _name: str, started_hours_ago: float, expected: bool):
@@ -430,7 +430,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = response
         with patch(
-            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
             return_value=runner,
         ):
             assert count_total_exposures(experiment) == 75
@@ -440,7 +440,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = SimpleNamespace(total_exposures=None)
         with patch(
-            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
             return_value=runner,
         ):
             assert count_total_exposures(experiment) == 0
@@ -453,7 +453,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = SimpleNamespace(total_exposures={"control": 10, "test": 10})
         with patch(
-            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
             return_value=runner,
         ) as runner_class:
             assert count_total_exposures(experiment) == 20

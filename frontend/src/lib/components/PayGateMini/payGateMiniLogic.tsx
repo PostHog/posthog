@@ -26,7 +26,7 @@ export interface payGateMiniLogicValues {
     selfServeBillingDisabledReason: string | null // billingLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     availableFeature: (feature: AvailableFeature) => BillingFeatureType | null | undefined // userLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     addonTrialModalOpen: boolean
     bypassPaywall: boolean
@@ -90,7 +90,7 @@ export interface payGateMiniLogicMeta {
         ) => BillingFeatureType | undefined
         gateVariant: (
             billingLoading: boolean,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean,
             minimumPlanWithFeature: BillingPlanType | undefined,
             arg: any,
             arg2: any

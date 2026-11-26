@@ -3719,6 +3719,40 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.scheduleFormState).toEqual('expanded')
         })
+
+        describe('cron next run in the create form', () => {
+            beforeEach(() => {
+                jest.useFakeTimers()
+                jest.setSystemTime(new Date('2026-11-12T15:27:00.000Z'))
+            })
+
+            it('keeps a day picked before choosing Custom (cron) and typing the cron', () => {
+                logic.actions.setSchedulePickedDay(dayjs('2026-12-04 09:00'))
+                logic.actions.setScheduleDateMarker(dayjs('2026-12-04 09:00'))
+                logic.actions.setRepeatsValue('cron')
+                for (const cron of ['0 1 * * 5', '0 13 * * 5']) {
+                    logic.actions.setCronExpression(cron)
+                }
+
+                expect(logic.values.scheduleDateMarker?.format('YYYY-MM-DD HH:mm')).toBe('2026-12-04 13:00')
+            })
+
+            it('searches from now when no day was picked', () => {
+                logic.actions.setRepeatsValue('cron')
+                for (const cron of ['0 1 * * 5', '0 13 * * 5']) {
+                    logic.actions.setCronExpression(cron)
+                }
+
+                expect(logic.values.scheduleDateMarker?.format('YYYY-MM-DD HH:mm')).toBe('2026-11-13 13:00')
+            })
+
+            it('forgets the picked day when the form resets', () => {
+                logic.actions.setSchedulePickedDay(dayjs('2026-12-04 09:00'))
+                logic.actions.setScheduleDateMarker(null)
+
+                expect(logic.values.schedulePickedDay).toBeNull()
+            })
+        })
     })
 
     describe('default release conditions', () => {
@@ -4952,6 +4986,8 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
         { key: 'null', error: 'reserved', desc: 'null on a new flag' },
         { key: 'null', savedKeys: ['control', 'test'], error: 'reserved', desc: 'null the saved flag lacks' },
+        { key: 'true', error: 'reserved', desc: 'true on a new flag' },
+        { key: 'false', savedKeys: ['control', 'test'], error: 'reserved', desc: 'false the saved flag lacks' },
     ])('rejects variant key with $desc', ({ key, savedKeys, error }) => {
         expect(validateFeatureFlagVariantKey(key, savedKeys)).toContain(error)
     })
@@ -5824,6 +5860,113 @@ describe('a flag in config version 2', () => {
         ])
         newLogic.unmount()
     })
+
+    it.each([
+        [
+            'splits prefilled variants evenly',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: ['control', 'compact', 'wide'],
+            }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 34 },
+                { key: 'compact', name: '', rollout_percentage: 33 },
+                { key: 'wide', name: '', rollout_percentage: 33 },
+            ],
+        ],
+        [
+            'trims and dedupes hand-written variants',
+            '/feature-flags/new?type=multivariate&variants=control,%20wide,control',
+            '',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'wide', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'keeps only as many variants as a flag allows',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: Array.from({ length: 25 }, (_, i) => `v${i}`),
+            }),
+            'checkout-layout',
+            Array.from({ length: 20 }, (_, i) => ({ key: `v${i}`, name: '', rollout_percentage: 5 })),
+        ],
+        [
+            'ignores a key and variants the router decodes into objects',
+            '/feature-flags/new?type=multivariate&key={"toString":null}&variants=[{"toString":null},"wide"]',
+            '',
+            [{ key: 'wide', name: '', rollout_percentage: 100 }],
+        ],
+        [
+            'keeps the default variants without a variants param',
+            urls.featureFlagNew({ key: 'checkout-layout', type: 'multivariate' }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'test', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'ignores variants on a boolean flag',
+            urls.featureFlagNew({ key: 'checkout-layout', variants: ['control', 'compact'] }),
+            'checkout-layout',
+            null,
+        ],
+        [
+            'drops a key and variants that fail validation',
+            urls.featureFlagNew({
+                key: "x' + (globalThis.injected = true) + '",
+                type: 'multivariate',
+                variants: ['control', "a'b"],
+            }),
+            '',
+            [{ key: 'control', name: '', rollout_percentage: 100 }],
+        ],
+    ])('prefills from the link and %s', async (_label, link, expectedKey, expectedVariants) => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        router.actions.push(link)
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(newLogic.values.featureFlag.key).toBe(expectedKey)
+        expect(newLogic.values.featureFlag.filters.multivariate?.variants ?? null).toEqual(expectedVariants)
+        newLogic.unmount()
+    })
+
+    it('warns on load when the prefilled key is already taken', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                    200,
+                    { results: [{ ...NEW_FLAG, id: 42, key: 'taken-key' }], count: 1 },
+                ],
+            },
+        })
+        router.actions.push(urls.featureFlagNew({ key: 'taken-key' }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toDispatchActions(['checkKeyConflictSuccess']).toFinishAllListeners()
+
+        expect(newLogic.values.currentKeyConflict).toEqual({
+            key: 'taken-key',
+            existingFlagId: 42,
+            existingFlagKey: 'taken-key',
+            exact: true,
+        })
+        newLogic.unmount()
+    })
 })
 
 describe('the editor a flag opens in', () => {
@@ -5897,6 +6040,22 @@ describe('the editor a flag opens in', () => {
 
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
+        [
+            'a number return type',
+            {
+                return_type: 'number',
+                default_value: 1,
+                rules: [
+                    {
+                        ...EXPERIMENT_RULE,
+                        variants: [
+                            { key: 'control', weight: 50, value: 1 },
+                            { key: 'test', weight: 50, value: 2 },
+                        ],
+                    },
+                ],
+            },
+        ],
         ['an experiment rule', { rules: [EXPERIMENT_RULE] }],
         [
             'an experiment rule with a holdout',
@@ -5909,7 +6068,7 @@ describe('the editor a flag opens in', () => {
 
     // The editor would drop, or rewrite on save, what it cannot represent.
     it.each([
-        ['a number return type', { return_type: 'number', default_value: 1 }],
+        ['an unknown return type', { return_type: 'date', default_value: null }],
         ['group assignment', { aggregation_group_type_index: 0 }],
     ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
         useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })

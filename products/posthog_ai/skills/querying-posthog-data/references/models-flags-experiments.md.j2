@@ -6,7 +6,7 @@ Feature flags control rollouts of new features and are used for A/B testing.
 
 ### Columns
 
-These are the only columns exposed via HogQL — the full flag model (e.g. `active`, `ensure_experience_continuity`, `last_called_at`, rollback settings) is not queryable here; fetch the flag via the feature flag API tools instead.
+These are the only columns exposed via HogQL — the full flag model (e.g. `ensure_experience_continuity`, `last_called_at`, rollback settings) is not queryable here; fetch the flag via the feature flag API tools instead. `active` is 1 when the flag is enabled and 0 when it is disabled.
 
 {{ schema_columns('system.feature_flags') }}
 
@@ -48,13 +48,55 @@ These are the only columns exposed via HogQL — the full flag model (e.g. `acti
 
 ---
 
+## Flag calls (`$feature_flag_called`)
+
+An SDK sends a `$feature_flag_called` event when code evaluates a flag.
+Its `$feature_flag` property holds the flag key, and `$feature_flag_response` holds the result: `true`, `false`, or a variant key.
+
+PostHog is moving these calls from `events` to `posthog.flag_evaluations`, one organization at a time.
+`project-get` returns the organization's `flag_evaluations_mode`:
+
+Mode | Where the flag calls are | `posthog.flag_evaluations`
+--- | --- | ---
+0 | `events`, and `posthog.flag_evaluations` on PostHog Cloud | Queryable on PostHog Cloud only
+1 | `events` and `posthog.flag_evaluations` | Queryable
+2 | `posthog.flag_evaluations` only, for 90 days | Queryable
+
+### Query flag calls from `events` in a scan of their own
+
+Filter `event` to `$feature_flag_called` alone, as in `FROM events WHERE event = '$feature_flag_called'`.
+That query works in every mode, because PostHog reads such a scan from `posthog.flag_evaluations` when the organization keeps its calls there.
+On mode 2 it returns at most the last 90 days.
+
+On mode 2, these shapes can go wrong:
+
+- A scan that filters `event` to flag calls and other events together, such as `event IN ('$feature_flag_called', '$pageview')`, can read only `events` and return no flag calls, with no error.
+  A scan with no `event` filter, such as a count of every event, can leave the flag calls out the same way.
+  Give the flag calls their own scan: a separate query, or their own branch of a `UNION ALL`.
+- `SELECT *` and `SAMPLE` fail with an error that says the calls are only in `posthog.flag_evaluations`.
+  Select named columns, or query `posthog.flag_evaluations` directly.
+- The project can have no event or property definitions for `$feature_flag_called`, so `read-data-schema` can list neither the event nor its properties.
+  A missing definition is not evidence that nothing calls a flag. Count the calls with SQL.
+
+### `posthog.flag_evaluations`
+
+One row per flag call. On PostHog Cloud it is queryable on every mode. Self-hosted, it is queryable only on modes 1 and 2.
+Filter on `flag_key` rather than `properties.$feature_flag`: `flag_key` is in the table's sort key.
+
+{{ schema_columns('posthog.flag_evaluations') }}
+
+Never join this table to another one on `person_id`, because the query fails.
+Join on `distinct_id`, or filter with `person_id IN (SELECT person_id FROM posthog.flag_evaluations WHERE ...)`.
+
+---
+
 ## Experiment (`system.experiments`)
 
 Experiments are A/B tests that compare variants against a control group.
 
 ### Columns
 
-These are the only columns exposed via HogQL — the full experiment model (e.g. `deleted`, `conclusion`, `metrics`, `metrics_secondary`, `stats_config`, `exposure_criteria`, `holdout_id`, `type`) is not queryable here; fetch the experiment via the experiment API tools instead.
+These are the only columns exposed via HogQL — the rest of the experiment model (e.g. `holdout_id`, `type`, `variants`) is not queryable here; fetch the experiment via the experiment API tools instead. Computed results (lift, chance to win) are not in any system table.
 
 {{ schema_columns('system.experiments') }}
 
@@ -75,10 +117,12 @@ Variant keys and rollout percentages live on the linked flag. Read them from
 ### Key Relationships
 
 - **Feature Flag**: `feature_flag_id` -> `system.feature_flags.id` (required)
+- **Saved metrics**: `system.experiment_to_saved_metrics` links `experiment_id` to `saved_metric_id` -> `system.experiment_saved_metrics.id`; its `metadata.type` is `primary` or `secondary`
 
 ### Important Notes
 
 - An experiment is a "draft" if `start_date` is NULL
-- Soft-deleted experiments still appear in this table — there is no `deleted` column to filter them out; confirm via the experiment API tools when deletion status matters
+- Soft-deleted experiments still appear in this table — filter them out with `deleted = 0`
+- `status` is `draft`, `running` or `stopped`. A paused experiment reads `running`; check `active = 0` on its linked flag
 - Each experiment requires an associated feature flag
 - The feature flag controls variant assignment

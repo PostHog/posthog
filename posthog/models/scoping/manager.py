@@ -27,7 +27,7 @@ from django.db import models
 from django.db.models.fetch_modes import FetchMode, FetchPeers
 from django.db.models.query_utils import DeferredAttribute
 
-from posthog.models.scoping import get_current_team_id, peer_lazy_loads
+from posthog.models.scoping import get_current_team_id, get_resolved_team_id, peer_lazy_loads
 
 T = TypeVar("T", bound=models.Model)
 
@@ -132,6 +132,9 @@ def resolve_effective_team_id(team_id: int) -> int:
     matches the rest of the fail-closed posture (silent fallback would
     let `team_scope(typo)` quietly scope queries to a non-existent team).
     """
+    if (resolved_team_id := get_resolved_team_id(team_id)) is not None:
+        return resolved_team_id
+
     from posthog.models.team import Team
 
     try:
@@ -230,6 +233,8 @@ class TeamScopedManager(models.Manager[T]):
 
         Pass `canonical=True` only when the caller has independently
         verified the id is canonical (or is using a synthetic id in tests).
+
+        The lookup is skipped for the team that the current scope was resolved from.
         """
         if not canonical:
             team_id = resolve_effective_team_id(team_id)

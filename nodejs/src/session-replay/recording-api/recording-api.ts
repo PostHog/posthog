@@ -3,6 +3,7 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
+import { hasJwtKeys } from '~/cdp/utils/jwt-utils'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
@@ -10,45 +11,48 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger, serializeError } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
+import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { ReplayEventsOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
 import { RecordingApiOp, createRecordingApiAuthMiddleware, createReplayBlocksAuthMiddleware } from './auth'
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import { ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
+import { BlockAdmission, ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
 import {
+    BlockRefParamsSchema,
     DeleteRecordingsBodySchema,
-    EncryptBlocksBodySchema,
     GetBlockQuerySchema,
     RecordingParamsSchema,
     ReplayBlockParamsSchema,
     TeamParamsSchema,
 } from './schemas'
+import { SingleFlightKeyStore } from './single-flight-keystore'
 import { TimedKeyStore } from './timed-keystore'
 import {
     KeyStore,
+    PublicBlockLimits,
     REPLAY_BLOCK_TIERS,
     RecordingApiConfig,
     RecordingApiRole,
     RecordingBlock,
     RecordingDecryptor,
-    RecordingEncryptor,
     ReplayBlockBucket,
     ReplayBlockTier,
     getDefaultRecordingApiBlocksConfig,
+    parsePublicBlockLimits,
     parseRecordingApiRole,
     parseReplayBlockRateLimits,
 } from './types'
 
-// The browser keeps each block for a day. Django's sources listing, which hands out block URLs, reads the block
-// listing uncached and reports a deletion first, so the player never asks for a cached block of a deleted recording.
-const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=86400, immutable'
+// The browser keeps each block for 4 hours, which bounds how long a deleted recording stays readable from its cache.
+// Django's sources listing, which hands out block URLs, reads the block listing uncached and reports a deletion first,
+// so the player never asks for a cached block of a deleted recording.
+const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=14400, immutable'
+const PUBLIC_BLOCK_HOLD_CAP_MS = 30_000
 
 const KEY_LOOKUP_TIMEOUT_MS = 1000
 // Each Redis, DynamoDB and KMS call gives up after this, so a lookup the listing abandoned does not pile up.
@@ -63,19 +67,20 @@ export class RecordingApi {
     private s3Prefix: string | null = null
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
-    private encryptor: RecordingEncryptor | null = null
     private redisPool: RedisPool | null = null
     private clickhouseClient: ClickHouseClient | null = null
     private recordingService: RecordingService | null = null
     private blockRateLimiter: KeyedRateLimiterService | null = null
     private readonly role: RecordingApiRole
     private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket> | null
+    private publicBlockBytesInFlight = 0
+    private readonly publicBlockLimits: PublicBlockLimits | null
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
         private config: RecordingApiConfig,
         private postgres?: PostgresRouter,
-        private outputs?: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
+        private outputs?: IngestionOutputs<ReplayEventsOutput>
     ) {
         this.role = parseRecordingApiRole(config.RECORDING_API_ROLE || 'internal')
         // Only a process serving the browser route reads its limits, so a bad value cannot stop an internal pod.
@@ -85,6 +90,14 @@ export class RecordingApi {
                       getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
               )
             : null
+        // Staff tokens read blocks by ref on internal pods, so those pods cap block bytes in memory too.
+        this.publicBlockLimits =
+            this.servesPublicRoutes || this.servesStaffReads ? parsePublicBlockLimits(config) : null
+    }
+
+    // Staff tokens are the only caller of the block-by-ref route, so a pod without the staff secret does not serve it.
+    private get servesStaffReads(): boolean {
+        return this.servesInternalRoutes && hasJwtKeys(this.config.RECORDING_API_STAFF_JWT_SECRET || '')
     }
 
     private get servesInternalRoutes(): boolean {
@@ -159,12 +172,14 @@ export class RecordingApi {
         })
         this.redisPool = createRedisPoolFromConfig(redisConfig('recording-api'))
 
-        const keyStore: KeyStore = new TimedKeyStore(
-            getKeyStore(s3Region, {
-                kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
-                dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
-                requestTimeoutMs: this.config.RECORDING_API_AWS_TIMEOUT_MS,
-            })
+        const keyStore: KeyStore = new SingleFlightKeyStore(
+            new TimedKeyStore(
+                getKeyStore(s3Region, {
+                    kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
+                    dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+                    requestTimeoutMs: this.config.RECORDING_API_AWS_TIMEOUT_MS,
+                })
+            )
         )
         // In-memory caching is intentionally omitted here — a stale in-memory cache on
         // another instance would allow serving a deleted recording's data.
@@ -198,11 +213,7 @@ export class RecordingApi {
         if (!this.outputs) {
             throw new Error('recording-api serving internal routes needs its Kafka outputs')
         }
-        this.encryptor = getBlockEncryptor(this.keyStore)
-        await this.encryptor.start()
-
         const metadataStore = new SessionMetadataStore(this.outputs)
-        const featureStore = new SessionFeatureStore(this.outputs)
 
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
@@ -228,10 +239,8 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
-            featureStore,
             this.postgres,
-            { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) },
-            this.encryptor
+            { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) }
         )
 
         logger.info('[RecordingApi] Started successfully')
@@ -261,9 +270,6 @@ export class RecordingApi {
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
         }
-        if (this.servesInternalRoutes && !this.encryptor) {
-            uninitializedComponents.push('encryptor')
-        }
 
         if (uninitializedComponents.length > 0) {
             return new HealthCheckResultError('Components not initialized', {
@@ -286,7 +292,7 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
-        const encryptPath = '/api/projects/:team_id/recordings/:session_id/encrypt'
+        const blockRefPath = '/api/projects/:team_id/recordings/:session_id/blocks/:ref'
 
         if (this.servesPublicRoutes) {
             router.get(
@@ -302,16 +308,11 @@ export class RecordingApi {
         const auth = (op: RecordingApiOp) =>
             createRecordingApiAuthMiddleware({
                 jwtSecret: this.config.RECORDING_API_JWT_SECRET,
-                legacySecret: this.config.INTERNAL_API_SECRET,
-                allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
+                staffJwtSecret: this.config.RECORDING_API_STAFF_JWT_SECRET,
                 op,
             })
         const readAuth = auth('read')
         const deleteAuth = auth('delete')
-        const writeAuth = auth('write')
-
-        // Registered before the prefix middleware so its own write scope applies instead of the delete scope.
-        router.post(encryptPath, writeAuth, asyncHandler(this.encryptBlocks))
 
         // Mounted on the whole '/api/projects' prefix, matching what the shared-secret middleware
         // exempts, rather than on the recording routes alone. Anything under the prefix that this
@@ -322,6 +323,9 @@ export class RecordingApi {
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
+        if (this.servesStaffReads) {
+            router.get(blockRefPath, asyncHandler(this.getBlockByListedRef))
+        }
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
@@ -490,17 +494,75 @@ export class RecordingApi {
         }
     }
 
+    // Each block is read and decrypted whole in memory, so the process caps the bytes it holds at once.
+    private admitPublicBlock(bytes: number): BlockAdmission {
+        if (bytes > this.publicBlockLimits!.maxBlockBytes) {
+            return 'too_large'
+        }
+        if (this.publicBlockBytesInFlight + bytes > this.publicBlockLimits!.bytesInFlight) {
+            return 'busy'
+        }
+        this.publicBlockBytesInFlight += bytes
+        return 'ok'
+    }
+
+    // The socket closes once the response is fully written or the client aborts. The timer covers anything that
+    // emits neither, and outlasts the Envoy route timeout, which resets a stalled upstream response.
+    private releaseWhenWritten(res: express.Response, bytes: number): void {
+        let released = false
+        let finishEmitted = false
+        res.once('finish', () => (finishEmitted = true))
+        const release = (): void => {
+            if (!released) {
+                released = true
+                clearTimeout(timer)
+                this.publicBlockBytesInFlight -= bytes
+            }
+        }
+        const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
+        timer.unref()
+        res.socket?.once('close', () => {
+            release()
+            // A write that hit backpressure completes without 'finish', which the HTTP metrics wait for.
+            setImmediate(() => {
+                if (!finishEmitted) {
+                    res.emit('finish')
+                }
+            })
+        })
+        res.once('close', release)
+    }
+
     private getBlockByRef = async (req: express.Request, res: express.Response): Promise<void> => {
         const paramsResult = ReplayBlockParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
+        await this.serveBlockByRef(req, res, paramsResult.data)
+    }
+
+    // The internal twin of the browser route, for a ref from the block listing: only that session's key decodes it.
+    private getBlockByListedRef = async (req: express.Request, res: express.Response): Promise<void> => {
+        const paramsResult = BlockRefParamsSchema.safeParse(req.params)
+        if (!paramsResult.success) {
+            res.status(400).json({ error: paramsResult.error.issues[0].message })
+            return
+        }
+        await this.serveBlockByRef(req, res, paramsResult.data)
+    }
+
+    private async serveBlockByRef(
+        req: express.Request,
+        res: express.Response,
+        params: { team_id: number; session_id: string; ref: string }
+    ): Promise<void> {
         if (!this.recordingService) {
             res.status(503).json({ error: 'Service not initialized' })
             return
         }
-        const { team_id: teamId, session_id: sessionId, ref } = paramsResult.data
+        const { team_id: teamId, session_id: sessionId, ref } = params
+        let admittedBytes = 0
 
         try {
             if (this.blockRateLimiter) {
@@ -521,11 +583,32 @@ export class RecordingApi {
                 }
             }
 
-            const result = await this.recordingService.getBlockByRef(teamId, sessionId, ref)
+            const result = await this.recordingService.getBlockByRef(
+                teamId,
+                sessionId,
+                ref,
+                (bytes) => {
+                    const admission = this.admitPublicBlock(bytes)
+                    if (admission === 'ok') {
+                        admittedBytes = bytes
+                    }
+                    return admission
+                },
+                this.publicBlockLimits!.readTimeoutMs
+            )
             if (!result.ok) {
-                RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : 'not_found')
+                RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : result.error)
                 if (result.error === 'deleted') {
                     sendRecordingDeleted(res, result)
+                    return
+                }
+                if (result.error === 'too_large') {
+                    res.status(413).json({ error: 'Block too large for this route' })
+                    return
+                }
+                if (result.error === 'busy') {
+                    res.set('Retry-After', '1')
+                    res.status(503).json({ error: 'Busy' })
                     return
                 }
                 res.status(404).json({ error: 'Block not found' })
@@ -535,7 +618,27 @@ export class RecordingApi {
             res.set('Content-Type', 'application/octet-stream')
             res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', REPLAY_BLOCK_CACHE_CONTROL)
-            res.send(result.data)
+            // The block is attacker-influenced bytes on an app origin, so the browser must never sniff it as HTML.
+            res.set('X-Content-Type-Options', 'nosniff')
+            // The write below skips the ETag and revalidation that send() does, so they happen here.
+            const etag = req.app.get('etag fn')?.(result.data)
+            if (etag) {
+                res.set('ETag', etag)
+            }
+            if (req.fresh) {
+                res.status(304).end()
+                return
+            }
+            if (req.method === 'HEAD') {
+                res.end()
+                return
+            }
+            // send() hands the whole buffer to uWS at once, so a slow reader would hold it after the budget frees it.
+            // A write with Content-Length set goes out under backpressure and closes the socket once fully written.
+            this.releaseWhenWritten(res, admittedBytes)
+            admittedBytes = 0
+            res.write(result.data)
+            res.end()
         } catch (error) {
             RecordingApiMetrics.incrementReplayBlockRequest('error')
             logger.error('[RecordingApi] Error serving a block by ref', {
@@ -545,58 +648,8 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to fetch block' })
-        }
-    }
-
-    private encryptBlocks = async (req: express.Request, res: express.Response): Promise<void> => {
-        const paramsResult = RecordingParamsSchema.safeParse(req.params)
-        if (!paramsResult.success) {
-            res.status(400).json({ error: paramsResult.error.issues[0].message })
-            return
-        }
-
-        const bodyResult = EncryptBlocksBodySchema.safeParse(req.body)
-        if (!bodyResult.success) {
-            res.status(400).json({ error: bodyResult.error.issues[0].message })
-            return
-        }
-
-        if (!this.recordingService) {
-            res.status(503).json({ error: 'Service not initialized' })
-            return
-        }
-
-        const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const { blocks, retention_days: retentionDays } = bodyResult.data
-
-        try {
-            const result = await this.recordingService.encryptBlocks(
-                sessionId,
-                teamId,
-                blocks.map((b) => Buffer.from(b, 'base64')),
-                retentionDays
-            )
-            if (!result.ok) {
-                if (result.error === 'recording_exists') {
-                    res.status(409).json({ error: 'recording_exists' })
-                    return
-                }
-                if (result.error === 'key_unavailable') {
-                    res.status(503).json({ error: 'key_unavailable' })
-                    return
-                }
-                sendRecordingDeleted(res, result)
-                return
-            }
-            res.json({ blocks: result.blocks.map((b) => b.toString('base64')) })
-        } catch (error) {
-            logger.error('[RecordingApi] Error encrypting blocks', {
-                error: serializeError(error),
-                teamId,
-                sessionId,
-            })
-            captureException(error)
-            res.status(500).json({ error: 'Failed to encrypt blocks' })
+        } finally {
+            this.publicBlockBytesInFlight -= admittedBytes
         }
     }
 

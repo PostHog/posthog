@@ -16,6 +16,16 @@ _SUPPRESSION_COLUMNS = {
     "status": "Status code associated with the suppression event.",
 }
 
+_BREAKDOWN_STATS_COLUMNS = {
+    "date": "The date the statistics were gathered, in YYYY-MM-DD format.",
+    "type": "The type of breakdown the row is for.",
+    "name": "The breakdown value the statistics are for.",
+    "opens": "Total number of times the emails were opened by recipients.",
+    "unique_opens": "Number of unique recipients who opened the emails.",
+    "clicks": "Number of links that were clicked in the emails.",
+    "unique_clicks": "Number of unique recipients who clicked links in the emails.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "bounces": {
         "description": "Email addresses that bounced — the receiving server rejected the message.",
@@ -71,6 +81,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "spam_report_drops": "Number of emails dropped because the address had previously reported spam.",
             "invalid_emails": "Number of emails dropped because the recipient address was invalid.",
         },
+    },
+    "geo_stats": {
+        "description": "Daily email open and click statistics for each recipient country.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/stats/retrieve-email-statistics-by-country-and-stateprovince",
+        "columns": {**_BREAKDOWN_STATS_COLUMNS, "name": "The country or state the statistics are for."},
+    },
+    "mailbox_provider_stats": {
+        "description": "Daily email statistics for each recipient mailbox provider, such as Gmail or Yahoo.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/stats/retrieve-email-statistics-by-mailbox-provider",
+        "columns": {
+            **_BREAKDOWN_STATS_COLUMNS,
+            "name": "The mailbox provider the statistics are for.",
+            "requests": "Number of emails that were requested to be delivered.",
+            "processed": "Number of requests that SendGrid processed.",
+            "delivered": "Number of emails that SendGrid confirmed were delivered to a recipient.",
+            "deferred": "Number of emails that temporarily could not be delivered.",
+            "bounces": "Number of emails that bounced instead of being delivered.",
+            "blocks": "Number of emails that were not allowed to be delivered by ISPs.",
+            "drops": "Number of emails that were not delivered because of a previous suppression.",
+            "spam_reports": "Number of recipients who marked the email as spam.",
+        },
+    },
+    "device_stats": {
+        "description": "Daily email open statistics for each recipient device type, such as desktop or phone.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/stats/retrieve-email-statistics-by-device-type",
+        "columns": {**_BREAKDOWN_STATS_COLUMNS, "name": "The device type the statistics are for."},
+    },
+    "client_stats": {
+        "description": "Daily email open statistics for each email client, such as Gmail or Apple Mail.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/stats/retrieve-email-statistics-by-client-type",
+        "columns": {**_BREAKDOWN_STATS_COLUMNS, "name": "The email client the statistics are for."},
+    },
+    "browser_stats": {
+        "description": "Daily email click statistics for each recipient browser.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/stats/retrieve-email-statistics-by-browser",
+        "columns": {**_BREAKDOWN_STATS_COLUMNS, "name": "The browser the statistics are for."},
     },
     "categories": {
         "description": "Categories: the tags senders attach to emails to group them by topic, used to segment statistics.",
@@ -133,6 +179,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "contact_count": "Number of contacts on the list.",
         },
     },
+    "segments": {
+        "description": "Marketing segments, which select contacts with a query.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/segmenting-contacts-v2/get-list-of-segments",
+        "columns": {
+            "id": "Unique identifier for the segment.",
+            "name": "Name of the segment.",
+            "contacts_count": "Number of contacts in the segment.",
+            "created_at": "Time at which the segment was created.",
+            "updated_at": "Time at which the segment was last updated.",
+            "sample_updated_at": "Time at which the segment's contact sample was last updated.",
+            "next_sample_update": "Time at which the segment's contact sample is next updated.",
+            "parent_list_ids": "IDs of the lists the segment filters contacts from.",
+            "query_version": "Version of the segment query language.",
+            "status": "Validation status of the segment query.",
+        },
+    },
     "singlesends": {
         "description": "Single Sends: one-time Marketing Campaigns emails sent to lists or segments.",
         "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/single-sends/get-all-single-sends",
@@ -190,6 +252,49 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "url_location": "The position of the link in the Automation step, numbered from the top down starting at 0.",
             "step_id": "The Automation step that contains the link.",
             "clicks": "Number of clicks on this link.",
+        },
+    },
+    "subusers": {
+        "description": "Subusers of a parent account.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/subusers-api/list-all-subusers",
+        "columns": {
+            "id": "Unique identifier for the subuser.",
+            "username": "Username of the subuser.",
+            "email": "Contact email address of the subuser.",
+            "disabled": "Whether the subuser is disabled.",
+            "region": "Region the subuser is pinned to: global or eu.",
+        },
+    },
+    "subuser_stats": {
+        "description": "Daily email statistics for each subuser, such as requests, deliveries, opens, clicks, and bounces.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/subuser-statistics/retrieve-email-statistics-for-your-subuser",
+        "columns": {
+            "date": "The date the statistics were gathered, in YYYY-MM-DD format.",
+            "username": "Username of the subuser the statistics are for.",
+            "requests": "Number of emails that were requested to be delivered.",
+            "processed": "Number of requests that SendGrid processed.",
+            "delivered": "Number of emails that SendGrid confirmed were delivered to a recipient.",
+            "deferred": "Number of emails that temporarily could not be delivered.",
+            "opens": "Total number of times the emails were opened by recipients.",
+            "unique_opens": "Number of unique recipients who opened the emails.",
+            "clicks": "Number of links that were clicked.",
+            "unique_clicks": "Number of unique recipients who clicked links in the emails.",
+            "bounces": "Number of emails that bounced instead of being delivered.",
+            "bounce_drops": "Number of emails that were dropped because of a bounce.",
+            "blocks": "Number of emails that were not allowed to be delivered by ISPs.",
+            "invalid_emails": "Number of recipients with malformed addresses or addresses that the mail provider reported as invalid.",
+            "spam_reports": "Number of recipients who marked the email as spam.",
+            "spam_report_drops": "Number of emails that were dropped because the recipient previously marked emails as spam.",
+            "unsubscribes": "Number of recipients who unsubscribed.",
+            "unsubscribe_drops": "Number of emails that were dropped because the recipient unsubscribed.",
+        },
+    },
+    "subuser_reputations": {
+        "description": "Current sender reputation of each subuser.",
+        "docs_url": "https://www.twilio.com/docs/sendgrid/api-reference/subusers-api/retrieve-subuser-reputations",
+        "columns": {
+            "username": "Username of the subuser.",
+            "reputation": "Sender reputation of the subuser, from 0 to 100.",
         },
     },
     "templates": {

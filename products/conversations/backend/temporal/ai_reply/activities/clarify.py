@@ -17,6 +17,7 @@ from products.conversations.backend.temporal.ai_reply.gate import (
     format_suggested_question_comment,
 )
 from products.conversations.backend.temporal.ai_reply.publish import channel_allows_bot_reply
+from products.conversations.backend.temporal.ai_reply.run_citations import record_note_citations
 from products.conversations.backend.temporal.ai_reply.schemas import ClarifyInput, ClarifyOutput, coerce_dataclass
 
 
@@ -28,18 +29,18 @@ async def support_clarify_activity(input: ClarifyInput) -> ClarifyOutput:
         return await database_sync_to_async(_clarify_sync, thread_sensitive=False)(input)
 
 
-def _existing_clarification(*, team_id: int, ticket_id: str) -> Comment | None:
-    return (
-        Comment.objects.filter(
-            team_id=team_id,
-            scope="conversations_ticket",
-            item_id=str(ticket_id),
-            item_context__author_type="AI",
-            item_context__persist_as="clarification",
-        )
-        .order_by("-id")
-        .first()
+def _existing_clarification(*, team_id: int, ticket_id: str, run_id: str) -> Comment | None:
+    clarifications = Comment.objects.filter(
+        team_id=team_id,
+        scope="conversations_ticket",
+        item_id=str(ticket_id),
+        item_context__author_type="AI",
+        item_context__persist_as="clarification",
     )
+    # Each run may ask its own question, so only a note from this run is a retry of this activity.
+    if run_id:
+        clarifications = clarifications.filter(item_context__run_id=run_id)
+    return clarifications.order_by("-id").first()
 
 
 def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
@@ -60,7 +61,7 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
         if ticket is None:
             return ClarifyOutput(published=False, question=question)
 
-        existing = _existing_clarification(team_id=input.team_id, ticket_id=str(ticket.id))
+        existing = _existing_clarification(team_id=input.team_id, ticket_id=str(ticket.id), run_id=input.run_id)
         if existing is not None:
             # Temporal retries this activity after a commit if the result is lost. A second
             # insert would flip published=False and the workflow would clear awaiting_clarification.
@@ -91,6 +92,8 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
             # the private suggested-question note and on ai_triage instead.
             item_context["investigation_summary"] = input.investigation_summary
             item_context["unknowns"] = input.unknowns
+        if input.run_id:
+            item_context["run_id"] = input.run_id
 
         Comment.objects.create(
             team_id=input.team_id,
@@ -99,6 +102,14 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
             content=content,
             rich_content=markdown_to_tiptap_doc(content),
             item_context=item_context,
+        )
+        record_note_citations(
+            team_id=input.team_id,
+            run_id=input.run_id,
+            ticket_id=str(ticket.id),
+            citations=input.citations,
+            persist_as="clarification",
+            confidence=input.confidence,
         )
         if publish:
             # Coordinator only scans pending + awaiting_clarification. Both have to land in

@@ -21,7 +21,7 @@ interface CommonProps {
     disabledReason?: string
 }
 
-const gridPositions: SurveyPosition[] = [
+export const gridPositions: SurveyPosition[] = [
     SurveyPosition.TopLeft,
     SurveyPosition.TopCenter,
     SurveyPosition.TopRight,
@@ -35,7 +35,7 @@ const gridPositions: SurveyPosition[] = [
     // SurveyPosition.BottomLeft, SurveyPosition.BottomCenter, SurveyPosition.BottomRight
 ]
 
-const positionDisplayNames: Record<SurveyPosition, string> = {
+export const positionDisplayNames: Record<SurveyPosition, string> = {
     [SurveyPosition.TopLeft]: 'Top Left',
     [SurveyPosition.TopCenter]: 'Top Center',
     [SurveyPosition.TopRight]: 'Top Right',
@@ -144,7 +144,7 @@ export function SurveyContainerAppearance({
                 />
                 <LemonField.Pure
                     label="Font family"
-                    info="Custom font selection requires at least version 1.223.4 of posthog-js"
+                    info="Custom font selection requires at least posthog-js 1.223.4, posthog-ios 4.0.6, posthog-android-surveys-compose 1.1.0, or posthog_flutter 5.56.0"
                     className="gap-1"
                 >
                     <LemonSelect

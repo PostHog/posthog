@@ -15,6 +15,7 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
+from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
@@ -34,6 +35,13 @@ from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized a
 class DesktopAccessReason(LabeledStrEnum):
     STARTUP_PLAN = "startup_plan", "startup_plan"
     PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
+
+
+class PersonalGitHubRepoAccess(StrEnum):
+    OK = "ok"
+    NOT_CONNECTED = "not_connected"
+    NEEDS_RECONNECT = "needs_reconnect"
+    NO_REPO_ACCESS = "no_repo_access"
 
 
 @dataclass(frozen=True)
@@ -178,9 +186,14 @@ class TaskRunSpend:
     run_id: UUID
     task_id: UUID
     cost_microusd: int | None
+    standard_cost_microusd: int | None
     complete: bool
     is_terminal: bool
     stage: str
+    accounting_failed: bool
+    compute_cost_microusd: int = 0
+    trial_grant_id: str | None = None
+    billing_exempt: bool = False
 
 
 @dataclass(frozen=True)
@@ -219,6 +232,7 @@ class TaskRunDTO:
     workflow_id: str = ""
     mode: str = "background"
     task_origin_product: str | None = None
+    task_created_at: datetime | None = None
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
@@ -274,7 +288,7 @@ class TaskSlackUnfurlDTO:
     id: UUID
     title: str
     created_by_id: int | None
-    latest_run_status: str | None
+    status: str | None
 
 
 @dataclass(frozen=True)
@@ -290,6 +304,15 @@ class TaskArtifactSlackUnfurlDTO:
     run_id: UUID
     artifact_id: str
     download_path: str
+
+
+@dataclass(frozen=True)
+class TaskRepositoryState:
+    repository: str | None
+    repositories: list[str]
+    github_integration: int | None
+    github_user_integration: UUID | None
+    repository_integration: int | None
 
 
 @dataclass(frozen=True)
@@ -334,6 +357,12 @@ class TaskDetailDTO:
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
     client_provenance: str | None = None
+    last_client: str | None = None
+    last_client_at: datetime | None = None
+    repository_integration: int | None = None
+    status: str | None = None
+    status_reason: str | None = None
+    status_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -525,6 +554,7 @@ class TaskCommentEntryDTO:
     id: UUID
     content: str
     content_truncated: bool
+    content_offset: int
     content_next_offset: int | None
     author: str | None
     created_at: datetime
@@ -570,6 +600,8 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+    status: str | None = None
+    status_reason: str | None = None
 
 
 class TaskAnalysisError(Exception):
@@ -1077,19 +1109,45 @@ class SandboxSnapshotDTO:
 
 
 @dataclass(frozen=True)
-class SignalReportPrUrlDTO:
-    """The PR URL produced by the latest task run for a signal report."""
-
-    report_id: str
-    pr_url: str
-
-
-@dataclass(frozen=True)
 class WarmTaskDTO:
     """The draft Task + warm Run birthed by a Code-app warm request."""
 
     task_id: UUID
     run_id: UUID
+
+
+@dataclass(frozen=True)
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
+class StaleLiveRunRow:
+    profile: str
+    run_environment: str
+    rule: str
+    count: int
+
+
+@dataclass(frozen=True)
+class SweptRunRow:
+    profile: str
+    count: int
+
+
+@dataclass(frozen=True)
+class FencedRunTokensRow:
+    profile: str
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
+class ReopenedSweptRunsRow:
+    outcome: str
+    count: int
 
 
 @dataclass(frozen=True)
@@ -1116,6 +1174,7 @@ class ComputeQuotaDenialReason(StrEnum):
     """Why a compute request was refused. The value is the denial code the API returns."""
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
+    AI_CREDITS_EXHAUSTED = "ai_credits_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
 
 
@@ -1123,6 +1182,7 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+    run_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1167,3 +1227,44 @@ class RunPlan:
 
     plan_name: str
     owner_user_id: int | None
+
+
+@dataclass(frozen=True)
+class TaskRunLogLink:
+    """A short-lived download link for a run's log, or why there is none."""
+
+    url: str | None
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressRegistrationDTO:
+    run_id: UUID
+    team_id: int
+    execution_id: UUID
+    actor_id: int
+    actor_epoch: int
+    relay_key_sha256: str
+    authority: str
+    region: str
+    lease_expires_at: datetime
+    revoked: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressGitGrantDTO:
+    registration: AgentEgressRegistrationDTO
+    repository: str
+    credential_version: UUID
+    expires_at: datetime
+    token: str = field(repr=False)
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunModelSelection:
+    """The model fields a new run starts with. ``None`` leaves a field to the stored defaults."""
+
+    runtime_adapter: str | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
+    initial_permission_mode: str | None = None

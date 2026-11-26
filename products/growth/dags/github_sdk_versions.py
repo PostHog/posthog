@@ -40,6 +40,7 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-server": lambda: fetch_java_server_sdk_data(),
     "posthog-go": lambda: fetch_go_sdk_data(),
     "posthog-php": lambda: fetch_php_sdk_data(),
+    "posthog-laravel": lambda: fetch_laravel_sdk_data(),
     "posthog-ruby": lambda: fetch_ruby_sdk_data(),
     "posthog-elixir": lambda: fetch_elixir_sdk_data(),
     "posthog-dotnet": lambda: fetch_dotnet_sdk_data(),
@@ -50,12 +51,14 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-python-mcp": lambda: fetch_python_sdk_data(),
     "posthog-edge": lambda: fetch_node_sdk_data(),
     "posthog-convex": lambda: fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["@posthog/convex@"]),
+    "posthog-electron": lambda: fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["@posthog/electron@"]),
     "posthog-rails": lambda: fetch_sdk_data_from_releases("PostHog/posthog-ruby", tag_prefixes=["posthog-rails-v"]),
     "posthog-aspnetcore": lambda: fetch_sdk_data_from_releases(
         "PostHog/posthog-dotnet", tag_prefixes=["PostHog.AspNetCore-v"]
     ),
     "posthog-rs": lambda: fetch_rust_sdk_data(),
     "posthog-rs-mcp": lambda: fetch_rust_sdk_data(),
+    "posthog-rs-ffi": lambda: fetch_rust_ffi_sdk_data(),
     "posthog-godot": lambda: fetch_sdk_data_from_releases(
         "PostHog/posthog-godot", tag_prefixes=[UNPREFIXED_SEMVER_TAG]
     ),
@@ -335,6 +338,11 @@ def fetch_rust_sdk_data() -> dict[str, Any]:
     return fetch_sdk_data_from_releases("PostHog/posthog-rs", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
+def fetch_rust_ffi_sdk_data() -> dict[str, Any]:
+    """Use the C bindings' own release tags, not the Rust SDK's."""
+    return fetch_sdk_data_from_releases("PostHog/posthog-rs", tag_prefixes=["posthog-rs-ffi-v"])
+
+
 def fetch_go_sdk_data() -> dict[str, Any]:
     """Fetch Go SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-go", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
@@ -342,7 +350,12 @@ def fetch_go_sdk_data() -> dict[str, Any]:
 
 def fetch_php_sdk_data() -> dict[str, Any]:
     """Fetch PHP SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-php")
+    return fetch_sdk_data_from_releases("PostHog/posthog-php", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
+
+
+def fetch_laravel_sdk_data() -> dict[str, Any]:
+    """Use Laravel's independent source tags, not PHP or distribution release tags."""
+    return fetch_sdk_data_from_releases("PostHog/posthog-php", tag_prefixes=["laravel-v"])
 
 
 def fetch_ruby_sdk_data() -> dict[str, Any]:

@@ -1,6 +1,11 @@
+import { router } from 'kea-router'
+
+import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import type { SettingSectionId } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 
 import { commandKSearchLogic } from './commandKSearchLogic'
@@ -17,30 +22,75 @@ describe('commandKSearchLogic', () => {
 
     afterEach(() => logic.unmount())
 
+    test.each<[boolean, string[]]>([
+        [false, []],
+        [true, ['Home', 'Chats', 'Analytics', 'People', 'Products', 'Settings']],
+    ])('with the new navigation set to %s, lists its sidebar sections', (enabled, names) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: enabled })
+
+        expect(logic.values.localLists.sidebar.map((item) => item.name)).toEqual(names)
+    })
+
+    it('opens the sidebar section of a sidebar row', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+        const shell = todayShellLogic()
+        shell.mount()
+
+        logic.values.localLists.sidebar.find((item) => item.name === 'People')?.onSelect?.()
+
+        expect(shell.values.activePane).toBe('people')
+        expect(shell.values.sidebarOpen).toBe(true)
+        shell.unmount()
+    })
+
     test.each([
         ['typing', (): void => logic.actions.inputChanged('revenue', 7, false)],
         ['clearing the input', (): void => logic.actions.clearQuery()],
         ['removing a chip', (): void => logic.actions.applyKeyIntent({ type: 'remove-chip', index: 0 })],
-    ])('a new query from %s drops the remembered highlight', (_, changeQuery) => {
+    ])('a new query from %s drops the remembered highlight and collapses expanded groups', (_, changeQuery) => {
         logic.actions.setChipsAndText([{ key: 'is', value: 'dashboard', label: 'Dashboard', negated: false }], 'rev', 3)
         logic.actions.setHighlightedKey('recents/dashboard:1')
+        logic.actions.activateRow(
+            { kind: 'expand', key: 'group-settings/expand', group: 'settings', label: 'Show all 11 settings' },
+            false,
+            'enter'
+        )
+        expect(logic.values.expandedGroups).toEqual(['settings'])
 
         changeQuery()
 
         expect(logic.values.highlightedKey).toBeNull()
+        expect(logic.values.expandedGroups).toEqual([])
     })
 
     test.each([
         ['retries a query whose request failed', true, undefined],
         ['reuses a query whose request answered', false, []],
     ])('%s when it is searched again', (_, failed, cached) => {
-        logic.actions.remoteLoaded('ada', { persons: [] }, failed)
+        logic.actions.remoteLoaded('ada', { persons: { items: [] } }, failed)
         const remoteBefore = logic.values.remote
 
         logic.actions.requestsStarted({ persons: 'ada', objects: 'ada' })
 
         expect(logic.values.remote.persons.cache['ada']).toEqual(cached)
         expect(logic.values.remote === remoteBefore).toBe(!failed)
+    })
+
+    it('remembers which persons query has more matches, and forgets it when the query loads again without', () => {
+        logic.actions.remoteLoaded('ada', { persons: { items: [], more: true } })
+        expect(logic.values.remote.persons.more).toEqual({ ada: true })
+
+        logic.actions.remoteLoaded('ada', { persons: { items: [] } })
+        expect(logic.values.remote.persons.more).toEqual({})
+    })
+
+    it('keeps the See all persons row when a search returns to a query it already loaded', () => {
+        logic.actions.remoteLoaded('ada', { persons: { items: [], more: true } })
+
+        logic.actions.inputChanged('ada', 3, false)
+
+        expect(logic.values.remoteQueries.persons).toBe('ada')
+        expect(logic.values.remote.persons.more).toEqual({ ada: true })
     })
 
     it('arrow up from the first row returns to the input, and arrow down stops at the last row', () => {
@@ -62,18 +112,17 @@ describe('commandKSearchLogic', () => {
         ['answered with nothing', false, { from: 'zzq_xyw', to: 'zzq xyw' }],
         ['answered, but one failed', true, null],
     ])('corrects a search only after every source %s', (_, oneFailed, expected) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: 'test' })
         logic.actions.inputChanged('zzq_xyw', 7, false)
         const sources = Object.keys(logic.values.remoteQueries)
         expect(sources.length).toBeGreaterThan(1)
 
-        logic.actions.remoteLoaded('zzq_xyw', { results: [] })
+        logic.actions.remoteLoaded('zzq_xyw', { results: { items: [] } })
         expect(logic.values.searchCorrection).toBeNull()
 
         sources.forEach((source, index) => {
             logic.actions.remoteLoaded(
                 'zzq_xyw',
-                { [source]: [] } as RemoteResults,
+                { [source]: { items: [] } } as RemoteResults,
                 oneFailed && index === sources.length - 1
             )
         })
@@ -106,5 +155,69 @@ describe('commandKSearchLogic', () => {
 
         expect(logic.values.chips).toEqual([expect.objectContaining({ key: 'is', value: 'insight', negated: false })])
         expect(logic.values.text).toEqual('revenue')
+    })
+
+    it('moves the highlight to the first new setting when a Show all row from an earlier render is clicked', () => {
+        searchListsLogic({ commandPalette: true }).actions.setSettingsMap(
+            Array.from({ length: 10 }, (_, index) => ({
+                id: `user-zebra-${index}` as SettingSectionId,
+                level: 'user' as const,
+                title: `Zebra ${index}`,
+                settings: [],
+            }))
+        )
+        logic.actions.inputChanged('zebra', 5, false)
+        const query = logic.values.remoteQueries.results as string
+        logic.actions.remoteLoaded(query, {
+            results: {
+                items: [
+                    {
+                        id: 'dashboard-1',
+                        name: 'Zebra board',
+                        category: 'results',
+                        record: { type: 'dashboard', ref: '1' },
+                        rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0],
+                    },
+                ],
+            },
+        })
+        const renderedRow = logic.values.selectableRows.find((row) => row.kind === 'expand')
+        expect(renderedRow).toBeTruthy()
+        const index = logic.values.selectableRows.indexOf(renderedRow!)
+
+        logic.actions.remoteLoaded(query, { persons: { items: [] } })
+        expect(logic.values.selectableRows).not.toContain(renderedRow)
+        logic.actions.activateRow(renderedRow!, false, 'click')
+
+        const revealed = logic.values.selectableRows[index]
+        expect(revealed).toMatchObject({ kind: 'item', item: { category: 'settings' } })
+        expect(logic.values.highlightedKey).toBe(revealed.key)
+    })
+
+    it('scrolls back to a setting when its result is opened on the page that already shows it', () => {
+        router.actions.push('/settings/project-customization#base-currency')
+        const heading = document.createElement('h2')
+        heading.id = 'base-currency'
+        heading.scrollIntoView = jest.fn()
+        document.body.appendChild(heading)
+
+        logic.actions.activateRow(
+            {
+                kind: 'item',
+                key: 'group-settings/settings-project-customization-base-currency',
+                section: 'settings',
+                item: {
+                    id: 'settings-project-customization-base-currency',
+                    name: 'Base currency',
+                    category: 'settings',
+                    href: '/settings/project-customization#base-currency',
+                },
+            },
+            false,
+            'enter'
+        )
+
+        expect(heading.scrollIntoView).toHaveBeenCalled()
+        heading.remove()
     })
 })

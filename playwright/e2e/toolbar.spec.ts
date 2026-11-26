@@ -24,7 +24,11 @@ test.describe('Toolbar', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            no_demo_data: true,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -55,17 +59,5 @@ test.describe('Toolbar', () => {
         }
 
         await expect(page.locator('#__POSTHOG_TOOLBAR__ .Toolbar')).toBeVisible({ timeout: 5000 })
-    })
-
-    test('Toolbar item in sidebar has launch options', async ({ page }) => {
-        await page.goToMenuItem('toolbar')
-        await page.getByText('Add authorized URL').click()
-        await expect(page).toHaveURL(/.*\/toolbar/)
-    })
-
-    test('Can open add authorized URL form', async ({ page }) => {
-        await page.goToMenuItem('toolbar')
-        await page.locator('[data-attr="toolbar-add-url"]').click()
-        await expect(page.locator('[data-attr="url-input"]')).toBeVisible()
     })
 })

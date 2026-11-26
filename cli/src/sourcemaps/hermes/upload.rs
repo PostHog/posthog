@@ -126,6 +126,12 @@ pub fn upload(args: &Args) -> Result<()> {
         uploads.push(map.try_into()?);
     }
 
+    if *release_mode == ReleaseMode::SymbolSet
+        && uploads.iter().any(|upload| upload.release_id.is_none())
+    {
+        warn!("No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.");
+    }
+
     // A run that discovers nothing must fail rather than exit green: in build pipelines this
     // command runs right after bundling, so an empty result means the maps or their ids went
     // missing, and a silent success ships a build whose exceptions never symbolicate.

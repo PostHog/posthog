@@ -11,6 +11,7 @@ from posthoganalytics.ai.utils import _capture_ai_event
 
 from llm_gateway.auth.models import AuthenticatedUser, resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
+from llm_gateway.config import POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS, POSTHOG_SYNC_SEND_MAX_RETRIES
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
@@ -88,6 +89,7 @@ def _apply_owned_event_properties(
     can attribute usage to a customer team.
     """
     properties["ai_product"] = product
+    properties["$update_person_last_seen_at"] = False
     properties["$ai_billable"] = _is_product_billable(product)
     # Unique per event: one request can emit several (a provider fallback, a retry) and
     # consumers key on this, so a shared value collapses them.
@@ -458,10 +460,12 @@ class PostHogCallback(InstrumentedCallback):
             api_key,
             host=host,
             sync_mode=True,
+            max_retries=POSTHOG_SYNC_SEND_MAX_RETRIES,
+            capture_ai_timeout=POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS,
             enable_local_evaluation=False,
-            # Multimodal capture implies the AI lane, so one setting governs both.
-            _use_ai_lane=self._ai_lane_capture,
-            _enable_multimodal_capture=self._ai_lane_capture,
+            # Only the SDK's provider wrappers read this setting. `capture_ai` sends
+            # the content as given, so it does not change what the gateway sends.
+            enable_full_ai_capture=self._ai_lane_capture,
         )
         try:
             _capture_ai_event(client, **capture_kwargs)

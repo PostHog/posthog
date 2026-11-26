@@ -21,8 +21,7 @@ from django.conf import settings
 
 import structlog
 from temporalio.client import Client
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -132,17 +131,26 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     descriptions: dict[str, str] = {}
 
     # Parent saved queries (other views this one reads from) → their view-level description.
+    stored_names = parent_names | {name.removeprefix("models.") for name in parent_names}
     parent_views = {
         sq.id: sq.name
-        for sq in DataWarehouseSavedQuery.objects.filter(team=team, deleted=False, name__in=parent_names).only(
+        for sq in DataWarehouseSavedQuery.objects.filter(team=team, deleted=False, name__in=stored_names).only(
             "id", "name"
         )
     }
     if parent_views:
-        for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).filter(
-            saved_query_id__in=list(parent_views), column_name=""
-        ):
-            descriptions[parent_views[annotation.saved_query_id]] = annotation.description
+        view_descriptions = {
+            parent_views[annotation.saved_query_id]: annotation.description
+            for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).filter(
+                saved_query_id__in=list(parent_views), column_name=""
+            )
+        }
+        stored_view_names = set(parent_views.values())
+        for name in parent_names:
+            # A view stored under the exact name wins, as in HogQL. Otherwise `models.<name>` reads the view `<name>`.
+            stored_name = name if name in stored_view_names else name.removeprefix("models.")
+            if stored_name in view_descriptions:
+                descriptions[name] = view_descriptions[stored_name]
 
     # Physical warehouse tables → their table-level description. Use values_list rather than .only():
     # the default manager eager-loads created_by/external_data_source via select_related, which conflicts
@@ -667,7 +675,7 @@ def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
     """Start the enrichment workflow on the metadata queue. Never breaks the caller's save."""
     # Deferred: the activities module imports the facade, which imports this module — a module-level
     # import would be circular.
-    from posthog.temporal.data_modeling.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
+    from products.data_modeling.backend.temporal.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
 
     try:
         temporal: Client = sync_connect()
@@ -678,10 +686,9 @@ def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
                 id=f"enrich-view-semantics-{saved_query_id}",
                 task_queue=str(settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
         )
-    except WorkflowAlreadyStartedError:
-        logger.info("view_enrichment.workflow_already_running", saved_query_id=saved_query_id)
     except Exception as e:
         capture_exception(e)

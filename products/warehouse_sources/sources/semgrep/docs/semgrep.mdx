@@ -58,16 +58,23 @@ re-reads the resource and merges on the primary key. Findings are deduplicated a
 
 <SourceTables />
 
-Rows in the `projects`, `sast_findings`, `sca_findings`, and `secrets` tables carry an extra
-`deployment_id` and `deployment_slug` column added by PostHog so you can join them back to the
-`deployments` table.
+Rows in every table except `deployments` carry an extra `deployment_id` and `deployment_slug`
+column added by PostHog so you can join them back to the `deployments` table. Rows in the
+`dependency_lockfiles` table also carry `repository_id` and `repository_name`, and rows in the
+`dependencies` table carry a `dependency_key` column that PostHog computes, because Semgrep gives
+dependencies no ID.
+
+The `scans` table holds the scans of the last 30 days, which is what Semgrep's API returns. The
+`scans`, `dependencies`, `dependency_repositories`, and `dependency_lockfiles` tables use API
+endpoints that Semgrep marks as experimental.
 
 ## Troubleshooting
 
 - **"Invalid Semgrep API token"** when connecting: the token is wrong, has been revoked, or is missing
   the **Web API** scope. Create a new token under **Settings → Tokens** and re-enter it.
 - **Sync fails with a 403**: your plan may not include API access to a synced resource (for example,
-  the `secrets` table requires the Semgrep Secrets product). Deselect the affected table or upgrade
+  the `secrets` table requires the Semgrep Secrets product, and the dependency tables require Semgrep
+  Supply Chain). Deselect the affected table or upgrade
   your Semgrep plan.
 
 <TroubleshootingLink />

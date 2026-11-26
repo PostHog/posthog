@@ -3,11 +3,15 @@
 Frozen dataclasses that cross the event_definitions boundary. No Django imports.
 """
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
 from .enums import PropertyDefinitionType, PropertyType
+
+# The definition tables that have a team-scoped metadata copy
+DefinitionKind = Literal["event", "property"]
 
 
 @dataclass(frozen=True)

@@ -11,7 +11,7 @@ import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -22,6 +22,10 @@ from products.warehouse_sources.sources.similarweb.settings import (
     BASE_URL,
     CAPABILITIES_PATH,
     CHUNK_ROWS,
+    CONVERSION_ANALYSIS,
+    CONVERSION_COUNTRY_ERROR,
+    CONVERSION_SEGMENTS_PATH,
+    DEDUPLICATED_AUDIENCE,
     DEFAULT_COUNTRY,
     MAX_DOMAINS,
     PAGE_LIMIT,
@@ -29,6 +33,8 @@ from products.warehouse_sources.sources.similarweb.settings import (
     TRAFFIC_SOURCES,
     V5_ENGAGEMENT_PATH,
     V5_WORLDWIDE_COUNTRY,
+    VISITS_SPLIT,
+    WEBSITE_KEYWORDS,
     SimilarwebEndpointConfig,
 )
 
@@ -46,6 +52,7 @@ class SimilarwebResumeConfig:
     next_domain_index: int
     # Offset within that domain's result set, for the offset-paginated tables.
     next_offset: int = 0
+    next_month: str | None = None
 
 
 def parse_domains(raw: Optional[str]) -> list[str]:
@@ -151,6 +158,8 @@ def _prepare_request(
 
     url = f"{BASE_URL}{config.path.format(domain=quote(domain, safe=''))}"
     legacy_params = _build_params(api_key, config, country, granularity, start_month, end_month, offset=offset)
+    if config.name == WEBSITE_KEYWORDS:
+        legacy_params.update(URL=domain, traffic_source="All", web_source="Total", branded_type="All")
     return _PreparedRequest(url=url, params=legacy_params, headers={})
 
 
@@ -239,6 +248,10 @@ def _series_rows(
             logger.warning(f"Similarweb: dropping {config.name} row for '{domain}' with unparsable date")
             continue
         row: dict[str, Any] = {"domain": domain, **item, "date": parsed_date}
+        if config.name == DEDUPLICATED_AUDIENCE:
+            dedup_data = row.pop("dedup_data", None)
+            if isinstance(dedup_data, dict):
+                row.update(dedup_data)
         if config.accepts_country:
             row["country"] = country
         if config.accepts_granularity:
@@ -319,11 +332,124 @@ def _resolve_window(
         # Similarweb's no-date "last 28 days" default is only valid for daily/weekly granularity, so
         # a monthly request must carry an explicit window; fall back to the current month rather than
         # send an invalid monthly/no-date request.
-        if config.accepts_granularity and granularity == "monthly":
+        if config.requires_dates or (config.accepts_granularity and granularity == "monthly"):
             return current_month, current_month
         return None, None
 
     return start_month, current_month
+
+
+def _keyword_chunks(
+    session: requests.Session,
+    config: SimilarwebEndpointConfig,
+    domains: list[str],
+    api_key: str,
+    country: str,
+    start_month: str,
+    end_month: str,
+    resumable_source_manager: ResumableSourceManager[SimilarwebResumeConfig],
+    logger: FilteringBoundLogger,
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    month = start_month
+    start_index = 0
+    start_offset = 0
+    if resume is not None and resume.next_month is not None and start_month <= resume.next_month <= end_month:
+        month = resume.next_month
+        start_index = resume.next_domain_index
+        start_offset = resume.next_offset
+
+    # This endpoint accepts one month per request. Finish every domain before advancing the watermark.
+    while month <= end_month:
+        for index in range(start_index, len(domains)):
+            domain = domains[index]
+            offset = start_offset if index == start_index else 0
+            while True:
+                prepared = _prepare_request(
+                    api_key, api_version, config, domain, country, "monthly", month, month, offset=offset
+                )
+                rows = _record_rows(_request(session, prepared, config, domain, logger), config, domain)
+                last_page = len(rows) < PAGE_LIMIT
+                resumable_source_manager.save_state(
+                    SimilarwebResumeConfig(
+                        next_domain_index=index + 1 if last_page else index,
+                        next_offset=0 if last_page else offset + PAGE_LIMIT,
+                        next_month=month,
+                    )
+                )
+                if rows:
+                    yield [{**row, "country": country, "date": _parse_row_date(month)} for row in rows]
+                if last_page:
+                    break
+                offset += PAGE_LIMIT
+        year, month_number = map(int, month.split("-"))
+        month = f"{year + (month_number == 12):04d}-{month_number % 12 + 1:02d}"
+        start_index = start_offset = 0
+    resumable_source_manager.clear_state()
+
+
+def _conversion_rows(
+    session: requests.Session,
+    config: SimilarwebEndpointConfig,
+    domains: list[str],
+    api_key: str,
+    country: str,
+    start_month: str,
+    end_month: str,
+    logger: FilteringBoundLogger,
+    api_version: str,
+) -> list[dict[str, Any]]:
+    if country == DEFAULT_COUNTRY:
+        raise ValueError(CONVERSION_COUNTRY_ERROR)
+    prepared = _PreparedRequest(url=f"{BASE_URL}{CONVERSION_SEGMENTS_PATH}", params={"api_key": api_key}, headers={})
+    body = _request(session, prepared, config, "conversion segments", logger)
+    response = body.get("response") or {}
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for segment in response.get("segments") or []:
+        sites = parse_domains(segment.get("site"))
+        domain = sites[0] if sites else None
+        segment_id = segment.get("segment_id")
+        if domain is None or domain not in domains or not isinstance(segment_id, str) or not segment_id:
+            continue
+        if country not in {code.lower() for code in segment.get("available_countries") or []}:
+            continue
+        if (domain, segment_id) in seen:
+            continue
+        seen.add((domain, segment_id))
+        params = _build_params(api_key, config, country, "monthly", start_month, end_month)
+        params.update(
+            granularity="monthly", metrics="visits,converted-visits,conversion-rate,stickiness", channel="total"
+        )
+        # The segment catalog can return IDs with an encoded '#'. Encode each ID only once.
+        path = config.path.format(conversion_segment_id=quote(unquote(segment_id), safe=""))
+        prepared = _PreparedRequest(url=f"{BASE_URL}{path}", params=params, headers={})
+        body = _request(session, prepared, config, domain, logger)
+        for row in _series_rows(body, config, domain, country, "monthly", logger, api_version):
+            rows.append({**row, "conversion_segment_id": segment_id})
+    return rows
+
+
+def _visits_split_chunks(
+    session: requests.Session,
+    config: SimilarwebEndpointConfig,
+    domains: list[str],
+    api_key: str,
+    country: str,
+    start_month: str,
+    end_month: str,
+    logger: FilteringBoundLogger,
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    for domain in domains:
+        prepared = _prepare_request(api_key, api_version, config, domain, country, "monthly", start_month, end_month)
+        body = _request(session, prepared, config, domain, logger)
+        shares: dict[str, Any] = {
+            key: body[key] for key in ("desktop_visit_share", "mobile_web_visit_share") if key in body
+        }
+        if shares:
+            yield [{"domain": domain, "country": country, "start_date": start_month, "end_date": end_month, **shares}]
 
 
 def _paginated_rows(
@@ -388,13 +514,19 @@ def _series_chunks(
     which stays small for aggregate traffic data.
     """
     rows: list[dict[str, Any]] = []
-    for domain in domains:
-        prepared = _prepare_request(api_key, api_version, config, domain, country, granularity, start_month, end_month)
-        body = _request(session, prepared, config, domain, logger)
-        if config.name == TRAFFIC_SOURCES:
-            rows.extend(_traffic_sources_rows(body, config, domain, country, granularity, logger))
-        else:
-            rows.extend(_series_rows(body, config, domain, country, granularity, logger, api_version))
+    if config.name == CONVERSION_ANALYSIS:
+        assert start_month is not None and end_month is not None
+        rows = _conversion_rows(session, config, domains, api_key, country, start_month, end_month, logger, api_version)
+    else:
+        for domain in domains:
+            prepared = _prepare_request(
+                api_key, api_version, config, domain, country, granularity, start_month, end_month
+            )
+            body = _request(session, prepared, config, domain, logger)
+            if config.name == TRAFFIC_SOURCES:
+                rows.extend(_traffic_sources_rows(body, config, domain, country, granularity, logger))
+            else:
+                rows.extend(_series_rows(body, config, domain, country, granularity, logger, api_version))
 
     rows.sort(key=lambda row: (row["date"], row["domain"]))
 
@@ -427,6 +559,35 @@ def _get_rows(
 
     # The key rides in a query param, so it has to be named explicitly for redaction.
     session = make_tracked_session(redact_values=(api_key,))
+
+    if config.name in (WEBSITE_KEYWORDS, VISITS_SPLIT):
+        assert start_month is not None and end_month is not None
+        if config.name == WEBSITE_KEYWORDS:
+            yield from _keyword_chunks(
+                session,
+                config,
+                domains[:MAX_DOMAINS],
+                api_key,
+                normalized_country,
+                start_month,
+                end_month,
+                resumable_source_manager,
+                logger,
+                api_version,
+            )
+        else:
+            yield from _visits_split_chunks(
+                session,
+                config,
+                domains[:MAX_DOMAINS],
+                api_key,
+                normalized_country,
+                start_month,
+                end_month,
+                logger,
+                api_version,
+            )
+        return
 
     if config.paginated:
         yield from _paginated_rows(

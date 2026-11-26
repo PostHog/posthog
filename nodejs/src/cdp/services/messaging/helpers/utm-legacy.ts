@@ -1,4 +1,5 @@
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
+import { escapeHtml } from './escape-html'
 import type { UtmTags } from './utm'
 
 // The previous link scanner, unchanged. Teams outside CDP_EMAIL_UTM_LINK_SCANNER_TEAMS still run it, so the
@@ -80,9 +81,7 @@ const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): stri
         return anchor
     }
     const quote = href[2] !== undefined ? '"' : "'"
-    const encoded = tagged
-        .replace(/&/g, '&amp;')
-        .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
+    const encoded = escapeHtml(tagged)
     const start = href.index! + href[0].indexOf('=')
     return anchor.slice(0, start) + `=${quote}${encoded}${quote}` + anchor.slice(href.index! + href[0].length)
 }

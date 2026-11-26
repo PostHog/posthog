@@ -3,13 +3,15 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import type {
+    MetricThresholdConfigApi,
+    ReportMetricApi,
     SignalReportStatusEnumApi,
     SignalReportCheckApi,
     SignalReportCheckInconclusiveReasonEnumApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportArtefact } from '../../types'
-import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
+import { scoutNameForSkill, withScoutNoun } from '../../utils/scoutRunsWindow'
 import type {
     CheckCancelledContent,
     CheckExpiredContent,
@@ -81,24 +83,37 @@ function soakLabel(minutes: number): string {
     return hours ? `${plural(days, 'day')} ${plural(hours, 'hour')}` : plural(days, 'day')
 }
 
+/** Skill name → the scout's display name, from `scoutFleetLogic.scoutNamesBySkill`. */
+type ScoutNames = Readonly<Record<string, string>>
+
 /** Which scout answers an `agent` check. A `metric_threshold` check has no lane: the coordinator measures it. */
-function scoutLaneLabel(kind: string | undefined, skillName: string | null | undefined): string | null {
+function scoutLaneLabel(
+    kind: string | undefined,
+    skillName: string | null | undefined,
+    scoutNames: ScoutNames | undefined
+): string | null {
     if (kind !== 'agent') {
         return null
     }
-    return skillName ? prettifyScoutSkillName(skillName) : FALLBACK_LANE_LABEL
+    return skillName ? scoutNameForSkill(scoutNames, skillName) : FALLBACK_LANE_LABEL
 }
 
 /** The lane as a clause: "Error tracking scout runs it", or "The follow-up scout runs it". */
-function laneRunsIt(kind: string | undefined, skillName: string | null | undefined): string | null {
+function laneRunsIt(
+    kind: string | undefined,
+    skillName: string | null | undefined,
+    scoutNames: ScoutNames | undefined
+): string | null {
     if (kind !== 'agent') {
         return null
     }
-    return skillName ? `${prettifyScoutSkillName(skillName)} scout runs it` : `${FALLBACK_LANE_LABEL} runs it`
+    return skillName
+        ? `${withScoutNoun(scoutNameForSkill(scoutNames, skillName))} runs it`
+        : `${FALLBACK_LANE_LABEL} runs it`
 }
 
-function laneLabel(check: SignalReportCheckApi): string | null {
-    return scoutLaneLabel(check.kind, 'skill_name' in check.config ? check.config.skill_name : null)
+function laneLabel(check: SignalReportCheckApi, scoutNames: ScoutNames | undefined): string | null {
+    return scoutLaneLabel(check.kind, 'skill_name' in check.config ? check.config.skill_name : null, scoutNames)
 }
 
 function shortDate(value: string): string {
@@ -123,9 +138,26 @@ function joinDetail(parts: (string | null | undefined)[]): string {
 }
 
 const MONITORING_CHECK_ROWS: Record<
-    NonNullable<SignalReportCheckApi['monitoring_timing']>['state'],
+    | NonNullable<SignalReportCheckApi['monitoring_timing']>['state']
+    | NonNullable<NonNullable<SignalReportCheckApi['monitoring_timing']>['final_verification_state']>,
     Pick<ReportCheckRowData, 'tag' | 'detail'>
 > = {
+    monitoring: {
+        tag: { label: 'Monitoring', type: 'primary' },
+        detail: 'Final verification is scheduled for the end of this check’s observation window.',
+    },
+    verifying: {
+        tag: { label: 'Verifying', type: 'primary' },
+        detail: 'The scout is running the final check.',
+    },
+    assessment_required: {
+        tag: { label: 'Inconclusive', type: 'warning' },
+        detail: 'Final verification could not settle this check. Further assessment is needed.',
+    },
+    verification_complete: {
+        tag: { label: 'Verification complete', type: 'info' },
+        detail: 'A final verdict has been recorded for this check.',
+    },
     scheduled: {
         tag: { label: 'Scheduled', type: 'primary' },
         detail: 'Interim measurements collect evidence during this check’s observation window.',
@@ -136,7 +168,7 @@ const MONITORING_CHECK_ROWS: Record<
     },
     window_ended: {
         tag: { label: 'Awaiting verification', type: 'warning' },
-        detail: 'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+        detail: 'The observation window has ended. Final verification is pending.',
     },
     no_interim_measurements: {
         tag: { label: 'Observing', type: 'primary' },
@@ -164,9 +196,25 @@ const MONITORING_CHECK_ROWS: Record<
     },
 }
 
+function pendingCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const start = check.soak_minutes
+        ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
+        : 'Starts when this report is resolved'
+    return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+}
+
+function runningCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const startedAgo = dayjs(check.dispatched_at).fromNow()
+    return {
+        tag: { label: 'Running', type: 'primary' },
+        detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
+    }
+}
+
 function openCheckRow(
     check: SignalReportCheckApi,
-    reportStatus: SignalReportStatusEnumApi
+    reportStatus: SignalReportStatusEnumApi,
+    scoutNames: ScoutNames | undefined
 ): Pick<ReportCheckRowData, 'tag' | 'detail'> {
     if (reportStatus !== 'monitoring') {
         return {
@@ -175,23 +223,16 @@ function openCheckRow(
         }
     }
     if (check.monitoring_timing) {
-        return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
+        return MONITORING_CHECK_ROWS[check.monitoring_timing.final_verification_state ?? check.monitoring_timing.state]
     }
-    const lane = laneLabel(check)
+    const lane = laneLabel(check, scoutNames)
 
     if (check.status === 'pending') {
-        const start = check.soak_minutes
-            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
-        return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+        return pendingCheckRow(check, lane)
     }
 
     if (isRunning(check)) {
-        const startedAgo = dayjs(check.dispatched_at).fromNow()
-        return {
-            tag: { label: 'Running', type: 'primary' },
-            detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
-        }
+        return runningCheckRow(check, lane)
     }
 
     // An `awaiting_data` verdict keeps the check open, so the row says why it looks again.
@@ -287,7 +328,8 @@ export function latestCheckExplanations(artefacts: SignalReportArtefact[]): Map<
 export function buildReportCheckRows(
     checks: SignalReportCheckApi[],
     explanations: Map<string, string>,
-    reportStatus: SignalReportStatusEnumApi
+    reportStatus: SignalReportStatusEnumApi,
+    scoutNames?: ScoutNames
 ): ReportCheckRowData[] {
     return [...checks]
         .sort((a, b) => {
@@ -300,7 +342,9 @@ export function buildReportCheckRows(
             return {
                 check,
                 reportStatus,
-                ...(open ? openCheckRow(check, reportStatus) : terminalCheckRow(check, explanations.get(check.id))),
+                ...(open
+                    ? openCheckRow(check, reportStatus, scoutNames)
+                    : terminalCheckRow(check, explanations.get(check.id))),
                 cancelled: check.status === 'cancelled',
                 cancellable: open,
             }
@@ -390,8 +434,12 @@ function pendingCheckTiming(content: CheckScheduledContent, monitoringEnabled: b
  * The entry written when a check is attached. A check on an open report has no date to give yet,
  * so it says what starts the clock instead of naming a day it cannot keep.
  */
-export function checkScheduledEntry(content: CheckScheduledContent, monitoringEnabled = false): CheckLifecycleEntry {
-    const lane = laneRunsIt(content.kind, content.skill_name)
+export function checkScheduledEntry(
+    content: CheckScheduledContent,
+    monitoringEnabled = false,
+    scoutNames?: ScoutNames
+): CheckLifecycleEntry {
+    const lane = laneRunsIt(content.kind, content.skill_name, scoutNames)
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
 
     if (content.arms_on_resolve) {
@@ -440,9 +488,31 @@ export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecy
 /** Which builder reads each lifecycle entry, so the renderer needs one arm rather than three. */
 export const CHECK_LIFECYCLE_ENTRIES: Record<
     string,
-    (content: CheckLifecycleContent, monitoringEnabled?: boolean) => CheckLifecycleEntry
+    (content: CheckLifecycleContent, monitoringEnabled?: boolean, scoutNames?: ScoutNames) => CheckLifecycleEntry
 > = {
     check_scheduled: checkScheduledEntry,
     check_expired: checkExpiredEntry,
     check_cancelled: checkCancelledEntry,
+}
+
+export function reportCheckMetric(
+    check: SignalReportCheckApi
+): { config: MetricThresholdConfigApi; metric: ReportMetricApi } | null {
+    if (check.kind !== 'metric_threshold' || !('comparison' in check.config)) {
+        return null
+    }
+    const config = check.config
+    return {
+        config,
+        metric: {
+            metric_id: config.metric_id ?? check.id,
+            title: check.title,
+            kind: config.metric_kind ?? 'custom',
+            query: config.query,
+            value_format: config.value_format ?? 'number',
+            unit: config.unit,
+            goal_value: config.comparison.operator === 'between' ? null : config.comparison.value,
+            goal_direction: config.comparison.operator === 'lte' ? 'at_most' : 'at_least',
+        },
+    }
 }

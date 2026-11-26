@@ -50,7 +50,7 @@ class AivenSource(SimpleSource[AivenSourceConfig]):
             name=ExternalDataSourceType.AIVEN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Aiven",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter an Aiven API token to pull your Aiven projects, services and billing data into the PostHog Data warehouse.
 
 You can create a personal token from your [Aiven profile authentication page](https://console.aiven.io/profile/auth).

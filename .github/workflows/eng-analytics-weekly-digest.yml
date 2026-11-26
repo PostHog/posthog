@@ -1,17 +1,17 @@
 name: Engineering analytics weekly digest
 
-# Posts last week's Depot spend and pull request figures to #alerts-devex every Monday.
+# Posts last week's Depot spend, pull request figures and slow PR workflows to #alerts-devex every Monday.
 # .github/scripts/eng-analytics-weekly-digest.mjs says where each figure comes from.
 #
 # Required. Until these are set, the job logs a warning and posts nothing:
-#   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project with the GitHub and Depot warehouse sources.
+#   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project with the GitHub warehouse source.
 #   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY: a personal API key for that project, scoped to
 #     engineering_analytics:read.
 #   - secrets.SLACK_DEVEX_BOT_TOKEN: the DevEx Slack bot.
 #
 # Optional:
-#   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage. Without it the digest
-#     posts no spend.
+#   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage and the credit balance.
+#     Without it the digest posts no spend.
 #   - vars.DEPOT_CONTRACT_USD: the Depot contract's usage allowance in list-price dollars.
 #   - vars.DEPOT_CONTRACT_START and vars.DEPOT_CONTRACT_END: the contract dates, as YYYY-MM-DD.
 #     Without all three the digest posts no contract sentence.
@@ -32,9 +32,9 @@ permissions:
 jobs:
     digest:
         runs-on: ubuntu-24.04
-        # The endpoint calls run in parallel. The slowest takes about 8.5 minutes: 3 attempts of 150s
-        # with 30s between them.
-        timeout-minutes: 12
+        # The script stops reading Depot usage after DEPOT_TIME_BUDGET_MS (20 minutes) and posts without
+        # spend. This limit leaves room past that for one day's retries and the Slack post.
+        timeout-minutes: 30
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
         if: >-

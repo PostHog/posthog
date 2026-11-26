@@ -2,13 +2,13 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import {
     type TraceDialogCloseReason,
     type TraceDialogEntryPoint,
     type TraceDialogSource,
     traceDialogOpenLogic,
 } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
+import type { OpenTraceDialogOptions } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
 import { dayjs } from 'lib/dayjs'
 
@@ -19,27 +19,19 @@ import {
     resolveTraceSessionId,
     type TraceIdentity,
 } from 'products/tracing/frontend/traceIdentity'
-import { resolveTraceLookupRange } from 'products/tracing/frontend/traceLinks'
+import { type TraceSpanPages, loadTraceSpanPages } from 'products/tracing/frontend/traceSpanPages'
 import { tracingConfigLogic } from 'products/tracing/frontend/tracingConfigLogic'
 import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
 import type { Span, SpanInspectorTab, TraceViewMode } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
-
-// The trace endpoint pages at 2,000 spans, so this caps the dialog at 10,000. Bigger traces open in
-// Tracing, which pages in on scroll.
-const TRACE_DIALOG_MAX_PAGES = 5
+import type { TraceRunToggleMethod, TraceViewSurface } from '../TraceView/traceViewLogic'
 
 // Pinned: autocapture and the span keys both match on the dialog's data-attr.
 export const TRACE_DIALOG_DATA_ATTR = 'trace-dialog'
 const TRACE_DIALOG_SELECTOR = `[data-attr="${TRACE_DIALOG_DATA_ATTR}"]`
 
 export const TRACE_DIALOG_VIEW_ID = 'trace-dialog'
-
-export interface TraceDialogSpans {
-    spans: Span[]
-    truncated: boolean
-}
 
 interface TraceDialogSession {
     entryPoint: TraceDialogEntryPoint
@@ -72,14 +64,13 @@ export interface traceDialogLogicValues {
     traceViewMode: TraceViewMode // tracingConfigLogic
     configuredDistinctIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
-    correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     inspectorOpen: boolean
     isFullscreen: boolean
     openedAtUs: number | null
     traceIdentity: TraceIdentity
     traceSessionId: string | null
-    traceSpans: TraceDialogSpans | null
+    traceSpans: TraceSpanPages | null
     traceSpansFailed: boolean
     traceSpansLoading: boolean
 }
@@ -91,31 +82,31 @@ export interface traceDialogLogicActions {
     } // traceDialogOpenLogic
     openTraceDialog: (
         trace: TraceLinkParams,
-        options: import('lib/components/ViewTraceButton/traceDialogOpenLogic').OpenTraceDialogOptions
+        options: OpenTraceDialogOptions
     ) => {
         entryPoint: TraceDialogEntryPoint
         openedFrom: TraceDialogSource | null
         trace: {
             spanId: string | null
             traceId: string
-            ts?: string | null | undefined
+            ts?: string | null
         }
     } // traceDialogOpenLogic
-    collapseSelectedSpan: (surface: import('../TraceView/traceViewLogic').TraceViewSurface) => {
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+    collapseSelectedSpan: (surface: TraceViewSurface) => {
+        surface: TraceViewSurface
     } // traceViewLogic
     disableSpanKeys: () => {
         value: true
     } // traceViewLogic
     enableSpanKeys: (
         containerSelector: string,
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface
     ) => {
         containerSelector: string
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface
     } // traceViewLogic
-    expandSelectedSpan: (surface: import('../TraceView/traceViewLogic').TraceViewSurface) => {
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+    expandSelectedSpan: (surface: TraceViewSurface) => {
+        surface: TraceViewSurface
     } // traceViewLogic
     selectNextSpan: () => {
         value: true
@@ -128,9 +119,9 @@ export interface traceDialogLogicActions {
     } // traceViewLogic
     setInspectorTab: (
         tab: SpanInspectorTab,
-        surface?: import('../TraceView/traceViewLogic').TraceViewSurface | undefined
+        surface?: TraceViewSurface | undefined
     ) => {
-        surface: null | import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface | null
         tab: SpanInspectorTab
     } // traceViewLogic
     setSpans: (spans: Span[]) => {
@@ -151,12 +142,12 @@ export interface traceDialogLogicActions {
     } // traceViewLogic
     toggleRun: (
         spanId: string,
-        method?: import('../TraceView/traceViewLogic').TraceRunToggleMethod | undefined,
-        surface?: import('../TraceView/traceViewLogic').TraceViewSurface | undefined
+        method?: TraceRunToggleMethod | undefined,
+        surface?: TraceViewSurface | undefined
     ) => {
-        method: null | import('../TraceView/traceViewLogic').TraceRunToggleMethod
+        method: TraceRunToggleMethod | null
         spanId: string
-        surface: null | import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface | null
     } // traceViewLogic
     toggleSpanCollapsed: (spanId: string) => {
         spanId: string
@@ -170,10 +161,10 @@ export interface traceDialogLogicActions {
         errorObject?: any
     }
     loadTraceSpansSuccess: (
-        traceSpans: TraceDialogSpans | null,
+        traceSpans: TraceSpanPages | null,
         payload?: TraceLinkParams
     ) => {
-        traceSpans: TraceDialogSpans | null
+        traceSpans: TraceSpanPages | null
         payload?: TraceLinkParams
     }
     openInTracing: () => {
@@ -194,13 +185,12 @@ export interface traceDialogLogicActions {
 export interface traceDialogLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         traceIdentity: (
-            traceSpans: TraceDialogSpans | null,
+            traceSpans: TraceSpanPages | null,
             configuredDistinctIdKeys: string[] | undefined,
-            configuredSessionIdKeys: string[] | undefined,
-            correlationLinksEnabled: boolean
+            configuredSessionIdKeys: string[] | undefined
         ) => TraceIdentity
         traceSessionId: (
-            traceSpans: TraceDialogSpans | null,
+            traceSpans: TraceSpanPages | null,
             configuredSessionIdKeys: string[] | undefined,
             sessionErrorBadgesEnabled: boolean
         ) => string | null
@@ -243,12 +233,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             traceDialogOpenLogic,
             ['isOpen', 'trace', 'openedFrom', 'entryPoint'],
             tracingCorrelationConfigLogic,
-            [
-                'configuredDistinctIdKeys',
-                'configuredSessionIdKeys',
-                'correlationLinksEnabled',
-                'sessionErrorBadgesEnabled',
-            ],
+            ['configuredDistinctIdKeys', 'configuredSessionIdKeys', 'sessionErrorBadgesEnabled'],
             tracingConfigLogic,
             ['traceViewMode'],
         ],
@@ -261,36 +246,10 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
     }),
     loaders(({ values }) => ({
         traceSpans: [
-            null as TraceDialogSpans | null,
+            null as TraceSpanPages | null,
             {
-                loadTraceSpans: async (trace: TraceLinkParams, breakpoint): Promise<TraceDialogSpans | null> => {
-                    const dateRange = resolveTraceLookupRange(trace.ts)
-                    const seen = new Set<string>()
-                    const spans: Span[] = []
-                    let offset: number | undefined = undefined
-                    try {
-                        for (let page = 0; page < TRACE_DIALOG_MAX_PAGES; page++) {
-                            const response = await api.tracing.getTrace(trace.traceId, { dateRange, offset })
-                            breakpoint()
-                            // A page that adds no new span means the pages overlap, so paging further only repeats them.
-                            const fresh = (response.results as Span[]).filter((span) => !seen.has(span.span_id))
-                            fresh.forEach((span) => seen.add(span.span_id))
-                            spans.push(...fresh)
-                            if (!response.hasMore || response.nextOffset == null || fresh.length === 0) {
-                                return { spans, truncated: false }
-                            }
-                            if (!values.isOpen) {
-                                return { spans, truncated: true }
-                            }
-                            offset = response.nextOffset
-                        }
-                    } catch (error) {
-                        // A failure from a load that a newer one replaced must not mark the newer trace as failed.
-                        breakpoint()
-                        throw error
-                    }
-                    return { spans, truncated: true }
-                },
+                loadTraceSpans: async (trace: TraceLinkParams, breakpoint): Promise<TraceSpanPages | null> =>
+                    loadTraceSpanPages(trace, breakpoint, () => values.isOpen),
             },
         ],
     })),
@@ -324,14 +283,13 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         // A truncated trace may hold a second, conflicting person on a page the dialog never
         // loaded, so it names no one rather than risk naming the wrong one.
         traceIdentity: [
-            (s) => [s.traceSpans, s.configuredDistinctIdKeys, s.configuredSessionIdKeys, s.correlationLinksEnabled],
+            (s) => [s.traceSpans, s.configuredDistinctIdKeys, s.configuredSessionIdKeys],
             (
-                traceSpans: TraceDialogSpans | null,
+                traceSpans: TraceSpanPages | null,
                 distinctIdKeys: string[] | undefined,
-                sessionIdKeys: string[] | undefined,
-                linksEnabled: boolean
+                sessionIdKeys: string[] | undefined
             ): TraceIdentity =>
-                linksEnabled && traceSpans && !traceSpans.truncated
+                traceSpans && !traceSpans.truncated
                     ? resolveTraceIdentity(traceSpans.spans, distinctIdKeys, sessionIdKeys)
                     : EMPTY_TRACE_IDENTITY,
         ],
@@ -340,7 +298,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         traceSessionId: [
             (s) => [s.traceSpans, s.configuredSessionIdKeys, s.sessionErrorBadgesEnabled],
             (
-                traceSpans: TraceDialogSpans | null,
+                traceSpans: TraceSpanPages | null,
                 sessionIdKeys: string[] | undefined,
                 badgesEnabled: boolean
             ): string | null =>

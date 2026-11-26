@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::api::flag_definitions::FLAG_DEFINITIONS_V2_OBJECT_NAME;
 use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter, UsageReporter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::membership::{
@@ -242,37 +243,35 @@ pub async fn serve_with_rate_limiter_clock<C>(
         Some(config.group_type_cache_ttl_seconds),
     ));
 
-    // Initialize the cohort membership provider for realtime/behavioral cohorts.
-    // Requires both the behavioral cohorts DB pool AND a non-empty team ID collection.
-    // When "none" (default), NoOp is used regardless of DB availability,
-    // so no realtime cohort queries hit the hot path.
+    // Initialize the cohort membership provider for realtime/behavioral cohorts whenever the
+    // behavioral cohorts DB pool exists: a team access row at `serving` routes a team's cohorts
+    // even when REALTIME_COHORT_EVALUATION_TEAM_IDS is "none". A team that routes no cohort
+    // never calls the provider, so no realtime cohort query reaches its hot path.
     let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
-        if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
-            if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
-                tracing::info!(
-                    cache_ttl_seconds = config.cohort_membership_cache_ttl_seconds,
-                    cache_max_entries = config.cohort_membership_cache_max_entries,
-                    lookup_timeout_ms = config.realtime_cohort_lookup_timeout_ms,
-                    "Realtime cohort evaluation enabled with behavioral cohorts DB"
-                );
-                let realtime = RealtimeCohortMembershipProvider::with_lookup_timeout(
-                    pool,
-                    Duration::from_millis(config.realtime_cohort_lookup_timeout_ms),
-                );
-                Arc::new(CachedCohortMembershipProvider::new(
-                    realtime,
-                    Some(config.cohort_membership_cache_ttl_seconds),
-                    Some(config.cohort_membership_cache_max_entries),
-                ))
-            } else {
+        if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
+            tracing::info!(
+                cache_ttl_seconds = config.cohort_membership_cache_ttl_seconds,
+                cache_max_entries = config.cohort_membership_cache_max_entries,
+                lookup_timeout_ms = config.realtime_cohort_lookup_timeout_ms,
+                "Realtime cohort evaluation enabled with behavioral cohorts DB"
+            );
+            let realtime = RealtimeCohortMembershipProvider::with_lookup_timeout(
+                pool,
+                Duration::from_millis(config.realtime_cohort_lookup_timeout_ms),
+            );
+            Arc::new(CachedCohortMembershipProvider::new(
+                realtime,
+                Some(config.cohort_membership_cache_ttl_seconds),
+                Some(config.cohort_membership_cache_max_entries),
+            ))
+        } else {
+            if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
                 tracing::warn!(
                     "REALTIME_COHORT_EVALUATION_TEAM_IDS is set but \
                      BEHAVIORAL_COHORTS_READ_DATABASE_URL is not configured; realtime \
                      cohort lookups will treat everyone as a non-member"
                 );
-                Arc::new(NoOpCohortMembershipProvider)
             }
-        } else {
             Arc::new(NoOpCohortMembershipProvider)
         };
 
@@ -423,6 +422,39 @@ pub async fn serve_with_rate_limiter_clock<C>(
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
     }
 
+    // The definitions v2 entry lives in Redis only. Its reader takes the legacy reader's Redis
+    // client, so both entries are read from the same cluster. The reader holds an S3 client
+    // because the constructor needs one, but the handler only calls its Redis reads.
+    let flags_with_cohorts_v2_config = HyperCacheConfig {
+        object_name: FLAG_DEFINITIONS_V2_OBJECT_NAME.to_string(),
+        ..flags_with_cohorts_config.clone()
+    };
+    let flags_with_cohorts_v2_hypercache_reader = match flags_with_cohorts_s3.clone() {
+        Some(s3) => Arc::new(HyperCacheReader::new_with_s3_client(
+            flags_with_cohorts_redis_client.clone(),
+            s3,
+            flags_with_cohorts_v2_config,
+        )),
+        None => match HyperCacheReader::new(
+            flags_with_cohorts_redis_client.clone(),
+            flags_with_cohorts_v2_config,
+        )
+        .await
+        {
+            Ok(reader) => Arc::new(reader),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create flags with cohorts v2 HyperCacheReader: {:?}",
+                    e
+                );
+                handles.fail_init(format!(
+                    "flags with cohorts v2 hypercache init failed: {e:?}"
+                ));
+                return;
+            }
+        },
+    };
+
     let flags_with_cohorts_hypercache_reader = match flags_with_cohorts_s3 {
         Some(s3) => Arc::new(HyperCacheReader::new_with_s3_client(
             flags_with_cohorts_redis_client,
@@ -537,6 +569,14 @@ pub async fn serve_with_rate_limiter_clock<C>(
              Flags cache TTL is now managed by Django's HyperCache."
         );
     }
+    for var in ["ACCEPT_TEAM_SECRET_TOKENS", "LEGACY_TOKEN_MIRROR_SHADOW"] {
+        if std::env::var(var).is_ok() {
+            tracing::warn!(
+                "{var} is deprecated and ignored. \
+                 phs_ tokens authenticate only through project secret API keys."
+            );
+        }
+    }
 
     let service_mode = config.service_mode.clone();
 
@@ -610,6 +650,7 @@ pub async fn serve_with_rate_limiter_clock<C>(
         flags_hypercache_reader,
         flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
+        flags_with_cohorts_v2_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,

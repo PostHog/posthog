@@ -58,6 +58,7 @@ export type Turn = {
   /** Result withheld while a steer has yet to reach the model. */
   deferredResult?: PromptResponse;
   steerTimer?: ReturnType<typeof setTimeout>;
+  waitingForSubagents?: boolean;
   isLocalOnlyCommand: boolean;
   commandName?: string;
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
@@ -124,6 +125,8 @@ export type Session = BaseSession & {
   configOptions: SessionConfigOption[];
   accumulatedUsage: AccumulatedUsage;
   budgetGuard?: RunBudgetGuard;
+  /** Unattended callers need the parent reply after its sub-agents finish. */
+  waitForSubagents?: boolean;
   backgroundTurnActive?: boolean;
   backgroundSteers?: Map<string, PendingSteer>;
   backgroundSteerTimer?: ReturnType<typeof setTimeout>;
@@ -221,6 +224,7 @@ export type ToolUpdateMeta = {
     toolResponse?: unknown;
     parentToolCallId?: string;
     bashCommand?: string;
+    failureReason?: "permission_denied";
   };
   terminal_info?: TerminalInfo;
   terminal_output?: TerminalOutput;
@@ -264,10 +268,9 @@ export type NewSessionMeta = {
    */
   channelMode?: boolean;
   budgetSteer?: { mode?: "publish" | "wrap_up" };
-  taskOriginProduct?: string;
-  /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
-  endRunWhenDone?: boolean;
-  callerEndsRun?: boolean;
+  finishTool?: boolean;
+  finishReportRequired?: boolean;
+  reportActivityTool?: boolean;
   /** Keeps hooks from the repo's `.claude/settings*.json` from running. */
   disableRepoHooks?: boolean;
   /**

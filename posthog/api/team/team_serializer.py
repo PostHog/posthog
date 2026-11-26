@@ -1,17 +1,22 @@
 """The main serializer for project settings."""
 
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from django.conf import settings
+from django.db import models
 from django.utils import timezone
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from rest_framework import exceptions, serializers
+from rest_framework.fields import empty
+from rest_framework.request import Request
 
 from posthog import cloud_utils
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import validate_authorized_url_wildcards
+from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
@@ -33,6 +38,7 @@ from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.utils import UUIDT
+from posthog.permissions import request_subject
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -43,9 +49,20 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.dashboards.backend.models import Dashboard
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
+from products.cohorts.backend.realtime_limits import max_realtime_cohorts, realtime_cohorts_used
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import DashboardSummary
+from products.error_tracking.backend.facade.contracts import ErrorTrackingAIFeature
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import (
+    FlagEvaluationsConfig,
+    events_lack_new_flag_calls,
+    get_flag_evaluations_read_config,
+)
+from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 
 from . import (
@@ -61,6 +78,124 @@ from . import (
 tracer = trace.get_tracer(__name__)
 
 
+# Credentials a project response carries that outlive a workload token: the heatmaps
+# screenshot secret and the 7-day live events token. A workload token acts as the
+# organization owner, so without this a workload could read one and keep access after
+# its token expires. The public project token (`api_token`) stays.
+TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS = (
+    "heatmaps_screenshot_secret",
+    "live_events_token",
+)
+
+
+def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], request: Request | None) -> dict[str, Any]:
+    # The page-load path passes a plain Django request, which has no authenticator.
+    if isinstance(getattr(request, "successful_authenticator", None), WorkloadAccessTokenAuthentication):
+        for field in TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS:
+            representation.pop(field, None)
+    return representation
+
+
+def flag_evaluations_read_config_for(
+    context: dict[str, Any], organization_id: UUID, team_id: int
+) -> FlagEvaluationsConfig:
+    # Two fields read the config. A list serializes every object with one context, so one lookup serves the list.
+    configs: dict[UUID, FlagEvaluationsConfig] = context.setdefault("flag_evaluations_read_configs", {})
+    if organization_id not in configs:
+        configs[organization_id] = get_flag_evaluations_read_config(organization_id, team_id=team_id)
+    return configs[organization_id]
+
+
+class RealtimeCohortsAccess(models.TextChoices):
+    OFF = "off", "Off"
+    SERVING = "serving", "Serving"
+
+
+class TeamRealtimeCohortsSerializer(serializers.Serializer):
+    access = serializers.ChoiceField(
+        choices=RealtimeCohortsAccess.choices,
+        help_text="`serving` when the request's user sees realtime cohorts in this project: whether feature flags "
+        "can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.",
+    )
+    cohorts_used = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many cohorts in this project have realtime on. Null when `access` is `off`.",
+    )
+    max_cohorts = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, "
+        "or when the plan sets no limit.",
+    )
+
+
+def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str | int | None]:
+    if not is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True):
+        return {"access": RealtimeCohortsAccess.OFF, "cohorts_used": None, "max_cohorts": None}
+    return {
+        "access": RealtimeCohortsAccess.SERVING,
+        "cohorts_used": realtime_cohorts_used(team.parent_team_id or team.id),
+        "max_cohorts": max_realtime_cohorts(team.organization),
+    }
+
+
+def available_error_tracking_ai_features(team: Team) -> list[str]:
+    from products.error_tracking.backend.facade import api as error_tracking_api
+
+    return [feature.value for feature in error_tracking_api.available_ai_features(team.id)]
+
+
+AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA = serializers.ListField(
+    child=serializers.ChoiceField(choices=ErrorTrackingAIFeature.choices),
+    help_text="Error tracking AI features available to this project. Its error tracking settings show a switch for "
+    "each one. Empty when the project has none.",
+)
+
+
+REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
+    help_text="Realtime cohorts as the request's user sees them in this project."
+)
+
+
+@extend_schema_field(OpenApiTypes.INT)
+class HomeTabDashboardField(serializers.Field):
+    """A team's product analytics Home tab dashboard as an id, read and checked through the dashboards facade.
+
+    The field reads its own value from the facade, so `Team` needs no `home_tab_dashboard` attribute for it.
+    It reads the team from the serializer context (`team_id`), like a `TeamScopedPrimaryKeyRelatedField`, so a
+    dashboard of another team is "does not exist". A valid id becomes the dashboard's `DashboardSummary`.
+    """
+
+    default_error_messages = {
+        "does_not_exist": "Dashboard does not belong to this team.",
+        "incorrect_type": "Incorrect type. Expected pk value, received {data_type}.",
+    }
+
+    def run_validation(self, data: Any = empty) -> Any:
+        # Same as DRF's `RelatedField`: an empty string means no dashboard, so `allow_null` decides.
+        if data == "":
+            data = None
+        return super().run_validation(data)
+
+    def to_internal_value(self, data: Any) -> DashboardSummary:
+        if isinstance(data, bool) or not isinstance(data, int | str):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        try:
+            dashboard_id = int(data)
+        except ValueError:
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        team_id = self.context.get("team_id")
+        dashboard = dashboards_api.get_dashboard(team_id=int(team_id), dashboard_id=dashboard_id) if team_id else None
+        if dashboard is None:
+            self.fail("does_not_exist")
+        return dashboard
+
+    def get_attribute(self, instance: Team) -> int | None:
+        return dashboards_api.home_tab_dashboard_id(team_id=instance.id)
+
+    def to_representation(self, value: int) -> int:
+        return value
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -74,9 +209,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     flag_evaluations_mode = serializers.SerializerMethodField(
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
-            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An "
+            "organization whose every project reads the native JSON events table reads as 2."
         )
     )
+    flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this project's events table holds none of its new $feature_flag_called events, so "
+            "they can only be read from the flag_evaluations table."
+        )
+    )
+    realtime_cohorts = serializers.SerializerMethodField()
+    available_error_tracking_ai_features = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
     api_host = serializers.SerializerMethodField(
         help_text=(
@@ -103,11 +247,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         allow_null=True,
         help_text="Settings for Conversations. Must be a JSON object or null.",
     )
-    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
-        queryset=Dashboard.objects.all(),
+    home_tab_dashboard = HomeTabDashboardField(
         required=False,
         allow_null=True,
-        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
         help_text=(
             "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
         ),
@@ -123,8 +265,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
-            "secret_api_token",
-            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -142,6 +282,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
+            "realtime_cohorts",
+            "available_error_tracking_ai_features",
             "available_setup_task_ids",
             "api_host",
         )
@@ -152,8 +295,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
-            "secret_api_token",
-            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -167,6 +308,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
+            "realtime_cohorts",
+            "available_error_tracking_ai_features",
             "available_setup_task_ids",
             "api_host",
         )
@@ -183,9 +327,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
-        settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
 
-        return representation
+        return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     @tracer.start_as_current_span("team_serializer.effective_membership_level")
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
@@ -241,7 +384,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return get_flag_evaluations_read_mode(obj.organization_id)
+        return flag_evaluations_read_config_for(self.context, obj.organization_id, obj.id).mode
+
+    def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
+        return events_lack_new_flag_calls(
+            obj, flag_evaluations_read_config_for(self.context, obj.organization_id, obj.id)
+        )
+
+    @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
+    def get_realtime_cohorts(self, obj: Team) -> dict[str, str | int | None]:
+        return realtime_cohorts_for_request(self.context.get("request"), obj)
+
+    @extend_schema_field(AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA)
+    def get_available_error_tracking_ai_features(self, obj: Team) -> list[str]:
+        return available_error_tracking_ai_features(obj)
 
     @extend_schema_field(
         # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py
@@ -397,17 +553,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not request:
             return value
 
-        user = request.user
-
         if self.instance:
-            try:
-                membership = OrganizationMembership.objects.get(user=user, organization=self.instance.organization)
-                if membership.level < OrganizationMembership.Level.ADMIN:
-                    raise exceptions.PermissionDenied(
-                        "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
-                    )
-            except OrganizationMembership.DoesNotExist:
+            organization = self.instance.organization
+            resource, subject = Resource.organization(organization.id), request_subject(request)
+            if not authorization.check(resource=resource, action=Action.VIEW, subject=subject):
                 raise exceptions.PermissionDenied("You must be a member of this organization.")
+            if not authorization.check(resource=resource, action=Action.EDIT, subject=subject):
+                raise exceptions.PermissionDenied(
+                    "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
+                )
 
         return value
 
@@ -507,6 +661,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], None
+                )
+            )
+
         team = Team.objects.create_with_data(
             initiating_user=request.user,
             organization=self.context["view"].organization,
@@ -514,6 +675,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
         request.user.current_team = team
+        request.user.current_organization_id = team.organization_id
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 
@@ -540,8 +702,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # below still knows this request touched the team row.
         conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
         if "home_tab_dashboard" in validated_data:
-            dashboard = instance.home_tab_dashboard
-            before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
+            before_update["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=instance.id)
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
@@ -563,8 +724,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # save(update_fields=...) loop below.
         if "home_tab_dashboard" in validated_data:
             dashboard = validated_data.pop("home_tab_dashboard")
-            instance.home_tab_dashboard = dashboard
             home_tab_dashboard_id = dashboard.id if dashboard else None
+            dashboards_api.set_home_tab_dashboard(team_id=instance.id, dashboard_id=home_tab_dashboard_id)
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -629,6 +790,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
             }
+
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], instance.session_recording_masking_config
+                )
+            )
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data:
@@ -790,6 +958,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "payment_event": instance.customer_analytics_config.payment_event,
             "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
             "default_pinned_properties": instance.customer_analytics_config.default_pinned_properties,
+            "role_default_pinned_properties": instance.customer_analytics_config.role_default_pinned_properties,
         }
 
         serializer = team_config.TeamCustomerAnalyticsConfigSerializer(

@@ -2,12 +2,15 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use posthog_symbol_data::{read_symbol_data_with_byte_count, ProguardMapping};
+use posthog_symbol_data::{read_symbol_data_with_byte_count_limited, ProguardMapping};
 
 use crate::{
+    core::config::ResolverConfig,
     error::{ProguardError, ResolveError, UnhandledError},
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{caching::Countable, Fetcher, ParsePermit, Parser},
+    symbolication::symbol_store::{
+        caching::Countable, record_size_limit_exceeded, Fetcher, ParsePermit, Parser,
+    },
 };
 
 pub struct FetchedMapping {
@@ -20,7 +23,17 @@ impl Countable for FetchedMapping {
     }
 }
 
-pub struct ProguardProvider {}
+pub struct ProguardProvider {
+    max_decompressed_bytes: usize,
+}
+
+impl ProguardProvider {
+    pub fn new(config: &ResolverConfig) -> Self {
+        Self {
+            max_decompressed_bytes: config.symbol_set_max_decompressed_bytes.get(),
+        }
+    }
+}
 
 // Enum it's impossible to construct, allowing us to type-brand an OrChunkID for proguard maps specifically.
 // Chunk ID's aren't injected into proguard maps and java projects the way they are in e.g. JS projects,
@@ -54,10 +67,13 @@ impl Parser for ProguardProvider {
     ) -> Result<FetchedMapping, ResolveError> {
         // zstd decompress + ProguardCache::write are CPU-bound; offload from the tokio
         // runtime so a large mapping doesn't block other in-flight requests.
+        let max_decompressed_bytes = self.max_decompressed_bytes;
         tokio::task::spawn_blocking(move || -> Result<FetchedMapping, ResolveError> {
             let _permit = permit;
             let (map, decompressed_bytes): (ProguardMapping, usize) =
-                read_symbol_data_with_byte_count(&source).map_err(ProguardError::DataError)?;
+                read_symbol_data_with_byte_count_limited(&source, max_decompressed_bytes)
+                    .inspect_err(|e| record_size_limit_exceeded(e, "proguard", "container"))
+                    .map_err(ProguardError::DataError)?;
             metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "proguard")
                 .record(decompressed_bytes as f64);
             Ok(FetchedMapping::new(map, decompressed_bytes)?)
@@ -105,7 +121,7 @@ impl Display for ProguardRef {
 
 #[cfg(test)]
 mod tests {
-    use posthog_symbol_data::write_symbol_data;
+    use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data};
 
     use super::*;
 

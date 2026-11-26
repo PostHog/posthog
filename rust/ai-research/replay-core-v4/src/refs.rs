@@ -9,7 +9,7 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
-use crate::url_policy::{CanonicalUrl, Decline};
+use crate::url_policy::{redaction, CanonicalUrl, Decline, Redaction, MAX_URL_LEN};
 
 /// 64 bits of the HMAC: enough to tell the pages of one session apart.
 const FINGERPRINT_BYTES: usize = 8;
@@ -56,6 +56,19 @@ pub fn url_ref(asset: UrlAsset, team_id: i64, key_month: &str, hash: &str) -> St
     match asset {
         UrlAsset::Image => image_url_ref(team_id, key_month, hash),
         UrlAsset::Font => font_url_ref(team_id, key_month, hash),
+    }
+}
+
+/// A URL that no reference names, as a block keeps it: without its credentials, or as a decline marker when the
+/// redaction cannot read it. `None` when the block keeps the URL as it is.
+pub fn unnamed_url(raw: &str, asset: UrlAsset) -> Option<String> {
+    match redaction(raw) {
+        Redaction::Clean => None,
+        Redaction::Redacted(kept) => Some(kept),
+        Redaction::Unread if raw.len() > MAX_URL_LEN => {
+            Some(declined_url_ref(asset, Decline::TooLong))
+        }
+        Redaction::Unread => Some(declined_url_ref(asset, Decline::NotAbsolute)),
     }
 }
 

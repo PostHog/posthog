@@ -1,5 +1,6 @@
 import { type ReactElement, useRef, useState } from 'react'
-import { Modal, Text, View } from 'react-native'
+import type { ViewInstance } from 'react-native'
+import { Text, View } from 'react-native'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
@@ -27,7 +28,7 @@ interface Anchor {
 export function RegionSelect({ value, onChange, disabled }: RegionSelectProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const trigger = useRef<View>(null)
+    const trigger = useRef<ViewInstance>(null)
     const [anchor, setAnchor] = useState<Anchor | null>(null)
     const { height: windowHeight } = useSceneDimensions()
     const insets = useScreenInsets()
@@ -57,56 +58,50 @@ export function RegionSelect({ value, onChange, disabled }: RegionSelectProps): 
                 <ChevronDownIcon size={iconSizes.inline} color={colors.secondary} />
             </Pressable44>
             {anchor ? (
-                <Modal transparent visible onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
-                    <View style={styles.overlay}>
-                        <FloatingCard
-                            visible
-                            onClose={close}
-                            accessibilityLabel="Data region"
-                            testID="sign-in-region-menu"
-                            style={[
-                                styles.menu,
-                                {
-                                    left: anchor.x,
-                                    top: Math.max(
-                                        insets.top,
-                                        Math.min(
-                                            anchor.y + anchor.height + 6,
-                                            windowHeight - insets.bottom - (CLOUD_REGIONS.length * 48 + 14)
-                                        )
-                                    ),
-                                    width: anchor.width,
-                                },
-                            ]}
-                        >
-                            <View accessibilityRole="list">
-                                {CLOUD_REGIONS.map((region) => (
-                                    <Pressable44
-                                        key={region.id}
-                                        onPress={() => {
-                                            onChange(region.id)
-                                            close()
-                                        }}
-                                        accessibilityRole="radio"
-                                        accessibilityLabel={region.label}
-                                        accessibilityState={{ checked: region.id === value }}
-                                        aria-checked={region.id === value}
-                                        pressedBackground={colors.sunken}
-                                        style={styles.option}
-                                        testID={`region-${region.id}`}
-                                    >
-                                        <Text style={styles.label} numberOfLines={1}>
-                                            {region.flag} {region.label}
-                                        </Text>
-                                        {region.id === value ? (
-                                            <CheckIcon size={iconSizes.control} color={colors.ink} />
-                                        ) : null}
-                                    </Pressable44>
-                                ))}
-                            </View>
-                        </FloatingCard>
+                <FloatingCard
+                    visible
+                    onClose={close}
+                    accessibilityLabel="Data region"
+                    testID="sign-in-region-menu"
+                    style={[
+                        styles.menu,
+                        {
+                            left: anchor.x,
+                            top: Math.max(
+                                insets.top,
+                                Math.min(
+                                    anchor.y + anchor.height + 6,
+                                    windowHeight - insets.bottom - (CLOUD_REGIONS.length * 48 + 14)
+                                )
+                            ),
+                            width: anchor.width,
+                        },
+                    ]}
+                >
+                    <View accessibilityRole="list" onAccessibilityEscape={close}>
+                        {CLOUD_REGIONS.map((region) => (
+                            <Pressable44
+                                key={region.id}
+                                onPress={() => {
+                                    onChange(region.id)
+                                    close()
+                                }}
+                                accessibilityRole="radio"
+                                accessibilityLabel={region.label}
+                                accessibilityState={{ checked: region.id === value }}
+                                aria-checked={region.id === value}
+                                pressedBackground={colors.sunken}
+                                style={styles.option}
+                                testID={`region-${region.id}`}
+                            >
+                                <Text style={styles.label} numberOfLines={1}>
+                                    {region.flag} {region.label}
+                                </Text>
+                                {region.id === value ? <CheckIcon size={iconSizes.control} color={colors.ink} /> : null}
+                            </Pressable44>
+                        ))}
                     </View>
-                </Modal>
+                </FloatingCard>
             ) : null}
         </>
     )
@@ -128,9 +123,6 @@ const useStyles = createStyles(({ colors }) => ({
     label: {
         ...type.body,
         color: colors.ink,
-        flex: 1,
-    },
-    overlay: {
         flex: 1,
     },
     menu: {

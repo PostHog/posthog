@@ -13,7 +13,7 @@ from parameterized import parameterized
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.demo.backend.logic.matrix.matrix import Cluster
 from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxMatrix
@@ -65,9 +65,10 @@ class TestHedgeboxMatrixInitialViews(BaseTest):
 
         dashboard_id = self.team.primary_dashboard_id
         assert dashboard_id is not None
-        dashboard = Dashboard.objects.get(team=self.team, pk=dashboard_id, pinned=True)
+        dashboard = dashboards_api.get_dashboard(team_id=self.team.id, dashboard_id=dashboard_id)
+        assert dashboard is not None and dashboard.pinned
         expected_refs = {
-            ("dashboard", str(dashboard.pk)),
+            ("dashboard", str(dashboard.id)),
             ("insight", Insight.objects.get(team=self.team, name="Weekly signups", saved=True).short_id),
             (
                 "insight",
@@ -326,19 +327,20 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
     @parameterized.expand(
         [
             # head_object returns a dict when the file exists, None when it's missing.
-            ("already_saved", {"ContentLength": 1}, False),
-            ("not_yet_saved", None, True),
+            ("already_saved", {"ContentLength": 1}, False, False),
+            ("not_yet_saved", None, True, False),
+            ("eval_in_test_process", None, True, True),
         ]
     )
     @patch("products.demo.backend.logic.products.hedgebox.matrix.object_storage.head_object")
-    def test_demo_data_warehouse_tables_need_saving(self, _name, head_result, expected, mock_head):
-        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+    def test_demo_data_warehouse_tables_need_saving(self, _name, head_result, expected, eval_fixture, mock_head):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0, require_external_fixtures=eval_fixture)
         mock_head.return_value = head_result
 
         # Guards the perf contract: when the source files already exist we must NOT trigger the
         # (multi-second-per-project) simulation again on a pre-saved signup.
         with override_settings(
-            TEST=False,
+            TEST=eval_fixture,
             OBJECT_STORAGE_ENABLED=True,
             OBJECT_STORAGE_ACCESS_KEY_ID="key",
             OBJECT_STORAGE_SECRET_ACCESS_KEY="secret",

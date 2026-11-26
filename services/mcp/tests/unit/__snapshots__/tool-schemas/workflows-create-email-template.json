@@ -1,17 +1,22 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "content": {
+            "additionalProperties": false,
             "description": "Template content keyed by channel. Replaced as a whole on update, not merged.",
             "properties": {
                 "email": {
                     "anyOf": [
                         {
+                            "additionalProperties": false,
                             "properties": {
                                 "design": {
+                                    "additionalProperties": {},
                                     "description": "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.",
                                     "properties": {
                                         "body": {
+                                            "additionalProperties": {},
                                             "properties": {
                                                 "footers": {
                                                     "items": {
@@ -67,6 +72,7 @@
                                     "type": "object"
                                 },
                                 "from": {
+                                    "additionalProperties": false,
                                     "description": "The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.",
                                     "properties": {
                                         "email": {
@@ -110,6 +116,59 @@
                         }
                     ],
                     "description": "Email message content. Replaced as a whole on update — send the complete object."
+                },
+                "push": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "body": {
+                                    "description": "Notification body text. Supports Liquid templating. Required in `content` for push-type templates.",
+                                    "maxLength": 4000,
+                                    "type": "string"
+                                },
+                                "channels": {
+                                    "description": "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps.",
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "maxItems": 20,
+                                    "type": "array"
+                                },
+                                "data": {
+                                    "additionalProperties": {
+                                        "maxLength": 4000,
+                                        "type": "string"
+                                    },
+                                    "description": "Custom key-value data delivered to the app. Values are strings and support Liquid templating.",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                "image": {
+                                    "description": "URL of an image to show in the notification. Supports Liquid templating.",
+                                    "maxLength": 2000,
+                                    "type": "string"
+                                },
+                                "link": {
+                                    "description": "Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app as the \"link\" key in the custom data. Supports Liquid templating.",
+                                    "maxLength": 2000,
+                                    "type": "string"
+                                },
+                                "title": {
+                                    "description": "Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in `content` for push-type templates.",
+                                    "maxLength": 1000,
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Push notification content, for push-type templates. Replaced as a whole on update — send the complete object."
                 },
                 "templating": {
                     "default": "liquid",
@@ -158,7 +217,7 @@
             "type": "array"
         },
         "type": {
-            "description": "Message channel of the template. Currently 'email'.",
+            "description": "Message channel of the template: 'email' (the default) or 'push'.",
             "maxLength": 24,
             "type": "string"
         }

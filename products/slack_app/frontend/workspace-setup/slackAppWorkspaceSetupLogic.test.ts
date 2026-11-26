@@ -118,6 +118,45 @@ describe('slackAppWorkspaceSetupLogic', () => {
             post_welcome: true,
         })
         expect(warning).toHaveBeenCalledWith(expect.stringContaining('#growth'))
+        expect(capture).toHaveBeenCalledWith('slack app workspace setup step failed', {
+            integration_id: 7,
+            entry: 'slack_page',
+            return_to: 'settings',
+            step: 'channels',
+            error: 'is_archived',
+        })
         await expectLogic(logic).toMatchValues({ currentStep: null })
+    })
+
+    it.each([
+        {
+            step: 'default_project',
+            fail: () => mockSaveDefaultProject.mockRejectedValue(new Error('Only the installer can do this.')),
+            run: (logic: ReturnType<typeof slackAppWorkspaceSetupLogic>) => logic.actions.saveDefaultProject(),
+        },
+        {
+            step: 'channels',
+            fail: () => mockJoinChannels.mockRejectedValue(new Error('Only the installer can do this.')),
+            run: (logic: ReturnType<typeof slackAppWorkspaceSetupLogic>) => logic.actions.joinChannels(),
+        },
+    ])('reports a failed $step step and keeps the person on it', async ({ step, fail, run }) => {
+        mockRetrieve.mockResolvedValue({ ...BASE, steps: [step] })
+        mockChannels.mockResolvedValue({ channels: [] })
+        fail()
+        const capture = jest.spyOn(posthog, 'capture')
+
+        const logic = slackAppWorkspaceSetupLogic({ integrationId: 7, entry: 'slack_page' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => run(logic)).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith('slack app workspace setup step failed', {
+            integration_id: 7,
+            entry: 'slack_page',
+            return_to: null,
+            step,
+            error: 'Only the installer can do this.',
+        })
+        await expectLogic(logic).toMatchValues({ currentStep: step })
     })
 })

@@ -54,7 +54,7 @@ CANDIDATE_ROLE = "candidate"
 # Families this build no longer trains. Saved scores objects still hold their rows, so every reader
 # drops them through `with_model_names`: the grades stop with the family, and the rewrite guard does
 # not require rows that no re-run can produce.
-RETIRED_MODEL_NAMES = frozenset({"tabular_xgb", "title_embeddings", "report_embeddings_v2"})
+RETIRED_MODEL_NAMES = frozenset({"tabular_xgb", "title_embeddings", "report_embeddings_v2", "nn_with_prio_sources_v2"})
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25

@@ -53,8 +53,8 @@ const rules: RenderRules = {
     },
 }
 
-function openLink(url: string): boolean {
-    const resolved = resolveReplyLink(url)
+function openLink(url: string, projectUrl?: string): boolean {
+    const resolved = resolveReplyLink(url, projectUrl)
     if (resolved) {
         openReplyUrl(resolved, 'markdown', { appLink: resolved !== url })
     }
@@ -67,11 +67,12 @@ const TRAILING_LIST_MARKER = /\n[ \t]*(?:[-*+]|\d+[.)])[ \t]*$/
 
 interface ChatMarkdownProps {
     text: string
+    projectUrl?: string
     streaming?: boolean
     tone?: 'reply' | 'thought'
 }
 
-export function ChatMarkdown({ text, streaming = false, tone = 'reply' }: ChatMarkdownProps): ReactElement {
+export function ChatMarkdown({ text, projectUrl, streaming = false, tone = 'reply' }: ChatMarkdownProps): ReactElement {
     const replyStyles = useReplyStyles()
     const thoughtStyles = useThoughtStyles()
     return (
@@ -79,7 +80,7 @@ export function ChatMarkdown({ text, streaming = false, tone = 'reply' }: ChatMa
             markdownit={markdownIt}
             rules={rules}
             style={tone === 'thought' ? thoughtStyles : replyStyles}
-            onLinkPress={openLink}
+            onLinkPress={(url) => openLink(url, projectUrl)}
         >
             {streaming ? text.replace(TRAILING_LIST_MARKER, '') : text}
         </Markdown>

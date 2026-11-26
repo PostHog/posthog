@@ -1,63 +1,27 @@
+import uuid
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
-
-from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.accuracy import cost_estimate_accuracy_hogql
 from posthog.hogql.database.database import Database
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.property_metadata import PropertyMetadata
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
 
-
-@override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
-class TestPrivateQueryLogVisibility(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (f"{name}_{team_id}", query, scans, team_id)
-            for name, query, scans in [
-                ("friendly", "SELECT query_id FROM query_log", 1),
-                ("raw", "SELECT query_id FROM raw_query_log", 1),
-                ("alias", "SELECT q.query_id FROM raw_query_log AS q", 1),
-                (
-                    "join",
-                    "SELECT a.query_id FROM raw_query_log a LEFT JOIN raw_query_log b ON a.query_id = b.query_id",
-                    2,
-                ),
-                ("subquery", "SELECT * FROM (SELECT query_id FROM raw_query_log)", 1),
-            ]
-            for team_id in (2, 123)
-        ]
-    )
-    def test_only_trial_project_scans_exclude_private_activity(
-        self, _name: str, query: str, scans: int, team_id: int
-    ) -> None:
-        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
-            sql, _ = prepare_and_print_ast(
-                parse_select(query),
-                HogQLContext(
-                    team_id=team_id,
-                    database=Database(),
-                    enable_select_queries=True,
-                    restricted_properties=set(),
-                    use_new_events_schema=False,
-                ),
-                "clickhouse",
-            )
-        self.assertEqual(
-            sql.count("NOT ifNull(dynamicElement(log_comment.is_scout_experiment, 'Bool'), false)"),
-            scans if team_id == 2 else 0,
-        )
-        if team_id != 2:
-            self.assertNotIn("asterisk_include_alias_columns", sql)
-        self.assertIn(f"team_id, {team_id}", sql)
+ARCHIVED_LOG_COMMENTS = {
+    "reads_a_and_b": '{"product":"sql_editor","warehouse_table_ids":["table_a","table_b"]}',
+    "reads_c": '{"warehouse_table_ids":["table_c"]}',
+    "reads_no_table": '{"product":"sql_editor"}',
+    "no_log_comment": "",
+}
 
 
 class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
@@ -74,19 +38,13 @@ class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
     def test_simple_query(self, mock_sync_execute: MagicMock):
         response = execute_hogql_query("select query_start_time from query_log limit 10", self.team)
 
-        table_ref = "query_log_archive"
-        if self.team.pk == 2:
-            table_ref = (
-                "(SELECT * FROM query_log_archive WHERE NOT ifNull(dynamicElement(log_comment.is_scout_experiment, 'Bool'), false) "
-                "SETTINGS asterisk_include_alias_columns = 1) AS query_log_archive"
-            )
         ch_query = f"""SELECT
     query_log.query_start_time AS query_start_time
 FROM
     (SELECT
         toTimeZone(query_log_archive.query_start_time, %(hogql_val_0)s) AS query_start_time
     FROM
-        {table_ref}
+        query_log_archive
     WHERE
         and(equals(query_log_archive.team_id, {self.team.pk}), not(query_log_archive.lc_is_impersonated))) AS query_log
 LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"""
@@ -106,6 +64,41 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             external_tables=None,
         )
         assert response.results is not None
+
+    @parameterized.expand(
+        [
+            ("has_one_id", "has(warehouse_table_ids, 'table_a')", ["reads_a_and_b"]),
+            ("has_any_of_ids", "hasAny(warehouse_table_ids, ['table_b', 'table_c'])", ["reads_a_and_b", "reads_c"]),
+            ("has_unknown_id", "has(warehouse_table_ids, 'table_z')", []),
+            ("read_any_table", "notEmpty(warehouse_table_ids)", ["reads_a_and_b", "reads_c"]),
+            ("read_no_table", "empty(warehouse_table_ids)", ["no_log_comment", "reads_no_table"]),
+            ("first_id", "warehouse_table_ids[1] = 'table_c'", ["reads_c"]),
+        ]
+    )
+    def test_filter_on_warehouse_table_ids(self, _name: str, condition: str, expected: list[str]):
+        # Rows stay in the archive between cases, so each case tags its own rows.
+        tag = uuid.uuid4().hex
+        sync_execute(
+            f"INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE} "
+            "(initial_query_start_time, team_id, initial_query_id, lc_client_query_id, lc_is_impersonated, log_comment) VALUES",
+            [
+                (datetime.now(UTC), self.team.pk, str(uuid.uuid4()), f"{tag}_{name}", False, log_comment)
+                for name, log_comment in ARCHIVED_LOG_COMMENTS.items()
+            ],
+        )
+
+        response = execute_hogql_query(
+            f"select query_id from query_log where startsWith(query_id, '{tag}_') and {condition} order by query_id",
+            self.team,
+        )
+
+        assert [row[0].removeprefix(f"{tag}_") for row in response.results] == expected
+
+    @parameterized.expand([("raw_query_log",), ("query_log",)])
+    def test_log_comment_is_not_selectable(self, table: str):
+        # log_comment keeps tags such as http_referer, so only the warehouse_table_ids extraction may read it.
+        with self.assertRaisesRegex(QueryError, "log_comment"):
+            execute_hogql_query(f"select log_comment from {table}", self.team)
 
     def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
         response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)

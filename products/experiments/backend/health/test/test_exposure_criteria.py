@@ -31,6 +31,7 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.skips import (
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
     CheckSkip,
     not_applicable,
     not_checked,
@@ -252,6 +253,11 @@ class TestExposureCriteriaCannotMatch(TestCase):
                 "custom_event_after_the_end_with_a_received_property",
                 _property_filter(True, custom_event="checkout_viewed", **ENDED),
                 None,
+            ),
+            (
+                "warehouse_native_exposure",
+                replace(RUNNING_CONTEXT, warehouse_native_exposures=True, exposure_events=None),
+                not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES),
             ),
         ]
     )

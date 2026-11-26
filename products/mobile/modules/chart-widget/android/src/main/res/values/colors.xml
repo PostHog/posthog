@@ -1,0 +1,23 @@
+<resources>
+  <!-- The app's light tokens (src/ui/tokens.ts) and chart palette (src/ui/chart/palette.ts). -->
+  <color name="chart_widget_surface">#FFFFFF</color>
+  <color name="chart_widget_background">#F6F6F3</color>
+  <color name="chart_widget_ink">#1F1F1C</color>
+  <color name="chart_widget_secondary">#6B6B65</color>
+  <color name="chart_widget_tertiary">#8A8A84</color>
+  <color name="chart_widget_hairline">#E4E4E0</color>
+  <color name="chart_widget_bar_neutral">#D6D6D1</color>
+  <color name="chart_widget_green">#1A7F37</color>
+  <color name="chart_widget_red">#CF222E</color>
+  <color name="chart_widget_orange">#F54E00</color>
+  <color name="chart_widget_previous">#A3A39D</color>
+  <color name="chart_widget_series_1">#1D4AFF</color>
+  <color name="chart_widget_series_2">#621DA6</color>
+  <color name="chart_widget_series_3">#42827E</color>
+  <color name="chart_widget_series_4">#CE0E74</color>
+  <color name="chart_widget_series_5">#F14F58</color>
+  <color name="chart_widget_green_tint">#1F1A7F37</color>
+  <color name="chart_widget_red_tint">#1FCF222E</color>
+  <color name="chart_widget_neutral_tint">#141F1F1C</color>
+  <color name="chart_widget_on_orange">#FFFFFF</color>
+</resources>

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
@@ -9,6 +9,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { Card } from '../dashboard/Card'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 import type { NextStep } from './nextSteps'
+import { WeeklyReportActions } from './WeeklyReportActions'
 
 // Mirrors the empty state's "Install with your agent" modal so the two setup surfaces read the same.
 function AgentPromptAction({
@@ -20,6 +21,7 @@ function AgentPromptAction({
     prompt: string
     docsUrl: string
 }): JSX.Element {
+    const { nextStepClicked } = useActions(mcpEarlyDataLogic)
     const [open, setOpen] = useState(false)
     return (
         <>
@@ -27,7 +29,10 @@ function AgentPromptAction({
                 type="secondary"
                 size="small"
                 icon={<IconSparkles />}
-                onClick={() => setOpen(true)}
+                onClick={() => {
+                    nextStepClicked(step.key, 'open')
+                    setOpen(true)
+                }}
                 data-attr={`mcp-analytics-activity-next-step-${step.key}`}
             >
                 Fix with your agent
@@ -37,6 +42,7 @@ function AgentPromptAction({
                 size="small"
                 to={docsUrl}
                 targetBlank
+                onClick={() => nextStepClicked(step.key, 'docs')}
                 data-attr={`mcp-analytics-activity-next-step-${step.key}-docs`}
             >
                 Docs
@@ -55,12 +61,17 @@ function AgentPromptAction({
 }
 
 function NextStepActions({ step }: { step: NextStep }): JSX.Element {
+    const { nextStepClicked } = useActions(mcpEarlyDataLogic)
+    if (step.action.kind === 'weekly-report') {
+        return <WeeklyReportActions offer={step.action.offer} />
+    }
     if (step.action.kind === 'link') {
         return (
             <LemonButton
                 type="secondary"
                 size="small"
                 to={step.action.to}
+                onClick={() => nextStepClicked(step.key, 'open')}
                 data-attr={`mcp-analytics-activity-next-step-${step.key}`}
             >
                 {step.action.label}
@@ -73,7 +84,7 @@ function NextStepActions({ step }: { step: NextStep }): JSX.Element {
 export function ActivityNextSteps(): JSX.Element | null {
     const { nextSteps } = useValues(mcpEarlyDataLogic)
 
-    if (nextSteps.length === 0) {
+    if (!nextSteps?.length) {
         return null
     }
 
@@ -89,8 +100,13 @@ export function ActivityNextSteps(): JSX.Element | null {
                             <div className="min-w-0">
                                 <div className="font-medium">{step.title}</div>
                                 <div className="text-muted text-sm">{step.detail}</div>
+                                {step.error ? (
+                                    <div className="text-danger text-sm" role="alert">
+                                        {step.error}
+                                    </div>
+                                ) : null}
                             </div>
-                            <div className="flex shrink-0 items-center gap-1">
+                            <div className="flex shrink-0 flex-wrap items-center gap-1">
                                 <NextStepActions step={step} />
                             </div>
                         </div>

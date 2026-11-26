@@ -17,7 +17,6 @@ import logging
 from dataclasses import field as dataclass_field
 from typing import Literal
 
-from django.conf import settings
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -34,7 +33,12 @@ from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
-from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_WRITE_THROTTLES
+from posthog.rate_limit import (
+    WIDGET_POLL_THROTTLES,
+    WIDGET_WRITE_THROTTLES,
+    WidgetTeamPollThrottle,
+    WidgetUserBurstThrottle,
+)
 
 from products.conversations.backend.api.serializers import (
     WIDGET_TICKETS_DEFAULT_LIMIT,
@@ -46,6 +50,7 @@ from products.conversations.backend.api.serializers import (
 )
 from products.conversations.backend.cache import (
     get_cached_messages,
+    get_cached_session_has_tickets,
     get_cached_tickets,
     get_identity_tickets_cache_namespace,
     get_person_distinct_ids,
@@ -53,6 +58,7 @@ from products.conversations.backend.cache import (
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
+    set_cached_session_has_tickets,
     set_cached_tickets,
 )
 from products.conversations.backend.models import SigningSecret, Ticket
@@ -72,19 +78,16 @@ TicketOwnershipMatch = Literal["distinct_id", "email"]
 
 @frozen
 class _IdentitySecret:
-    source: Literal["signing_secret", "signing_secret_previous", "legacy_token", "legacy_backup"]
+    source: Literal["signing_secret", "signing_secret_previous"]
     secret: str = dataclass_field(repr=False)
 
 
 IDENTITY_VERIFICATION_COUNTER = Counter(
     "conversations_identity_verification_total",
     "Widget identity verification attempts by outcome and which stored secret matched",
-    labelnames=["outcome", "source"],
-)
-
-SIGNING_SECRET_STALE_COUNTER = Counter(
-    "conversations_signing_secret_stale_total",
-    "Signing secret rows skipped because they do not match the team's current secret API token",
+    # team_id keeps invalid_hash spikes attributable to the emitting team. Cardinality is
+    # bounded: only teams whose widget actually sends identity payloads create series.
+    labelnames=["outcome", "source", "team_id"],
 )
 
 
@@ -104,50 +107,22 @@ class IdentityVerificationNotConfigured(IdentityVerificationFailed):
 
 
 def _identity_secrets(team: Team) -> list[_IdentitySecret]:
-    """Credentials to verify a hash against, preferred store first.
+    """Credentials to verify a hash against.
 
-    The conversations signing secret is where this credential is moving; the legacy
-    Team.secret_api_token stays a fallback so teams that predate the backfill keep
-    verifying. The rotation backup is accepted too, so hashes signed with the previous
-    secret survive a rotation. A signing-secret rotation likewise keeps the replaced
+    The conversations signing secret is the only store. A rotation keeps the replaced
     value verifying for SigningSecret.PREVIOUS_SECRET_GRACE, then it expires on its own.
-
-    While the legacy column exists it remains the revocation authority: rotating and then
-    deleting the backup has to actually revoke the old key. The row is compared against the
-    current secret API token only — a row still holding the previous key matches the rotation
-    backup, so counting that as agreement would report a team whose sync failed as fully
-    migrated. Verification is unaffected: such a row still verifies via `legacy_backup`.
-
-    A row rotated independently via the conversations endpoint no longer mirrors the
-    legacy column, so it is trusted as-is and the staleness guard does not apply.
+    Every row is trusted as is: migration 0091 resynced rows that had drifted from the
+    retired legacy token column, and the legacy rotation path that caused drift is gone.
     """
-    legacy_secrets: list[_IdentitySecret] = []
-    if team.secret_api_token:
-        legacy_secrets.append(_IdentitySecret(source="legacy_token", secret=team.secret_api_token))
-    if team.secret_api_token_backup:
-        legacy_secrets.append(_IdentitySecret(source="legacy_backup", secret=team.secret_api_token_backup))
-
     secrets: list[_IdentitySecret] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()
     if signing_secret and signing_secret.secret:
-        if signing_secret.rotated_independently or not legacy_secrets or signing_secret.secret == team.secret_api_token:
-            secrets.append(_IdentitySecret(source="signing_secret", secret=signing_secret.secret))
-            # Rotation grace: hashes signed with the replaced secret keep verifying until
-            # the window closes. Tied to the trusted branch so a stale row contributes nothing.
-            if signing_secret.previous_secret_active and signing_secret.previous_secret:
-                secrets.append(_IdentitySecret(source="signing_secret_previous", secret=signing_secret.previous_secret))
-        else:
-            SIGNING_SECRET_STALE_COUNTER.inc()
-            logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
-
-    # Kill switch (#66179): legacy tokens stop being verification candidates, but the
-    # staleness guard above already ran, so a row holding a retired key stays excluded.
-    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
-        return secrets
-    # An independent rotation revokes the legacy credentials for identity verification.
-    if signing_secret and signing_secret.rotated_independently:
-        return secrets
-    return secrets + legacy_secrets
+        secrets.append(_IdentitySecret(source="signing_secret", secret=signing_secret.secret))
+        # Rotation grace: hashes signed with the replaced secret keep verifying until
+        # the window closes.
+        if signing_secret.previous_secret_active and signing_secret.previous_secret:
+            secrets.append(_IdentitySecret(source="signing_secret_previous", secret=signing_secret.previous_secret))
+    return secrets
 
 
 def _request_identity_secrets(data: dict, team: Team) -> list[_IdentitySecret] | None:
@@ -162,8 +137,7 @@ def _verify_identity(
     secrets: list[_IdentitySecret] | None = None,
 ) -> str | None:
     """
-    Verify HMAC identity fields against the team's signing secret, falling back to the
-    legacy secret API token and its rotation backup.
+    Verify HMAC identity fields against the team's signing secret.
     Returns the verified distinct_id, or None if identity fields not present.
     Raises IdentityVerificationFailed if identity was attempted but failed.
     An explicit empty secrets list means no credential is configured; None resolves it here.
@@ -176,18 +150,20 @@ def _verify_identity(
     resolved_secrets = secrets if secrets is not None else _identity_secrets(team)
     if not resolved_secrets:
         logger.warning(
-            "Identity verification attempted but team has no signing secret or legacy token",
+            "Identity verification attempted but team has no signing secret",
             extra={"team_id": team.id},
         )
-        IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none").inc()
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none", team_id=str(team.id)).inc()
         raise IdentityVerificationNotConfigured("Team has no signing secret")
 
     for identity_secret in resolved_secrets:
         if verify_identity_hash(distinct_id, hash_value, identity_secret.secret):
-            IDENTITY_VERIFICATION_COUNTER.labels(outcome="verified", source=identity_secret.source).inc()
+            IDENTITY_VERIFICATION_COUNTER.labels(
+                outcome="verified", source=identity_secret.source, team_id=str(team.id)
+            ).inc()
             return distinct_id
 
-    IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none").inc()
+    IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none", team_id=str(team.id)).inc()
     raise IdentityVerificationFailed("Invalid identity hash")
 
 
@@ -212,7 +188,7 @@ def _verify_identity_claim(
     if not value or not hash_value or not expires_at:
         return None
     if identity_claim_has_expired(expires_at):
-        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_expired", source="none").inc()
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_expired", source="none", team_id=str(team.id)).inc()
         return None
 
     resolved_secrets = secrets if secrets is not None else _identity_secrets(team)
@@ -222,7 +198,7 @@ def _verify_identity_claim(
     try:
         canonical = canonicalize_claim_value(field, value)
     except ValueError:
-        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none").inc()
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none", team_id=str(team.id)).inc()
         return None
 
     for identity_secret in resolved_secrets:
@@ -234,10 +210,12 @@ def _verify_identity_claim(
             identity_secret.secret,
             expires_at=expires_at,
         ):
-            IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_verified", source=identity_secret.source).inc()
+            IDENTITY_VERIFICATION_COUNTER.labels(
+                outcome="claim_verified", source=identity_secret.source, team_id=str(team.id)
+            ).inc()
             return canonical
 
-    IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none").inc()
+    IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none", team_id=str(team.id)).inc()
     return None
 
 
@@ -289,6 +267,115 @@ def _identity_tickets_cache_key(cache_namespace: str, verified_distinct_id: str,
         return base_key
     email_digest = hashlib.sha256(verified_email.encode()).hexdigest()
     return f"{base_key}:email:{email_digest}"
+
+
+def _anonymous_widget_session_id(request: Request) -> str | None:
+    """Canonical widget_session_id of an anonymous request, or None.
+
+    The tickets view parses the parameter as a UUID, so the lookup here must use the same
+    spelling. Otherwise an uppercase or hyphenless form of a session that has tickets would
+    look like a new session.
+    """
+    raw_session_id = request.query_params.get("widget_session_id")
+    if not raw_session_id or request.query_params.get("identity_distinct_id"):
+        return None
+    try:
+        return str(uuid.UUID(raw_session_id))
+    except ValueError:
+        return None
+
+
+def _session_has_tickets(team: Team, widget_session_id: str) -> bool:
+    has_tickets = Ticket.objects.filter(team=team, widget_session_id=widget_session_id).exists()
+    if has_tickets:
+        set_cached_session_has_tickets(team.id, widget_session_id)
+    return has_tickets
+
+
+@frozen
+class _CounterWindow:
+    key: str
+    limit: int
+    duration: int
+    seconds_left: float
+
+
+class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
+    """Moves ticket list requests from anonymous sessions that have no tickets to their own bucket.
+
+    The widget asks for the ticket list on each page load. On a busy site, first page views,
+    crawlers included, would use up the poll bucket, and visitors with an open conversation
+    would get 429s. The separate bucket still caps how many lookups one widget token can cause.
+    """
+
+    new_session_scope = "widget_team_new_session"
+    new_session_rate = "600/minute"
+    session_lookup_scope = "widget_team_session_lookup"
+    session_lookup_rate = "60/minute"
+
+    _counter_wait: float | None = None
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        team = request.auth
+        widget_session_id = _anonymous_widget_session_id(request)
+        if (
+            isinstance(team, Team)
+            and widget_session_id is not None
+            and not get_cached_session_has_tickets(team.id, widget_session_id)
+        ):
+            # Every ticket lookup takes room in one of two capped counters, so overflow traffic cannot
+            # cause unbounded queries. The small lookup counter lets a returning session with an expired
+            # cache entry reach the poll bucket while first page views fill the new-session counter.
+            if self._counter_has_room(request, view, self.new_session_scope, self.new_session_rate):
+                if not _session_has_tickets(team, widget_session_id):
+                    return self._counter_take(request, view, self.new_session_scope, self.new_session_rate)
+            elif not (
+                self._counter_take(request, view, self.session_lookup_scope, self.session_lookup_rate)
+                and _session_has_tickets(team, widget_session_id)
+            ):
+                return False
+            self._counter_wait = None
+        return super().allow_request(request, view)
+
+    def wait(self) -> float | None:
+        return self._counter_wait if self._counter_wait is not None else super().wait()
+
+    # The new-session counter must stay cheap when it is full, because a flood of first page views
+    # sends every request through it. A fixed-window counter costs one GET or INCR at any rate, while
+    # SimpleRateThrottle reads and rewrites a list with one timestamp for each request in the window.
+    def _counter_window(self, request: Request, view: APIView, scope: str, rate: str) -> _CounterWindow:
+        num_requests, duration = self.parse_rate(rate)
+        assert num_requests is not None and duration is not None
+        window_start = int(self.timer() // duration * duration)
+        poll_key = self.get_cache_key(request, view)
+        ident = poll_key.removeprefix(self.cache_format % {"scope": self.scope, "ident": ""})
+        return _CounterWindow(
+            key=f"{self.cache_format % {'scope': scope, 'ident': ident}}:{window_start}",
+            limit=num_requests,
+            duration=duration,
+            seconds_left=window_start + duration - self.timer(),
+        )
+
+    def _counter_has_room(self, request: Request, view: APIView, scope: str, rate: str) -> bool:
+        window = self._counter_window(request, view, scope, rate)
+        if (self.cache.get(window.key) or 0) < window.limit:
+            return True
+        self._counter_wait = window.seconds_left
+        return False
+
+    def _counter_take(self, request: Request, view: APIView, scope: str, rate: str) -> bool:
+        window = self._counter_window(request, view, scope, rate)
+        self.cache.add(window.key, 0, window.duration)
+        try:
+            count = self.cache.incr(window.key)
+        except ValueError:
+            # The window expired between the add and the incr, so this request starts the next one.
+            self.cache.set(window.key, 1, window.duration)
+            count = 1
+        if count <= window.limit:
+            return True
+        self._counter_wait = window.seconds_left
+        return False
 
 
 class WidgetMessageView(APIView):
@@ -462,6 +549,7 @@ class WidgetMessageView(APIView):
                 session_context=session_context,
                 identity_verified=verified_distinct_id is not None,
             )
+            set_cached_session_has_tickets(team.id, widget_session_id)
 
             try:
                 report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
@@ -561,13 +649,21 @@ class WidgetMessagesView(APIView):
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
+        ticket_fields = {
+            "ticket_id": str(ticket.id),
+            "ticket_status": ticket.status,
+            "unread_count": ticket.unread_customer_count,
+        }
+
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
+        last_message_at_str = ticket.last_message_at.isoformat() if ticket.last_message_at else None
         use_cache = limit == 50  # Only cache the limit used by widget polling
         if use_cache:
-            cached = get_cached_messages(team.id, ticket_id, after_str)
+            cached = get_cached_messages(team.id, ticket_id, last_message_at=last_message_at_str, after=after_str)
             if cached is not None:
-                return Response(cached)
+                response_data = {**ticket_fields, **cached}
+                return Response(response_data)
 
         # Build query - prefetch created_by to avoid N+1 queries
         messages_query = Comment.objects.filter(
@@ -619,18 +715,16 @@ class WidgetMessagesView(APIView):
                 }
             )
 
-        response_data = {
-            "ticket_id": str(ticket.id),
-            "ticket_status": ticket.status,
-            "unread_count": ticket.unread_customer_count,
+        messages_page = {
             "messages": message_list,
             "has_more": len(messages) == limit,  # Hint if there are more messages
         }
 
         # Cache the response
         if use_cache:
-            set_cached_messages(team.id, ticket_id, response_data, after_str)
+            set_cached_messages(team.id, ticket_id, messages_page, last_message_at=last_message_at_str, after=after_str)
 
+        response_data = {**ticket_fields, **messages_page}
         return Response(response_data)
 
 
@@ -645,7 +739,7 @@ class WidgetTicketsView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = WIDGET_POLL_THROTTLES
+    throttle_classes = (WidgetUserBurstThrottle, WidgetTicketsTeamThrottle)
 
     def get(self, request: Request) -> Response:
         """List tickets for a widget_session_id."""
@@ -732,6 +826,9 @@ class WidgetTicketsView(APIView):
             )
 
         response_data = {"count": total_count, "results": ticket_list}
+
+        if verified_distinct_id is None and cache_key_id is not None and total_count > 0:
+            set_cached_session_has_tickets(team.id, cache_key_id)
 
         # Cache first page (skip empty results to avoid stale cache after restore/migration)
         if cacheable_key is not None and total_count > 0:

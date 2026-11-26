@@ -20,6 +20,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RobloxInstallation,
     RubyInstallation,
     RubyOnRailsInstallation,
@@ -47,6 +48,11 @@ export const ErrorTrackingSDKDocsLinkOverrides: SDKDocsLinkOverrides = {
     [SDKKey.CONVEX]: 'https://posthog.com/docs/libraries/convex',
 }
 
+const ErrorTrackingReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'React Router',
+})
 const ErrorTrackingAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     snippets: JS_WEB_SNIPPETS,
@@ -162,6 +168,7 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NUXT_JS_36]: ErrorTrackingNuxt36InstructionsWrapper,
     [SDKKey.PYTHON]: ErrorTrackingPythonInstructionsWrapper,
     [SDKKey.REACT]: ErrorTrackingReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: ErrorTrackingReactRouterInstructionsWrapper,
     [SDKKey.SVELTE]: ErrorTrackingSvelteInstructionsWrapper,
     [SDKKey.TANSTACK_START]: ErrorTrackingReactInstructionsWrapper,
     [SDKKey.VITE]: ErrorTrackingReactInstructionsWrapper,

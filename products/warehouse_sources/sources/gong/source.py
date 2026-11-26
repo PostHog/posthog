@@ -63,6 +63,10 @@ To also sync the `calls_extensive` table (call participants and CRM associations
 To also sync the `transcripts` table (what was said on each call), additionally grant:
 - `api:calls:read:transcript`
 
+To also sync the `calls_media` table (audio and video download URLs for each call, which Gong keeps valid for 8 hours), additionally grant:
+- `api:calls:read:extensive`
+- `api:calls:read:media-url`
+
 To also sync these tables, additionally grant the scope listed next to each:
 - `trackers` (keyword tracker definitions): `api:settings:trackers:read`
 - `answered_scorecards` (scorecard reviews of calls): `api:stats:scorecards`
@@ -71,6 +75,10 @@ To also sync these tables, additionally grant the scope listed next to each:
 - `call_outcomes` (the call outcome values defined for your company): `api:call-outcomes:read`
 - `library_folders` and `library_folder_calls` (public call library folders and the calls in them): `api:library:read`
 - `flows` (Gong Engage flows): `api:flows:read`
+- `aggregate_activity` (counts of the calls each user hosted, attended, listened to, shared, and gave feedback on, per day): `api:stats:user-actions`
+- `logs` (audit logs of sign-ins, user activity, call plays, and access to externally shared calls): `api:logs:read`
+
+The `user_settings_history` table (changes to each user's recording and import settings) needs only `api:users:read`, but it makes one request per user on every sync, which counts against Gong's daily API limit.
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",
@@ -119,7 +127,11 @@ To also sync these tables, additionally grant the scope listed next to each:
                 incremental_fields=endpoint_config.incremental_fields,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
                 should_sync_default=endpoint_config.should_sync_default,
-                description="Only syncs the last 365 days on initial sync"
+                description=(
+                    "Only syncs the last 365 days on initial sync"
+                    if endpoint_config.supports_incremental
+                    else "Syncs the last 365 days on every sync"
+                )
                 if endpoint_config.uses_date_window
                 else None,
             )

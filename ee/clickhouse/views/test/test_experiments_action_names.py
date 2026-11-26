@@ -1,7 +1,7 @@
 from parameterized import parameterized
 from rest_framework import status
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 
 from ee.api.test.base import APILicensedTest
 
@@ -15,7 +15,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
     )
     def test_inline_metric_refreshes_action_names(self, _name, metrics_field):
         # Create an action
-        action = Action.objects.create(team=self.team, name="Original Action Name")
+        action = create_action(team=self.team, name="Original Action Name")
 
         # Create an experiment with an inline metric using the action
         response = self.client.post(
@@ -53,8 +53,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename the action
-        action.name = "Renamed Action"
-        action.save()
+        update_action(action, name="Renamed Action")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -75,7 +74,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
     )
     def test_inline_metric_with_different_id_types(self, _name, id_type):
         # Create an action
-        action = Action.objects.create(team=self.team, name="Action Name")
+        action = create_action(team=self.team, name="Action Name")
 
         # Create an experiment with an inline metric using the action
         response = self.client.post(
@@ -113,8 +112,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename the action
-        action.name = "Action Name Renamed"
-        action.save()
+        update_action(action, name="Action Name Renamed")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -127,7 +125,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
 
     def test_inline_metric_preserves_name_for_deleted_action(self):
         # Create an action
-        action = Action.objects.create(team=self.team, name="Action to Delete")
+        action = create_action(team=self.team, name="Action to Delete")
         action_id = action.id
 
         # Create an experiment with an inline metric using the action
@@ -166,8 +164,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Delete the action
-        action.deleted = True
-        action.save()
+        update_action(action, deleted=True)
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -188,8 +185,8 @@ class TestExperimentActionNameRefresh(APILicensedTest):
     )
     def test_funnel_metric_refreshes_action_names(self, _name, metrics_field):
         # Create two actions for funnel steps
-        action1 = Action.objects.create(team=self.team, name="Funnel Step 1 Original")
-        action2 = Action.objects.create(team=self.team, name="Funnel Step 2 Original")
+        action1 = create_action(team=self.team, name="Funnel Step 1 Original")
+        action2 = create_action(team=self.team, name="Funnel Step 2 Original")
 
         # Create an experiment with a funnel metric using actions
         response = self.client.post(
@@ -234,10 +231,8 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename both actions
-        action1.name = "Funnel Step 1 Renamed"
-        action1.save()
-        action2.name = "Funnel Step 2 Renamed"
-        action2.save()
+        update_action(action1, name="Funnel Step 1 Renamed")
+        update_action(action2, name="Funnel Step 2 Renamed")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
@@ -258,8 +253,8 @@ class TestExperimentActionNameRefresh(APILicensedTest):
     )
     def test_ratio_metric_refreshes_action_names(self, _name, metrics_field):
         # Create two actions for numerator and denominator
-        numerator_action = Action.objects.create(team=self.team, name="Numerator Original")
-        denominator_action = Action.objects.create(team=self.team, name="Denominator Original")
+        numerator_action = create_action(team=self.team, name="Numerator Original")
+        denominator_action = create_action(team=self.team, name="Denominator Original")
 
         # Create an experiment with a ratio metric using actions
         response = self.client.post(
@@ -302,10 +297,8 @@ class TestExperimentActionNameRefresh(APILicensedTest):
         experiment_id = response.json()["id"]
 
         # Rename both actions
-        numerator_action.name = "Numerator Renamed"
-        numerator_action.save()
-        denominator_action.name = "Denominator Renamed"
-        denominator_action.save()
+        update_action(numerator_action, name="Numerator Renamed")
+        update_action(denominator_action, name="Denominator Renamed")
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")

@@ -2,8 +2,8 @@ import type { AppMetricsTotalsRequest } from 'lib/components/AppMetrics/appMetri
 
 import { getEdgeId } from '../../edgeId'
 import type { CreateActionType, HogFlowEditorActionMetrics } from '../../hogFlowEditorLogic'
-import { getWorkflowBranchLabel, isBranchingAction } from '../../tree/workflowTree'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../../types'
+import { getWorkflowBranchLabel, isBranchingAction } from '../../workflowBranches'
 
 export type FlowGraph = Pick<HogFlow, 'actions' | 'edges'>
 
@@ -759,16 +759,17 @@ function isInTriangle(point: Point, a: Point, b: Point, c: Point): boolean {
 }
 
 /**
- * True while the pointer stays inside the triangle between where it left a step and the top edge of
+ * True while the pointer stays inside the triangle between where it left a step and the near edge of
  * that step's open preview. Steps it crosses on the way there must not take the hover away.
  */
 export function isHeadingToRect(
     pointer: Point,
     apex: Point,
-    rect: { left: number; right: number; top: number },
+    rect: { left: number; right: number; top: number; bottom: number },
     slack: number
 ): boolean {
-    return isInTriangle(pointer, apex, { x: rect.left - slack, y: rect.top }, { x: rect.right + slack, y: rect.top })
+    const edge = apex.y > rect.bottom ? rect.bottom : rect.top
+    return isInTriangle(pointer, apex, { x: rect.left - slack, y: edge }, { x: rect.right + slack, y: edge })
 }
 
 export interface PaletteSection {
@@ -785,6 +786,10 @@ export interface PaletteCommand {
 // Firefox starts a drag only when it carries data. A text field accepts a drop of text/plain and types it in,
 // so step drags carry a type that no text field accepts.
 export const STEP_DRAG_DATA_TYPE = 'application/x-posthog-workflow-step'
+
+export const QUICK_ADD_ATTR = 'workflow-tile-quick-add'
+
+export const MOVING_STEP_ATTR = 'data-workflow-moving-step'
 
 export type PaletteItem<Command extends PaletteCommand = PaletteCommand> =
     | { kind: 'step'; key: string; section: string; label: string; description?: string; step: CreateActionType }

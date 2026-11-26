@@ -15,3 +15,12 @@
  * message on the header alone, and the team the body names would then never see its event.
  */
 export const TEAM_ID_HEADER = 'team_id'
+
+/**
+ * The event's name, so a consumer can skip an event no destination or workflow of its team admits
+ * without parsing the body.
+ *
+ * The same rule as the team id applies: a producer takes it from the `event` it writes into the
+ * body. A missing header is safe, a wrong one makes a consumer skip an event a destination wanted.
+ */
+export const EVENT_NAME_HEADER = 'event'

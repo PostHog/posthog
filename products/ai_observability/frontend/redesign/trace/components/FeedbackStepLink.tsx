@@ -1,24 +1,26 @@
 import { Link } from '@posthog/lemon-ui'
 
-import { FeedbackStep } from '../types'
+import { FeedbackStepContext } from '../types'
 
 export interface FeedbackStepLinkProps {
-    step: FeedbackStep | null
+    nodeId: string
+    steps: FeedbackStepContext
     onSelectStep: (nodeId: string) => void
 }
 
-export function FeedbackStepLink({ step, onSelectStep }: FeedbackStepLinkProps): JSX.Element {
-    if (!step) {
+export function FeedbackStepLink({ nodeId, steps, onSelectStep }: FeedbackStepLinkProps): JSX.Element {
+    const name = nodeId !== steps.traceId ? steps.stepLabels.get(nodeId) : undefined
+    if (name === undefined) {
         return <span className="text-secondary">Whole trace</span>
     }
     return (
         <Link
-            onClick={() => onSelectStep(step.id)}
+            onClick={() => onSelectStep(nodeId)}
             className="max-w-60 truncate font-mono"
-            title={`Show ${step.name}`}
+            title={`Show ${name}`}
             data-attr="trace-view-feedback-step-link"
         >
-            {step.name}
+            {name}
         </Link>
     )
 }

@@ -43,7 +43,8 @@ The realtime pipeline understands three types of leaf, one of them in two varian
 | `cohort`                                            | Is the person in another cohort?                                                                  | In cohort 17                                         |
 
 Every other behavioral value, such as `performed_event_first_time`, `performed_event_sequence`, `performed_event_regularly`, `stopped_performing_event` and `restarted_performing_event`, is not supported in realtime.
-Neither are behavioral leaves keyed on an action instead of an event name, and `person_metadata` leaves, which read top-level person columns such as "first seen".
+Neither are behavioral leaves that match an action instead of an event name, and `person_metadata` leaves, which read top-level person columns such as "first seen".
+The save treats a leaf as an action when its `event_type` is `actions`, whether the action id in its `key` is stored as a number or a string.
 One unsupported leaf makes the whole cohort non-realtime.
 
 ## What the cohort API compiles on save
@@ -91,14 +92,56 @@ A hash that is not exactly 16 bytes makes its leaf unusable.
 The API serializer sets `cohort_type = 'realtime'` when all of the following hold:
 
 - every leaf compiled to bytecode without an error,
+  and a call to a function outside the Hog standard library counts as an error,
+  because the realtime evaluator would count that call as `false` without raising one,
 - no leaf is `person_metadata`,
 - every cohort reference points to a cohort that is itself realtime at the moment of this save,
 - the cohort does not use `filterTestAccounts`, because the test-account filters are added at query time and the realtime evaluator cannot see them,
+- no behavioral leaf looks back more than `REALTIME_COHORT_MAX_HISTORY_DAYS` (400 by default), because the seeder backfills no further than its own lookback cap,
 - on edits, the last known person count is under a size cap.
 
-The rule reads the criteria only.
+The cohort API reports which of these kept a `daily` cohort off realtime, as its `realtime.reason` ([what readiness unlocks](completion-and-readiness.md#in-django)).
+The decision does not cover the processor's time range rules, so a cohort can be typed realtime and still have a criterion the pipeline drops for its window.
+The cohort API reports that case as `realtime.reason: unsupported_time_range` on an `off` or `needs_attention` cohort, and a turn-on of an `off` cohort refuses it.
+
+A sliding window counts by its length, with a month as 30 days and a year as 365, the same lengths the Rust evaluator uses.
+An absolute start date counts from its written date to the team's current day, and a range with only an end date always counts as too long.
+The history limit is not rechecked as time passes.
+A realtime cohort whose start date later passes the limit stays realtime until a save that changes its criteria.
+A backfill for it in the meantime, such as a disaster-recovery run, is truncated at the seeder's cap.
+A resave through `resave_cohorts` or team enablement rechecks every cohort, so it does take such a cohort off realtime.
+Keep `REALTIME_COHORT_MAX_HISTORY_DAYS` at or below the seeder's `SEEDER_MAX_LOOKBACK_DAYS`.
+
+`REALTIME_COHORT_MAX_HISTORY_DAYS` is the pipeline's own cap, and it is the same for every plan.
+The plan's history limit is a separate and lower limit, and it never changes `cohort_type` ([plan limits](#plan-limits)).
+
+The rule reads the criteria, plus the team's current day for the history limit.
 No team allowlist or rollout flag is involved, so any project can hold `realtime` cohorts, and the Rust services choose which teams they actually process.
 The rule also checks no composition, which matters later on this page.
+
+### Plan limits
+
+Two billing features limit what a project can have on.
+`products/cohorts/backend/realtime_limits.py` reads them from the organization's `available_product_features`.
+
+| Feature                    | Limit                                                | Without the feature                        |
+| -------------------------- | ---------------------------------------------------- | ------------------------------------------ |
+| `realtime_cohorts`         | Cohorts per project with realtime on                 | `REALTIME_COHORT_DEFAULT_MAX_COHORTS`      |
+| `realtime_cohorts_history` | Days back the criteria of a realtime cohort can look | `REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS` |
+
+A feature with a null limit sets no limit, and so does an unset setting.
+The history limit is never above `REALTIME_COHORT_MAX_HISTORY_DAYS`, also when the plan sets none.
+A cohort holds a slot while it is `realtime`, on, not static and not deleted.
+
+The limits only gate turning realtime on.
+`cohort_enablement.py` refuses a turn-on that needs more slots than are left, or whose criteria look back further than the plan allows.
+The cohort API refuses the same for a criteria edit of a cohort that is on, when the request's user sees realtime cohorts.
+A cohort that is on keeps its switch while it is daily, static or deleted, so the API judges an edit that brings it back, such as a restore, like a turn-on.
+It judges an edit in the transaction that saves it, under the same team lock as a turn-on.
+A cohort that is on keeps running when the plan changes or its start date ages past the limit, and a rename that resends the same criteria is not judged again.
+Such a save of a realtime cohort is not recompiled either, so the history limit and the size cap that the recompile applies are not checked again.
+Its stamps and its realtime type stay as they were, and the lock on cohorts that active flags use lets it through.
+The refusal is a `400` with code `realtime_limit_reached`, and it is captured as the `cohort realtime limit reached` event.
 
 Other writers can take `realtime` away after a save.
 The batch recalculation clears it when a cohort's count grows past the size cap, and a resave management command clears it for some nested references.
@@ -182,7 +225,7 @@ Changing the derivation would re-key every behavioral state row in every store, 
 Every Rust service that needs definitions builds a **catalog**: an immutable, per-team index of parsed cohorts.
 The shared `cohort-core` crate owns the parsing, classification and indexing, so the processor and the seeder interpret a definition with the same code.
 
-- The **processor** loads every row with `cohort_type = 'realtime' AND deleted = false AND filters IS NOT NULL`, joined to the team's timezone.
+- The **processor** loads every row with `cohort_type = 'realtime' AND realtime_enabled_at IS NOT NULL AND is_static = false AND deleted = false AND filters IS NOT NULL`, joined to the team's timezone.
   It keeps only the teams in its own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` and the teams that a `cohort_realtime_team_access` row grants, builds the catalog off the async runtime, and swaps it in atomically.
   A refresh whose read of that table fails builds nothing, so the catalog never misses a team that the table granted before the refresh began, as long as the database it reads is current.
   It refreshes every few minutes with jitter, and within about 15 seconds of a grant or a revoke.
@@ -192,8 +235,8 @@ The shared `cohort-core` crate owns the parsing, classification and indexing, so
   That catalog holds only the run's cohorts, and it always has cascades off.
   A run's reconcile is different, because it runs on the processor against the processor's live catalog.
   See [the seeder](seeder.md).
-- The **shuffler** only needs to know which teams have realtime cohorts.
-  It keeps a team index from the same predicate.
+- The **shuffler** only needs to know which teams have a realtime cohort that is on.
+  It reads them through `cohort-core`, whose team query and catalog load share one predicate.
   See [event routing](event-routing.md).
 
 Definitions do not travel through Kafka.
@@ -231,7 +274,10 @@ A few window rules are worth knowing.
 - Operators other than `gte`, `lte`, `gt` and `lt` behave as equality.
   A count of zero is never a match, even for `lt 1`.
 
-A leaf is also dropped when its behavioral value is unsupported, when it is keyed on an action, when its condition hash or bytecode is missing or malformed, or when its type is unknown.
+A leaf is also dropped when its behavioral value is unsupported, when its `key` is a numeric action id, when its condition hash or bytecode is missing or malformed, or when its type is unknown.
+The processor does not read `event_type`, so it keeps a leaf whose action id is stored as a string and matches it as an event with that name.
+The save refuses such a leaf, so a cohort whose criteria are saved with one is not realtime and the processor does not load it.
+A cohort already typed realtime keeps that leaf, and that wrong match, until a save changes its criteria or `resave_cohorts` recompiles it.
 Every drop is counted by reason.
 
 ## Eligibility: which cohorts the processor composes
@@ -298,7 +344,7 @@ It goes from an event to the few map entries that matter.
 | Composable cohorts                  | LSK → cohorts that contain this leaf                             | Which cohorts Stage 2 recomposes when the leaf flips                                                 |
 | Referencing cohorts                 | cohort → cohorts that reference it                               | Cascades                                                                                             |
 | Person conditions, ordered          | sorted list of person condition hashes                           | The person evaluation order                                                                          |
-| Catalog fingerprint                 | digest of the sorted person condition hashes                     | Skipping person re-evaluation while nothing changed                                                  |
+| Catalog fingerprint                 | digest of the evaluator version and person condition hashes      | Skipping person re-evaluation while nothing changed                                                  |
 | Eligibility and trees               | cohort → class, cohort → parsed tree                             | Stage 2 composition                                                                                  |
 | Shape hashes                        | cohort → behavioral and person shape hash                        | Rejecting reconcile work for a stale definition                                                      |
 | Timezone                            | the team's IANA timezone                                         | Every calendar-day computation                                                                       |
@@ -314,8 +360,20 @@ Leaves are evaluated with the Rust HogVM, configured the same way in every proce
   Each program is decoded once per catalog build.
 - The cohort evaluator enables type-coercing comparisons, as the Python and TypeScript HogVMs do, and orders dates by their instant, as ClickHouse does.
   A string compares as a number only when the other side is a number, and `1 == 1.0` is true.
+- A boolean and a string compare as text in `==`, `!=`, `in`, `not in`, `has`, `indexOf` and `in()`: the boolean becomes `"true"` or `"false"`, and the comparison is case-sensitive.
+  The batch calculation reads an untyped or String-typed property as its JSON text, so `$feature/<flag> = 'variant'` skips events where the flag was off on both paths.
+  It reads a Boolean-typed property through a case-sensitive `transform` of that text, so a stored string `"True"` does not equal the constant `true` on either path.
+  A bare read and an ordering of a boolean keep boolean semantics.
+- A top-level person property stored as `""` or `"null"` reads as null, as the batch calculation reads one through a non-nullable `pmat_` column or a Numeric, DateTime or Boolean property definition.
+  So `is_set` is false, `is_not_set` is true, and `exact ""` matches no person.
+  A text operator such as `icontains` or `regex` reads that null as the text `null`, as it reads a missing key.
+  On a null, the batch calculation matches no text operator and matches every negated one, so the two paths disagree on a pattern that matches `null`, such as `regex '.+'`.
+  For a person property with neither, which includes a String-typed one without a non-nullable `pmat_` column, the batch calculation reads the JSON blob or a nullable `pmat_` column, which keep both texts, and the two paths disagree.
+  Event properties keep both texts, because cloud reads an event property without a `mat_` column through its property group, which keeps them too.
 - A program that fails at runtime, calls an unknown function, or returns a non-boolean counts as `false`.
   Failures are counted by reason.
+  The save path refuses a leaf that calls a function outside the Hog standard library, so an unknown function reaches the evaluator only in bytecode stored before that check.
+  A function name typed in another case, such as `NOT (x)` or `COALESCE(a, b)`, compiles to its lowercase library function when HogQL reads both spellings as the same function.
 - An event with malformed `properties` JSON skips only the behavioral side.
   Malformed `person_properties` skips the whole event when the person side has to evaluate.
   An event with an unparseable timestamp is skipped.

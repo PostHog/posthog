@@ -87,11 +87,11 @@ symbol stores. The rendezvous score is adjusted by the latest server load
 snapshot and the caller's own local in-flight count, so highly loaded pods
 become less likely to receive new work before they return overload outcomes.
 
-Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the batch.
+Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. `ERROR_KIND_POISON` fails the event that owns the item, and the other events of the request continue. The other terminal `ErrorKind`s fail the batch, including `ERROR_KIND_INVALID_PAYLOAD`, because it means the two modes disagree on the wire format.
 
 ### Compatibility with the Node error-tracking consumer
 
-The Node consumer still talks only to cymbal's HTTP `POST /process` endpoint. Cymbal preserves the response array shape and input ordering after internal remote resolution, so Node-side request chunking by HTTP body size remains valid and no generated type changes are needed. See [`cymbal/docs/compatibility.md`](../cymbal/docs/compatibility.md).
+The Node consumer still talks only to cymbal's HTTP `POST /process` endpoint. Cymbal preserves the response array length and input ordering after internal remote resolution, so Node-side request chunking by HTTP body size remains valid and no generated type changes are needed. See [`cymbal/docs/compatibility.md`](../cymbal/docs/compatibility.md).
 
 ## Configuration
 
@@ -127,15 +127,29 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `SYMBOL_SET_MAX_CONCURRENT_LARGE_PARSES` | `2` | Cap on concurrent large symbol set parses across all providers. Each large parse reserves at least this share of the memory budget. |
 | `SYMBOL_SET_PARSE_MEMORY_BUDGET_BYTES` | `1000000000` | Shared budget for the estimated peak memory of large parses. A parse waits until its estimate fits. A parse estimated above the whole budget runs alone. |
 | `SYMBOL_SET_PARSE_MEMORY_MULTIPLIER` | `8` | Estimated peak parse memory, as a multiple of the decompressed symbol set size. |
+| `SYMBOL_SET_MAX_DECOMPRESSED_BYTES` | `536870912` | Cap on the decompressed size of a symbol set container. A larger container fails to parse. |
+| `SYMBOL_SET_MAX_EXTRACTED_BYTES` | `1610612736` | Cap on the bytes a native or Apple parse reads out of the symbol set's ZIP, summed over every entry it reads. A DWARF entry past the cap fails the parse. Bundled sources past the cap are dropped, and the frame still resolves. |
 | `MAX_ITEM_CONCURRENCY` | `64` | Process-wide cap on concurrently processed exception items. Excess items receive `ERROR_KIND_OVERLOADED`. |
 | `SERVICE_INSTANCE_ID` | random UUID | Identifier surfaced to callers via `LoadEvent` on the Subscribe stream. |
 | `SUBSCRIBE_TICK_INTERVAL_MS` | `1000` | Default `LoadEvent` heartbeat cadence when callers do not suggest one. Load events may be emitted earlier when draining changes or in-flight load crosses coarse thresholds. |
 | `SUBSCRIBE_MIN_TICK_MS` | `100` | Lower bound for the Subscribe tick cadence. |
 | `SUBSCRIBE_MAX_TICK_MS` | `10000` | Upper bound for the Subscribe tick cadence. |
 
-All four symbol set parse settings must be positive integers. Invalid values prevent the service from starting.
+All six symbol set parse settings must be positive integers. Invalid values prevent the service from starting.
 
 The server inherits the narrow subset of cymbal's env-var surface needed by `build_symbol_resolver` and internal gRPC authentication: `INTERNAL_API_SECRET`, Postgres, object storage, symbol-store cache/resolver tuning, and outbound HTTP controls. Frame result cache knobs such as `FRAME_RESOLVED_TTL_SECONDS` and `FRAME_UNRESOLVED_TTL_SECONDS` are read through cymbal's shared symbol resolver config, not duplicated in `cymbal-resolution`'s own `Config`. It does not connect to Kafka, Redis, or the signals API.
+
+### Frame store settings (shared resolver config)
+
+| Env var | Default | Purpose |
+| ------- | ------- | ------- |
+| `FRAME_SAVE_ASYNC_COMMIT` | `true` | Saves each frame snapshot in one transaction with `synchronous_commit = off`, so frame commits do not wait for the WAL flush. A writer crash can lose the frame rows that committed just before it. Cymbal resolves those frames again on their next miss. `false` saves each part as its own durable commit. |
+| `FRAME_MISS_BREAKER_MODE` | `log` | `off`, `log` or `enforce`. The breaker opens for a team when nearly all of its Postgres frame lookups find no fresh frame, as in a flood with a new frame on every event. In `enforce`, that team's cache misses then resolve without the stored-frame read, the symbol set lookup or the save. Events still get resolved frames. `log` runs the same breaker and never skips Postgres. |
+| `FRAME_MISS_BREAKER_WINDOW_SECONDS` | `60` | Sliding window for the per-team miss ratio. In-memory cache hits do not count. |
+| `FRAME_MISS_BREAKER_MIN_LOOKUPS` | `1000` | Postgres frame lookups the window must hold before the breaker can open. |
+| `FRAME_MISS_BREAKER_MISS_RATIO` | `0.9` | Share of those lookups that must find no fresh frame, or fail, for the breaker to open. |
+| `FRAME_MISS_BREAKER_COOLDOWN_SECONDS` | `300` | Time the breaker stays open. A probe with no result by the next cooldown counts as failed. |
+| `FRAME_MISS_BREAKER_PROBE_LOOKUPS` | `100` | Cache misses let through to Postgres after the cooldown. Their miss ratio closes the breaker or opens it again. |
 
 Shared-secret callers are service-scoped today, so authenticated cymbal pods are permitted to resolve all teams. If future callers carry a team-scoped identity, the `Resolve` handler must reject any `ResolveItem.team_id` outside the caller's allowed team set before scheduling resolution work.
 
@@ -155,6 +169,8 @@ Shared-secret callers are service-scoped today, so authenticated cymbal pods are
 These metric names are exported by the cymbal client unless noted. Definitions live in [`cymbal/src/metric_consts.rs`](../cymbal/src/metric_consts.rs) and the server's Resolve/LoadMonitor modules.
 
 - **Symbol set parse sizes**: `cymbal_symbol_set_parse_input_bytes{kind}` records known sizes before parsing, including decompressed sizes for supported symbol data. Use its byte-sized buckets to inspect the distribution without relying on per-parse logs. Unknown sizes do not enter this histogram. Logs before parsing still identify fetched blobs of at least 10 MB and known parse inputs of at least 50 MB. These sizes do not measure peak memory.
+- **Frame saves** (server): `cymbal_frame_save_ms{commit}` times each frame snapshot write, pool wait included, with buckets from 0.1 ms. `commit` is `async` or `sync`, after `FRAME_SAVE_ASYNC_COMMIT`.
+- **Frame miss breaker** (server): `cymbal_frame_miss_breaker_opened{mode, team_id}` counts opens, so only teams that trip get a series. `cymbal_frame_miss_breaker_skipped{mode}` counts cache misses while a breaker is open: real skips in `enforce`, and misses that `enforce` would skip in `log`.
 - **Item attempts and latency**: `cymbal_remote_resolution_requests_total{outcome, reason?}` and `cymbal_remote_resolution_latency_ms`. The counter is emitted on logical item attempts; `reason` is only a bounded transport status tag.
 - **Reroute shape**: `cymbal_remote_resolution_reroute_depth{outcome}` records how many endpoint changes happened before the terminal item result. The legacy attempts histogram may still be emitted for dashboard continuity, but new alerts should use reroute depth.
 - **Protocol error taxonomy**: client-observed `cymbal_remote_resolution_error_kinds_total{kind}` and server-emitted `cymbal_remote_resolution_server_error_kinds_total{kind}` count `ErrorKind` values with bounded labels.
@@ -185,6 +201,7 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 - `rejecting item with invalid payload` — malformed exception JSON or `metadata`; surfaces as `ERROR_KIND_INVALID_PAYLOAD`.
 - `limiter closed mid-request, asking caller to retry` — symbol-resolution limiter was closed, currently expected only during shutdown/tests.
 - `item deadline expired` — the item deadline elapsed before work completed; surfaces as `ERROR_KIND_OVERLOADED`.
+- `frame miss breaker opened` — a team's breaker opened, with `team_id`, `lookups`, `misses` and `mode`. `frame miss breaker closed` (info) follows when a probe closes it.
 
 Client-side warnings on the cymbal pods:
 

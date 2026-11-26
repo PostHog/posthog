@@ -25,9 +25,11 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
+from fsspec.asyn import get_loop
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import CDCExtractActivity, CDCExtractInput
@@ -256,6 +258,7 @@ class MemoryObjectStore:
 
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.modified: dict[str, dt.datetime] = {}
         self._writes = 0
         self._failing_writes: set[int] = set()
 
@@ -279,6 +282,7 @@ class MemoryObjectStore:
             self.objects[key] = written[: len(written) // 2]
             raise SimulatedCrash("the buffer file could not be written")
         self.objects[key] = written
+        self.modified[key] = dt.datetime.now(tz=dt.UTC)
 
     def rm(self, key: str, recursive: bool = False) -> None:
         doomed = [k for k in self.objects if k == key or (recursive and k.startswith(f"{key}/"))]
@@ -292,6 +296,13 @@ class MemoryObjectStore:
         if not keys:
             raise FileNotFoundError(prefix)
         return keys
+
+    loop = get_loop()
+
+    async def _iterdir(self, bucket: str, delimiter: str = "/", prefix: str = "") -> AsyncIterator[dict[str, Any]]:
+        for key, data in sorted(self.objects.items()):
+            if key.startswith(f"{bucket}/{prefix}"):
+                yield {"name": key, "type": "file", "size": len(data), "LastModified": self.modified.get(key)}
 
     def _etag(self, key: str) -> str:
         return hashlib.md5(self.objects[key]).hexdigest()
@@ -517,6 +528,9 @@ class ConformanceKit:
             if update_fields is None or "job_inputs" in update_fields:
                 kit._source_job_inputs = copy.deepcopy(source.job_inputs)
 
+        def read_masked_columns(_extraction: CDCExtractActivity, schema: ExternalDataSchema) -> list[str] | None:
+            return kit._schema_row(schema.id).get("masked_columns")
+
         def cdc_schemas(extraction: CDCExtractActivity) -> list[ExternalDataSchema]:
             assert extraction.source is not None
             return [kit._load_schema(name, extraction.source) for name in kit._schema_rows]
@@ -547,9 +561,12 @@ class ConformanceKit:
             ),
             patch(f"{_CDC}.activities.ExternalDataSource", source_model),
             patch.object(CDCExtractActivity, "_get_cdc_schemas", cdc_schemas),
+            patch.object(CDCExtractActivity, "_read_masked_columns", read_masked_columns),
             patch(f"{_CDC}.activities.update_sync_type_config_keys", merge_config),
             patch.object(ExternalDataSchema, "save", save_schema),
             patch.object(ExternalDataSource, "save", save_source),
+            # The source lives only in memory, so it has no credentials row to read.
+            read_unsaved_source_inputs_as_stored(),
             # The lanes read their position from the in-memory tables instead of Delta.
             patch(f"{_CDC}.source_manager.DeltaTableRef", _LaneTableRef),
             patch(f"{_CDC}.source_manager.ensure_position_stats", _keep_position_stats),
@@ -608,7 +625,11 @@ class ConformanceKit:
         async def drain() -> None:
             lanes, floor = await build_output_lanes(schema, MagicMock(), self._log, HISTORY_NAMING)
             manager = CDCSourceManager(
-                cast(SourceInputs, inputs), self._log, deletion_floor=floor, proof=self._proofs.get(table.name)
+                cast(SourceInputs, inputs),
+                self._log,
+                deletion_floor=floor,
+                proof=self._proofs.get(table.name),
+                generation_seen=0,
             )
             async for batch in manager.get_items():
                 for lane in lanes:

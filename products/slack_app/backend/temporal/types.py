@@ -15,9 +15,92 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 
 
-@dataclass
+@dataclass(frozen=True)
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
+    # Absent in workflows started before the field existed.
+    team_id: int | None = None
+
+
+@dataclass(frozen=True)
+class SlackAppOnboardingInputs:
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    # Spreads a burst of new members over time. Only a fresh run waits; continue_as_new resets it to 0.
+    start_delay_seconds: int = 0
+
+
+@dataclass(frozen=True)
+class SlackAppDailySummaryIndexInputs:
+    integration_id: int
+    slack_team_id: str
+    # The people in this workspace whose daily run the sweep is about to start. The index is built when one of them
+    # gets the daily summary.
+    slack_user_ids: list[str]
+
+
+@dataclass(frozen=True)
+class SlackAppWorkFocusInputs:
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    # Set on a daily run: the previous run time, as epoch seconds. The run reads the messages sent after it.
+    since: int | None = None
+    # Set on a daily run: the run time the sweep claimed, as epoch seconds. The run sends only while the row still
+    # names it, so a retry that a later sweep overtook sends nothing.
+    run_at: int | None = None
+    start_delay_seconds: int = 0
+
+
+@frozen
+class SlackAppOnboardingMessage:
+    """One message of a person's onboarding thread. For an edit, ``ts`` names the message. ``planned``,
+    ``root_status`` and ``summarizes_step`` say what to store after it."""
+
+    kind: Literal["root", "step", "ready"]
+    text: str
+    blocks: list[dict[str, Any]]
+    step: str | None = None
+    ts: str | None = None
+    root_status: str | None = None
+    planned: list[str] | None = None
+    summarizes_step: bool = False
+
+    @property
+    def summary(self) -> str:
+        """The label of the activity that sends this message, shown in the Temporal UI."""
+        if self.kind == "step" and self.summarizes_step:
+            return f"{self.step}: shrink to one line"
+        if self.kind == "step":
+            return f"{self.step}: show step"
+        if self.kind == "root":
+            progress, _, _ = (self.root_status or "").partition("\n")
+            return f"top message: {progress}"
+        return "ready message"
+
+
+@frozen
+class SlackAppOnboardingPlan:
+    edits: list[SlackAppOnboardingMessage]
+    post: SlackAppOnboardingMessage | None
+    finished: bool
+    # Shown as the workflow's current details in the Temporal UI.
+    status: str = ""
+
+    @property
+    def plan_again(self) -> bool:
+        # The first step reply goes under the top message, so it needs one more plan after the top post.
+        return self.post is not None and self.post.kind == "root"
+
+
+ONBOARDING_DONE_PLAN = SlackAppOnboardingPlan(edits=[], post=None, finished=True, status="Done")
+
+
+@frozen
+class SlackAppOnboardingMessageInputs:
+    setup: SlackAppOnboardingInputs
+    message: SlackAppOnboardingMessage
 
 
 def insight_render_key(insight_id: int) -> str:
@@ -89,14 +172,17 @@ class SlackAppUnfurlChartsPostInput:
 
 @frozen
 class SlackAppForkThreadInputs:
-    """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
+    """The Slack interactivity payload behind a fork menu click, verbatim.
 
     Passed through rather than parsed at the boundary: the webhook's only job is to ack
     inside Slack's three-second budget, so everything it could read from the payload is
-    read in the activity instead.
+    read in the activity instead. A fork into a channel rebuilds the payload from the
+    channel picker's metadata, and names the picked channel in ``target_channel``.
+    Without it the fork goes to the clicker's DM.
     """
 
     payload: dict[str, Any]
+    target_channel: str | None = None
 
 
 @frozen
@@ -109,6 +195,7 @@ class PostHogCodeSlackMentionWorkflowInputs:
     user_id: int
     # Event that dispatched the workflow
     slack_event_id: str | None = None
+    report_implementation_message_ts: str | None = None
     # True when the workflow was started for an untagged thread reply (event type
     # ``message``) rather than an explicit ``app_mention``. The routing layer
     # already verified a ``SlackThreadTaskMapping`` exists before dispatch, but
@@ -148,6 +235,9 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # agent can pull that task's runs, logs and artifacts if the question needs more
     # than the messages.
     fork_source_task_id: str | None = None
+    # The first line of the forked thread's opening message. Another person wrote it, so
+    # task creation places it inside the attributed context block, never in the request.
+    fork_source_title: str | None = None
 
     @property
     def untagged_confirmed(self) -> bool:
@@ -307,14 +397,19 @@ class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
     `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
-    repos, so the mention becomes a repo-less task and the agent decides whether the
-    ask needs code. `agent_needed` → there are multiple candidates and no explicit
+    repos, or the needs-repo check said the ask needs no code, so the mention becomes a
+    repo-less task. `agent_needed` → there are multiple candidates and no explicit
     mention.
+
+    `needs_repo_classified` marks an `agent_needed` outcome whose ask the cascade already
+    judged to need code, so the workflow skips its own needs-repo check. It defaults to
+    False, so histories recorded before it existed decode to that check.
     """
 
     mode: Literal["auto", "no_repo", "agent_needed"]
     repository: str | None
     reason: str
+    needs_repo_classified: bool = False
 
 
 @dataclass(frozen=True)

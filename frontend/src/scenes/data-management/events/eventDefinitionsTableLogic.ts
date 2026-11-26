@@ -9,10 +9,11 @@ import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { objectsEqual } from 'lib/utils/objects'
+import { truncate } from 'lib/utils/strings'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
+import { AnyPropertyFilter, EventDefinition, EventDefinitionType, JsonType, PropertyDefinition } from '~/types'
 
 import { eventDefinitionsBulkUpdateVerifiedCreate } from 'products/event_definitions/frontend/generated/api'
 import type {
@@ -59,6 +60,20 @@ const DEFAULT_FILTERS: Filters = {
     ordering: 'event',
     tags: undefined,
     verified: undefined,
+}
+
+// Event properties are untrusted input of any size, so the example is capped before the table renders it.
+const MAX_PROPERTY_EXAMPLE_LENGTH = 200
+
+function formatPropertyExample(value: JsonType | undefined): string | undefined {
+    if (value === undefined) {
+        return undefined
+    }
+    try {
+        return truncate(JSON.stringify(value), MAX_PROPERTY_EXAMPLE_LENGTH)
+    } catch {
+        return undefined
+    }
 }
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
@@ -501,11 +516,19 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         return values.eventDefinitions
                     }
                     const verifiedById = new Map(updates.map((u) => [String(u.id), u.verified] as const))
+                    const patchDefinition = (d: EventDefinition): EventDefinition => {
+                        const verified = verifiedById.get(String(d.id))
+                        if (verified === undefined) {
+                            return d
+                        }
+                        // Like the server, verifying also unhides the event and cancels a scheduled delete
+                        return verified
+                            ? { ...d, verified, hidden: false, scheduled_deletion_at: null }
+                            : { ...d, verified }
+                    }
                     const patch = (list: EventDefinitionsPaginatedResponse): EventDefinitionsPaginatedResponse => ({
                         ...list,
-                        results: list.results.map((d) =>
-                            verifiedById.has(String(d.id)) ? { ...d, verified: verifiedById.get(String(d.id)) } : d
-                        ),
+                        results: list.results.map(patchDefinition),
                     })
 
                     const onScreen = values.eventDefinitions.current === cacheKey
@@ -575,7 +598,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     breakpoint()
 
                     // Fetch one event as example and cache (only if events have been captured)
-                    let exampleEventProperties: Record<string, string> = {}
+                    let exampleEventProperties: Record<string, JsonType> = {}
                     if (definition.last_seen_at) {
                         const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
                         if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
@@ -602,7 +625,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ) + 1,
                         results: response.results.map((prop: PropertyDefinition) => ({
                             ...prop,
-                            example: exampleEventProperties?.[prop.name]?.toString(),
+                            example: formatPropertyExample(exampleEventProperties?.[prop.name]),
                         })),
                     }
 

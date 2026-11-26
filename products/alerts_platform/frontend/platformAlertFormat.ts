@@ -1,16 +1,33 @@
+import { ApiError } from 'lib/api-error'
 import { urls } from 'scenes/urls'
+
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
+    GroupingModeEnumApi,
+    PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
+    PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
 
+export const STATUS_LABELS: Record<PlatformAlertConfigurationStatus, string> = {
+    not_firing: 'OK',
+    firing: 'Firing',
+    errored: 'Errored',
+    snoozed: 'Snoozed',
+    broken: 'Broken',
+    disabled: 'Disabled',
+    not_checked: 'Not checked yet',
+}
+
 interface SourceKind {
     label: string
+    iconType: FileSystemIconType
     // The source product's own page for the alert, or null when the configuration cannot reach it.
     alertUrl: (configuration: PlatformAlertConfigurationApi) => string | null
 }
@@ -22,24 +39,39 @@ function legacyAlertUrl(url: (legacyConfigurationId: string) => string): SourceK
 export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, SourceKind> = {
     [PlatformAlertConfigurationSourceKindEnumApi.Logs]: {
         label: 'Logs',
+        iconType: 'logs',
         alertUrl: legacyAlertUrl(urls.logsAlertDetail),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Insight]: {
         label: 'Insight',
+        iconType: 'product_analytics',
         alertUrl: legacyAlertUrl(urls.alert),
     },
     // A warehouse alert has no page of its own, so it links to the page that lists what it watches.
     [PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource]: {
         label: 'Warehouse source',
+        iconType: 'data_warehouse',
         alertUrl: () => urls.sources(),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.WarehouseDestination]: {
         label: 'Warehouse destination',
+        iconType: 'data_warehouse',
         alertUrl: () => urls.warehouseDestinations(),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Metrics]: {
         label: 'Metrics',
-        alertUrl: () => urls.metrics(),
+        iconType: 'metrics',
+        alertUrl: () => urls.metrics('alerts'),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.Traces]: {
+        label: 'Traces',
+        iconType: 'tracing',
+        alertUrl: () => urls.tracing(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.ErrorTracking]: {
+        label: 'Error tracking',
+        iconType: 'error_tracking',
+        alertUrl: () => urls.errorTracking(),
     },
 }
 
@@ -63,11 +95,25 @@ const CALENDAR_UNIT_LABELS: Record<CalendarUnitEnumApi, string> = {
 }
 
 export function configurationStatus(configuration: PlatformAlertConfigurationApi): PlatformAlertConfigurationStatus {
+    return configurationStateCounts(configuration)[0].status
+}
+
+export interface PlatformAlertStateCount {
+    status: PlatformAlertConfigurationStatus
+    count: number
+}
+
+export function configurationStateCounts(
+    configuration: PlatformAlertConfigurationApi
+): [PlatformAlertStateCount, ...PlatformAlertStateCount[]] {
     if (!configuration.enabled) {
-        return 'disabled'
+        return [{ status: 'disabled', count: configuration.alerts.length }]
     }
-    const states = new Set(configuration.alerts.map((alert) => alert.state))
-    return STATE_PRIORITY.find((state) => states.has(state)) ?? 'not_checked'
+    const [mostUrgent = { status: 'not_checked', count: 0 }, ...rest] = STATE_PRIORITY.map((status) => ({
+        status,
+        count: configuration.alerts.filter((alert) => alert.state === status).length,
+    })).filter(({ count }) => count > 0)
+    return [mostUrgent, ...rest]
 }
 
 // Each source keeps its bound under `source_config.condition` in its own shape. Only the logs shape
@@ -93,7 +139,185 @@ export function describeSchedule(configuration: PlatformAlertConfigurationApi): 
     return configuration.anchor_time ? `Every ${unit} at ${configuration.anchor_time}` : `Every ${unit}`
 }
 
+const CALENDAR_UNIT_INTERVALS: Record<CalendarUnitEnumApi, string> = {
+    [CalendarUnitEnumApi.Day]: '1d',
+    [CalendarUnitEnumApi.Week]: '1w',
+    [CalendarUnitEnumApi.Month]: '1mo',
+}
+
+export function describeInterval(configuration: PlatformAlertConfigurationApi): string {
+    if (configuration.recurrence_unit !== null) {
+        return CALENDAR_UNIT_INTERVALS[configuration.recurrence_unit]
+    }
+    const minutes = configuration.check_interval_minutes
+    if (minutes % 1440 === 0) {
+        return `${minutes / 1440}d`
+    }
+    return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`
+}
+
 export function describeQuietHours(configuration: PlatformAlertConfigurationApi): string {
     const windows = configuration.schedule_restriction?.blocked_windows ?? []
     return windows.length ? windows.map((window) => `${window.start}-${window.end}`).join(', ') : 'None'
+}
+
+// Logs alerts group by these columns. Any other key is a log attribute the user typed, so it shows as written.
+const LABEL_NAMES: Record<string, string> = {
+    service_name: 'Service',
+    severity_text: 'Severity',
+}
+
+export interface GroupLabel {
+    key: string
+    name: string
+    value: string
+}
+
+/** A group's labels in the order the alert groups by, with readable names. */
+export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly string[]): GroupLabel[] {
+    // Label keys are user-typed attributes, so a key like `constructor` must not resolve through the prototype.
+    const known = groupingKeys.filter((key) => Object.hasOwn(alert.labels, key))
+    const rest = Object.keys(alert.labels)
+        .filter((key) => !groupingKeys.includes(key))
+        .sort()
+    return [...known, ...rest].map((key) => ({
+        key,
+        name: Object.hasOwn(LABEL_NAMES, key) ? LABEL_NAMES[key] : key,
+        value: alert.labels[key],
+    }))
+}
+
+export function canExpand(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.alerts.length > 1
+}
+
+export type PlatformAlertListRow =
+    | { kind: 'alert'; configuration: PlatformAlertConfigurationApi }
+    | { kind: 'group'; configuration: PlatformAlertConfigurationApi; group: PlatformAlertApi }
+
+export function configurationListRows(
+    configurations: readonly PlatformAlertConfigurationApi[],
+    expandedIds: readonly string[]
+): PlatformAlertListRow[] {
+    return configurations.flatMap((configuration): PlatformAlertListRow[] => [
+        { kind: 'alert', configuration },
+        ...(expandedIds.includes(configuration.id) && canExpand(configuration)
+            ? configuration.alerts.map((group): PlatformAlertListRow => ({ kind: 'group', configuration, group }))
+            : []),
+    ])
+}
+
+export function describeGroup(alert: PlatformAlertApi, groupingKeys: readonly string[]): string {
+    if (!alert.grouping_key) {
+        return 'Ungrouped'
+    }
+    const labels = groupLabels(alert, groupingKeys)
+    return labels.length ? labels.map(({ key, value }) => `${key}=${value}`).join(' ') : alert.grouping_key
+}
+
+export type PlatformAlertMute = { kind: 'snoozed'; until: string } | { kind: 'groupsSnoozed'; count: number }
+
+function activeSnooze(snoozeUntil: string | null, now: Date): string | null {
+    return snoozeUntil && new Date(snoozeUntil) > now ? snoozeUntil : null
+}
+
+export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlertMute | null {
+    const until = activeSnooze((row.kind === 'group' ? row.group : row.configuration).snooze_until, now)
+    if (until) {
+        return { kind: 'snoozed', until }
+    }
+    if (row.kind === 'group') {
+        return null
+    }
+    const count = row.configuration.alerts.filter((alert) => activeSnooze(alert.snooze_until, now)).length
+    return count ? { kind: 'groupsSnoozed', count } : null
+}
+
+export function listRowFiringSince(row: PlatformAlertListRow): string | null {
+    const { configuration } = row
+    const only = configuration.enabled && configuration.alerts.length === 1 ? configuration.alerts[0] : null
+    const alert = row.kind === 'group' ? row.group : only
+    return alert?.state === 'firing' ? alert.firing_started_at : null
+}
+
+export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.owner === PlatformAlertOwnerEnumApi.Platform
+}
+
+// The API refuses a group snooze on a source-owned alert (409) and on an ungrouped one (400).
+export function canSnoozeGroups(configuration: PlatformAlertConfigurationApi): boolean {
+    return (
+        configuration.owner === PlatformAlertOwnerEnumApi.Platform &&
+        configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels
+    )
+}
+
+export function groupSnoozeLockedByAlert(configuration: PlatformAlertConfigurationApi, now: Date): boolean {
+    return activeSnooze(configuration.snooze_until, now) !== null
+}
+
+export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
+    const count = configuration.overflowed_groups
+    if (count <= 0) {
+        return null
+    }
+    const groups = count === 1 ? 'group' : 'groups'
+    return `At its group limit: ${configuration.overflow_is_lower_bound ? 'at least ' : ''}${count} ${groups} not tracked`
+}
+
+export function describeOverflowDetail(configuration: PlatformAlertConfigurationApi): string {
+    const limit = configuration.grouping.max_instances
+    return `The last check found more groups than this alert's limit${
+        limit !== undefined ? ` of ${limit}` : ''
+    }, so it left the new ones out. To track them, raise the group limit or narrow the alert so fewer groups match.`
+}
+
+export const GROUP_SNOOZE_EXPLANATION =
+    'The group keeps being checked, and a firing group stays firing. Only its notifications are held.'
+
+export interface RuleMetadataEntry {
+    name: string
+    value: string
+}
+
+export interface RuleMetadataForm {
+    labels: RuleMetadataEntry[]
+    annotations: RuleMetadataEntry[]
+}
+
+export function ruleMetadataEntries(record: Record<string, string>): RuleMetadataEntry[] {
+    return Object.entries(record).map(([name, value]) => ({ name, value }))
+}
+
+export function ruleMetadataRecord(entries: RuleMetadataEntry[]): Record<string, string> {
+    return Object.fromEntries(
+        entries.filter(({ name, value }) => name.trim() || value).map(({ name, value }) => [name.trim(), value])
+    )
+}
+
+// Names and values are checked by the API. Only a nameless row and a repeated name are lost before the request.
+export function ruleMetadataEntriesError(entries: RuleMetadataEntry[]): string | undefined {
+    if (entries.some(({ name, value }) => !name.trim() && value)) {
+        return 'Give each entry a name'
+    }
+    const names = entries.map(({ name }) => name.trim()).filter(Boolean)
+    const repeated = names.find((name, index) => names.indexOf(name) !== index)
+    return repeated ? `"${repeated}" is used more than once. Use each name once.` : undefined
+}
+
+export function errorMessage(error: unknown): string {
+    return error instanceof ApiError && error.detail ? error.detail : 'Try again in a moment.'
+}
+
+/** The form field a server-side validation error belongs to, if any. */
+export function fieldError<F extends string>(
+    error: unknown,
+    fieldByAttr: Record<string, F>
+): Partial<Record<F, string>> {
+    // A nested error, such as one label's value, arrives as `labels__team`.
+    const attr = error instanceof ApiError ? error.attr?.split('__')[0] : undefined
+    if (attr && attr in fieldByAttr) {
+        return { [fieldByAttr[attr]]: errorMessage(error) } as Partial<Record<F, string>>
+    }
+    return {}
 }

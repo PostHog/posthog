@@ -51,6 +51,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "keywords": "Keywords used for auto-tagging new mentions (maximum of 5).",
         },
     },
+    "alert_shares": {
+        "description": "Shares of each alert: one row per account that has access to the alert. Every alert has at least one share, the one with its creator.",
+        "docs_url": "https://dev.mention.com/current/src/account/alert/share/GetShares.html",
+        "columns": {
+            "alert_id": "Identifier of the alert the share belongs to (added by PostHog during sync).",
+            "id": "Identifier of the share.",
+            "account": "Subset of the account data of the account the alert is shared with.",
+            "blocked": "Whether the share is blocked for this account.",
+            "permissions": "Permissions of the account's role on the alert, such as edit and delete.",
+            "created_at": "When the share was created.",
+            "weight": "Weight of the alert in this account's Mention interface.",
+        },
+    },
     "mentions": {
         "description": "Individual mentions found by each alert: one row per piece of content (news article, tweet, blog post, and so on) matching the alert's query.",
         "docs_url": "https://dev.mention.com/current/src/account/alert/mention/GetMentions.html",

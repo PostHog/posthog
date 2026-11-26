@@ -56,7 +56,8 @@ function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.E
                     loading={byokModelsLoading || providerKeysLoading}
                     footerActions={getModelPickerFooterActions(
                         systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys,
-                        () => setNewKeyModalOpen(true)
+                        () => setNewKeyModalOpen(true),
+                        null
                     )}
                 />
             )}
@@ -85,6 +86,22 @@ const meta: Meta<StoryArgs> = {
                 // Only the per-key request fails. The playground list uses the same path without a key id.
                 '/api/llm_proxy/models/': ({ request }) =>
                     modelsFail && new URL(request.url).searchParams.get('provider_key_id')
+                        ? [500, { error: 'Internal error' }]
+                        : [
+                              200,
+                              systemOne
+                                  ? [
+                                        {
+                                            id: 'example-judge-v1',
+                                            name: 'example-judge-v1',
+                                            provider: 'System One',
+                                            is_recommended: false,
+                                        },
+                                    ]
+                                  : [],
+                          ],
+                '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) =>
+                    modelsFail && params.key_id
                         ? [500, { error: 'Internal error' }]
                         : [
                               200,

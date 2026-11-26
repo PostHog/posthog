@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
-import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
+import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
 
 import { ScimLogsModal } from '../VerifiedDomains/ScimLogsModal'
 import { verifiedDomainsLogic } from '../VerifiedDomains/verifiedDomainsLogic'
@@ -19,11 +20,27 @@ import {
     getIdentityProviderConfigStatus,
     getIdentityProviderConfigStatusDescription,
 } from './identityProviderConfigUtils'
+import { QuillIdentityProviderFeatureSection } from './QuillIdentityProviderFeatureSection'
 
 const STATUS_DISPLAY = {
     configured: { label: 'Configured', icon: <IconCheckCircle className="size-6 text-success" /> },
     partially_configured: { label: 'Partially configured', icon: <IconWarning className="size-6 text-warning" /> },
     not_configured: { label: 'Not configured', icon: <IconCircleDashed className="size-6 text-muted" /> },
+}
+
+function ManagedByTag({ config }: { config: IdentityProviderConfigApi | undefined }): JSX.Element | null {
+    if (!config?.id_jag_registered_by_application_name) {
+        return null
+    }
+    return (
+        <LemonTag type="warning" className="ml-2">
+            Set up from {config.id_jag_registered_by_application_name}
+        </LemonTag>
+    )
+}
+
+function configureButtonLabel(config: IdentityProviderConfigApi | undefined): string {
+    return config?.id_jag_registered_by_application_name ? 'View' : 'Configure'
 }
 
 export function IdentityProviderFeatureSection({ configScope }: { configScope: ConfigScopeEnumApi }): JSX.Element {
@@ -42,6 +59,20 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillIdentityProviderFeatureSection
+                configScope={configScope}
+                configs={configs}
+                configsToDisplay={configsToDisplay}
+                restrictionReason={restrictionReason}
+                configureButtonLabel={configureButtonLabel}
+            />
+        )
+    }
+
     let content: JSX.Element
     if (identityProviderConfigs === null && !identityProviderConfigsLoadFailed) {
         content = <LemonSkeleton className="h-16 w-full" />
@@ -89,6 +120,7 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                                                     {config.name}
                                                 </span>
                                             )}
+                                            <ManagedByTag config={config} />
                                         </div>
                                         <p className="mb-0 text-sm text-tertiary">
                                             {statusDescription.text}
@@ -120,7 +152,7 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                                         disabledReason={restrictionReason}
                                         data-attr={`configure-${configScope}-identity-provider`}
                                     >
-                                        Configure
+                                        {configureButtonLabel(config)}
                                     </LemonButton>
                                 </div>
                             </LemonCard>

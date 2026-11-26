@@ -32,7 +32,7 @@ def reserved_scout_name_error(name: str) -> str | None:
     that mint a scout — so both refuse the same set.
     """
     if name in SYSTEM_SCOUT_NAMES:
-        return "This scout is managed by Self-Driving onboarding."
+        return "This scout is managed by Self-driving onboarding."
     if name.lower() in RESERVED_SCOUT_NAMES:
         return (
             f"'{name}' is reserved by the inbox and cannot be a scout name. "

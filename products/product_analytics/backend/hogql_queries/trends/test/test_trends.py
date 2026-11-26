@@ -69,7 +69,8 @@ from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
 from products.event_definitions.backend.facade.testing import create_property_definition, property_definition_exists
@@ -3359,8 +3360,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_action_filtering_for_action_in_different_env_of_project(self):
         sign_up_action, person = self._create_events()
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        sign_up_action.team = other_team_in_project
-        sign_up_action.save()
+        # The same action, owned by another environment of the project.
+        sign_up_action = create_action(
+            team=other_team_in_project,
+            name=sign_up_action.name,
+            steps_json=[dataclasses.asdict(step) for step in sign_up_action.steps],
+        )
 
         action_response = self._run_query(
             TrendsQuery(
@@ -3516,7 +3521,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="$pageview", distinct_id="d3")
             self._create_event(team=self.team, event="$pageview", distinct_id="d4")
 
-        event_filtering_action = Action.objects.create(
+        event_filtering_action = create_action(
             team=self.team,
             name="$pageview from non-internal",
             steps_json=[
@@ -4079,7 +4084,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     series=[
                         ActionsNode(
-                            id=action.pk,
+                            id=action.id,
                         ),
                     ],
                 ),
@@ -4377,7 +4382,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     TrendsQuery(
                         breakdownFilter=breakdown_filter,
                         dateRange=DateRange(date_from="-14d"),
-                        series=[ActionsNode(id=action.pk)],
+                        series=[ActionsNode(id=action.id)],
                     ),
                     self.team,
                 )
@@ -5302,7 +5307,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[person_filter]),
                     ],
                 ),
-                series=[ActionsNode(id=action.pk)],
+                series=[ActionsNode(id=action.id)],
             )
 
         def event_query(breakdown_filter: BreakdownFilter) -> TrendsQuery:
@@ -5612,7 +5617,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     series=[
                         ActionsNode(
-                            id=action.pk,
+                            id=action.id,
                         ),
                     ],
                 ),
@@ -6269,7 +6274,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        sign_up_action = Action.objects.create(
+        sign_up_action = create_action(
             team=self.team,
             name="sign up",
             steps_json=[
@@ -6381,11 +6386,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
 
-        step = sign_up_action.steps[0]
-        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
-
-        sign_up_action.steps = [dataclasses.asdict(step)]
-        sign_up_action.save()
+        step = dataclasses.replace(
+            sign_up_action.steps[0], properties=[{"key": "id", "value": cohort.pk, "type": "cohort"}]
+        )
+        sign_up_action = update_action(sign_up_action, steps_json=[dataclasses.asdict(step)])
 
         cohort.calculate_people_ch(pending_version=0)
 
@@ -7650,7 +7654,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val", "$current_url": "/another/page"},
         )
 
-        action = Action.objects.create(
+        action = create_action(
             name="sign up",
             team=self.team,
             steps_json=[
@@ -7669,7 +7673,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 series=[
                     ActionsNode(
-                        id=action.pk,
+                        id=action.id,
                     ),
                 ],
             ),

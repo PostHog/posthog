@@ -85,6 +85,22 @@ describe('QueryScanBanner', () => {
             fixer: false,
         },
         {
+            label: 'an informational query structure',
+            findings: [
+                {
+                    ...BY_DESIGN_FINDING,
+                    kind: 'cross_join_equality' as const,
+                    by_design: false,
+                    message: 'This query uses a CROSS JOIN with an equality filter.',
+                },
+            ],
+            assistantPrompt: null,
+            advice: ['This query uses a CROSS JOIN with an equality filter.'],
+            banner: false,
+            note: true,
+            fixer: false,
+        },
+        {
             label: 'a by-design finding beside one to act on',
             findings: [BY_DESIGN_FINDING, FINDING],
             assistantPrompt: 'Help me get what this query is trying to find, as fast as possible.',
@@ -108,7 +124,7 @@ describe('QueryScanBanner', () => {
             </Provider>
         )
 
-        expect(screen.getByText(/Read 8,400,000,000 rows in 19.0 s/)).toBeVisible()
+        expect(screen.getByText(/Scanned 8,400,000,000 rows in 19.0 s/)).toBeVisible()
         const shown = findings.map((finding) => finding.message).filter((message) => screen.queryByText(message))
         expect(shown).toEqual(advice)
         expect(!!container.querySelector('.LemonBanner')).toBe(banner)

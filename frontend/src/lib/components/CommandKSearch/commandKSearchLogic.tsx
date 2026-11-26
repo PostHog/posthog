@@ -10,6 +10,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -21,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
@@ -29,11 +31,15 @@ import { userLogic } from 'scenes/userLogic'
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
+import { TODAY_PANES } from '~/layout/today/todayRailItems'
+import { TODAY_RAIL_PANES, todayShellLogic } from '~/layout/today/todayShellLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { membersLogic } from '~/models/membersLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from '../../../types'
@@ -62,7 +68,6 @@ import {
     resolveQuery,
     tokenAtCursor,
 } from './commandKQuery'
-import { freeWords } from './commandKRanking'
 import {
     CommandKMode,
     CommandKRow,
@@ -74,17 +79,22 @@ import {
     ViewAll,
     buildSections,
     buildSuggestions,
+    cachedPage,
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
-import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequest } from './commandKSources'
-
-const REMOTE_DEBOUNCE_MS = 150
-const OBJECTS_DEBOUNCE_MS = 50
-const FAST_REQUESTS = ['objects', 'persons']
+import {
+    REMOTE_REQUESTS,
+    RemoteContext,
+    RemotePage,
+    RemoteResults,
+    RemoteSource,
+    requestDebounceMs,
+    settleRequest,
+} from './commandKSources'
 
 const INPUT_HIGHLIGHT_KEY = 'input'
 
@@ -122,6 +132,7 @@ export interface commandKSearchLogicValues {
         query: SectionsQuery
         stale: boolean
     }
+    expandedGroups: string[]
     filterOptions: FilterOptions
     folders: FileSystemEntry[] | null
     highlightIsFilterRow: boolean
@@ -143,6 +154,7 @@ export interface commandKSearchLogicValues {
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
     shownQuery: SectionsQuery | null
+    sidebarItems: SearchItem[]
     suggestionsSection: CommandKSection | null
     tabAsksAi: boolean
     text: string
@@ -175,10 +187,10 @@ export interface commandKSearchLogicActions {
         tab: SidePanelTab
     } // sidePanelStateLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     activateRow: (
@@ -224,6 +236,9 @@ export interface commandKSearchLogicActions {
     editChip: (index: number) => {
         index: number
     }
+    expandGroup: (group: string) => {
+        group: string
+    }
     foldersLoaded: (folders: FileSystemEntry[]) => {
         folders: FileSystemEntry[]
     }
@@ -255,7 +270,7 @@ export interface commandKSearchLogicActions {
         results: Partial<
             Record<
                 'accounts' | 'events' | 'groups' | 'persons' | 'properties' | 'results' | 'tickets' | 'workflows',
-                SearchItem[]
+                RemotePage
             >
         >
     }
@@ -305,7 +320,7 @@ export interface commandKSearchLogicMeta {
         remoteContext: (
             currentTeamId: number | null,
             groupTypes: Map<GroupTypeIndex, GroupType>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             featureFlags: FeatureFlagsSet
         ) => RemoteContext
         requestQueries: (
@@ -323,11 +338,13 @@ export interface commandKSearchLogicMeta {
             folders: FileSystemEntry[] | null
         ) => CommandKSection | null
         recentItems: (recents: FileSystemEntry[]) => SearchItem[]
+        sidebarItems: (featureFlags: FeatureFlagsSet) => SearchItem[]
         localLists: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
             shortcutItems: SearchItem[],
             productsItems: SearchItem[],
+            sidebarItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
             dataManagementItems: SearchItem[],
@@ -367,8 +384,8 @@ export interface commandKSearchLogicMeta {
                 query: SectionsQuery
                 stale: boolean
             },
-            featureFlags: FeatureFlagsSet,
-            searchCorrection: SearchCorrection | null
+            searchCorrection: SearchCorrection | null,
+            expandedGroups: string[]
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -392,6 +409,14 @@ const asLiteralPanelPrompt = (question: string): string => ` ${question}`
  * highlight, and loads remote results. It mounts with the palette and unmounts when the palette
  * closes, which is what scopes every cache and in-flight request to one use of the palette.
  */
+const scrollToAnchorOnCurrentPage = (href: string): void => {
+    const [path, anchor] = href.split('#')
+    const { pathname, hash } = router.values.location
+    if (anchor && hash === `#${anchor}` && removeProjectIdIfPresent(pathname) === removeProjectIdIfPresent(path)) {
+        document.getElementById(anchor)?.scrollIntoView()
+    }
+}
+
 export const commandKSearchLogic = kea<commandKSearchLogicType>([
     path(['lib', 'components', 'CommandKSearch', 'commandKSearchLogic']),
     connect(() => ({
@@ -402,7 +427,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             [
                 'starredItems',
                 'productsItems',
-                'settingsItems',
+                'commandKSettingsItems as settingsItems',
                 'newItems',
                 'dataManagementItems',
                 'peopleItems',
@@ -450,6 +475,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         applyKeyIntent: (intent: KeyIntent) => ({ intent }),
         moveHighlight: (direction: 1 | -1) => ({ direction }),
         setHighlightedKey: (key: string | null) => ({ key }),
+        expandGroup: (group: string) => ({ group }),
         activateRow: (row: CommandKRow, newTab: boolean, via: CommitVia) => ({ row, newTab, via }),
         completeHighlighted: true,
         askAi: true,
@@ -497,6 +523,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 setChipsAndText: () => null,
             },
         ],
+        expandedGroups: [
+            [] as string[],
+            {
+                expandGroup: (state, { group }) => (state.includes(group) ? state : [...state, group]),
+                setChipsAndText: () => [],
+            },
+        ],
         // The query each request last asked for. No selector reads it, so starting a request never re-renders.
         requestedQueries: [
             {} as Record<string, string>,
@@ -509,11 +542,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             {
                 remoteLoaded: (state, { query, results, failed }) => {
                     const next = { ...state }
-                    for (const [source, items] of Object.entries(results) as [RemoteSource, SearchItem[]][]) {
+                    for (const [source, page] of Object.entries(results) as [RemoteSource, RemotePage][]) {
                         const { [query]: _, ...stillFailed } = state[source].failed ?? {}
+                        const { [query]: _more, ...stillMore } = state[source].more ?? {}
                         next[source] = {
-                            cache: { ...state[source].cache, [query]: items },
+                            cache: { ...state[source].cache, [query]: page.items },
                             failed: failed ? { ...stillFailed, [query]: true } : stillFailed,
+                            more: page.more ? { ...stillMore, [query]: true } : stillMore,
                         }
                     }
                     return next
@@ -531,7 +566,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     for (const [source, query] of retried) {
                         const { [query]: _items, ...cache } = next[source].cache
                         const { [query]: _failed, ...failed } = next[source].failed ?? {}
-                        next[source] = { cache, failed }
+                        next[source] = { ...next[source], cache, failed }
                     }
                     return next
                 },
@@ -677,12 +712,33 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     .slice(0, RECENTS_LIMIT)
                     .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.path, category: 'recents' })),
         ],
+        sidebarItems: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): SearchItem[] =>
+                featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+                    ? // Settings opens from the account menu rather than a rail tile, but it is still a pane to search for.
+                      [...TODAY_RAIL_PANES, 'settings' as const]
+                          .filter((pane) => isTodayPaneEnabled(pane, featureFlags))
+                          .map((pane) => {
+                              const { label, title, icon } = TODAY_PANES[pane]
+                              return {
+                                  id: `sidebar-${pane}`,
+                                  name: label,
+                                  category: 'sidebar',
+                                  icon,
+                                  searchKeywords: title !== label ? [title] : [],
+                                  onSelect: () => todayShellLogic.findMounted()?.actions.showPane(pane),
+                              }
+                          })
+                    : [],
+        ],
         localLists: [
             (s) => [
                 s.recentItems,
                 s.starredItems,
                 s.shortcutItems,
                 s.productsItems,
+                s.sidebarItems,
                 s.settingsItems,
                 s.newItems,
                 s.dataManagementItems,
@@ -695,6 +751,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 starred: SearchItem[],
                 shortcuts: SearchItem[],
                 products: SearchItem[],
+                sidebar: SearchItem[],
                 settings: SearchItem[],
                 create: SearchItem[],
                 dataManagement: SearchItem[],
@@ -706,6 +763,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 starred,
                 shortcuts,
                 products,
+                sidebar,
                 settings,
                 create,
                 'data-management': dataManagement,
@@ -749,8 +807,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.localLists,
                 s.remote,
                 s.displayedQuery,
-                s.featureFlags,
                 s.searchCorrection,
+                s.expandedGroups,
             ],
             (
                 mode: CommandKMode,
@@ -759,13 +817,10 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 local: LocalLists,
                 remote: RemoteSlots,
                 displayed: { query: SectionsQuery; stale: boolean },
-                featureFlags: FeatureFlagsSet,
-                searchCorrection: SearchCorrection | null
-            ): CommandKSection[] => {
-                const unifiedRanking =
-                    freeWords(displayed.query.remoteQueries.results ?? '').length > 0 &&
-                    featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
-                return buildSections({
+                searchCorrection: SearchCorrection | null,
+                expandedGroups: string[]
+            ): CommandKSection[] =>
+                buildSections({
                     mode,
                     context,
                     suggestions,
@@ -774,7 +829,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     ...displayed.query,
                     stale: displayed.stale,
                     personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
-                    unifiedRanking,
+                    expandedGroups,
                     searchCorrection:
                         searchCorrection &&
                         (displayed.query.remoteQueries.results ?? displayed.query.localQuery).endsWith(
@@ -782,8 +837,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         )
                             ? searchCorrection
                             : null,
-                })
-            },
+                }),
         ],
         selectableRows: [
             (s) => [s.sections],
@@ -824,14 +878,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     !!sourceQuery && !!values.remote[source as RemoteSource].failed?.[sourceQuery]
             )
             const empty = !values.sections.some((section) => section.rows.some((row) => row.kind === 'item'))
-            if (
-                corrected &&
-                settled &&
-                !failed &&
-                !values.displayedQuery.stale &&
-                empty &&
-                values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
-            ) {
+            if (corrected && settled && !failed && !values.displayedQuery.stale && empty) {
                 actions.applyCorrection({ from: query, to: corrected })
             }
         }
@@ -877,6 +924,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             posthog.capture('command k result opened', {
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
+                result_category: item?.category ?? null,
+                result_type: item?.itemType ?? null,
                 position: values.selectableRows.findIndex((candidate) => candidate.key === row.key),
                 has_filters: values.chips.length > 0,
                 filter_keys: values.chips.map((chip) => chip.key),
@@ -892,6 +941,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             } else if (item?.href && newTab) {
                 newInternalTab(item.href)
             } else if (item?.href) {
+                scrollToAnchorOnCurrentPage(item.href)
                 navigateToHref(item.href)
             }
         }
@@ -927,16 +977,17 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     cache.disposables.dispose(`request-${request.id}`)
                     continue
                 }
-                const cached = request.sources.map((source) => values.remote[source].cache[query])
-                if (cached.every(Boolean)) {
+                if (request.sources.every((source) => query in values.remote[source].cache)) {
                     cache.disposables.dispose(`request-${request.id}`)
                     actions.remoteLoaded(
                         query,
-                        Object.fromEntries(request.sources.map((source, index) => [source, cached[index]]))
+                        Object.fromEntries(
+                            request.sources.map((source) => [source, cachedPage(values.remote[source], query)])
+                        )
                     )
                     continue
                 }
-                const debounceMs = FAST_REQUESTS.includes(request.id) ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
+                const debounceMs = requestDebounceMs(request, query)
                 // One disposable per request covers the debounce and the fetch, so a newer query
                 // cancels both, and unmounting cancels everything.
                 cache.disposables.add(
@@ -1094,6 +1145,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         context.kind === 'value' ? context.token : null,
                         via
                     )
+                } else if (row.kind === 'expand') {
+                    const index = values.selectableRows.findIndex((candidate) => candidate.key === row.key)
+                    actions.expandGroup(row.group)
+                    const next = values.selectableRows[index]
+                    if (next) {
+                        actions.setHighlightedKey(next.key)
+                    }
                 } else if (row.kind === 'scope') {
                     const option = values.filterOptions.is.find((candidate) => candidate.value === row.type)
                     actions.commitChip(

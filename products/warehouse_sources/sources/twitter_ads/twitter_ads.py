@@ -1,22 +1,38 @@
+import math
+import time
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from datetime import (
+    UTC,
+    date,
+    datetime,
+    time as datetime_time,
+    timedelta,
+)
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import requests
 from requests_oauthlib import OAuth1
+from structlog.types import FilteringBoundLogger
+from urllib3.exceptions import MaxRetryError
 
 from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
+    NO_RETRY,
+    BoundedRetry,
     IntegrationRecord,
     ResumableSourceManager,
     SourceResponse,
     credentials_service,
     frozen,
     make_tracked_session,
+    request_deadline,
 )
 from products.warehouse_sources.sources.twitter_ads.settings import (
     API_VERSION,
+    CONVERSION_ATTRIBUTIONS,
+    CONVERSION_METRICS,
     ENTITY_TABLES,
     MAX_STATS_BACKFILL_DAYS,
     MISSING_APP,
@@ -25,9 +41,44 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     PARTITION_KEYS,
     PLACEMENTS,
     PRIMARY_KEYS,
+    STATS_ENTITY_REJECTED,
+    STATS_METRIC_GROUPS,
     STATS_TABLES,
     UNSORTABLE_TABLES,
+    VIDEO_AND_CONVERSION_METRIC_GROUPS,
+    VIDEO_METRICS,
+    conversion_column,
 )
+
+if TYPE_CHECKING:
+    from urllib3.response import HTTPResponse
+
+
+# Synchronous analytics has a 15-minute rate window; leave a minute for the request after reset.
+# https://docs.x.com/x-ads-api/fundamentals/rate-limiting
+_REQUEST_RETRY_BUDGET_SECONDS = 16 * 60
+
+
+class _TwitterAdsRetry(BoundedRetry):
+    def get_retry_after(self, response: HTTPResponse) -> float | None:
+        if retry_after := response.headers.get("Retry-After"):
+            return self.parse_retry_after(retry_after)
+        if response.status == 429:
+            for header in ("x-account-rate-limit-reset", "x-rate-limit-reset"):
+                try:
+                    reset_at = float(response.headers.get(header, ""))
+                except ValueError:
+                    continue
+                if math.isfinite(reset_at):
+                    return max(0.0, reset_at - datetime.now(UTC).timestamp())
+        return None
+
+    def _requested_wait(self, response: HTTPResponse | None) -> float:
+        # Use the same delay for admission and sleeping, so the deadline rejects an excessive reset.
+        if self.respect_retry_after_header and response is not None:
+            if retry_after := self.get_retry_after(response):
+                return retry_after
+        return self.get_backoff_time()
 
 
 @frozen
@@ -38,11 +89,21 @@ class TwitterAdsResumeConfig:
     complete: bool = False
 
 
-# X rejects a stats window wider than this.
-MAX_STATS_WINDOW = timedelta(days=7)
+@frozen
+class _StatsPage:
+    payload: dict[str, Any]
+    start: date
+    end: date
+    is_last: bool
+
+
+# X caps a stats window at 7 days but rejects some exact weeks: one with a fall-back hour, and every week on a
+# half-hour-offset account, which X reports as a misleading INVALID_PARAMETER (entity) error.
+STATS_WINDOW = timedelta(days=6)
 
 # Cap on how much of X's error body rides along in the exception message.
 _MAX_ERROR_DETAIL = 300
+_MAX_LOGGED_BODY = 2000
 
 
 def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
@@ -53,50 +114,38 @@ def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
     window sends an hour past midnight across a daylight-saving boundary, which X answers with a
     400 rather than a shifted result.
     """
-    return datetime.combine(day, time.min, account_timezone).astimezone(UTC)
-
-
-def _hour_ceiling(moment: datetime) -> datetime:
-    if moment.minute == moment.second == moment.microsecond == 0:
-        return moment
-    return moment.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-
-
-def _stats_bound(day: date, account_timezone: ZoneInfo, hourly: bool) -> datetime:
-    midnight = _account_midnight(day, account_timezone)
-    return _hour_ceiling(midnight) if hourly else midnight
+    return datetime.combine(day, datetime_time.min, account_timezone).astimezone(UTC)
 
 
 def _utc_param(moment: datetime) -> str:
     return moment.isoformat().replace("+00:00", "Z")
 
 
-def _hours_to_days(
-    payload: dict[str, Any], start_time: datetime, start: date, end: date, account_timezone: ZoneInfo
-) -> dict[str, Any]:
-    """Fold an HOUR-granularity stats payload into the per-day arrays `stats_rows` reads.
+def _day_value(values: object, offset: int) -> object:
+    return values[offset] if isinstance(values, list) and offset < len(values) else None
 
-    Each hour counts toward the account-local date it starts in. On a half-hour offset that day runs
-    from 00:30 to 00:30 local time, the closest whole-hour window X will serve.
-    """
-    days = (end - start).days
-    for entity in payload["data"]:
-        for segment in entity["id_data"]:
-            daily: dict[str, Any] = {}
-            for key, values in segment["metrics"].items():
-                if not isinstance(values, list):
-                    daily[key] = values
-                    continue
-                totals: list[Any] = [None] * days
-                for hour, value in enumerate(values):
-                    if value is None:
-                        continue
-                    index = ((start_time + timedelta(hours=hour)).astimezone(account_timezone).date() - start).days
-                    if 0 <= index < days:
-                        totals[index] = (totals[index] or 0) + value
-                daily[key] = totals
-            segment["metrics"] = daily
-    return payload
+
+def _day_count(values: object, offset: int, column: str) -> int:
+    value = _day_value(values, offset)
+    if value is None:
+        return 0
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return int(value)
+    raise ValueError(f"X Ads returned a non-numeric value for {column}")
+
+
+def _video_and_conversion_counts(metrics: dict[str, Any], offset: int) -> dict[str, int]:
+    # X sends null for a day without delivery. Zero-fill these columns, because a batch where every
+    # row is null makes the warehouse type the column as text for good.
+    counts = {key: _day_count(metrics.get(key), offset, key) for key in VIDEO_METRICS}
+    for metric in CONVERSION_METRICS:
+        attributions = metrics.get(metric)
+        if not isinstance(attributions, dict):
+            attributions = {}
+        for attribution in CONVERSION_ATTRIBUTIONS:
+            column = conversion_column(metric, attribution)
+            counts[column] = _day_count(attributions.get(attribution), offset, column)
+    return counts
 
 
 def _error_detail(response: requests.Response) -> str:
@@ -128,8 +177,33 @@ def _error_detail(response: requests.Response) -> str:
     return "; ".join(part for part in parts if part)[:_MAX_ERROR_DETAIL]
 
 
+def _is_entity_rejection(response: requests.Response | None) -> bool:
+    if response is None or response.status_code != 400:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    if not isinstance(body, dict):
+        return False
+    errors = body.get("errors") or body.get("operation_errors")
+    return (
+        isinstance(errors, list)
+        and len(errors) == 1
+        and isinstance(errors[0], dict)
+        and errors[0].get("code") == "INVALID_PARAMETER"
+        and errors[0].get("parameter") == "entity"
+    )
+
+
 class TwitterAdsClient:
-    def __init__(self, integration: IntegrationRecord, api_version: str = API_VERSION) -> None:
+    def __init__(
+        self,
+        integration: IntegrationRecord,
+        api_version: str = API_VERSION,
+        *,
+        wait_for_rate_limit_reset: bool = False,
+    ) -> None:
         if api_version != API_VERSION:
             raise ValueError("Unsupported X Ads API version")
         if integration.kind != "twitter-ads":
@@ -143,12 +217,51 @@ class TwitterAdsClient:
         consumer_secret = consumer["TWITTER_ADS_CONSUMER_SECRET"]
         if not consumer_key or not consumer_secret:
             raise ValueError(MISSING_APP)
-        self.session = make_tracked_session(allow_redirects=False, redact_values=(token, secret, consumer_secret))
+        self._wait_for_rate_limit_reset = wait_for_rate_limit_reset
+        self._retry = (
+            _TwitterAdsRetry(
+                total=DEFAULT_RETRY.total,
+                backoff_factor=DEFAULT_RETRY.backoff_factor,
+                status_forcelist=DEFAULT_RETRY.status_forcelist,
+                allowed_methods=DEFAULT_RETRY.allowed_methods,
+                raise_on_status=False,
+            )
+            if wait_for_rate_limit_reset
+            else DEFAULT_RETRY
+        )
+        self.session = make_tracked_session(
+            allow_redirects=False, redact_values=(token, secret, consumer_secret), retry=NO_RETRY
+        )
         self.session.auth = OAuth1(consumer_key, consumer_secret, token, secret)
         self.base_url = f"https://ads-api.x.com/{api_version}"
 
+    def _get_response(self, path: str, params: dict[str, str | int] | None) -> requests.Response:
+        url = f"{self.base_url}/{path}"
+        retry: BoundedRetry = self._retry
+        with request_deadline(
+            time.monotonic() + _REQUEST_RETRY_BUDGET_SECONDS if self._wait_for_rate_limit_reset else None
+        ):
+            while True:
+                try:
+                    # OAuth1 must prepare each attempt after waiting; adapter retries reuse a stale signature.
+                    response = self.session.get(url, params=params, timeout=60)
+                except (requests.ConnectionError, requests.Timeout) as error:
+                    try:
+                        retry = retry.increment("GET", url, error=error)
+                    except MaxRetryError:
+                        raise error from None
+                    retry.sleep()
+                    continue
+                if not retry.is_retry("GET", response.status_code, has_retry_after="Retry-After" in response.headers):
+                    return response
+                try:
+                    retry = retry.increment("GET", url, response=response.raw)
+                except MaxRetryError:
+                    return response
+                retry.sleep(response.raw)
+
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
-        response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
+        response = self._get_response(path, params)
         try:
             response.raise_for_status()
         except requests.HTTPError as error:
@@ -178,6 +291,60 @@ class TwitterAdsClient:
     def entities(self, account_id: str, table: str) -> list[dict[str, Any]]:
         return [row for page in self.pages(f"accounts/{quote(account_id, safe='')}/{table}") for row in page["data"]]
 
+    def stats_pages(
+        self,
+        path: str,
+        params: dict[str, str | int],
+        start: date,
+        end: date,
+        account_timezone: ZoneInfo,
+        logger: FilteringBoundLogger,
+        *,
+        is_last: bool,
+    ) -> Iterator[_StatsPage]:
+        try:
+            payload = self.get(path, params)
+        except requests.HTTPError as error:
+            response = error.response
+            if response is not None:
+                logger.warning("twitter_ads_stats_rejected", params=params, body=response.text[:_MAX_LOGGED_BODY])
+            if not _is_entity_rejection(response):
+                raise
+            entity_ids = str(params["entity_ids"]).split(",")
+            if len(entity_ids) > 1:
+                for index, entity_id in enumerate(entity_ids):
+                    yield from self.stats_pages(
+                        path,
+                        {**params, "entity_ids": entity_id},
+                        start,
+                        end,
+                        account_timezone,
+                        logger,
+                        is_last=is_last and index == len(entity_ids) - 1,
+                    )
+            elif end - start > timedelta(days=1):
+                day = start
+                while day < end:
+                    next_day = day + timedelta(days=1)
+                    yield from self.stats_pages(
+                        path,
+                        {
+                            **params,
+                            "start_time": _utc_param(_account_midnight(day, account_timezone)),
+                            "end_time": _utc_param(_account_midnight(next_day, account_timezone)),
+                        },
+                        day,
+                        next_day,
+                        account_timezone,
+                        logger,
+                        is_last=is_last and next_day == end,
+                    )
+                    day = next_day
+            else:
+                raise ValueError(STATS_ENTITY_REJECTED) from error
+            return
+        yield _StatsPage(payload=payload, start=start, end=end, is_last=is_last)
+
     @staticmethod
     def stats_rows(
         payload: dict[str, Any],
@@ -186,6 +353,7 @@ class TwitterAdsClient:
         placement: str,
         currencies: dict[str, str],
         account_id: str,
+        include_video_and_conversions: bool,
     ) -> list[dict[str, Any]]:
         rows = []
         for entity in payload["data"]:
@@ -195,10 +363,13 @@ class TwitterAdsClient:
                     raise ValueError("X Ads returned segmented data for an unsegmented report")
                 metrics = daily["metrics"]
                 for offset in range((end - start).days):
-                    row = {
-                        key: values[offset] if isinstance(values, list) and offset < len(values) else None
+                    row: dict[str, Any] = {
+                        key: _day_value(values, offset)
                         for key, values in metrics.items()
+                        if not key.startswith(("video_", "conversion_"))
                     }
+                    if include_video_and_conversions:
+                        row.update(_video_and_conversion_counts(metrics, offset))
                     for required in ("billed_charge_local_micro", "impressions", "clicks"):
                         row.setdefault(required, None)
                     rows.append(
@@ -220,7 +391,12 @@ class TwitterAdsClient:
         manager: ResumableSourceManager[TwitterAdsResumeConfig],
         state: TwitterAdsResumeConfig,
         incremental_since: str | date | datetime | None,
+        logger: FilteringBoundLogger,
+        include_video_and_conversions: bool,
     ) -> Iterator[list[dict[str, Any]]]:
+        metric_groups = STATS_METRIC_GROUPS
+        if include_video_and_conversions:
+            metric_groups = f"{STATS_METRIC_GROUPS},{VIDEO_AND_CONVERSION_METRIC_GROUPS}"
         account_path = f"accounts/{quote(account_id, safe='')}"
         account = self.get(account_path, {"with_deleted": "true"})["data"]
         account_timezone = ZoneInfo(account["timezone"])
@@ -248,44 +424,54 @@ class TwitterAdsClient:
             start = date.fromisoformat(state.next_date)
         end = date.fromisoformat(state.end_date) if state.end_date else account_now.date()
         while start < end:
-            window_end = min(start + timedelta(days=7), end)
-            # X takes a DAY window only when both bounds are local midnight, sent as whole UTC hours.
-            # On a half-hour offset (e.g. UTC+5:30) local midnight never is one, so ask for hours instead.
-            hourly = any(_account_midnight(day, account_timezone).minute for day in (start, window_end))
-            start_time = _stats_bound(start, account_timezone, hourly)
-            end_time = _stats_bound(window_end, account_timezone, hourly)
-            # A week containing a fall-back transition spans 169 hours, one over X's ceiling, so
-            # hand that window a day back rather than letting the request 400.
-            while end_time - start_time > MAX_STATS_WINDOW:
-                window_end -= timedelta(days=1)
-                end_time = _stats_bound(window_end, account_timezone, hourly)
+            window_end = min(start + STATS_WINDOW, end)
+            # X checks for whole hours in the account's timezone, not UTC, so local midnight on a
+            # half-hour offset (18:30Z for UTC+5:30) is valid and a whole UTC hour (19:00Z) is not.
+            start_time = _account_midnight(start, account_timezone)
+            end_time = _account_midnight(window_end, account_timezone)
             for batch_start in range(0, len(entity_ids), 20):
                 for placement in PLACEMENTS:
-                    payload = self.get(
+                    params: dict[str, str | int] = {
+                        "entity": STATS_TABLES[table],
+                        "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
+                        # X's docs say a bare date means midnight in the account's timezone, but
+                        # X rejects bare dates for DAY windows on non-UTC accounts with
+                        # INVALID_TIME_WINDOW. Send local midnight as a UTC timestamp instead.
+                        "start_time": _utc_param(start_time),
+                        "end_time": _utc_param(end_time),
+                        "granularity": "DAY",
+                        "placement": placement,
+                        "metric_groups": metric_groups,
+                    }
+                    for page in self.stats_pages(
                         f"stats/{account_path}",
-                        {
-                            "entity": STATS_TABLES[table],
-                            "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            # X's docs say a bare date means midnight in the account's timezone, but
-                            # X rejects bare dates for DAY windows on non-UTC accounts with
-                            # INVALID_TIME_WINDOW. Send local midnight as a UTC timestamp instead.
-                            "start_time": _utc_param(start_time),
-                            "end_time": _utc_param(end_time),
-                            "granularity": "HOUR" if hourly else "DAY",
-                            "placement": placement,
-                            "metric_groups": "ENGAGEMENT,BILLING",
-                        },
-                    )
-                    if hourly:
-                        payload = _hours_to_days(payload, start_time, start, window_end, account_timezone)
-                    rows = self.stats_rows(payload, start, window_end, placement, currencies, account_id)
-                    if batch_start + 20 >= len(entity_ids) and placement == PLACEMENTS[-1]:
-                        manager.save_state(
-                            TwitterAdsResumeConfig(
-                                next_date=window_end.isoformat(), end_date=end.isoformat(), complete=window_end == end
-                            )
+                        params,
+                        start,
+                        window_end,
+                        account_timezone,
+                        logger,
+                        is_last=batch_start + 20 >= len(entity_ids) and placement == PLACEMENTS[-1],
+                    ):
+                        rows = self.stats_rows(
+                            page.payload,
+                            page.start,
+                            page.end,
+                            placement,
+                            currencies,
+                            account_id,
+                            include_video_and_conversions,
                         )
-                    yield rows
+                        # Only the final successful page covers the whole window. Stage its cursor
+                        # before yielding so a shutdown cannot replay a completed window.
+                        if page.is_last:
+                            manager.save_state(
+                                TwitterAdsResumeConfig(
+                                    next_date=window_end.isoformat(),
+                                    end_date=end.isoformat(),
+                                    complete=window_end == end,
+                                )
+                            )
+                        yield rows
             start = window_end
 
 
@@ -295,6 +481,8 @@ def twitter_ads_source(
     table: str,
     manager: ResumableSourceManager[TwitterAdsResumeConfig],
     incremental_since: str | date | datetime | None,
+    logger: FilteringBoundLogger,
+    include_video_and_conversions: bool = False,
 ) -> SourceResponse:
     if table not in ENTITY_TABLES and table not in STATS_TABLES:
         raise ValueError("Unknown X Ads table")
@@ -304,7 +492,9 @@ def twitter_ads_source(
         if state.complete:
             return
         if table in STATS_TABLES:
-            yield from client.stats(account_id, table, manager, state, incremental_since)
+            yield from client.stats(
+                account_id, table, manager, state, incremental_since, logger, include_video_and_conversions
+            )
         else:
             for page in client.pages(f"accounts/{quote(account_id, safe='')}/{table}", state.cursor):
                 cursor = page.get("next_cursor")

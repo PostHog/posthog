@@ -10,6 +10,7 @@ import {
     IconGraph,
     IconHeartPlus,
     IconList,
+    IconPerson,
     IconRewindPlay,
     IconStack,
     IconSupport,
@@ -99,6 +100,11 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
         Icon: IconCompass,
         colorClass: 'text-accent',
         label: 'Scout',
+    },
+    [SignalSourceProduct.UserAuthored]: {
+        Icon: IconPerson,
+        colorClass: 'text-secondary',
+        label: 'Team member',
     },
     [SignalSourceProduct.Endpoints]: {
         Icon: IconBolt,

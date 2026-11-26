@@ -9,6 +9,8 @@ from products.warehouse_sources.sources.secoda.settings import ENDPOINTS, SECODA
 from products.warehouse_sources.sources.secoda.source import SecodaSource
 
 TABLES_URL = f"{SECODA_BASE_URL}/api/v1/table/tables"
+MONITORS_URL = f"{SECODA_BASE_URL}/api/v1/monitor/monitors"
+MEASUREMENTS_URL = f"{SECODA_BASE_URL}/api/v1/monitor/measurements"
 
 
 def _driver() -> SourceDriver:
@@ -48,6 +50,40 @@ class TestPagination:
 
         assert result.rows == [{"id": "z"}]
         assert result.urls == [saved]
+
+
+class TestMonitorMeasurementsFanout:
+    def test_fetches_measurements_per_monitor_across_pages(self) -> None:
+        monitors_page_2 = f"{MONITORS_URL}?page=2"
+        measurements_page_2 = f"{MEASUREMENTS_URL}?monitor=mon-a&page=2"
+
+        result = _driver().run(
+            "monitor_measurements",
+            [
+                _page([{"id": "mon-a"}], links_next=monitors_page_2),
+                _page([{"id": "m1", "monitor": "mon-a", "value": 1.0}], links_next=measurements_page_2),
+                _page([{"id": "m2", "monitor": "mon-a", "value": 2.0}]),
+                _page([{"id": "mon-b"}, {"id": "mon-deleted"}]),
+                _page([{"id": "m3", "monitor": "mon-b", "value": 3.0}]),
+                # A monitor deleted after the monitors listing must not fail the sync.
+                ScriptedResponse(status=404, json={"detail": "Not found."}),
+            ],
+        )
+
+        assert result.rows == [
+            {"id": "m1", "monitor": "mon-a", "value": 1.0, "monitor_id": "mon-a"},
+            {"id": "m2", "monitor": "mon-a", "value": 2.0, "monitor_id": "mon-a"},
+            {"id": "m3", "monitor": "mon-b", "value": 3.0, "monitor_id": "mon-b"},
+        ]
+        assert result.urls == [
+            MONITORS_URL,
+            f"{MEASUREMENTS_URL}?monitor=mon-a",
+            measurements_page_2,
+            monitors_page_2,
+            f"{MEASUREMENTS_URL}?monitor=mon-b",
+            f"{MEASUREMENTS_URL}?monitor=mon-deleted",
+        ]
+        assert result.saved_states == []
 
 
 class TestTransientResponsesRetried:
@@ -105,10 +141,6 @@ class TestSecodaSourceResponse:
         response = result.response
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == SECODA_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
         assert response.partition_mode is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in SECODA_ENDPOINTS.values())
-        assert set(SECODA_ENDPOINTS) == set(ENDPOINTS)

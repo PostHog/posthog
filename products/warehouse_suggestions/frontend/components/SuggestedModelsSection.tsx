@@ -7,10 +7,16 @@ import { SAVING_COLUMNS_CLASS } from './SuggestionRow'
 export interface SuggestedModelsSectionProps {
     title: string
     description: string
+    showsSaving?: boolean
     children: ReactNode
 }
 
-export function SuggestedModelsSection({ title, description, children }: SuggestedModelsSectionProps): JSX.Element {
+export function SuggestedModelsSection({
+    title,
+    description,
+    showsSaving = true,
+    children,
+}: SuggestedModelsSectionProps): JSX.Element {
     return (
         <section aria-label={title}>
             <div className={cn('grid grid-cols-1 items-end px-3 pt-4 pb-1', SAVING_COLUMNS_CLASS)}>
@@ -18,9 +24,11 @@ export function SuggestedModelsSection({ title, description, children }: Suggest
                     <h4 className="m-0 text-sm font-semibold">{title}</h4>
                     <span className="text-xs text-secondary">{description}</span>
                 </div>
-                <span className="hidden text-right text-xs text-secondary @min-[36rem]/suggestions:block">
-                    Main saving a month
-                </span>
+                {showsSaving && (
+                    <span className="hidden text-right text-xs text-secondary @min-[36rem]/suggestions:block">
+                        Main saving a month
+                    </span>
+                )}
             </div>
             <div className="divide-y divide-primary">{children}</div>
         </section>

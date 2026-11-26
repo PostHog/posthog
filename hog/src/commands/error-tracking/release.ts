@@ -1,7 +1,6 @@
 import { defineCommand } from '@/core/command'
-import { resolveJsRelease } from '@/error-tracking/js-flow'
 import { fetchOrCreateRelease, findRelease, releaseHashId, type Release } from '@/error-tracking/release'
-import { releaseFields } from '@/error-tracking/run'
+import { releaseFields, resolveJsRelease } from '@/error-tracking/session'
 import { SymbolSetClient } from '@/error-tracking/upload'
 
 import { readOptions, RELEASE_OPTIONS } from './shared'
@@ -45,7 +44,7 @@ export default defineCommand({
         if (!resolved) {
             return null
         }
-        const client = new SymbolSetClient(ctx.runtime, (await ctx.credentials()).key)
+        const client = new SymbolSetClient(ctx.runtime, await ctx.session())
         if (options.dryRun) {
             const existing = await findRelease(client, resolved.name, resolved.version)
             const { id, hash_id, version, project } = existing ?? {

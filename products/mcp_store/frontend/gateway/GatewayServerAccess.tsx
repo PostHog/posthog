@@ -14,12 +14,13 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 
+import { ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentToolPolicyState, gatewayServerLogic } from './gatewayServerLogic'
 import { AGENT_GRANT_SCOPE_OPTIONS, AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic, memberServerAccessKey } from './mcpGatewayLogic'
 
-const AGENT_POLICY_OPTIONS = [
+export const AGENT_POLICY_OPTIONS = [
     { value: 'approved' as const, label: 'Always allow' },
     { value: 'do_not_use' as const, label: 'Blocked' },
 ]
@@ -153,9 +154,9 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </LemonButton>
             </div>
             <div className="text-sm text-secondary">
-                You share your own {server.name} connection, and each teammate shares theirs. Pick whether an agent uses
-                it only for your runs or for every agent run in this project. Teammates can't use the connection
-                directly, but agents can act through it on their runs.
+                Agents only use your {server.name} connection if you share it. With "Only me", an agent uses it on runs
+                you start. With "Everyone in this project", any agent run in this project can use it, including scouts,
+                automatic support replies, and your teammates' runs.
             </div>
 
             {server.agents.length === 0 ? (
@@ -251,6 +252,55 @@ function ConnectionStatus({
     return <LemonTag type="success">{lastUsedAt ? `Used ${dayjs(lastUsedAt).fromNow()}` : 'Connected'}</LemonTag>
 }
 
+export function shareAgentAccessDisabledReason({
+    agentShareDisabledReason,
+    agentAccessSelectedId,
+    teamToolPoliciesLoading,
+    teamToolPoliciesLoadFailed,
+    availableAgentCount,
+}: {
+    agentShareDisabledReason: string | undefined
+    agentAccessSelectedId: string | null
+    teamToolPoliciesLoading: boolean
+    teamToolPoliciesLoadFailed: boolean
+    availableAgentCount: number
+}): string | undefined {
+    return (
+        agentShareDisabledReason ??
+        (agentAccessSelectedId
+            ? teamToolPoliciesLoading
+                ? 'Loading tools'
+                : teamToolPoliciesLoadFailed
+                  ? 'Could not load tools. Retry before sharing access.'
+                  : undefined
+            : availableAgentCount
+              ? 'Choose an agent'
+              : 'You already share this server with every available agent')
+    )
+}
+
+export function setAllAgentToolsDisabledReason({
+    state,
+    teamToolPolicies,
+    teamToolPoliciesLoading,
+    teamToolPoliciesLoadFailed,
+}: {
+    state: AgentToolPolicyState
+    teamToolPolicies: ResolvedToolPolicyApi[]
+    teamToolPoliciesLoading: boolean
+    teamToolPoliciesLoadFailed: boolean
+}): string | undefined {
+    return teamToolPoliciesLoading
+        ? 'Loading tools'
+        : teamToolPoliciesLoadFailed
+          ? 'Retry loading tools first'
+          : teamToolPolicies.some(
+                  (policy) => policy.decided_by !== 'rule' && isPolicyStateAllowedByCeiling(state, policy.team_state)
+              )
+            ? undefined
+            : 'No editable tools are available'
+}
+
 function GatewayAgentAccessModal(): JSX.Element | null {
     const {
         agentAccessModalOpen,
@@ -306,18 +356,13 @@ function GatewayAgentAccessModal(): JSX.Element | null {
                         type="primary"
                         onClick={submitAgentAccess}
                         loading={submitting}
-                        disabledReason={
-                            agentShareDisabledReason ??
-                            (agentAccessSelectedId
-                                ? teamToolPoliciesLoading
-                                    ? 'Loading tools'
-                                    : teamToolPoliciesLoadFailed
-                                      ? 'Could not load tools. Retry before sharing access.'
-                                      : undefined
-                                : availableAgentAccounts.length
-                                  ? 'Choose an agent'
-                                  : 'You already share this server with every available agent')
-                        }
+                        disabledReason={shareAgentAccessDisabledReason({
+                            agentShareDisabledReason,
+                            agentAccessSelectedId,
+                            teamToolPoliciesLoading,
+                            teamToolPoliciesLoadFailed,
+                            availableAgentCount: availableAgentAccounts.length,
+                        })}
                     >
                         Share access
                     </LemonButton>
@@ -368,22 +413,12 @@ function GatewayAgentAccessModal(): JSX.Element | null {
                                         key={option.value}
                                         size="xsmall"
                                         onClick={() => setAllAgentAccessTools(option.value)}
-                                        disabledReason={
-                                            teamToolPoliciesLoading
-                                                ? 'Loading tools'
-                                                : teamToolPoliciesLoadFailed
-                                                  ? 'Retry loading tools first'
-                                                  : teamToolPolicies.some(
-                                                          (policy) =>
-                                                              policy.decided_by !== 'rule' &&
-                                                              isPolicyStateAllowedByCeiling(
-                                                                  option.value,
-                                                                  policy.team_state
-                                                              )
-                                                      )
-                                                    ? undefined
-                                                    : 'No editable tools are available'
-                                        }
+                                        disabledReason={setAllAgentToolsDisabledReason({
+                                            state: option.value,
+                                            teamToolPolicies,
+                                            teamToolPoliciesLoading,
+                                            teamToolPoliciesLoadFailed,
+                                        })}
                                     >
                                         {option.label}
                                     </LemonButton>

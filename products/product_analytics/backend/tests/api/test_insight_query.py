@@ -121,10 +121,30 @@ class TestMCPInsightSerializer(SimpleTestCase):
                 },
             ),
             ("metrics_histogram_query", {"kind": "MetricsHistogramQuery", "metricName": "http_request_duration"}),
+            (
+                "promql_without_clauses",
+                {"kind": "MetricsQuery", "language": "promql", "promql": "sum(rate(http_requests_total[5m]))"},
+            ),
+            (
+                "sql_without_clauses",
+                {"kind": "MetricsQuery", "language": "sql", "sql": "SELECT now() AS time, 1 AS value"},
+            ),
         ]
     )
     def test_keeps_metrics_queries_bare(self, _name: str, query: dict[str, Any]) -> None:
-        assert MCPInsightSerializer().validate_query(query)["kind"] == query["kind"]
+        normalized_query = MCPInsightSerializer().validate_query(query)
+
+        assert normalized_query["kind"] == query["kind"]
+        assert normalized_query.get("promql") == query.get("promql")
+
+    @parameterized.expand([("list_kind", ["MetricsQuery"]), ("object_kind", {"kind": "MetricsQuery"})])
+    def test_rejects_a_kind_that_is_not_a_string(self, _name: str, kind: Any) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            MCPInsightSerializer().validate_query({"kind": kind})
+
+    def test_explains_an_invalid_metrics_query_in_its_own_terms(self) -> None:
+        with self.assertRaisesRegex(serializers.ValidationError, r"clauses: Field required"):
+            MCPInsightSerializer().validate_query({"kind": "MetricsQuery", "dateRange": {"date_from": "-1h"}})
 
     def test_assistant_schema_accepts_sql_box_plots(self) -> None:
         query = schema.AssistantDataVisualizationNode.model_validate(

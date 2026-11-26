@@ -6,6 +6,7 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { preloadRichContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -63,6 +64,7 @@ export function CommentOnRecordingButton({
         >
             <LemonButton
                 size="xsmall"
+                onMouseEnter={preloadRichContent}
                 onClick={(e) => {
                     e.stopPropagation()
                     setIsCommenting(!isCommenting)

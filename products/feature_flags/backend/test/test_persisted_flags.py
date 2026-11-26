@@ -84,6 +84,11 @@ class TestIsUnconditionallyFullyRolledOut(SimpleTestCase):
                 False,
             ),
             (
+                "feature_enrollment",
+                _flag({"groups": [{"properties": [], "rollout_percentage": 100}], "feature_enrollment": True}),
+                False,
+            ),
+            (
                 "group_aggregation",
                 _flag({"groups": [{"properties": [], "rollout_percentage": 100}], "aggregation_group_type_index": 0}),
                 False,

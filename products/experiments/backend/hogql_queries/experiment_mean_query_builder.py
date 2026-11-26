@@ -130,14 +130,15 @@ class MeanQueryBuilder:
                     {value_agg} AS value"""
 
         if self._metric_events_job_ids:
-            # Read from the precomputed table instead of scanning events. Only reachable
-            # for eligible metrics (no breakdowns/CUPED/DW/session properties), so the
-            # branches above never coexist with this one.
+            # Read from the precomputed table instead of scanning events. Only reachable for
+            # eligible metrics (no breakdowns/DW/session properties). With CUPED the join
+            # predicate above also admits the pre-exposure window, which the precomputed rows
+            # cover because the build and the read start lookback_days before the experiment.
             assert isinstance(self._b.metric.source, (ActionsNode, EventsNode))
             metric_events_cte = build_precomputed_metric_events_cte(
                 cte_name="metric_events",
                 source=self._b.metric.source,
-                entity_key=self._b.entity_key,
+                entity_id_sql=self._b.context.precomputed_entity_id_sql(),
                 job_ids_placeholder="metric_events_job_ids",
             )
         else:
@@ -209,7 +210,7 @@ class MeanQueryBuilder:
 
         metric_predicate = self._b._build_metric_predicate(
             table_alias=source_info.table_name,
-            cuped_lookback_days=self._b.cuped_config.lookback_days if self._b.cuped_config.enabled else None,
+            cuped_lookback_days=self._cuped_lookback_days(),
         )
         conversion_window_predicate = self._b._build_conversion_window_predicate()
 
@@ -242,6 +243,7 @@ class MeanQueryBuilder:
                     team=self._b.team,
                     date_range_query=self._b.date_range_query,
                     conversion_window_seconds=self._b._get_conversion_window_seconds(),
+                    cuped_lookback_days=self._cuped_lookback_days(),
                 )
             )
 
@@ -278,7 +280,13 @@ class MeanQueryBuilder:
             entity_key=self._b.entity_key,
             date_range_query=self._b.date_range_query,
             conversion_window_seconds=self._b._get_conversion_window_seconds(),
+            distinct_id_column_sql=self._b.context.precompute_distinct_id_column_sql("distinct_id"),
+            cuped_lookback_days=self._cuped_lookback_days(),
         )
+
+    def _cuped_lookback_days(self) -> int | None:
+        """The CUPED lookback the metric-events scan rolls back by, or None without CUPED."""
+        return self._b.cuped_config.lookback_days if self._b.cuped_config.enabled else None
 
     def build_mean_query(self) -> ast.SelectQuery:
         assert isinstance(self._b.metric, ExperimentMeanMetric)

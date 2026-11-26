@@ -1,4 +1,6 @@
 import datetime
+import dataclasses
+from contextlib import nullcontext
 from typing import Any, cast
 from uuid import uuid4
 
@@ -14,30 +16,39 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from prometheus_client import REGISTRY
+from redis.client import Pipeline
 
 from posthog.api.test.test_team import create_team
 from posthog.constants import FlagRequestType
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.temporal.quota_limiting.run_quota_limiting import QuotaLimitingResult
 from posthog.test.fixtures import create_app_metric2
+from posthog.usage_counters import UsageCounterService
 
+from products.ai_observability.backend.facade.limits import get_ai_event_limits
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
+    YESTERDAY_FINISHED_KEY_PREFIX,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
     QuotaLimitingRunResult,
     QuotaResource,
     UsageCounters,
+    _has_usage,
     _identify_refresh_candidates,
     _patch_todays_usage,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
+    is_team_limited,
     list_limited_team_attributes,
     org_quota_limited_until,
+    reconcile_limited_team_tokens,
     refresh_org_self_driving_quota,
     remove_limited_team_tokens,
     replace_limited_team_tokens,
@@ -84,11 +95,54 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/mcp_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
+        for key in self.redis_client.scan_iter(f"{YESTERDAY_FINISHED_KEY_PREFIX}*"):
+            self.redis_client.delete(key)
         materialize("events", "$exception_values")
 
     def _run_quota_limiting(self) -> QuotaLimitingRunResult:
         with self.captureOnCommitCallbacks(execute=True):
             return update_all_orgs_billing_quotas()
+
+    def test_run_result_names_the_limited_orgs_with_usage(self) -> None:
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "events": {"usage": 100, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 0, "limit": 0, "todays_usage": 0},
+                "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
+            }
+            self.organization.is_active = False
+            self.organization.save()
+
+            result = self._run_quota_limiting()
+
+        org_id = str(self.organization.id)
+        limited = {resource for resource, orgs in result.quota_limited_orgs.items() if org_id in orgs}
+        with_usage = {resource for resource, orgs in result.orgs_with_usage.items() if org_id in orgs}
+        assert limited >= {"events", "rows_synced", "feature_flag_requests"}
+        assert with_usage == {"events", "feature_flag_requests"}
+
+    @parameterized.expand(
+        [
+            ("limit_in_force", 60, True),
+            ("limit_expired", -60, False),
+            ("not_in_zset", None, False),
+        ]
+    )
+    def test_is_team_limited_counts_only_the_teams_unexpired_entry(
+        self, _name: str, own_offset_seconds: int | None, expected: bool
+    ) -> None:
+        now_ts = int(timezone.now().timestamp())
+        tokens = {"phc_another_limited_team": now_ts + 60}
+        if own_offset_seconds is not None:
+            tokens[self.team.api_token] = now_ts + own_offset_seconds
+        add_limited_team_tokens(QuotaResource.EVENTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+        limited = is_team_limited(
+            self.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+        assert limited is expected
 
     @parameterized.expand([(False,), (True,)])
     @time_machine.travel("2026-10-31T23:59:59.999999Z", tick=False)
@@ -113,6 +167,86 @@ class TestQuotaLimiting(BaseTest):
             self.organization.refresh_from_db()
             self.assertEqual(self.organization.usage["llm_events"]["usage"], 50)
             self.assertEqual(self.organization.usage["llm_events"]["todays_usage"], 0 if deleted_team else 30)
+
+    @parameterized.expand(
+        [
+            ("billing_total_lacks_yesterday", 0, "2026-10-30", "2026-10-01T00:00:00Z", True, False),
+            ("no_report_yet_this_period", 0, None, "2026-10-01T00:00:00Z", True, False),
+            ("billing_total_has_yesterday", 0, "2026-10-31", "2026-10-01T00:00:00Z", False, False),
+            ("yesterday_is_in_the_previous_period", 0, "2026-10-30", "2026-11-01T00:00:00Z", False, False),
+            ("first_stamp_after_the_first_run", 1, "2026-10-30", "2026-10-01T00:00:00Z", True, False),
+            ("no_stamp", None, None, "2026-10-01T00:00:00Z", False, False),
+            ("first_run_write_skipped", 0, "2026-10-30", "2026-10-01T00:00:00Z", True, True),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    @time_machine.travel("2026-11-01T00:30:00Z", tick=False)
+    def test_quota_run_counts_yesterday_until_billings_total_has_it(
+        self,
+        _name: str,
+        stamped_from_run: int | None,
+        latest_usage_report_date: str | None,
+        period_start: str,
+        expect_limited: bool,
+        first_write_skipped: bool,
+        _capture,
+    ) -> None:
+        self.organization.usage = {
+            "events": {"usage": 90, "limit": 100, "todays_usage": 0},
+            "period": [period_start, "2026-12-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+        for timestamp, count in (("2026-10-31T12:00:00Z", 15), ("2026-11-01T00:10:00Z", 1)):
+            for _ in range(count):
+                _create_event(
+                    distinct_id=str(uuid4()),
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=timestamp,
+                    team=self.team,
+                )
+        flush_persons_and_events()
+        token = self.team.api_token.encode("UTF-8")
+
+        def billing_status_lands_first(organization: Organization, *args: Any, **kwargs: Any) -> bool:
+            Organization.objects.filter(id=organization.id).update(
+                usage={**(organization.usage or {}), "billing_status_computed_at": "2026-11-01T00:20:00+00:00"}
+            )
+            return _patch_todays_usage(organization, *args, **kwargs)
+
+        with patch.object(
+            UsageCounterService, "fetch_report", autospec=True, side_effect=UsageCounterService.fetch_report
+        ) as fetch_report:
+            for run in range(2):
+                if run == stamped_from_run:
+                    self.organization.refresh_from_db()
+                    stamped_usage: dict[str, Any] = {
+                        **(self.organization.usage or {}),
+                        "billing_status_computed_at": "2026-10-31T09:00:00+00:00",
+                        "billing_latest_usage_report_date": latest_usage_report_date,
+                    }
+                    self.organization.usage = stamped_usage
+                    self.organization.save()
+                with (
+                    patch("ee.billing.quota_limiting._patch_todays_usage", side_effect=billing_status_lands_first)
+                    if first_write_skipped and run == 0
+                    else nullcontext()
+                ):
+                    self._run_quota_limiting()
+                limited = (
+                    expect_limited and stamped_from_run is not None and run >= stamped_from_run + first_write_skipped
+                )
+                assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if limited else [])
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["events"]["todays_usage"] == 1
+        update_org_billing_quotas(self.organization)
+        assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if expect_limited else [])
+        today, yesterday = datetime.date(2026, 11, 1), datetime.date(2026, 10, 31)
+        assert [call.args[1].start.date() for call in fetch_report.call_args_list] == (
+            [today, yesterday, today, yesterday] if first_write_skipped else [today, yesterday, today]
+        )
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -273,7 +407,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(4, 11)):
+        with self.assertNumQueries(FuzzyInt(4, 21)):
             result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}
@@ -346,7 +480,12 @@ class TestQuotaLimiting(BaseTest):
     @patch("posthoganalytics.capture")
     def test_todays_usage_reads_every_legacy_row_shape(self, _capture) -> None:
         def flag_requests(_begin, _end, request_type):
-            return [(str(self.team.id), 7 if request_type == FlagRequestType.DECIDE else 2)]
+            counts = {
+                FlagRequestType.DECIDE: 7,
+                FlagRequestType.LOCAL_EVALUATION: 2,
+                FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: 3,
+            }
+            return [(str(self.team.id), counts[request_type])]
 
         with (
             self.settings(USE_TZ=False),
@@ -375,7 +514,7 @@ class TestQuotaLimiting(BaseTest):
 
         self.organization.refresh_from_db()
         assert self.organization.usage is not None
-        assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 7 + 2 * 10
+        assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 7 + 2 * 10 + 3
         assert self.organization.usage["rows_synced"]["todays_usage"] == 5
         assert self.organization.usage["rows_exported"]["todays_usage"] == 3
 
@@ -462,7 +601,13 @@ class TestQuotaLimiting(BaseTest):
 
             self.organization.refresh_from_db()
             assert self.organization.usage == create_usage_summary(
-                events={"usage": 99, "limit": 100, "todays_usage": 10, "quota_limited_until": 1612137599}
+                events={
+                    "usage": 99,
+                    "limit": 100,
+                    "todays_usage": 10,
+                    "daily_usage": {"2021-01-25": 10},
+                    "quota_limited_until": 1612137599,
+                }
             )
 
             # # Increase the trust score. They are already being limited, so we will not suspend their limiting.
@@ -515,7 +660,13 @@ class TestQuotaLimiting(BaseTest):
 
             self.organization.refresh_from_db()
             assert self.organization.usage == create_usage_summary(
-                events={"usage": 99, "limit": 100, "todays_usage": 10, "quota_limiting_suspended_until": 1611705600}
+                events={
+                    "usage": 99,
+                    "limit": 100,
+                    "todays_usage": 10,
+                    "daily_usage": {"2021-01-25": 10},
+                    "quota_limiting_suspended_until": 1611705600,
+                }
             )
 
         # Check that org is being limited after suspension expired
@@ -1086,6 +1237,38 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.get(billing_key) == b"central"
         self.redis_client.delete(billing_key)
 
+    @parameterized.expand(
+        [("missing", None, False), ("expired", -1, False), ("boundary", 0, True), ("active", 1, True)]
+    )
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_update_org_billing_quotas_honors_existing_limit_expiry(
+        self, _name: str, score_offset: int | None, expected_limited: bool
+    ) -> None:
+        other_team = create_team(organization=self.organization)
+        now_ts = int(timezone.now().timestamp())
+        tokens = {"phc_unrelated_limited_team": now_ts + 60}
+        if score_offset is not None:
+            tokens[self.team.api_token] = now_ts + score_offset
+        add_limited_team_tokens(QuotaResource.EVENTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        self.organization.usage = {
+            "events": {"usage": 200, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = {"events": 10}
+        self.organization.save()
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            update_org_billing_quotas(self.organization)
+
+        self.organization.refresh_from_db()
+        assert bool(self.organization.usage["events"].get("quota_limited_until")) is expected_limited
+        assert bool(self.organization.usage["events"].get("quota_limiting_suspended_until")) is not expected_limited
+        for team in (self.team, other_team):
+            assert (
+                is_team_limited(team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                is expected_limited
+            )
+
     def test_update_org_billing_quotas(self):
         with time_machine.travel("2021-01-01T12:59:59Z", tick=False):
             other_team = create_team(organization=self.organization)
@@ -1122,7 +1305,11 @@ class TestQuotaLimiting(BaseTest):
                 "survey_responses": {"usage": 10, "limit": 100},
             }
 
-            update_org_billing_quotas(self.organization)
+            with (
+                patch.object(self.redis_client, "zrangebyscore", side_effect=AssertionError("Global quota list read")),
+                patch.object(self.redis_client, "zrange", side_effect=AssertionError("Global quota list read")),
+            ):
+                update_org_billing_quotas(self.organization)
             assert list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) == [
                 "1234"
             ]
@@ -1272,6 +1459,73 @@ class TestQuotaLimiting(BaseTest):
         call_args = mock_capture.call_args
         self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
         self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
+
+    @parameterized.expand([("deactivated", False, True), ("never_deactivated", None, False)])
+    def test_deactivated_organization_is_limited_for_feature_flags_only(
+        self, _name: str, is_active: bool | None, expected_limited: bool
+    ) -> None:
+        self.redis_client.delete("@posthog/quota-limits/feature_flag_requests")
+
+        demo_team = create_team(organization=self.organization)
+        Team.objects.filter(pk=demo_team.pk).update(is_demo=True)
+
+        def limited(resource: QuotaResource) -> bool:
+            results = {
+                is_team_limited(team.api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                for team in (self.team, demo_team)
+            }
+            assert len(results) == 1
+            return results.pop()
+
+        self.organization.is_active = is_active
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+
+        self._run_quota_limiting()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+        assert limited(QuotaResource.EVENTS) is False
+
+        self.organization.usage = {
+            "feature_flag_requests": {"usage": 10, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        update_org_billing_quotas(self.organization)
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+
+        self.organization.is_active = True
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is False
+
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_reactivating_an_organization_keeps_its_feature_flags_grace_period(self) -> None:
+        self.redis_client.delete("@posthog/quota-limits/feature_flag_requests")
+        self.organization.usage = {
+            "feature_flag_requests": {"usage": 110, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+        update_org_billing_quotas(self.organization)
+
+        self.organization.is_active = False
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        self._run_quota_limiting()
+
+        self.organization.refresh_from_db()
+        self.organization.is_active = True
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        update_org_billing_quotas(self.organization)
+
+        assert not is_team_limited(
+            self.team.api_token, QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+        assert is_team_limited(
+            self.team.api_token, QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+        )
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
@@ -1910,6 +2164,31 @@ class TestQuotaLimiting(BaseTest):
                 self.team.api_token.encode("UTF-8")
             ]
 
+    @patch("posthoganalytics.capture")
+    def test_ai_overage_is_reported_as_a_dry_run_beside_ai_event_limits(self, patch_capture) -> None:
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "llm_events": {"usage": 0, "limit": 1, "todays_usage": 0},
+            }
+            self.organization.save()
+            included = get_ai_event_limits().included_bytes_per_event
+            for index in range(2):
+                _create_event(
+                    event="$ai_generation",
+                    team=self.team,
+                    distinct_id=f"ai_user_{index}",
+                    timestamp=now(),
+                    properties={"$ai_event_bytes": included + 1_500_000},
+                )
+            flush_persons_and_events()
+
+            result = update_all_orgs_billing_quotas()
+
+            assert result.quota_limited_orgs["llm_events"] == {str(self.organization.id): 1612137599}
+            assert (result.stats["ai_overage_teams"], result.stats["ai_overage_mb"]) == (1, 3)
+            assert result.stats.keys() <= {field.name for field in dataclasses.fields(QuotaLimitingResult)}
+
     @parameterized.expand(
         [
             ("over_the_mcp_limit", {"usage": 0, "limit": 2, "todays_usage": 0}, True),
@@ -1961,37 +2240,6 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.zrange("@posthog/quota-limits/logs_mb_ingested", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-
-    def test_usage_keys_stay_in_sync(self):
-        """
-        Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys
-        (except for `period`).
-        """
-        from posthog.models.organization import OrganizationUsageInfo
-
-        # OrganizationUsageInfo is source of truth (excluding 'period`)
-        org_usage_keys = set(OrganizationUsageInfo.__annotations__.keys()) - {"period"}
-
-        quota_resource_keys = {resource.value for resource in QuotaResource}
-        usage_counter_keys = set(UsageCounters.__annotations__.keys())
-
-        # Check QuotaResource matches OrganizationUsageInfo, except the informational
-        # component fields, which are deliberately never quota-enforced
-        informational_keys = set(INFORMATIONAL_USAGE_RESOURCES)
-        assert informational_keys <= org_usage_keys
-        assert not informational_keys & quota_resource_keys, "informational resources must not be QuotaResources"
-        missing_from_quota = org_usage_keys - quota_resource_keys - informational_keys
-        extra_in_quota = quota_resource_keys - org_usage_keys
-        assert not missing_from_quota, f"QuotaResource is missing keys from OrganizationUsageInfo: {missing_from_quota}"
-        assert not extra_in_quota, f"QuotaResource has extra keys not in OrganizationUsageInfo: {extra_in_quota}"
-
-        # Check UsageCounters matches OrganizationUsageInfo
-        missing_from_counters = org_usage_keys - usage_counter_keys
-        extra_in_counters = usage_counter_keys - org_usage_keys
-        assert not missing_from_counters, (
-            f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
-        )
-        assert not extra_in_counters, f"UsageCounters has extra keys not in OrganizationUsageInfo: {extra_in_counters}"
 
     @patch("posthoganalytics.capture")
     @time_machine.travel("2021-01-25T12:00:00Z", tick=False)
@@ -2304,6 +2552,12 @@ class TestQuotaLimiting(BaseTest):
                 1,
             ),
             (
+                "boundary_member_becomes_unlimited",
+                0,
+                {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 1, "limit": 5_000}},
+                1,
+            ),
+            (
                 "still_limited_no_transition",
                 10_000,
                 {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 6_000, "limit": 5_000}},
@@ -2497,6 +2751,66 @@ class TestQuotaLimiting(BaseTest):
         mock_update_remote_config.apply_async.assert_not_called()
 
 
+class TestQuotaSetWritesAtRedisArgumentLimit(SimpleTestCase):
+    key = "@posthog/quota-limits/events"
+    argument_limit = 6
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.redis_client = get_client()
+        self.redis_client.delete(self.key)
+        self.addCleanup(self.redis_client.delete, self.key)
+
+    @parameterized.expand(
+        [
+            ("replace_at_limit", "replace", 2, 4, 1, 0),
+            ("replace_above_limit", "replace", 5, 9, 3, 0),
+            ("reconcile_at_limit", "reconcile", 2, 4, 1, 1),
+            ("reconcile_above_limit", "reconcile", 5, 9, 3, 3),
+        ]
+    )
+    def test_write_keeps_each_command_within_the_argument_limit(
+        self,
+        _name: str,
+        write: str,
+        token_count: int,
+        stale_count: int,
+        expected_zadd_count: int,
+        expected_zrem_count: int,
+    ) -> None:
+        score = int(timezone.now().timestamp()) + 3600
+        stale_tokens = {f"stale-{index}": score for index in range(stale_count)}
+        tokens = {f"limited-{index}": score + index for index in range(token_count)}
+        self.redis_client.zadd(self.key, stale_tokens)  # type: ignore[arg-type]
+        transactions: list[tuple[bool, list[tuple]]] = []
+        execute = Pipeline.execute
+
+        def record_transaction(pipeline: Pipeline, *args: Any, **kwargs: Any) -> Any:
+            transactions.append((pipeline.transaction, [command for command, _options in pipeline.command_stack]))
+            return execute(pipeline, *args, **kwargs)
+
+        with (
+            patch("ee.billing.quota_limiting.REDIS_MAX_COMMAND_ARGUMENTS", self.argument_limit, create=True),
+            patch.object(Pipeline, "execute", autospec=True, side_effect=record_transaction),
+        ):
+            if write == "replace":
+                replace_limited_team_tokens(QuotaResource.EVENTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+            else:
+                reconcile_limited_team_tokens(
+                    QuotaResource.EVENTS, list(stale_tokens), tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+
+        [(is_transaction, commands)] = transactions
+        assert is_transaction
+        assert max(len(command) for command in commands) <= self.argument_limit
+        command_names = [command[0] for command in commands]
+        assert command_names.count("ZADD") == expected_zadd_count
+        assert command_names.count("ZREM") == expected_zrem_count
+        assert dict(self.redis_client.zrange(self.key, 0, -1, withscores=True)) == {
+            token.encode(): float(token_score) for token, token_score in tokens.items()
+        }
+
+
 def _full_usage_counters(**overrides: int) -> UsageCounters:
     base = UsageCounters(
         events=0,
@@ -2510,6 +2824,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         mcp_events=0,
         ai_credits=0,
         signals_credits=0,
+        signals_spend_credits=0,
         posthog_code_credits=0,
         posthog_code_token_credits=0,
         sandbox_compute_credits=0,
@@ -2539,6 +2854,28 @@ def _fake_org(usage: dict | None) -> Any:
 
 
 _PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
+_PATCH_DAY = datetime.date(2021, 1, 15)
+
+
+class TestHasUsage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("used", {"events": {"usage": 5, "limit": 5}}, QuotaResource.EVENTS, True),
+            ("used_today_only", {"events": {"usage": 0, "limit": 0, "todays_usage": 5}}, QuotaResource.EVENTS, True),
+            ("zero_allowance", {"events": {"usage": 0, "limit": 0, "todays_usage": 0}}, QuotaResource.EVENTS, False),
+            ("without_usage", None, QuotaResource.EVENTS, False),
+            ("without_the_resource", {"events": {"usage": 5, "limit": 5}}, QuotaResource.RECORDINGS, False),
+        ]
+    )
+    def test_an_organization_has_usage_once_it_used_any_of_the_resource(
+        self, _name: str, usage: dict[str, Any] | None, resource: QuotaResource, expected: bool
+    ) -> None:
+        assert _has_usage(Organization(usage=usage), resource) is expected
+
+    def test_a_deactivated_organization_has_usage_like_any_other(self) -> None:
+        organization = Organization(usage={"feature_flag_requests": {"usage": 5, "limit": 100}}, is_active=False)
+
+        assert _has_usage(organization, QuotaResource.FEATURE_FLAG_REQUESTS)
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
@@ -2603,6 +2940,20 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
                 {},
                 {},
                 True,
+            ),
+            (
+                "flags_orgs_over_limit_only_with_yesterdays_count",
+                {
+                    "events": {"usage": 900, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                    "billing_latest_usage_report_date": "2021-01-13",
+                },
+                _full_usage_counters(events=50),
+                [],
+                {},
+                {},
+                True,
+                {"events": 100},
             ),
             (
                 "skips_under_limit_orgs_without_markers_or_redis",
@@ -2798,6 +3149,7 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
         previously_limited_overrides: dict[str, list[str]],
         previously_suspended_overrides: dict[str, list[str]],
         expected_candidate: bool,
+        finished_yesterday: dict[str, int] | None = None,
     ) -> None:
         org = _fake_org(usage=usage)
         org_id = str(org.id)
@@ -2811,7 +3163,13 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
         previously_suspended.update(previously_suspended_overrides)
 
         candidates = _identify_refresh_candidates(
-            orgs_by_id, todays_usage_report, teams_by_org, previously_limited, previously_suspended
+            orgs_by_id,
+            todays_usage_report,
+            teams_by_org,
+            previously_limited,
+            previously_suspended,
+            today=_PATCH_DAY,
+            finished_yesterday_by_org=None if finished_yesterday is None else {org_id: finished_yesterday},
         )
 
         assert candidates == ({org_id} if expected_candidate else set())
@@ -2827,7 +3185,9 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.usage = None
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=42), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is False
 
@@ -2857,8 +3217,8 @@ class TestPatchTodaysUsage(BaseTest):
             sandbox_compute_memory_mib_seconds=7_654_321_098,
         )
 
-        assert _patch_todays_usage(self.organization, todays_usage) is True
-        assert _patch_todays_usage(self.organization, todays_usage) is False
+        assert _patch_todays_usage(self.organization, todays_usage, today=_PATCH_DAY, finished_yesterday=None) is True
+        assert _patch_todays_usage(self.organization, todays_usage, today=_PATCH_DAY, finished_yesterday=None) is False
 
         self.organization.refresh_from_db()
         assert self.organization.usage["posthog_code_credits"]["todays_usage"] == 15
@@ -2930,19 +3290,43 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.usage = {"period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]}
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=42), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is False
 
+    @parameterized.expand(
+        [
+            ("first_run_of_the_day", {"2021-01-14": 9}, {"events": 12}),
+            ("later_run", {"2021-01-13": 3, "2021-01-14": 12, "2021-01-15": 2}, None),
+        ]
+    )
+    def test_daily_usage_holds_yesterday_and_today(self, _name, stored, finished_yesterday) -> None:
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 2, "daily_usage": stored},
+            "period": _PERIOD,
+        }
+        self.organization.save()
+
+        _patch_todays_usage(
+            self.organization, _full_usage_counters(events=4), today=_PATCH_DAY, finished_yesterday=finished_yesterday
+        )
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["events"]["daily_usage"] == {"2021-01-14": 12, "2021-01-15": 4}
+
     def test_returns_false_when_value_is_unchanged(self) -> None:
         self.organization.usage = {
-            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7, "daily_usage": {"2021-01-15": 7}},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
         self.organization.save()
         before_updated_at = self.organization.updated_at
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=7))
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=7), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is False
         # No SQL UPDATE means `updated_at` should not move.
@@ -2960,11 +3344,14 @@ class TestPatchTodaysUsage(BaseTest):
         }
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=0))
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=0), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is True
         self.organization.refresh_from_db()
         assert self.organization.usage["events"]["todays_usage"] == 0
+        assert "daily_usage" not in self.organization.usage["events"]
         # Sibling fields untouched.
         assert self.organization.usage["events"]["usage"] == 100
         assert self.organization.usage["events"]["limit"] == 1_000
@@ -2979,7 +3366,9 @@ class TestPatchTodaysUsage(BaseTest):
         before_updated_at = self.organization.updated_at
 
         # Only `events` changes; `recordings` stays identical.
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42, recordings=5))
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=42, recordings=5), today=_PATCH_DAY, finished_yesterday=None
+        )
 
         assert changed is True
         # In-memory mirror reflects the change.
@@ -3018,7 +3407,9 @@ class TestPatchTodaysUsage(BaseTest):
 
         # The stale in-memory org still believes limit=1000; the targeted patch must
         # only touch `usage[events][todays_usage]` and leave billing-owned fields alone.
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99), batch=batch)
+        changed = _patch_todays_usage(
+            self.organization, _full_usage_counters(events=99), today=_PATCH_DAY, finished_yesterday=None, batch=batch
+        )
         if batch is not None:
             batch.write()
 
@@ -3311,9 +3702,12 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         ]
     )
     @time_machine.travel("2026-06-15T00:30:00Z", tick=False)
+    @override_settings(QUOTA_LIMITING_REDIS_URL="redis://quota-failed-org.test:6379/0")
     def test_failed_period_recount_preserves_existing_block(
         self, _name: str, persisted_expiry: str | None, redis_expiry: str, expected_expiry: str | None
     ) -> None:
+        secondary = get_client("redis://quota-failed-org.test:6379/0")
+        secondary.flushdb()
         self._set_self_driving_usage(0)
         assert self.organization.usage is not None
         if persisted_expiry:
@@ -3336,31 +3730,51 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
                 raise DatabaseError("Period usage unavailable")
             return 0
 
+        key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}"
+        reconcile_labels = {"operation": "reconcile", "result": "success"}
+
+        def count_secondary_reconciles() -> float:
+            return REGISTRY.get_sample_value("billing_quota_secondary_operations_total", reconcile_labels) or 0
+
+        secondary_before_run = (secondary.zrange(key, 0, -1, withscores=True), count_secondary_reconciles())
+        secondary_after_shared_writes: list[object] = []
+
+        def record_progress(phase: str, _progress: str, _detail: str) -> None:
+            if phase == "redis_done":
+                secondary_after_shared_writes.append(
+                    (secondary.zrange(key, 0, -1, withscores=True), count_secondary_reconciles())
+                )
+
         with patch(
             "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", side_effect=count_credits
         ):
-            update_all_orgs_billing_quotas()
+            update_all_orgs_billing_quotas(progress_callback=record_progress)
 
         expected_timestamp = (
             datetime.datetime.fromisoformat(expected_expiry).replace(tzinfo=datetime.UTC).timestamp()
             if expected_expiry
             else None
         )
-        assert (
-            get_client().zscore(
-                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
-                self.team.api_token,
-            )
-            == expected_timestamp
-        )
+        assert secondary_after_shared_writes == [secondary_before_run]
+        assert count_secondary_reconciles() == secondary_before_run[1] + len(QuotaResource) * len(QuotaLimitingCaches)
+        assert get_client().zscore(key, self.team.api_token) == expected_timestamp
+        assert secondary.zscore(key, self.team.api_token) == expected_timestamp
 
+    @parameterized.expand([("without_stamp", False), ("with_stamp", True)])
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_refresh_patches_todays_usage_and_flips_the_limiter(self, _feature_enabled, _capture) -> None:
+    def test_refresh_patches_todays_usage_and_flips_the_limiter(
+        self, _name, stamped, _feature_enabled, _capture
+    ) -> None:
         # The event-driven path exists because the cron-patched todays_usage predates the PR that
         # just landed: a stale value here means the flag doesn't flip until the next cron tick.
         self._set_self_driving_usage(3000, todays_usage=0)
+        if stamped:
+            assert self.organization.usage is not None
+            self.organization.usage["billing_latest_usage_report_date"] = "2026-06-14"
+            self.organization.usage["signals_credits"]["daily_usage"] = {}
+            self.organization.save()
         with patch(
             "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
         ) as live_mock:
@@ -3402,6 +3816,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    @override_settings(QUOTA_LIMITING_REDIS_URL="redis://quota-failed-org.test:6379/0")
     def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(
         self, _name, recount_fails, _feature_enabled, _capture
     ) -> None:
@@ -3417,6 +3832,10 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             {self.team.api_token: 1798761600},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
+        key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}"
+        secondary = get_client("redis://quota-failed-org.test:6379/0")
+        secondary.flushdb()
+        secondary.zadd(key, {self.team.api_token: 1798761600})
         with (
             patch(
                 "posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period",
@@ -3428,15 +3847,17 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
                 side_effect=DatabaseError("Signals usage unavailable") if recount_fails else None,
             ) as live_mock,
         ):
-            update_all_orgs_billing_quotas()
+            result = update_all_orgs_billing_quotas()
 
         assert live_mock.call_args.args[0] == [str(self.organization.id)]
+        assert result.discarded_orgs >= ({str(self.organization.id)} if recount_fails else set())
         self.organization.refresh_from_db()
         assert self.organization.usage is not None
         assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
         assert self.team.api_token in list_limited_team_attributes(
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
+        assert secondary.zscore(key, self.team.api_token) is not None
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)

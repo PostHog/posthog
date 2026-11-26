@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 
 import { ApiError, NotSignedInError } from '@/api/client'
+import type { ProjectScope } from '@/api/reports'
 import { readSse } from '@/api/sse'
 import { getTask, getTaskRun, openTaskRunStream, type TaskApi, type TaskRunApi } from '@/api/tasks'
 import { addSessionEndTask } from '@/auth/authStore'
+import { useProjectScope } from '@/auth/useProjectScope'
 import { useConnectivity } from '@/lib/connectivity'
 import { sleep } from '@/lib/sleep'
 
@@ -60,7 +62,31 @@ export function isFatal(error: unknown): boolean {
     )
 }
 
+export function waitForRunRecovery(reportId: string, runId: string | undefined, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        const pending = (): boolean => {
+            const live = useHandoffStore.getState().reports[reportId]?.live
+            return live?.runId === runId && live?.connection === 'reconnecting'
+        }
+        if (signal.aborted || !pending()) {
+            resolve()
+            return
+        }
+        const finish = (): void => {
+            unsubscribe()
+            signal.removeEventListener('abort', finish)
+            resolve()
+        }
+        const unsubscribe = useHandoffStore.subscribe(() => {
+            if (!pending()) finish()
+        })
+        signal.addEventListener('abort', finish, { once: true })
+    })
+}
+
 interface FollowArgs {
+    /** The report's project, which owns the task. */
+    scope: ProjectScope | null
     reportId: string
     taskId: string
     runId?: string
@@ -71,12 +97,13 @@ interface FollowArgs {
 
 /** The run to follow: the task's latest run, which wins over a possibly stale run id. */
 async function fetchRun(
+    scope: ProjectScope | null,
     taskId: string,
     runId: string | undefined,
     signal: AbortSignal,
     onTaskSnapshot?: (task: TaskApi) => void
 ): Promise<TaskRunApi | null> {
-    const task = await getTask(taskId, signal)
+    const task = await getTask(scope, taskId, signal)
     if (signal.aborted) {
         return null
     }
@@ -84,10 +111,11 @@ async function fetchRun(
     if (task.latest_run) {
         return task.latest_run
     }
-    return runId ? getTaskRun(taskId, runId, signal) : null
+    return runId ? getTaskRun(scope, taskId, runId, signal) : null
 }
 
 async function runEffects(
+    scope: ProjectScope | null,
     reportId: string,
     taskId: string,
     runId: string,
@@ -100,6 +128,7 @@ async function runEffects(
         }
         try {
             const outcome = await deliverPermissionResponse(
+                scope,
                 { taskId, runId },
                 { requestId: effect.requestId, optionId: effect.optionId },
                 { signal }
@@ -168,7 +197,7 @@ async function readOnce(
     const result: ConnectionResult = { progressed: false }
     try {
         resetIdle()
-        const response = await openTaskRunStream(args.taskId, runId, {
+        const response = await openTaskRunStream(args.scope, args.taskId, runId, {
             lastEventId: hydration.cursor.cursor,
             signal: connection.signal,
         })
@@ -209,7 +238,7 @@ async function readOnce(
                         .applyFrame(args.reportId, runId, outcome.frame.data, outcome.frame.context)
                     cursors.set(runId, hydration.cursor)
                     if (effects.length > 0) {
-                        void runEffects(args.reportId, args.taskId, runId, effects, outer)
+                        void runEffects(args.scope, args.reportId, args.taskId, runId, effects, outer)
                     }
                 }
                 if (outcome.control) {
@@ -260,7 +289,7 @@ export async function followRun(args: FollowArgs): Promise<FollowOutcome> {
     let run: TaskRunApi | null = null
     for (let attempt = 0; ; attempt += 1) {
         try {
-            run = await fetchRun(taskId, args.runId, signal, args.onTaskSnapshot)
+            run = await fetchRun(args.scope, taskId, args.runId, signal, args.onTaskSnapshot)
             break
         } catch (error) {
             // Until this succeeds the screen shows what the report itself knows about the run.
@@ -326,12 +355,12 @@ export async function followRun(args: FollowArgs): Promise<FollowOutcome> {
         if (signal.aborted || !isCurrent()) {
             return 'aborted'
         }
-        setConnection('reconnecting')
         if (control?.type === 'rotated' || control?.type === 'resync') {
             continue
         }
+        setConnection('reconnecting')
         try {
-            const latest = await getTaskRun(taskId, runId, signal)
+            const latest = await getTaskRun(args.scope, taskId, runId, signal)
             if (signal.aborted || !isCurrent()) {
                 return 'aborted'
             }
@@ -373,13 +402,14 @@ export function useTaskRun(
     onRefresh?: () => void,
     onTaskSnapshot?: (task: TaskApi) => void
 ): void {
+    const scope = useProjectScope()
     const active = useAppActive()
     const online = useConnectivity((state) => state.status !== 'offline')
     const lastFollow = useRef<{ key: string; outcome: FollowOutcome | null }>({ key: '', outcome: null })
     const refresh = useHandoffStore((state) => state.reports[reportId]?.refresh ?? 0)
     const taskId = target?.taskId
     const runId = target?.runId
-    const key = JSON.stringify([reportId, taskId, runId, refresh])
+    const key = JSON.stringify([scope, reportId, taskId, runId, refresh])
     useEffect(() => {
         if (lastFollow.current.key !== key) lastFollow.current = { key, outcome: null }
         if (!enabled || !active || !online || !taskId) {
@@ -394,11 +424,11 @@ export function useTaskRun(
             return
         const controller = new AbortController()
         lastFollow.current.outcome = null
-        void followRun({ reportId, taskId, runId, signal: controller.signal, onRefresh, onTaskSnapshot }).then(
+        void followRun({ scope, reportId, taskId, runId, signal: controller.signal, onRefresh, onTaskSnapshot }).then(
             (outcome) => {
                 if (!controller.signal.aborted) lastFollow.current.outcome = outcome
             }
         )
         return () => controller.abort()
-    }, [enabled, active, online, reportId, taskId, runId, key, onRefresh, onTaskSnapshot])
+    }, [enabled, active, online, scope, reportId, taskId, runId, key, onRefresh, onTaskSnapshot])
 }

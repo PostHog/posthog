@@ -1,5 +1,5 @@
 import { ApiError, NotSignedInError } from '@/api/client'
-import { fetchReport } from '@/api/reports'
+import { fetchReport, type ProjectScope } from '@/api/reports'
 import { createTask, getTask, type HandoffRunFieldsApi, startTaskRun } from '@/api/tasks'
 import { isRecord } from '@/lib/records'
 
@@ -60,6 +60,8 @@ export interface KickoffResult {
 }
 
 export interface KickoffOptions {
+    /** The report's project. Every call of the hand-off goes there. */
+    scope: ProjectScope | null
     run: HandoffRunFieldsApi
     taskId?: string
     onTaskCreated?: (taskId: string) => void
@@ -70,14 +72,15 @@ export interface KickoffOptions {
 // Makes the same two calls as the web's Create PR. The prompt reads the report fresh so it matches what the web sends.
 // The task carries no repository: the server resolves it for report tasks and rejects one the client sets.
 export async function kickOffReportTask(reportId: string, options: KickoffOptions): Promise<KickoffResult> {
-    const report = await fetchReport(reportId, options.signal)
+    const report = await fetchReport(options.scope, reportId, options.signal)
     const prompt = buildCreatePrReportPrompt(report)
     const taskId = report.assignee?.kind === 'task' ? (report.assignee.task_id ?? options.taskId) : options.taskId
     const task = taskId
-        ? await getTask(taskId, options.signal)
+        ? await getTask(options.scope, taskId, options.signal)
         : await withWarmRetry(
               (headers) =>
                   createTask(
+                      options.scope,
                       {
                           title: report.title?.trim() || FALLBACK_TITLE,
                           description: prompt,
@@ -98,6 +101,7 @@ export async function kickOffReportTask(reportId: string, options: KickoffOption
         const running = await withWarmRetry(
             (headers) =>
                 startTaskRun(
+                    options.scope,
                     task.id,
                     {
                         run_source: 'signal_report',

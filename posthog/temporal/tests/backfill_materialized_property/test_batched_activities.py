@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.temporal.backfill_materialized_property.activities import (
     ActivateSlotsInputs,
     AssignPendingColumnsInputs,
@@ -24,6 +24,7 @@ from posthog.temporal.backfill_materialized_property.activities import (
     run_batched_mutation,
 )
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 

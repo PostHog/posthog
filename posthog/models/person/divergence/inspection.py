@@ -13,7 +13,7 @@ from django.db.models import Q
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.person.divergence import lookups, observe
+from posthog.models.person.divergence import cleanup_queue, lookups, observe
 from posthog.models.person.divergence.flavors import classify_mapping, classify_person
 from posthog.models.person.util import list_person_tombstone_queue
 from posthog.models.team import Team
@@ -37,6 +37,8 @@ class Inspection:
     ch_history: list[dict[str, Any]] | None = None
     activity: list[dict[str, Any]] | None = None
     tombstone_queue: dict[str, Any] | None = None
+    # The persons cleanup queue row: a `blocked_at` means the drain holds the person for a live distinct id.
+    cleanup_queue: dict[str, Any] | None = None
 
 
 def hash_distinct_id(team_id: int, distinct_id: str) -> str:
@@ -151,6 +153,7 @@ def inspect_persons(
     pg = observe.pg_person_states(team_id, uuids) if team_exists else {}
     ch = observe.ch_person_states(team_id, uuids)
     history = _person_history(team_id, uuids)
+    queued = cleanup_queue.queue_entries(team_id, uuids) if team_exists else {}
     results = []
     for person_uuid in uuids:
         pg_state = pg.get(person_uuid)
@@ -174,6 +177,7 @@ def inspect_persons(
                 ch_history=history[person_uuid],
                 activity=_activity(team_id, person_uuid, pg_state.id if pg_state else None),
                 tombstone_queue=_tombstone_queue_entry(team_id, person_uuid) if team_exists else None,
+                cleanup_queue=queued.get(person_uuid),
             )
         )
     return results
@@ -186,13 +190,18 @@ def inspect_mappings(team_id: int, distinct_ids: Sequence[str]) -> list[Inspecti
     ch = observe.ch_mapping_states(team_id, dids)
     owners = sorted({c.winner_person_uuid for c in ch.values()})
     owner_states = observe.pg_person_states(team_id, owners) if team_exists and owners else {}
+    owner_ch = observe.owner_ch_states(team_id, pg, ch)
     history = _mapping_history(team_id, dids)
     results = []
     for distinct_id in dids:
         ch_state = ch.get(distinct_id)
         owner_state = observe.person_pg_state(owner_states, ch_state.winner_person_uuid) if ch_state else None
         verdict = classify_mapping(
-            pg.get(distinct_id), ch_state, ch_owner_pg_state=owner_state, team_exists=team_exists
+            pg.get(distinct_id),
+            ch_state,
+            ch_owner_pg_state=owner_state,
+            team_exists=team_exists,
+            owner_ch=owner_ch.get(distinct_id),
         )
         results.append(
             Inspection(

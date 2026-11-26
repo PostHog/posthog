@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { type ComponentType, Fragment, useState } from 'react'
 
 import {
@@ -39,13 +40,16 @@ import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { SignalReportPullRequestApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_RANKING_SCORES, PRIORITY_TAG_TYPE, rankingScoreForHead } from '../../filterOptions'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { dismissalReasonLabel } from '../../utils/dismissalReasons'
+import { scoutNameForSkill } from '../../utils/scoutRunsWindow'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
 import { RankingLiftBar } from '../cards/RankingLiftBar'
 import { SignalCardDisclosureProvider } from '../signalCards/SignalCardShell'
+import { ActivityNoteQuote } from './ActivityNoteQuote'
 import { ArtefactCommit } from './ArtefactCommit'
 import { ArtefactPullRequest } from './ArtefactPullRequest'
 import { ArtefactTaskRun } from './ArtefactTaskRun'
@@ -71,6 +75,7 @@ import {
     RankingScoreView,
     readRankingScore,
     NoteContent,
+    ScoutNoteLeftContent,
     RelatedToContent,
     REPORT_LINK_KIND_LABELS,
     ReportLinkContent,
@@ -151,6 +156,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     commit: IconCommit,
     task_run: IconTerminal,
     note: IconComment,
+    scout_note_left: IconPencil,
     priority_judgment: IconFlag,
     actionability_judgment: IconListCheck,
     safety_judgment: IconShield,
@@ -187,7 +193,11 @@ function RelevanceNote({ note }: { note?: string }): JSX.Element | null {
     if (!note?.trim()) {
         return null
     }
-    return <span className="block text-secondary text-xs">{note}</span>
+    return (
+        <LemonMarkdown className="text-xs text-secondary" disableImages>
+            {note}
+        </LemonMarkdown>
+    )
 }
 
 /** A read-only highlighted code block sized for the activity log. */
@@ -210,7 +220,11 @@ function ActivityBodyCard({ children }: { children: React.ReactNode }): JSX.Elem
 }
 
 function ReasoningBody({ text }: { text: string }): JSX.Element {
-    return <p className="m-0 text-xs leading-relaxed text-secondary">{text}</p>
+    return (
+        <LemonMarkdown className="text-xs leading-relaxed text-secondary" disableImages>
+            {text}
+        </LemonMarkdown>
+    )
 }
 
 function NoteBody({ note, author }: { note: string; author?: string }): JSX.Element {
@@ -400,7 +414,9 @@ function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Elem
     }
     return (
         <div className="flex w-full flex-col items-start gap-1">
-            <span className="text-xs text-default">{content.explanation}</span>
+            <LemonMarkdown className="text-xs text-default" disableImages>
+                {content.explanation}
+            </LemonMarkdown>
             {content.outcome === 'inconclusive' ? (
                 <span className="text-xs text-tertiary">{inconclusiveReasonLabel(content.reason)}</span>
             ) : null}
@@ -594,7 +610,11 @@ function RankingScoreBody({ score }: { score: RankingScoreView }): JSX.Element {
     )
 }
 
-function renderArtefactSummary(artefact: SignalReportArtefact, monitoringEnabled: boolean): JSX.Element | null {
+function renderArtefactSummary(
+    artefact: SignalReportArtefact,
+    monitoringEnabled: boolean,
+    scoutNames: Readonly<Record<string, string>>
+): JSX.Element | null {
     const content = artefact.content
 
     switch (artefact.type) {
@@ -675,7 +695,11 @@ function renderArtefactSummary(artefact: SignalReportArtefact, monitoringEnabled
         case 'check_scheduled':
         case 'check_expired':
         case 'check_cancelled': {
-            const { tag } = CHECK_LIFECYCLE_ENTRIES[artefact.type](content as CheckLifecycleContent, monitoringEnabled)
+            const { tag } = CHECK_LIFECYCLE_ENTRIES[artefact.type](
+                content as CheckLifecycleContent,
+                monitoringEnabled,
+                scoutNames
+            )
             return (
                 <LemonTag size="small" type={tag.type}>
                     {tag.label}
@@ -716,16 +740,20 @@ function renderArtefactSummary(artefact: SignalReportArtefact, monitoringEnabled
 
 function renderArtefactBody({
     monitoringEnabled,
+    notesEnabled,
     reportId,
     artefact,
     knownTasks,
     knownPullRequests,
+    scoutNames,
 }: {
     reportId: string
     artefact: SignalReportArtefact
     knownTasks?: Map<string, Task>
     knownPullRequests: Map<string, SignalReportPullRequestApi>
     monitoringEnabled: boolean
+    notesEnabled: boolean
+    scoutNames: Readonly<Record<string, string>>
 }): JSX.Element | null {
     const content = artefact.content
     const renderPullRequest = (url: string, outcome?: 'closed' | 'already_closed' | 'skipped'): JSX.Element => {
@@ -771,7 +799,27 @@ function renderArtefactBody({
         }
         case 'note': {
             const c = content as NoteContent
+            if (notesEnabled && artefact.actor_kind === 'user') {
+                return <ActivityNoteQuote reportId={reportId} text={c.note} />
+            }
             return <NoteBody note={c.note} author={c.author} />
+        }
+        case 'scout_note_left': {
+            const c = content as ScoutNoteLeftContent
+            if (notesEnabled) {
+                return <ActivityNoteQuote reportId={reportId} text={c.note} scoutSkillName={c.skill_name} />
+            }
+            // Without the Notes list, the entry is the only place the note shows, so it reads as a note.
+            return (
+                <div className="w-full">
+                    <NoteBody note={c.note} />
+                    <span className="mt-1 block text-xs text-tertiary">
+                        {c.skill_name?.trim()
+                            ? `For ${scoutNameForSkill(scoutNames, c.skill_name)}`
+                            : 'For every scout'}
+                    </span>
+                </div>
+            )
         }
         case 'priority_judgment': {
             const c = content as { explanation?: string }
@@ -811,7 +859,7 @@ function renderArtefactBody({
                 <CheckLifecycleBody
                     title={c.title}
                     rationale={c.rationale}
-                    detail={CHECK_LIFECYCLE_ENTRIES[artefact.type](c, monitoringEnabled).detail}
+                    detail={CHECK_LIFECYCLE_ENTRIES[artefact.type](c, monitoringEnabled, scoutNames).detail}
                 />
             )
         }
@@ -903,15 +951,25 @@ function ArtefactRow({
     knownPullRequests: Map<string, SignalReportPullRequestApi>
 }): JSX.Element {
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
+    const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const signalId = artefact.type === 'signal_finding' ? (artefact.content as SignalFindingContent).signal_id : null
     const signal = signalId ? knownSignals?.get(signalId) : undefined
     const location = artefactLocationLabel(artefact)
     const attribution = artefactAttributionLabel(artefact)
-    const summary = renderArtefactSummary(artefact, monitoringEnabled)
+    const summary = renderArtefactSummary(artefact, monitoringEnabled, scoutNamesBySkill)
     const body = signal ? (
         <SignalFindingBody signal={signal} />
     ) : (
-        renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests, monitoringEnabled })
+        renderArtefactBody({
+            reportId,
+            artefact,
+            knownTasks,
+            knownPullRequests,
+            monitoringEnabled,
+            notesEnabled,
+            scoutNames: scoutNamesBySkill,
+        })
     )
     const bodyHasOwnCard = artefact.type === 'signal_finding' || artefact.type === 'commit'
     const MarkerIcon =

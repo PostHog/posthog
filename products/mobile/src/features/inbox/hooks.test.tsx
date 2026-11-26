@@ -7,6 +7,7 @@ import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
 import { INBOX_PAGE_SIZE, postReadStates, reportKeys } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
 import { type DataMode, useDemoMode } from '@/demo/demoMode'
+import { useFeatureAccess, useScopeErrorStore } from '@/features/views/useViewsAccess'
 import { inboxFromReports } from '@/model/adapters/inbox'
 import { reportFixture } from '@/model/adapters/testFixtures'
 
@@ -14,6 +15,7 @@ import { snoozeKey } from '../snooze/snoozeEntries'
 import { useSnoozeStore } from '../snooze/snoozeStore'
 
 import { useInboxItems, useMarkReadOnOpen, useSetReportRead } from './hooks'
+import { useInboxHasUnread } from './useInboxUnread'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -46,6 +48,7 @@ describe('inbox hooks', () => {
     const posted: unknown[] = []
 
     beforeEach(() => {
+        useScopeErrorStore.getState().clear()
         posted.length = 0
         useSnoozeStore.setState({ entries: {} })
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
@@ -63,6 +66,27 @@ describe('inbox hooks', () => {
     afterEach(() => {
         setAuthProvider(null)
         jest.restoreAllMocks()
+    })
+
+    test.each([
+        ["API key missing required scope 'inbox:read'", 'reauth'],
+        ['You do not have permission to perform this action.', 'ok'],
+    ])('handles an inbox rejection: %s', async (detail, state) => {
+        globalThis.fetch = jest.fn(async () => jsonResponse({ detail }, 403)) as typeof fetch
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        )
+        const { result, unmount } = renderHook(() => ({ query: useInboxItems(), access: useFeatureAccess('inbox') }), {
+            wrapper,
+        })
+        try {
+            await waitFor(() => expect(result.current.query.isError).toBe(true))
+            expect(result.current.access.state).toBe(state)
+        } finally {
+            unmount()
+            client.clear()
+        }
     })
 
     test('marks each report read on a fast Prev/Next', async () => {
@@ -240,15 +264,81 @@ describe('inbox hooks', () => {
             <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
         )
         const screen = renderHook(() => useInboxItems(), { wrapper })
+        const savedRead = (): boolean | undefined =>
+            queryClient.getQueryData<SavedInbox>(inboxCacheKey(scope))?.items[0]?.read
         await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(true))
         await waitFor(() => expect(answerRead).toBeDefined())
+        expect(savedRead()).toBeUndefined()
         await act(async () => answerRead?.(jsonResponse({ states: { r1: false } })))
         await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(false))
+        await waitFor(() => expect(savedRead()).toBe(false))
         globalThis.fetch = jest.fn(async () => jsonResponse({}, 404)) as typeof fetch
         await act(async () => {
             await queryClient.refetchQueries({ queryKey: key })
         })
         await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(true))
+        expect(savedRead()).toBe(false)
+    })
+
+    test('preserves saved unread reports when opening a report cancels the first read-state fetch', async () => {
+        const reports = [reportFixture({ id: 'r1' }), reportFixture({ id: 'r2' })]
+        const reads: ((response: Response) => void)[] = []
+        globalThis.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+            if (new URL(url).pathname.endsWith('/read_state/')) {
+                const body = JSON.parse(String(init?.body))
+                if ('read' in body) return jsonResponse({ states: { r1: true } })
+                return new Promise<Response>((resolve) => reads.push(resolve))
+            }
+            return jsonResponse({ count: 2, next: null, results: reports })
+        }) as typeof fetch
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const savedKey = inboxCacheKey(scopeOf())
+        const saved: SavedInbox = {
+            items: inboxFromReports(reports).map((item) => ({ ...item, read: false })),
+            signalCounts: {},
+            sourceUpdatedAt: 1,
+        }
+        queryClient.setQueryData(savedKey, saved)
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const screen = renderHook(
+            ({ opened }: { opened: string | undefined }) => {
+                const inbox = useInboxItems()
+                useMarkReadOnOpen(opened)
+                return { inbox, hasUnread: useInboxHasUnread() }
+            },
+            { wrapper, initialProps: { opened: undefined as string | undefined } }
+        )
+        try {
+            await waitFor(() => expect(reads).toHaveLength(1))
+            screen.rerender({ opened: 'r1' })
+            await waitFor(() =>
+                expect(queryClient.getQueryData(reportKeys.readStates(scopeOf(), ['r1', 'r2']))).toEqual({ r1: true })
+            )
+            await act(async () => reads[0]?.(jsonResponse({ states: { r1: false, r2: false } })))
+            expect(queryClient.getQueryData(savedKey)).toEqual(saved)
+            expect(screen.result.current.hasUnread).toBe(true)
+            let refreshing!: Promise<void>
+            act(() => {
+                refreshing = queryClient.refetchQueries({ queryKey: reportKeys.readStatesAll(scopeOf()) })
+            })
+            await waitFor(() => expect(reads).toHaveLength(2))
+            await act(async () => {
+                reads[1]?.(jsonResponse({ states: { r1: true, r2: false } }))
+                await refreshing
+            })
+            await waitFor(() =>
+                expect(queryClient.getQueryData<SavedInbox>(savedKey)?.items.map((item) => item.read)).toEqual([
+                    true,
+                    false,
+                ])
+            )
+            expect(screen.result.current.hasUnread).toBe(true)
+        } finally {
+            screen.unmount()
+            queryClient.clear()
+        }
     })
 
     test('polls every thirty seconds only while focused and foregrounded', async () => {
@@ -363,7 +453,8 @@ describe('inbox hooks', () => {
         const polling = queryClient
             .fetchQuery({
                 queryKey: key,
-                queryFn: async ({ signal }) => (await postReadStates(['report-1'], undefined, signal)).states,
+                queryFn: async ({ signal }) =>
+                    (await postReadStates(scopeOf(), ['report-1'], undefined, signal)).states,
             })
             .catch(() => undefined)
         const wrapper = ({ children }: { children: ReactNode }): ReactElement => (

@@ -2,16 +2,16 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, TypeVar
 
+import anthropic
 import structlog
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
-from ee.hogai.llm import MaxChatAnthropic
+from ee.hogai.llm import MaxCallbackHandler, MaxChatAnthropic
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 logger = structlog.get_logger(__name__)
@@ -45,7 +45,7 @@ def invoke_structured(
     callbacks: list[BaseCallbackHandler] = []
     if analytics_client is not None:
         callbacks.append(
-            CallbackHandler(
+            MaxCallbackHandler(
                 analytics_client,
                 distinct_id=user.distinct_id,
                 trace_id=f"workflows-{feature}-{uuid.uuid4()}",
@@ -58,7 +58,8 @@ def invoke_structured(
             model=model,
             user=user,
             team=team,
-            # PostHog covers these calls, so suggestions never draw on the customer's AI credits.
+            # PostHog covers these calls, so they do not count toward the customer's AI credits. The gateway still
+            # refuses them once the team has used up its credits.
             billable=False,
             inject_context=False,
             streaming=False,
@@ -95,8 +96,19 @@ def invoke_structured(
         return None
     except Exception as error:
         logger.warning("workflows.data_suggestions.llm_failed", team_id=team.id, feature=feature, exc_info=True)
-        capture_exception(error, {"team_id": team.id, "ai_feature": feature})
+        if not _is_gateway_credit_refusal(error):
+            capture_exception(error, {"team_id": team.id, "ai_feature": feature})
         return None
+
+
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own credit refusals with X-PostHog-Denial. A team that is out of credits gets these by
+    # design, so they are not errors. A 402 without that header is the provider refusing the gateway's account.
+    return (
+        isinstance(error, anthropic.APIStatusError)
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
 
 
 def strict_schema(

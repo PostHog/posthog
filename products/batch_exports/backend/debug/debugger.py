@@ -16,22 +16,29 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
-from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.models.integration import DatabricksIntegration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import DatabricksIntegration, GoogleCloudServiceAccountIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    exports_feature_flag_called_events,
+)
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
+    BackfillDetails,
     BaseBatchExportInputs,
     BatchExportField,
-    BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
     get_batch_export_model,
 )
+from products.batch_exports.backend.temporal.batch_exports import with_inserted_at_field
+from products.batch_exports.backend.temporal.clickhouse import resolve_clickhouse_endpoint
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,
+    verify_impersonated_service_account_ownership,
 )
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
@@ -49,8 +56,8 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
@@ -173,16 +180,6 @@ class BatchExportsDebugger:
             region=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
             endpoint_override=endpoint_url,
         )
-        self.clickhouse_client = ClickHouseClient(
-            url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-            max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
-            max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
-            cancel_http_readonly_queries_on_client_close=1,
-            output_format_arrow_string_as_string="true",
-        )
 
     def switch_teams(self, team_id: int):
         """Re-use this debugger for a different team."""
@@ -277,7 +274,7 @@ class BatchExportsDebugger:
             filters["id"] = id
 
         self.loaded_batch_exports = tuple(
-            BatchExport.objects.select_related("destination__integration").filter(team_id=self.team_id, **filters)
+            BatchExport.objects.select_related("destination").filter(team_id=self.team_id, **filters)
         )
         return self.loaded_batch_exports
 
@@ -425,7 +422,18 @@ class BatchExportsDebugger:
         filters = batch_export_run.parent.filters
 
         is_backfill = batch_export_run.backfill is not None
+        backfill_details = (
+            BackfillDetails(
+                backfill_id=str(batch_export_run.backfill.id),
+                start_at=batch_export_run.backfill.start_at.isoformat() if batch_export_run.backfill.start_at else None,
+                end_at=batch_export_run.backfill.end_at.isoformat() if batch_export_run.backfill.end_at else None,
+            )
+            if batch_export_run.backfill is not None
+            else None
+        )
 
+        reads_new_events_table = False
+        reads_recent_events = False
         if batch_export_run.parent.model == BatchExport.Model.PERSONS:
             if is_backfill and full_range[0] is None:
                 query = SELECT_FROM_PERSONS_BACKFILL
@@ -442,58 +450,81 @@ class BatchExportsDebugger:
             else:
                 parameters["include_events"] = []
 
-            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-            # may not be able to handle the load from all batch exports
-            if (
-                isinstance(batch_export_run.parent, BatchExport)
-                and batch_export_run.parent.interval == "every 5 minutes"
-                and not is_backfill
-            ):
-                query_template = SELECT_FROM_EVENTS_VIEW_RECENT
-            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-            # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(
-                is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
-            ):
-                query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
-            elif is_backfill:
-                query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
-            else:
-                query_template = SELECT_FROM_EVENTS_VIEW
-                lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
-                    team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+            fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
+            reads_new_events_table = batch_exports_read_new_events_table(team_id)
+            if reads_new_events_table:
+                filters_str = ""
+                if filters:
+                    filters_str, extra_query_parameters = compose_filters_clause(
+                        filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=True
+                    )
+
+                reads_recent_events = use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
                 )
-                parameters["lookback_days"] = lookback_days
-
-            fields = default_fields_for_destination(batch_export_run.parent.destination.type)
-
-            if "_inserted_at" not in [field["alias"] for field in fields]:
-                control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+                if reads_recent_events:
+                    query = native_recent_events_export_query(
+                        fields,
+                        filters_str,
+                        includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+                        reads_typed_columns=bool(filters_str),
+                    )
+                else:
+                    query = native_events_export_query(fields, filters_str)
             else:
-                control_fields = []
+                # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag,
+                # but may not be able to handle the load from all batch exports
+                if (
+                    isinstance(batch_export_run.parent, BatchExport)
+                    and batch_export_run.parent.interval == "every 5 minutes"
+                    and not is_backfill
+                ):
+                    query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+                    reads_recent_events = True
+                # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+                # which is a distributed table that sits in front of the `events_recent` table
+                elif use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+                ):
+                    query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+                    reads_recent_events = True
+                elif is_backfill:
+                    query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
+                else:
+                    query_template = SELECT_FROM_EVENTS_VIEW
+                    parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+                        team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+                    )
 
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+                filters_str = ""
+                if filters:
+                    filters_str, extra_query_parameters = compose_filters_clause(
+                        filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=False
+                    )
 
-            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
-
-            filters_str = ""
-            if filters is not None and len(filters) > 0:
-                filters_str, extra_query_parameters = compose_filters_clause(
-                    filters, team_id=team_id, values=extra_query_parameters
+                query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
+                query = query_template.safe_substitute(
+                    fields=query_fields, filters=f"AND {filters_str}" if filters_str else "", order=""
                 )
-
-            if native_source:
-                query = native_events_export_query(query_fields, filters_str)
-            else:
-                if filters_str:
-                    filters_str = f"AND {filters_str}"
-                query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
 
         parameters = {**parameters, **extra_query_parameters}
 
-        yield from self.clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters)
+        endpoint = resolve_clickhouse_endpoint(
+            reads_new_events_table=reads_new_events_table, reads_recent_events=reads_recent_events
+        )
+        clickhouse_client = ClickHouseClient(
+            url=endpoint.url,
+            cluster=endpoint.cluster,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            password_file=settings.CLICKHOUSE_PASSWORD_FILE,
+            database=settings.CLICKHOUSE_DATABASE,
+            max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+            max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
+            cancel_http_readonly_queries_on_client_close=1,
+            output_format_arrow_string_as_string="true",
+        )
+        yield from clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters)
 
     def load_run_clickhouse_data(
         self,
@@ -527,8 +558,12 @@ class BatchExportsDebugger:
             case BatchExportDestination.Destination.DATABRICKS:
                 console.print("[bold green]Getting Databricks client...[/bold green]")
                 databricks_inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
-                assert self.batch_export.destination.integration is not None
-                integration = DatabricksIntegration(self.batch_export.destination.integration)
+                assert self.batch_export.destination.integration_id is not None
+                integration = DatabricksIntegration(
+                    await IntegrationManager.databricks.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
+                )
                 client = DatabricksClient(
                     server_hostname=integration.server_hostname,
                     http_path=databricks_inputs.http_path,
@@ -541,23 +576,17 @@ class BatchExportsDebugger:
                     yield databricks_client
             case BatchExportDestination.Destination.BIGQUERY:
                 console.print("[bold green]Getting BigQuery client...[/bold green]")
-                bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
-                if (
-                    bigquery_inputs.private_key is None
-                    or bigquery_inputs.private_key_id is None
-                    or bigquery_inputs.token_uri is None
-                    or bigquery_inputs.client_email is None
-                    or bigquery_inputs.project_id is None
-                ):
-                    # TODO: Support integration model/service account impersonation.
-                    raise ValueError("Missing required values")
-                async with BigQueryClient.from_service_account_inputs(
-                    private_key=bigquery_inputs.private_key,
-                    private_key_id=bigquery_inputs.private_key_id,
-                    token_uri=bigquery_inputs.token_uri,
-                    client_email=bigquery_inputs.client_email,
-                    project_id=bigquery_inputs.project_id,
-                ) as bigquery_client:
+                assert self.batch_export.destination.integration_id is not None
+                google_cloud_integration = GoogleCloudServiceAccountIntegration(
+                    await IntegrationManager.google_cloud_service_account.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
+                )
+                if not google_cloud_integration.has_key():
+                    await verify_impersonated_service_account_ownership(
+                        google_cloud_integration.service_account_email, self.batch_export.team_id
+                    )
+                async with BigQueryClient.from_service_account_integration(google_cloud_integration) as bigquery_client:
                     yield bigquery_client
             case t:
                 raise NotImplementedError(f"get_client not yet implemented for destination: {t}")

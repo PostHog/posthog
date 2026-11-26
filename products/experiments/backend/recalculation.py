@@ -1,6 +1,6 @@
 """Service layer for experiment metrics recalculation.
 
-Module-level free functions (not methods on ExperimentService) so the API view can compose them directly:
+Module-level free functions (not methods on ExperimentService) so the facade can compose them directly:
 
 - ``request_recalculation`` — idempotent create: returns the active run if one exists, else creates a pending job.
 - ``get_latest_recalculation`` — most recent recalc row for an experiment, or ``None``.
@@ -9,7 +9,9 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 """
 
 import asyncio
-from datetime import timedelta
+from collections.abc import Iterable, Mapping
+from datetime import datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -22,30 +24,34 @@ from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
-from products.experiments.backend.metric_calculation.config import build_calculation_configs
-from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
+from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
+from products.experiments.backend.metric_calculation.results import MetricResultStore, result_configuration_status
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
+    ExperimentTimeseriesRecalculation,
 )
+from products.experiments.backend.organization_flags import organization_flag_enabled
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.temporal.models import (
-    METRICS_RECALCULATION_WORKFLOW_NAME,
-    RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE,
-    ExperimentMetricsRecalculationWorkflowInputs,
+from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
+from products.experiments.backend.temporal.recalculation.dispatch import (
+    cancel_superseded_workflows,
+    workflow_may_still_run,
 )
+from products.experiments.backend.temporal.timeseries.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
@@ -55,13 +61,16 @@ from products.experiments.backend.temporal.models import (
 # can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
 # etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
 # is the defense-in-depth backstop if that rollback itself fails.
-_STALE_RECALC_THRESHOLD = timedelta(minutes=30)
+STALE_RECALC_THRESHOLD = timedelta(minutes=30)
+
+# A calc that waits on the activity or precompute queue has no time budget, so a row past STALE_RECALC_THRESHOLD
+# stays active while Temporal says its workflow may still run, up to this ceiling. Past it, the row is stale
+# whatever Temporal says, so a stuck workflow or a Temporal outage cannot block an experiment for longer.
+_QUEUED_RECALC_CEILING = timedelta(hours=1)
 
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
-RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
-RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG = "experiment-recalculation-clickhouse-user"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -78,6 +87,18 @@ RECALCULATION_WINDOW_TOO_LONG_MESSAGE = (
     "This experiment started too long ago for its metrics to be recalculated. "
     "To measure new data, start a new experiment or move the start date closer to today."
 )
+
+# The field of a run's `metric_errors` or `metric_retries` entry that holds the calculation key of the config that
+# wrote the entry. Server-side readers use it, `entries_of_current_configs` among them, and no response includes it.
+RUN_ENTRY_CALCULATION_KEY = "calculation_key"
+RUN_ENTRY_HIDDEN_MESSAGE = (
+    "The details of this error aren't available. Recalculate the results to see the current error."
+)
+# The writers of these steps and error types store only text that PostHog wrote: the rejection of a request, the
+# failures to find the experiment or the metric, and the errors of the statistics. Every other writer can store the
+# text of a query error, which can name a warehouse table or column.
+_FIXED_TEXT_RUN_ENTRY_STEPS = ("request", "discovery")
+_FIXED_TEXT_RUN_ENTRY_ERROR_TYPES = ("insufficient_data",)
 
 
 class RecalculationRateLimited(Throttled):
@@ -120,27 +141,84 @@ _recalculation_stale_cleanup_counter = Counter(
 )
 
 
-def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict] | None = None) -> tuple[int, int]:
+def entries_of_current_configs(entries: object, configs: Iterable[MetricCalculationConfig]) -> dict[str, Any]:
+    """The entries of a run's `metric_errors` or `metric_retries` that a current config of their metric wrote, without
+    their calculation key. A stored value that isn't a dict has no entries.
+
+    The entries are keyed by metric uuid, which stays the same when the metric or the exposure criteria change. The
+    calculation key hashes both, and with them the warehouse connection that the calculation read. A reader's
+    connection access is checked against the current config only. So an entry stays in only when the current config
+    gives its key in some key version, the rule by which `get_run_results` finds the result rows. An entry written
+    before a key version change stays in, and an entry of an earlier config stays out. A change to a team setting that
+    the key hashes also takes the entry out.
+
+    An entry without a calculation key has no config to check. Runs stored before entries had the key hold such
+    entries, and so do the writers without a metric config, which store None. The entry stays in, so its metric still
+    counts as failed. Its message stays only when its step or error type is one whose writers store fixed text, and is
+    `RUN_ENTRY_HIDDEN_MESSAGE` otherwise. A stored entry that isn't a dict counts as an empty entry without a
+    calculation key.
+    """
+    if not isinstance(entries, dict):
+        return {}
+    configs_by_metric: dict[str, list[MetricCalculationConfig]] = {}
+    for calculation_config in configs:
+        configs_by_metric.setdefault(calculation_config.metric_id, []).append(calculation_config)
+    current: dict[str, Any] = {}
+    for metric_uuid, stored in entries.items():
+        stored_entry = stored if isinstance(stored, dict) else {}
+        calculation_key = stored_entry.get(RUN_ENTRY_CALCULATION_KEY)
+        entry = {name: value for name, value in stored_entry.items() if name != RUN_ENTRY_CALCULATION_KEY}
+        if calculation_key is not None:
+            if any(
+                calculation_config.key_version_of(calculation_key) is not None
+                for calculation_config in configs_by_metric.get(metric_uuid, [])
+            ):
+                current[metric_uuid] = entry
+        elif (
+            entry.get("step") in _FIXED_TEXT_RUN_ENTRY_STEPS
+            or entry.get("error_type") in _FIXED_TEXT_RUN_ENTRY_ERROR_TYPES
+        ):
+            current[metric_uuid] = entry
+        else:
+            current[metric_uuid] = {**entry, "message": RUN_ENTRY_HIDDEN_MESSAGE}
+    return current
+
+
+@frozen
+class RunMetricCounts:
+    completed_metrics: int
+    failed_metrics: int
+
+
+def derive_counters(results: list[dict], metric_errors: Mapping[str, Any]) -> RunMetricCounts:
     """Counters are not stored on the row (PR1 contract): they're derived on read from result rows + errors.
 
-    `completed_metrics` = ExperimentMetricResult rows with status=COMPLETED for this run's fingerprints.
-    `failed_metrics`    = ExperimentMetricResult rows with status=FAILED + metric_errors keys that never made
-                          it to a result row (discovery-step failures).
+    `failed_metrics`    = metrics with an ExperimentMetricResult row with status=FAILED or a `metric_errors` entry.
+                          A failed attempt keeps the completed row that held its window, so the entry is what records
+                          the failure. A rejected run carries the rows of the run before it, so its error counts only
+                          for a metric without a row.
+    `completed_metrics` = metrics with an ExperimentMetricResult row with status=COMPLETED that did not fail.
 
-    Accepts an optional pre-computed `results` list to avoid recomputing fingerprints on the GET path where
-    the same list is also surfaced to the client.
+    `results` are rows in the shape of `get_run_results`. `metric_errors` are the entries that the caller serves, so
+    `failed_metrics` counts the same entries.
 
     Inherits the fingerprint-divergence hazard from `get_run_results`: `completed_metrics` can silently drop
-    if experiment fields that feed the fingerprint (start_date, exposure_criteria, stats method,
-    only_count_matured_users) change between the workflow's writes and this read. `failed_metrics` is partly
-    immune because discovery-step failures come from `metric_errors` (stored on the row), not from result rows.
+    if settings that feed the calculation key change between the workflow's writes and this read.
+    `failed_metrics` is partly immune because discovery-step failures come from `metric_errors` (stored on the
+    row), not from result rows.
     """
-    rows = results if results is not None else get_run_results(recalc)
-    completed = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.COMPLETED)
-    failed_in_rows = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.FAILED)
-    uuids_with_row = {r["metric_uuid"] for r in rows}
-    discovery_only_failures = sum(1 for uuid in (recalc.metric_errors or {}) if uuid not in uuids_with_row)
-    return completed, failed_in_rows + discovery_only_failures
+    status_by_uuid = {r["metric_uuid"]: r["status"] for r in results}
+    failed = {uuid for uuid, status in status_by_uuid.items() if status == ExperimentMetricResult.Status.FAILED}
+    for uuid, error in metric_errors.items():
+        rejected = isinstance(error, dict) and error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
+        if not (rejected and uuid in status_by_uuid):
+            failed.add(uuid)
+    completed = sum(
+        1
+        for uuid, status in status_by_uuid.items()
+        if status == ExperimentMetricResult.Status.COMPLETED and uuid not in failed
+    )
+    return RunMetricCounts(completed_metrics=completed, failed_metrics=len(failed))
 
 
 def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | None:
@@ -227,29 +305,36 @@ def build_job_payload(
     recalc: ExperimentMetricsRecalculation,
     *,
     is_existing: bool | None = None,
-    results: list[dict] | None = None,
+    include_results: bool = False,
     include_live_progress: bool = False,
 ) -> dict:
     """Shape a recalc row + derived counters as a dict the serializer can re-serialize.
 
     Returns model-native values (datetimes, ints, dicts) — DRF handles the wire format. The POST path passes
-    `is_existing` to signal whether the workflow needs starting; the GET paths pass `results` so the same row
-    list backs both the derived counters and the response's `results` field (no duplicate fingerprint work).
+    `is_existing` to signal whether the workflow needs starting; the GET paths set `include_results` to add the
+    result rows that the derived counters read.
 
     `include_live_progress` opts the caller into one system.processes read per call (see get_live_query_progress);
     the poll (GET) path sets it so an in-flight run carries live ClickHouse progress, while the POST path does not
     (nothing is running yet).
+
+    `metric_errors` and `metric_retries` hold only the entries of the current metric configs, as
+    `entries_of_current_configs` defines them, and `failed_metrics` counts those entries. One set of configs selects
+    both the result rows and the entries.
     """
-    completed_metrics, failed_metrics = _derive_counters(recalc, results=results)
+    configs = build_calculation_configs(recalc.experiment)
+    results = get_run_results(recalc, configs=configs)
+    metric_errors = entries_of_current_configs(recalc.metric_errors, configs)
+    counts = derive_counters(results, metric_errors)
     payload: dict = {
         "id": str(recalc.id),
         "experiment_id": recalc.experiment_id,
         "status": recalc.status,
         "total_metrics": recalc.total_metrics,
-        "completed_metrics": completed_metrics,
-        "failed_metrics": failed_metrics,
-        "metric_errors": recalc.metric_errors,
-        "metric_retries": recalc.metric_retries,
+        "completed_metrics": counts.completed_metrics,
+        "failed_metrics": counts.failed_metrics,
+        "metric_errors": metric_errors,
+        "metric_retries": entries_of_current_configs(recalc.metric_retries, configs),
         "trigger": recalc.trigger,
         "created_at": recalc.created_at,
         "started_at": recalc.started_at,
@@ -258,6 +343,8 @@ def build_job_payload(
     }
     if is_existing is not None:
         payload["is_existing"] = is_existing
+    if include_results:
+        payload["results"] = results
     if include_live_progress:
         live_progress = get_live_query_progress(recalc)
         if live_progress is not None:
@@ -265,120 +352,56 @@ def build_job_payload(
     return payload
 
 
-def metrics_recalculation_workflow_id(recalculation_id: str) -> str:
-    """Temporal workflow id of a recalculation run. The start, the cancel and the admin's Temporal link all
-    find a running workflow by this id, so a format change orphans the workflows that are already running."""
-    return f"experiment-metrics-recalculation-{recalculation_id}"
-
-
-def cancel_recalculation_workflow(recalculation_id: str) -> None:
-    """Best-effort cancel of a single recalc's Temporal workflow. Swallows failures (already-finished or
-    never-started runs) so callers can pair it with a status write without the cancel masking that write."""
-    _cancel_superseded_workflows([recalculation_id])
-
-
-def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
-    """Dispatch the recalculation Temporal workflow for a row that request_recalculation just created.
-
-    Start every recalculation workflow through this function, so the workflow name and id, the task queue,
-    the org-scoped fairness key and the rollback stay in one place. If the start fails, the row is marked
-    FAILED when it is safe to do so, and the exception propagates to the caller.
-    """
+def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
+    """Dispatch the timeseries backfill workflow for a row that request_timeseries_recalculation just created. If the
+    start fails, the row is marked FAILED and the exception propagates to the caller."""
     try:
         temporal = sync_connect()
         asyncio.run(
             temporal.start_workflow(
-                METRICS_RECALCULATION_WORKFLOW_NAME,
-                ExperimentMetricsRecalculationWorkflowInputs(
-                    recalculation_id=recalculation_id,
-                    fairness_key=organization_id,
-                    activity_task_queue=_activity_task_queue(organization_id),
-                ),
-                id=metrics_recalculation_workflow_id(recalculation_id),
-                task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+                "experiment-timeseries-recalculation-workflow",
+                ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=recalculation_id),
+                id=f"experiment-recalculation-{recalculation_id}",
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             )
         )
     except Exception:
-        # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-        # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-        # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
-        # response leg), so only roll back a row that is still PENDING with no query_to. A row past
-        # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
-        # where only discovery ran, the rollback wins deliberately: the mark_started and
-        # mark_completed guards then terminate that orphan cleanly, and the caller's retry (a new
-        # POST, or the admin action again) starts the replacement.
-        ExperimentMetricsRecalculation.objects.for_team(team_id).filter(
-            id=recalculation_id,
-            status=ExperimentMetricsRecalculation.Status.PENDING,
-            query_to__isnull=True,
-        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
+        # The team filter stops the rollback from reaching another team's row, whatever the source of the id.
+        ExperimentTimeseriesRecalculation.objects.filter(team_id=team_id, id=recalculation_id).update(
+            status=ExperimentTimeseriesRecalculation.Status.FAILED
+        )
         raise
-
-
-def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
-    """Best-effort cancellation of workflows whose rows were force-failed by the staleness cleanup."""
-    try:
-        temporal = sync_connect()
-    except Exception as e:
-        capture_exception(e)
-        return
-    for recalculation_id in recalculation_ids:
-        try:
-            handle = temporal.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
-            asyncio.run(handle.cancel())
-        except Exception:
-            # Expected for rows whose workflow never started (Temporal connect failure) or already finished.
-            pass
-
-
-def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
-    # Evaluated locally: callers sit on request and start paths, and a miss would otherwise block them on a call
-    # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
-    return feature_enabled_or_false(
-        flag_key,
-        organization_id,
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
-
-
-def _activity_task_queue(organization_id: str) -> str | None:
-    # A flag error keeps the run on the workflow's queue, because a failed start would roll the row back to FAILED.
-    try:
-        enabled = _organization_flag_enabled(RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG, organization_id)
-    except Exception as e:
-        capture_exception(e)
-        return None
-    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
-
-
-def recalculation_clickhouse_user(organization_id: str) -> ClickHouseUser | None:
-    # None keeps today's routing, also on a flag error, because that routing always works.
-    try:
-        enabled = _organization_flag_enabled(RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG, organization_id)
-    except Exception as e:
-        capture_exception(e)
-        return None
-    return ClickHouseUser.EXPERIMENTS if enabled else None
 
 
 def _refresh_window_enforced(experiment: Experiment) -> bool:
     # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
     if settings.DEBUG and not settings.TEST:
         return False
-    return _organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
+    return organization_flag_enabled(RECALCULATION_RATE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
 
 
 def _recalculation_max_age(experiment: Experiment) -> timedelta | None:
     # A flag error turns the limit off, so a flag outage never rejects a recalculation.
     try:
-        enabled = _organization_flag_enabled(RECALCULATION_AGE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
+        enabled = organization_flag_enabled(RECALCULATION_AGE_LIMIT_FEATURE_FLAG, str(experiment.team.organization_id))
     except Exception as e:
         capture_exception(e)
         return None
     return RECALCULATION_MAX_EXPERIMENT_AGE if enabled else None
+
+
+def _age_over_limit(experiment: Experiment, max_age: timedelta | None) -> timedelta | None:
+    """The age of the experiment when it is older than `max_age`, otherwise None."""
+    if max_age is None or experiment.start_date is None:
+        return None
+    age = timezone.now() - experiment.start_date
+    return age if age > max_age else None
+
+
+def exceeds_recalculation_age_limit(experiment: Experiment) -> bool:
+    """Whether `request_recalculation` rejects this experiment because it started too long ago. Saved results stay
+    readable either way."""
+    return _age_over_limit(experiment, _recalculation_max_age(experiment)) is not None
 
 
 def _capture_recalculation_rejected(
@@ -415,7 +438,7 @@ def _create_rejected_recalculation(
     of that run and the earlier results stay readable.
     """
     now = timezone.now()
-    previous = _terminal_recalculations(experiment).order_by("-created_at").first()
+    previous = terminal_recalculations(experiment).order_by("-created_at").first()
     metrics = get_metrics_for_calculation(experiment)
     error = {
         "step": "request",
@@ -450,8 +473,8 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     caller must not start a workflow for it either. A user-driven trigger inside
     ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished raises
     ``RecalculationRateLimited`` when the organization has the rate-limit flag on. A ``stale_refresh`` whose
-    latest terminal run has a ``query_to`` inside ``STALE_REFRESH_MIN_RESULT_AGE`` returns that run with
-    ``is_existing=True``, and the caller must not start a workflow. Otherwise creates a fresh pending row.
+    latest terminal run is not stale (``_results_are_stale``) returns that run with ``is_existing=True``, and the
+    caller must not start a workflow. Otherwise creates a fresh pending row.
     """
     return _request_recalculation(experiment, user, trigger, max_age=_recalculation_max_age(experiment))
 
@@ -478,10 +501,10 @@ def _request_recalculation(
 
         # Activity-aware staleness: PENDING rows anchor on created_at (workflow never reached its start
         # activity); IN_PROGRESS rows anchor on started_at (workflow began executing then stalled). A row past
-        # the threshold is treated as dead and skipped, so a fresh recalc can start. Without this, a PENDING
-        # row left orphaned by a Temporal-connect failure that also lost its rollback UPDATE would permanently
-        # lock the experiment out of recalculations.
-        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+        # the threshold is skipped here, and queued_recalculation below decides whether it is still alive.
+        # Without this, a PENDING row left orphaned by a Temporal-connect failure that also lost its rollback
+        # UPDATE would permanently lock the experiment out of recalculations.
+        threshold = timezone.now() - STALE_RECALC_THRESHOLD
         existing = (
             ExperimentMetricsRecalculation.objects.filter(experiment=experiment)
             .filter(
@@ -494,10 +517,15 @@ def _request_recalculation(
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
 
+        queued = queued_recalculation(experiment)
+        if queued is not None:
+            _recalculation_reuse_counter.inc()
+            return build_job_payload(queued, is_existing=True)
+
         if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced(experiment):
             # get the latest terminal run and check against the rate limiting rules
             # if matched, increment counter and raise so the API answers 429 with Retry-After
-            latest = _terminal_recalculations(experiment).order_by("-created_at").first()
+            latest = terminal_recalculations(experiment).order_by("-created_at").first()
             if (
                 latest is not None
                 and latest.status == ExperimentMetricsRecalculation.Status.COMPLETED
@@ -510,11 +538,11 @@ def _request_recalculation(
                 raise RecalculationRateLimited(wait=(next_allowed_at - timezone.now()).total_seconds())
 
         if trigger == ExperimentMetricsRecalculation.Trigger.STALE_REFRESH:
-            latest = _terminal_recalculations(experiment).order_by("-created_at").first()
+            latest = terminal_recalculations(experiment).order_by("-created_at").first()
             if (
                 latest is not None
                 and latest.query_to is not None
-                and latest.query_to > timezone.now() - STALE_REFRESH_MIN_RESULT_AGE
+                and not _results_are_stale(experiment, latest.query_to)
             ):
                 return build_job_payload(latest, is_existing=True)
 
@@ -538,11 +566,10 @@ def _request_recalculation(
                 team=experiment.team, experiment=experiment, id__in=stale_ids
             ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
             _recalculation_stale_cleanup_counter.inc(len(stale_ids))
-            transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
+            transaction.on_commit(lambda: cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
         # After the stale cleanup, so a stale run of an old experiment is failed and its workflow cancelled too.
-        experiment_age = timezone.now() - experiment.start_date if experiment.start_date is not None else None
-        if max_age is not None and experiment_age is not None and experiment_age > max_age:
+        if max_age is not None and (experiment_age := _age_over_limit(experiment, max_age)) is not None:
             rejected = _create_rejected_recalculation(experiment, user, trigger, experiment_age, max_age)
             return build_job_payload(rejected, is_existing=False)
 
@@ -561,13 +588,20 @@ def _request_recalculation(
         return build_job_payload(recalc, is_existing=False)
 
 
+def _results_are_stale(experiment: Experiment, query_to: datetime) -> bool:
+    """Whether results stop at least STALE_REFRESH_MIN_RESULT_AGE before the window end, which is now for a running
+    experiment and the end date for a stopped one. Mirrors resultsAreStale in experimentMetricsLogic.ts."""
+    return experiment_window_end(experiment, timezone.now()) - query_to >= STALE_REFRESH_MIN_RESULT_AGE
+
+
 def active_recalculation_filter() -> Q:
     """The rows that block a new recalculation: PENDING or IN_PROGRESS, inside the staleness bound.
 
-    The scheduled discovery applies the same filter to many experiments in one query, so the two
-    readers cannot disagree on which run is active.
+    The scheduled discovery applies the same filter to many experiments in one query. A row past the bound can
+    still be active while its workflow may run (queued_recalculation); get_active_recalculation and the request
+    path check that one experiment at a time.
     """
-    threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+    threshold = timezone.now() - STALE_RECALC_THRESHOLD
     return Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold) | Q(
         status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold
     )
@@ -575,15 +609,45 @@ def active_recalculation_filter() -> Q:
 
 def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
-        return (
+        active = (
             ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
             .filter(active_recalculation_filter())
             .order_by("-created_at")
             .first()
         )
+        return active if active is not None else queued_recalculation(experiment)
 
 
-def _terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetricsRecalculation]:
+def queued_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
+    """An active row between STALE_RECALC_THRESHOLD and _QUEUED_RECALC_CEILING whose workflow may still run.
+
+    Callers hold the team scope. It asks Temporal only when such a row exists.
+    """
+    threshold = timezone.now() - STALE_RECALC_THRESHOLD
+    ceiling = timezone.now() - _QUEUED_RECALC_CEILING
+    candidates = (
+        ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
+        .filter(
+            Q(
+                status=ExperimentMetricsRecalculation.Status.PENDING,
+                created_at__lt=threshold,
+                created_at__gte=ceiling,
+            )
+            | Q(
+                status=ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                started_at__lt=threshold,
+                started_at__gte=ceiling,
+            )
+        )
+        .order_by("-created_at")
+    )
+    for candidate in candidates:
+        if workflow_may_still_run(str(candidate.id)):
+            return candidate
+    return None
+
+
+def terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetricsRecalculation]:
     """Runs that really finished. Callers hold the team scope.
 
     completed_at is only ever stamped by the workflow's finalize step, so it separates runs that really
@@ -598,7 +662,7 @@ def _terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetri
 
 def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
-        return _terminal_recalculations(experiment).order_by("-created_at").first()
+        return terminal_recalculations(experiment).order_by("-created_at").first()
 
 
 def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> ExperimentMetricsRecalculation | None:
@@ -617,25 +681,27 @@ def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> Ex
         ).first()
 
 
-def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
+def get_run_results(
+    recalc: ExperimentMetricsRecalculation, *, configs: list[MetricCalculationConfig] | None = None
+) -> list[dict]:
     """Return the ExperimentMetricResult rows that belong to THIS run.
 
     Never returns rows from a previous run or from the timeseries workflow (which uses config fingerprints).
 
-    Divergence hazard: the store finds a run's rows by recomputing each metric's fingerprint from mutable
-    experiment fields (start_date, exposure_criteria, stats method, only_count_matured_users). If any of these
-    change after the run wrote its rows, this can return [] for what is on-disk a successful run, until the
-    experiment fields revert. Symptom: "results disappeared after editing exposure_criteria / start_date / stats
-    config." This is the explicit trade-off of "no FK on ExperimentMetricResult": the snapshot lives in the
-    fingerprint, not in a stored column.
+    Ended experiments retain completed rows with a compatible display key after project settings change, without
+    making those rows reusable.
     """
-    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
+    if configs is None:
+        configs = build_calculation_configs(recalc.experiment)
+    by_uuid = {config.metric_id: config for config in configs}
+    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc, configs=configs)
     return [
         {
             "metric_uuid": row.metric_uuid,
             "status": row.status,
             "result": strip_step_sessions(row.result),
             "error_message": row.error_message,
+            "configuration_status": result_configuration_status(row.fingerprint, by_uuid[row.metric_uuid]),
         }
         for row in rows
     ]
@@ -648,10 +714,12 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     metrics-recalculation run exists yet. Timeseries rows live in ExperimentMetricResult under the metric's
     CONFIG fingerprint (not a per-run recalc fingerprint), so they're found without any recalc row.
 
-    Only points younger than TIMESERIES_FALLBACK_MAX_AGE count. The frontend accepts a fallback that covers every
-    metric without starting a run, so an older point must read as a gap or the page would show weeks-old numbers
-    as completed. Returns None when no metric has a fresh completed point (caller then keeps the 404). query_to
-    and completed_at both pin to the freshest point's date. GET never triggers anything itself.
+    Only points younger than TIMESERIES_FALLBACK_MAX_AGE count, except that an ended experiment keeps its latest
+    compatible point from any time since launch, including a result under earlier settings, when that point reaches
+    the end date. The frontend
+    accepts a fallback that covers every metric without starting a run, so an older point must read as a gap or
+    the page would show weeks-old numbers as completed. Returns None when no metric has a fresh completed point
+    (caller then keeps the 404). query_to and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
         calculation_configs = build_calculation_configs(experiment)
@@ -662,7 +730,19 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
         for calculation_config in calculation_configs:
             # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
             # query_to that would surface here as a future completion time.
-            row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
+            row = None
+            if experiment.is_stopped and experiment.start_date:
+                row = store.latest_daily_point(
+                    calculation_config, since=experiment.start_date, until=now, preserve_history=True
+                )
+                # A point whose data ends before the end date misses the final hours, so a run must compute them.
+                # A backfill stamps the end of its day as query_to, but its data ends at completed_at.
+                if row is not None:
+                    data_until = min(row.query_to, row.completed_at or row.query_to)
+                    if data_until < experiment_window_end(experiment, now):
+                        row = None
+            if row is None:
+                row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
             if row is None:
                 continue
             results.append(
@@ -671,6 +751,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                     "status": row.status,
                     "result": strip_step_sessions(row.result),
                     "error_message": None,
+                    "configuration_status": result_configuration_status(row.fingerprint, calculation_config),
                 }
             )
             if latest_query_to is None or row.query_to > latest_query_to:

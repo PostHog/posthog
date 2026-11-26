@@ -1,5 +1,12 @@
 API_DOCS_URL = "https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/"
-ENDPOINTS = {"events": "events.json", "attractions": "attractions.json", "venues": "venues.json"}
+ENDPOINTS = {
+    "events": "events.json",
+    "attractions": "attractions.json",
+    "venues": "venues.json",
+    "classifications": "classifications.json",
+}
+# Classifications are one global taxonomy, so the keyword only filters the search endpoints.
+KEYWORD_ENDPOINTS = frozenset({"events", "attractions", "venues"})
 PRIMARY_KEYS = ["id"]
 PAGE_SIZE = 200
 MAX_RESULTS = 1000

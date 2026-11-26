@@ -1,10 +1,15 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
 import api from 'lib/api'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -15,13 +20,32 @@ import { Integration } from './Integration'
 
 export { GithubIntegration, GitHubInstallationLink } from './GithubIntegration'
 
-export function GitLabIntegration({ centered }: { centered?: boolean } = {}): JSX.Element {
+export function GitLabIntegration({
+    centered,
+    connectSurface,
+}: { centered?: boolean; connectSurface?: IntegrationConnectSurface } = {}): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    const quillSurface = useQuillSurface()
+
+    const openSetup = (): void => {
+        if (connectSurface) {
+            reportIntegrationConnectClicked('gitlab', 'gitlab', connectSurface)
+        }
+        setIsOpen(true)
+    }
+
     return (
         <Integration kind="gitlab" centered={centered}>
-            <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
-                Connect project
-            </LemonButton>
+            {quillSurface ? (
+                <Button variant="outline" data-attr="gitlab-connect-project" onClick={openSetup}>
+                    Connect project
+                </Button>
+            ) : (
+                <LemonButton type="secondary" data-attr="gitlab-connect-project" onClick={openSetup}>
+                    Connect project
+                </LemonButton>
+            )}
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
         </Integration>
     )
@@ -64,13 +88,22 @@ const OAuthIntegration = ({
     hint?: ReactNode
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
+    const quillSurface = useQuillSurface()
     const settingsPath = next ?? urls.settings('environment-integrations')
     const authorizationUrl = api.integrations.authorizeUrl({
         next: currentTeam?.id ? urls.project(currentTeam.id, settingsPath) : settingsPath,
         kind,
     })
 
-    const connectButton = (
+    const connectButton = quillSurface ? (
+        <Button
+            variant="outline"
+            nativeButton={false}
+            render={<LinkPrimitive to={authorizationUrl} disableClientSideRouting />}
+        >
+            {connectText}
+        </Button>
+    ) : (
         <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
             {connectText}
         </LemonButton>
@@ -81,7 +114,13 @@ const OAuthIntegration = ({
             {hint ? (
                 <div className={cn('flex flex-col gap-y-4', centered ? 'items-center text-center' : 'items-start')}>
                     {connectButton}
-                    <p className="m-0 text-xs text-secondary">{hint}</p>
+                    {quillSurface ? (
+                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                            {hint}
+                        </Text>
+                    ) : (
+                        <p className="m-0 text-xs text-secondary">{hint}</p>
+                    )}
                 </div>
             ) : (
                 connectButton

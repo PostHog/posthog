@@ -19,6 +19,27 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     showPersistentColumnConfigurator: true,
 })
 
+const WIDER_ACTIVITY_RANGES: Record<string, { after: '-24h' | '-7d' | '-30d'; label: string }> = {
+    '-1h': { after: '-24h', label: 'Show last 24 hours' },
+    '-24h': { after: '-7d', label: 'Show last 7 days' },
+    '-7d': { after: '-30d', label: 'Show last 30 days' },
+}
+
+/**
+ * The next wider range to offer when an activity list is empty, stepping 1h → 24h → 7d → 30d.
+ * The scenes default to one hour on purpose (#35425, query memory limits), so an empty list is
+ * often just a narrow window. Null for custom or bounded ranges, which the user chose themselves.
+ */
+export function widerActivityRange(
+    after: string | null | undefined,
+    before: string | null | undefined
+): { after: '-24h' | '-7d' | '-30d'; label: string } | null {
+    if (before || !after) {
+        return null
+    }
+    return WIDER_ACTIVITY_RANGES[after] ?? null
+}
+
 // An event link opens the events scene with this query. isUnnamedEventLookup recognizes its filter. Change the two together.
 export const getEventLookupQuery = (id: string): DataTableNode =>
     getDefaultEventsSceneQuery([

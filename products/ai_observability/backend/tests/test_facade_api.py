@@ -1,3 +1,4 @@
+import json
 import tempfile
 from collections.abc import Callable
 from contextlib import suppress
@@ -75,7 +76,7 @@ READY_SUMMARY = ReadySummary(
     bullets=(SummaryItem(text="The user asks for a refund.", node_id="gen-1"),),
     notes=(),
     flow="ask → refuse",
-    model="gpt-4.1-mini",
+    model="gpt-6-luna",
     generated_at=T0,
 )
 
@@ -92,6 +93,31 @@ def test_root_node_is_the_trace_and_nodes_keep_event_uuids() -> None:
     assert (root.id, root.kind, root.name) == ("trace-1", "trace", "Trace")
     assert [(node.id, [child.id for child in node.children]) for node in root.children] == [("span-uuid", ["gen-uuid"])]
     assert [row.id for row in trace.timeline] == ["span-uuid", "gen-uuid"]
+
+
+@parameterized.expand(
+    [
+        ("under the event cap", 3, None, (False, False)),
+        ("at the event cap", 2, None, (True, False)),
+        ("from the shared table at the edge of its start", 3, T0 - timedelta(minutes=1), (True, True)),
+    ]
+)
+def test_totals_are_partial_when_the_read_may_have_missed_events(
+    _name: str, cap: int, read_start: datetime | None, partial: tuple[bool, bool]
+) -> None:
+    rows = (make_row(uuid="span-uuid", timestamp=T0), make_row(uuid="gen-uuid", event="$ai_generation", timestamp=T1))
+    with (
+        patch.object(api, "load_trace", return_value=LoadedTrace(rows=rows, person=None, read_start=read_start)),
+        patch.object(trace_queries, "MAX_TRACE_EVENTS", cap),
+    ):
+        trace = api.get_trace(team=Team(), user=None, trace_id="trace-1", timestamp_hint=None)
+
+    assert (trace.totals_partial, trace.cost_and_latency_partial) == partial
+
+
+@pytest.mark.django_db
+def test_starting_a_run_for_a_deleted_team_does_not_start_it() -> None:
+    assert api.start_eval_suggestions_run(999_999_999, "scheduled", "batch", "run") is None
 
 
 def test_missing_trace_raises_not_found() -> None:
@@ -190,6 +216,10 @@ def test_feedback_maps_scores_texts_and_survey_responses_oldest_first() -> None:
         ("survey-2", T0 + timedelta(minutes=3))
     ]
     assert feedback.summary == contracts.TraceFeedbackSummary(total=3, thumbs_up=1, thumbs_down=0)
+    assert [(step.node_id, len(step.scores), step.response_count, step.total) for step in feedback.steps] == [
+        ("gen-uuid", 1, 0, 1),
+        ("trace-1", 0, 2, 2),
+    ]
 
 
 SURVEY_READ = call(
@@ -297,6 +327,24 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
         [result] = api.get_trace_evaluation_results(self.team, self.user, "trace-1").results
 
         assert result.outcome == outcome
+
+    def test_applies_the_stored_output_config_to_every_spelling_of_its_id(self) -> None:
+        evaluation_id = self._detector()
+        bulk_create_events(
+            [
+                make_evaluation_result_event(
+                    uuid=f"00000000-0000-0000-0000-00000000000{index}",
+                    team=self.team,
+                    timestamp=T0 + timedelta(seconds=index),
+                    properties={"$ai_evaluation_id": spelling},
+                )
+                for index, spelling in enumerate((evaluation_id, evaluation_id.upper()), start=1)
+            ]
+        )
+
+        results = api.get_trace_evaluation_results(self.team, self.user, "trace-1").results
+
+        assert [result.outcome for result in results] == ["fail", "fail"]
 
     def test_reads_a_registered_boolean_property_like_its_ingested_value(self) -> None:
         PropertyDefinition.objects.create(
@@ -663,6 +711,14 @@ class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
         root, generation = file.nodes[0].event, file.nodes[2].event
         assert root is not None and root.properties["$ai_input_state"] == {"question": "Why?"}
         assert generation is not None and generation.properties["$ai_input"] == QUESTION
+
+    def test_export_writes_raw_nodes(self) -> None:
+        content = read_export_asset_content(team_id=self.team.pk, asset_id=self._export().id)
+        assert content is not None
+
+        nodes = json.loads(content)["nodes"]
+
+        assert [sorted(node) for node in nodes] == [["event", "id", "kind"]] * 4
 
     def test_a_trace_over_the_event_limit_exports_what_was_read_and_says_so(self) -> None:
         with patch.object(trace_queries, "MAX_TRACE_EVENTS", 2):

@@ -16,12 +16,13 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.storage import object_storage
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
@@ -40,6 +41,7 @@ from products.feature_flags.backend.local_evaluation import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.test.experiment_change_fixtures import EXPERIMENT_CHANGES, seed_experiment_change
 from products.surveys.backend.models import Survey
 
 
@@ -412,26 +414,31 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
 
 
 class TestLocalEvaluationSignals(BaseTest):
-    @parameterized.expand(["create", "soft_delete", "delete"])
-    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_experiment_change(self, action, mock_task):
-        flag = FeatureFlag.objects.create(
+    def test_team_delete_clears_definitions_cache_in_redis_and_s3(self):
+        FeatureFlag.objects.create(
             team=self.team,
-            key="exp-flag",
+            key="test-flag",
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
-        if action == "create":
-            mock_task.reset_mock()
-            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-        else:
-            experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
-            mock_task.reset_mock()
-            if action == "soft_delete":
-                update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
-            else:
-                delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
+        update_flag_definitions_cache(self.team)
+        cache_key = flag_definitions_hypercache.get_cache_key(self.team)
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is not None
+        assert object_storage.read(cache_key, missing_ok=True) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.delete()
+
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is None
+        assert object_storage.read(cache_key, missing_ok=True) is None
+
+    @parameterized.expand(EXPERIMENT_CHANGES)
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_experiment_change(self, action, mock_task):
+        change = seed_experiment_change(action, team=self.team, user=self.user)
+        mock_task.reset_mock()
+        change()
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
@@ -888,6 +895,29 @@ class TestLocalEvaluationBatch(BaseTest):
         else:
             assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
 
+    @parameterized.expand(
+        [
+            ("no_experiment", "none", False),
+            ("active_experiment", "active", True),
+            ("deleted_experiment", "deleted", False),
+        ]
+    )
+    def test_batch_has_experiment_value(self, _name: str, experiment_state: str, expected: bool) -> None:
+        team = self._create_team_with_project("Experiment Team")
+        flag = FeatureFlag.objects.create(team=team, key="exp-flag", filters={"groups": [{"rollout_percentage": 100}]})
+        FeatureFlag.objects.create(team=team, key="other-flag", filters={"groups": [{"rollout_percentage": 100}]})
+        if experiment_state != "none":
+            create_experiment(
+                team_id=team.id, feature_flag_id=flag.id, name="exp", deleted=experiment_state == "deleted"
+            )
+
+        results = _get_flags_response_for_local_evaluation_batch([team])
+
+        assert {f["key"]: f["has_experiment"] for f in results[team.id]["flags"]} == {
+            "exp-flag": expected,
+            "other-flag": False,
+        }
+
     def test_batch_two_teams_flags_isolated(self):
         team_a = self._create_team_with_project("Team A")
         team_b = self._create_team_with_project("Team B")
@@ -940,11 +970,19 @@ class TestLocalEvaluationBatch(BaseTest):
 
         TeamFeatureFlagsConfig.objects.update_or_create(
             team=gated_team,
-            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+            defaults={
+                "minimal_flag_called_events": True,
+                "property_matching_version": 2,
+                "null_counts_as_not_set": False,
+            },
         )
         TeamFeatureFlagsConfig.objects.update_or_create(
             team=gated_team_no_flags,
-            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+            defaults={
+                "minimal_flag_called_events": True,
+                "property_matching_version": 2,
+                "null_counts_as_not_set": True,
+            },
         )
         TeamFeatureFlagsConfig.objects.filter(team=ungated_team).delete()
 
@@ -958,11 +996,14 @@ class TestLocalEvaluationBatch(BaseTest):
 
         assert results[gated_team.id]["minimal_flag_called_events"] is True
         assert results[gated_team.id]["property_matching_version"] == 2
+        assert results[gated_team.id]["null_counts_as_not_set"] is False
         assert results[gated_team_no_flags.id]["flags"] == []
         assert results[gated_team_no_flags.id]["minimal_flag_called_events"] is True
         assert results[gated_team_no_flags.id]["property_matching_version"] == 2
+        assert results[gated_team_no_flags.id]["null_counts_as_not_set"] is True
         assert results[ungated_team.id]["minimal_flag_called_events"] is False
         assert results[ungated_team.id]["property_matching_version"] == 1
+        assert results[ungated_team.id]["null_counts_as_not_set"] is False
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")
@@ -1275,8 +1316,8 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(3):
-            # Group type mappings use personhog; SQL only loads team config, surveys, and eligible flags.
+        with self.assertNumQueries(4):
+            # Group type mappings use personhog; SQL loads team config, surveys, eligible flags and their experiments.
             results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["cohorts"] == {}
@@ -1816,27 +1857,40 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert result["status"] == "match"
         assert result["issue"] == ""
 
-    def test_verify_detects_stale_minimal_flag_called_events(self):
-        # A gated team whose blob was cached before the gate flipped must report drift
-        # so verify-and-fix rewrites it; otherwise local-eval SDKs keep the stale gate
+    @parameterized.expand(
+        [
+            ("minimal_flag_called_events", True, "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH"),
+            ("property_matching_version", 2, "PROPERTY_MATCHING_VERSION_MISMATCH"),
+            ("null_counts_as_not_set", True, "NULL_COUNTS_AS_NOT_SET_MISMATCH"),
+        ]
+    )
+    def test_verify_detects_a_stale_team_setting(self, setting, new_value, mismatch_type):
+        # A team whose blob was cached before a setting changed must report drift, so that
+        # verify-and-fix rewrites the blob. Otherwise local-eval SDKs keep the stale setting
         # until TTL expiry if the staff endpoint's rebuild task was lost.
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
         update_flag_definitions_cache(self.team)
 
-        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={setting: new_value})
 
-        result = verify_team_flag_definitions(self.team)
+        result = verify_team_flag_definitions(self.team, verbose=True)
 
         assert result["status"] == "mismatch"
-        assert "minimal_flag_called_events mismatch" in result["details"]
+        assert f"{setting} mismatch" in result["details"]
+        assert {"type": mismatch_type, "flag_key": setting} in result["diffs"]
 
-    def test_verify_treats_absent_gate_key_as_false(self):
+    @parameterized.expand(
+        [("minimal_flag_called_events",), ("property_matching_version",), ("null_counts_as_not_set",)]
+    )
+    def test_verify_treats_absent_setting_key_as_legacy_default(self, setting):
         # Pre-existing blobs written before the key existed must not report drift for
-        # ungated teams — absent and False both mean "full events" to SDKs. Guards
-        # against a fleet-wide rewrite storm on deploy.
+        # teams on the legacy value. SDKs assume the legacy value when the key is absent.
+        # Without this, the first verification after deploy rewrites every team's blob.
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
         update_flag_definitions_cache(self.team)
         cached, _ = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert cached is not None
-        legacy_blob = {k: v for k, v in cached.items() if k != "minimal_flag_called_events"}
+        legacy_blob = {k: v for k, v in cached.items() if k != setting}
         flag_definitions_hypercache.set_cache_value(self.team, legacy_blob)
 
         result = verify_team_flag_definitions(self.team)

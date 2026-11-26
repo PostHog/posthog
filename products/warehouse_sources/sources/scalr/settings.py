@@ -6,7 +6,11 @@ class ScalrEndpoint:
     path: str
     sort: str | None = None
     primary_keys: tuple[str, ...] = ("id",)
-    partition_key: str = "created_at"
+    partition_key: str | None = "created_at"
+    account_filter: bool = True
+    include: str | None = None
+    included_type: str | None = None
+    per_workspace: bool = False
 
 
 ENDPOINTS = {
@@ -14,6 +18,20 @@ ENDPOINTS = {
     "workspaces": ScalrEndpoint(path="workspaces", sort="updated-at"),
     # A creation filter would miss later run status changes, so runs require full refresh.
     "runs": ScalrEndpoint(path="runs"),
+    "users": ScalrEndpoint(path="users", sort="created-at", account_filter=False),
+    # Plans have only a by-ID route, so read them as included resources of the run list.
+    "plans": ScalrEndpoint(path="runs", include="plan", included_type="plans", partition_key=None),
+    # Cost estimates and policy checks also have no list route, so they come from the run list too.
+    "cost_estimates": ScalrEndpoint(
+        path="runs", include="cost-estimate", included_type="cost-estimates", partition_key=None
+    ),
+    "policy_checks": ScalrEndpoint(
+        path="runs", include="policy-checks", included_type="policy-checks", partition_key=None
+    ),
+    # Tags have no creation time and can only be sorted by name.
+    "tags": ScalrEndpoint(path="tags", sort="name", account_filter=False, partition_key=None),
+    # The route requires a workspace filter, so it fans out over workspaces.
+    "state_versions": ScalrEndpoint(path="state-versions", sort="created-at", account_filter=False, per_workspace=True),
 }
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {

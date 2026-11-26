@@ -29,7 +29,7 @@ jobs:
         concurrency:
             group: desktop-backend-coupling-rerun-${{ github.event.pull_request.number }}
             cancel-in-progress: true
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-24.04
         # GitHub only reruns jobs of a completed run, so this waits for the whole
         # desktop suite. Its slowest path budgets 85 minutes; stay above that or
         # the wait dies before it can rerun anything.

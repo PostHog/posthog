@@ -10,10 +10,11 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationRecord
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 from posthog.permissions import OrganizationAdminWritePermissions
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +27,15 @@ class OpenInvoicesError(APIException):
         "Please contact support@posthog.com for help."
     )
     default_code = "open_invoices_error"
+
+
+class BillingDeauthorizationError(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = (
+        "Couldn't end the Vercel subscription, so the integration is still connected. "
+        "Try again, and if it keeps failing contact support@posthog.com."
+    )
+    default_code = "billing_deauthorization_failed"
 
 
 class OrganizationIntegrationSerializer(serializers.ModelSerializer):
@@ -48,9 +58,17 @@ class OrganizationIntegrationSerializer(serializers.ModelSerializer):
 
 
 class EnvironmentMappingUpdateSerializer(serializers.Serializer):
-    production = serializers.IntegerField(required=True)
-    preview = serializers.IntegerField(required=False)
-    development = serializers.IntegerField(required=False)
+    production = serializers.IntegerField(
+        required=True, help_text="ID of the PostHog project that receives the Vercel production environment."
+    )
+    preview = serializers.IntegerField(
+        required=False,
+        help_text="ID of the PostHog project for the Vercel preview environment. Defaults to the production project.",
+    )
+    development = serializers.IntegerField(
+        required=False,
+        help_text="ID of the PostHog project for the Vercel development environment. Defaults to the production project.",
+    )
 
 
 @extend_schema(extensions={"x-product": "integrations"})
@@ -82,6 +100,9 @@ class OrganizationIntegrationViewSet(
         responses={
             204: None,
             409: OpenApiResponse(description="Deauthorization is blocked because the account has unpaid invoices."),
+            502: OpenApiResponse(
+                description="The billing service failed to end the subscription, so the integration is kept."
+            ),
         },
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -90,7 +111,8 @@ class OrganizationIntegrationViewSet(
     def perform_destroy(self, instance: OrganizationIntegration) -> None:
         is_marketplace = instance.config.get("type") != "connectable"
 
-        if is_marketplace and instance.integration_id:
+        # Gate on cloud, not on a license: local development creates a license when DEBUG is on.
+        if is_marketplace and instance.integration_id and is_cloud():
             from ee.billing.billing_manager import BillingServiceOpenInvoicesError
             from ee.vercel.integration import VercelIntegration
 
@@ -121,11 +143,18 @@ class OrganizationIntegrationViewSet(
                     integration_id=instance.integration_id,
                     error=str(e),
                 )
+                raise BillingDeauthorizationError()
 
-        team_integrations_deleted, _ = Integration.objects.filter(
-            team__organization=instance.organization,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).delete()
+        team_integrations_deleted = 0
+        org_team_ids = Team.objects.filter(organization_id=instance.organization_id).values_list("id", flat=True)
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(org_team_ids))
+        ):
+            try:
+                IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+            except IntegrationNotFound:
+                continue  # Another request deleted the resource after the list.
+            team_integrations_deleted += 1
 
         logger.info(
             "organization_integration.deleted",
@@ -136,6 +165,10 @@ class OrganizationIntegrationViewSet(
         )
         instance.delete()
 
+    @extend_schema(
+        request=EnvironmentMappingUpdateSerializer,
+        responses={200: OrganizationIntegrationSerializer},
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["patch"], url_path="environment-mapping")
     def environment_mapping(self, request: Request, **kwargs) -> Response:
@@ -153,15 +186,28 @@ class OrganizationIntegrationViewSet(
         preview_id = serializer.validated_data.get("preview", production_id)
         development_id = serializer.validated_data.get("development", production_id)
 
-        from posthog.models.team import Team
-
         org = integration.organization
         for tid in {production_id, preview_id, development_id}:
             if not Team.objects.filter(pk=tid, organization=org).exists():
                 return Response({"detail": f"Project {tid} does not belong to this organization."}, status=400)
 
-        from ee.vercel.client import VercelAPIClient
+        from ee.vercel.client import InstallationTokenError, VercelAPIClient
         from ee.vercel.integration import get_or_create_connectable_resource
+
+        # Vercel keeps the previous projects' secrets until the import below runs, so a mapping saved
+        # without a token would point Vercel and PostHog at different projects.
+        client: VercelAPIClient | None = None
+        if integration.integration_id:
+            try:
+                client = VercelAPIClient.for_installation(integration.integration_id)
+            except InstallationTokenError as e:
+                capture_exception(e, {"installation_id": integration.integration_id})
+                return Response(
+                    {
+                        "detail": "Couldn't reach Vercel, so the environment mapping is unchanged. Try again in a few minutes."
+                    },
+                    status=502,
+                )
 
         teams_by_id: dict[int, Team] = {}
         resources: dict[int, IntegrationRecord] = {}
@@ -179,16 +225,12 @@ class OrganizationIntegrationViewSet(
         production_team = teams_by_id[production_id]
         production_resource = resources[production_id]
 
-        access_token = integration.sensitive_config.get("credentials", {}).get(
-            "access_token"
-        ) or integration.config.get("credentials", {}).get("access_token")
-        if access_token and integration.integration_id:
+        if client is not None and integration.integration_id:
             from ee.api.vercel.vercel_connect import VercelConnectLinkViewSet
 
             secrets = VercelConnectLinkViewSet._build_env_secrets(
                 teams_by_id, production_id, preview_id, development_id
             )
-            client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
                 integration_config_id=integration.integration_id,
                 resource_id=str(production_resource.id),

@@ -7,16 +7,15 @@ import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 
 import { maxContextLogic } from '../maxContextLogic'
-import { maxThreadLogic } from '../maxThreadLogic'
 
 /**
  * The legacy chat's context picker in the quill composer: the same taxonomic filter as the lemon
- * `TaxonomicPopover`, in a quill popover with a quill trigger, bound to `maxContextLogic`.
+ * `TaxonomicPopover`, in a quill popover with a quill trigger, bound to `maxContextLogic`. It needs no thread, so the
+ * caller passes the thread's reason to block new context, when there is one.
  */
-export function QuillContextPicker(): JSX.Element {
+export function QuillContextPicker({ disabledReason }: { disabledReason?: string }): JSX.Element {
     const [open, setOpen] = useState(false)
     const filterKey = `posthog-ai-legacy-context-picker-${useId()}`
-    const { contextDisabledReason } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
     const { handleTaxonomicFilterChange, openContextPicker } = useActions(maxContextLogic)
@@ -39,7 +38,7 @@ export function QuillContextPicker(): JSX.Element {
                         size={showLabel ? 'sm' : 'icon-sm'}
                         aria-label="Add context"
                         tooltip="Add context to help PostHog AI answer your question"
-                        disabledReason={contextDisabledReason}
+                        disabledReason={disabledReason}
                         data-attr="max-context-picker"
                     >
                         <IconAtSign />

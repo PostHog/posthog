@@ -2,6 +2,7 @@ import json
 import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from datetime import timedelta
 from decimal import Decimal
 from importlib import import_module
@@ -11,7 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from django.db import IntegrityError, connection, connections, transaction
@@ -48,7 +49,6 @@ from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.runner import _self_heal_stale_runs
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import (
-    SignalSpendSummary,
     SignalSpendUpdate,
     begin_report_spend,
     complete_signal_pipeline,
@@ -64,9 +64,13 @@ from products.signals.backend.spend import (
 from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.tasks import settle_scout_spend
+from products.signals.backend.temporal.grouping_v2 import (
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
+)
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.backend.temporal.summary import check_report_task_settlement_activity
-from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
+from products.signals.backend.temporal.types import EmitSignalInputs, SignalReportSummaryWorkflowInputs
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, process_pending_gateway_usage
 from products.tasks.backend.models import Task, TaskRun
 
@@ -265,302 +269,6 @@ class TestSignalSpend(BaseTest):
             None if finalized else driver
         )
 
-    @parameterized.expand([("priced", 12_345), ("free", 0), ("cancelled", None), ("missing_id", None)])
-    async def test_generation_waits_for_spend_without_regenerating(self, outcome: str, cost: int | None) -> None:
-        driver = str(uuid4())
-        response = Mock(_request_id=None if outcome == "missing_id" else "generation-1")
-        generate = AsyncMock(return_value=response)
-        with (
-            patch(
-                "products.signals.backend.llm_spend.fetch_gateway_cost",
-                new=AsyncMock(
-                    side_effect=[None, None, GatewayRequestCost(model="model", provider="provider", cost_microusd=cost)]
-                    if cost is not None
-                    else [None]
-                ),
-            ) as lookup,
-            patch(
-                "products.signals.backend.llm_spend.asyncio.sleep",
-                new=AsyncMock(side_effect=asyncio.CancelledError if outcome == "cancelled" else None),
-            ),
-        ):
-            generation = generate_with_spend(
-                generate(),
-                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
-                team_id=self.team.id,
-                signal_id=driver,
-                stage="summarization",
-            )
-            if outcome == "cancelled":
-                with self.assertRaises(asyncio.CancelledError):
-                    await generation
-            elif outcome == "missing_id":
-                priced = await generation
-                assert priced.response is response
-                assert priced.spend is None
-                lookup.assert_not_awaited()
-            else:
-                priced = await generation
-                assert priced.response is response
-                assert cost is not None
-                assert priced.spend == Decimal(cost) / 10_000
-                assert lookup.await_count == 3
-            generate.assert_awaited_once()
-        spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
-        assert spend.spend == cost_to_spend(cost or 0)
-        assert spend.accounting_failed is (cost is None)
-        assert spend.llm_failed_stages == (["summarization"] if cost is None else [])
-
-    @parameterized.expand([("unavailable",), ("hung",), ("activity_deadline",)])
-    async def test_usage_timeout_preserves_completed_generation(self, outcome: str) -> None:
-        driver = str(uuid4())
-        response = Mock(_request_id="generation-1")
-        generate = AsyncMock(return_value=response)
-
-        async def lookup(*args: object, **kwargs: object) -> None:
-            if outcome == "hung":
-                await asyncio.Event().wait()
-            return None
-
-        now = timezone.now()
-        info = SimpleNamespace(
-            started_time=now - timedelta(seconds=5),
-            scheduled_time=now - timedelta(seconds=5),
-            start_to_close_timeout=timedelta(seconds=5),
-            schedule_to_close_timeout=timedelta(seconds=60),
-        )
-        with (
-            patch("products.signals.backend.llm_spend.USAGE_WAIT_SECONDS", 0.01),
-            patch(
-                "products.signals.backend.llm_spend.activity.in_activity", return_value=outcome == "activity_deadline"
-            ),
-            patch("products.signals.backend.llm_spend.activity.info", return_value=info),
-            patch("products.signals.backend.llm_spend.fetch_gateway_cost", new=AsyncMock(side_effect=lookup)),
-        ):
-            priced = await generate_with_spend(
-                generate(),
-                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
-                team_id=self.team.id,
-                signal_id=driver,
-                stage="actionability",
-            )
-        assert priced.response is response
-        assert priced.spend is None
-        generate.assert_awaited_once()
-        receipt = await database_sync_to_async(
-            lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
-        )()
-        assert receipt.accounting_failed is True
-        assert receipt.llm_failed_stages == ["actionability"]
-
-    @parameterized.expand(
-        [(gateway, failure) for gateway in (True, False) for failure in ("timeout", "transport", "cancelled")]
-    )
-    async def test_failed_generation_records_stage_before_propagating(self, use_gateway: bool, failure: str) -> None:
-        driver = str(uuid4())
-        error = {
-            "timeout": TimeoutError(),
-            "transport": httpx.ReadError("connection lost"),
-            "cancelled": asyncio.CancelledError(),
-        }[failure]
-        generate = AsyncMock(side_effect=error)
-        with self.assertRaises(type(error)):
-            await generate_with_spend(
-                generate(),
-                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key")
-                if use_gateway
-                else None,
-                team_id=self.team.id,
-                signal_id=driver,
-                stage="actionability",
-            )
-        spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
-        assert spend.accounting_failed is True
-        assert spend.llm_failed_stages == ["actionability"]
-        generate.assert_awaited_once()
-
-    @parameterized.expand([("invalid_json",), ("invalid_message",)])
-    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
-    async def test_unreadable_generation_preserves_request_id_or_records_failed_stage(self, failure: str) -> None:
-        driver = str(uuid4())
-        transport = httpx.MockTransport(
-            lambda _request: httpx.Response(
-                200,
-                headers={
-                    "x-request-id": "generation-1",
-                    "request-id": "generation-1",
-                    "content-type": "application/json",
-                },
-                content=b"not-json" if failure == "invalid_json" else b"{}",
-            )
-        )
-        async with AsyncAnthropic(
-            api_key="test-key",
-            http_client=httpx.AsyncClient(transport=transport),
-            _strict_response_validation=True,
-        ) as client:
-            with (
-                patch("products.signals.backend.temporal.llm.build_async_anthropic_client", return_value=client),
-                patch(
-                    "products.signals.backend.llm_spend.fetch_gateway_cost",
-                    new=AsyncMock(
-                        return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)
-                    ),
-                ),
-                self.assertRaises(json.JSONDecodeError if failure == "invalid_json" else APIResponseValidationError),
-            ):
-                await call_llm(
-                    team_id=self.team.id,
-                    signal_id=driver,
-                    system_prompt="Example prompt",
-                    user_prompt="Example finding",
-                    validate=lambda text: text,
-                    stage="safety",
-                    ai_product="signals",
-                )
-        spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
-        assert spend.llm_failed_stages == (["safety"] if failure == "invalid_json" else [])
-        assert spend.accounting_failed is (failure == "invalid_json")
-
-    @parameterized.expand([("gateway",), ("legacy",)])
-    async def test_parallel_generations_record_every_attempt_for_the_explicit_owner(self, mode: str) -> None:
-        drivers = [str(uuid4()), str(uuid4())]
-        attempts: dict[str, int] = {}
-
-        async def respond(request: httpx.Request) -> httpx.Response:
-            key = json.loads(request.content)["messages"][0]["content"]
-            attempts[key] = attempts.get(key, 0) + 1
-            return httpx.Response(
-                200,
-                headers={"x-request-id": f"{key}-{attempts[key]}", "request-id": f"{key}-{attempts[key]}"},
-                json={
-                    "id": "msg_example",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": "claude-sonnet-5",
-                    "content": [
-                        {"type": "text", "text": "invalid" if key == "request-a" and attempts[key] == 1 else "ok"}
-                    ],
-                    "stop_reason": "end_turn",
-                    "usage": {"input_tokens": 10, "output_tokens": 1},
-                },
-            )
-
-        def validate(text: str) -> str:
-            if text != "ok":
-                raise ValueError("Invalid generation")
-            return text
-
-        async def call(driver: str | None, request_id: str) -> str:
-            return await call_llm(
-                team_id=self.team.id,
-                signal_id=driver,
-                system_prompt="Example prompt",
-                user_prompt=request_id,
-                validate=validate,
-                stage="actionability",
-                ai_product="signals",
-                model="claude-sonnet-5",
-            )
-
-        with (
-            override_settings(
-                AI_GATEWAY_URL="" if mode == "legacy" else "https://gateway.example.com/v1",
-                AI_GATEWAY_API_KEY="" if mode == "legacy" else "phs_test",
-                LLM_GATEWAY_URL="https://legacy.example.com",
-                LLM_GATEWAY_API_KEY="test-key",
-            ),
-            patch("httpx.AsyncHTTPTransport.handle_async_request", new=AsyncMock(side_effect=respond)),
-            patch(
-                "products.signals.backend.llm_spend.fetch_gateway_cost",
-                new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
-            ),
-        ):
-            results = await asyncio.gather(call(drivers[0], "request-a"), call(drivers[1], "request-b"))
-            assert list(results) == ["ok", "ok"]
-            assert await call(None, "unattributed") == "ok"
-        rows = await database_sync_to_async(lambda: list(SignalSpend.objects.for_team(self.team.id).values()))()
-        assert await database_sync_to_async(
-            lambda: signal_spend_totals(team_id=self.team.id, signal_ids=drivers)
-        )() == {drivers[0]: 0.0246 if mode == "gateway" else 0, drivers[1]: 0.0123 if mode == "gateway" else 0}
-        assert len(rows) == 2
-        assert {str(row["signal_id"]) for row in rows} == set(drivers)
-        assert all(row["accounting_failed"] is (mode != "gateway") for row in rows)
-
-    @parameterized.expand(
-        [
-            ("system-one-only", True),
-            ("system-one-shadow", True),
-            ("traditional-shadow", True),
-            ("traditional-only", False),
-        ]
-    )
-    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
-    async def test_system_one_is_excluded_from_spend_while_traditional_calls_are_accounted(
-        self, mode: str, request_id_available: bool
-    ) -> None:
-        driver = str(uuid4())
-        output = SignalEmitterOutput(
-            signal_id=driver,
-            source_id="issue-1",
-            source_product="linear",
-            source_type="issue",
-            description="An example finding",
-            weight=1.0,
-            extra={},
-        )
-        result = DecisionResult(
-            model="jevk5-fp8-0.2",
-            answers={"actionable": NoulAnswer(probability=0.98)},
-            input_tokens=10,
-        )
-        client = Mock()
-        client.messages.create = AsyncMock(
-            return_value=Mock(
-                content=[Mock(type="text", text="ACTIONABLE" if request_id_available else "NOT_ACTIONABLE")],
-                _request_id="traditional-request" if request_id_available else None,
-            )
-        )
-        TEST_reset_scripts()
-        try:
-            with (
-                patch(
-                    "products.signals.backend.llm_spend.fetch_gateway_cost",
-                    new=AsyncMock(
-                        return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)
-                    ),
-                ),
-                patch("products.signals.backend.system_one_decision.get_client", return_value=FakeRedis()),
-                patch("products.signals.backend.system_one_decision.model_mode", new=AsyncMock(return_value=mode)),
-                patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
-                patch(
-                    "products.signals.backend.system_one_decision.decision_api.decide_when_available",
-                    return_value=result,
-                ),
-            ):
-                assert (
-                    await check_actionability(
-                        client,
-                        self.team.id,
-                        output,
-                        "Is this actionable? {description}",
-                        gateway_mode=True,
-                        system_one_prompt=bundled_prompt("example-prompt", "policy", "Actionable?", 0.9),
-                    )
-                    is request_id_available
-                )
-        finally:
-            TEST_reset_scripts()
-        rows = await database_sync_to_async(lambda: list(SignalSpend.objects.for_team(self.team.id).values()))()
-        if mode == "system-one-only":
-            assert rows == []
-        else:
-            assert len(rows) == 1
-            assert str(rows[0]["signal_id"]) == driver
-            assert rows[0]["spend"] == (Decimal("0.0123") if request_id_available else 0)
-            assert rows[0]["accounting_failed"] is (not request_id_available)
-            client.messages.create.assert_awaited_once()
-
     def _run(
         self,
         *,
@@ -569,11 +277,17 @@ class TestSignalSpend(BaseTest):
         stage: str = "research",
         signal_id: str | None = None,
         implementation_kind: str | None = None,
+        mode: str = "background",
     ) -> TaskRun:
+        if task is not None:
+            task.runs.filter(status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]).update(
+                status=TaskRun.Status.COMPLETED
+            )
         task = task or Task.objects.create(
             team=self.team,
             title="Example research",
             description="",
+            internal=True,
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
             signal_report=report,
         )
@@ -581,6 +295,7 @@ class TestSignalSpend(BaseTest):
             environment=TaskRun.Environment.CLOUD,
             spend_signal_id=signal_id,
             implementation_spend_kind=implementation_kind,
+            mode=mode,
             extra_state={"ai_stage": stage, "unprocessed_request_ids": [], "token_cost": {}},
         )
         run.status = TaskRun.Status.IN_PROGRESS
@@ -642,7 +357,12 @@ class TestSignalSpend(BaseTest):
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
             new=AsyncMock(
-                return_value=GatewayRequestCost(model="model-a", provider="provider-a", cost_microusd=cost - previous)
+                return_value=GatewayRequestCost(
+                    model="model-a",
+                    provider="provider-a",
+                    cost_microusd=cost - previous,
+                    standard_cost_microusd=cost - previous,
+                )
                 if cost is not None
                 else None
             ),
@@ -744,7 +464,7 @@ class TestSignalSpend(BaseTest):
         self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         before = SignalSpend.objects.for_team(self.team.id).values().get()
         assert before["finalized_at"] is not None
-        resumed = self._run(task=run.task, stage=stage)
+        resumed = self._run(task=run.task, stage=stage, mode="interactive")
         assert resumed.state["billing_product"] == "posthog_ai"
         self._set_task_cost(resumed, 200)
         resumed.status = TaskRun.Status.COMPLETED
@@ -757,7 +477,7 @@ class TestSignalSpend(BaseTest):
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         task = Task.objects.create(
-            team=self.team, title="Fails before launch", origin_product=origin, signal_report=report
+            team=self.team, title="Fails before launch", internal=True, origin_product=origin, signal_report=report
         )
         run = task.create_run(
             environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": stage}, spend_signal_id=driver
@@ -841,6 +561,41 @@ class TestSignalSpend(BaseTest):
         report.refresh_from_db()
         assert (report.pending_triggering_signal_id is not None) == next_pass
 
+    @parameterized.expand([(True,), (False,), (None,)])
+    def test_grouping_ai_consent_respects_organization_approval(self, approved: bool | None) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        assert async_to_sync(check_signals_ai_consent_activity)(self.team.id) is (approved is True)
+
+    def test_discarded_grouping_batches_finalize_signal_spend(self) -> None:
+        batches: dict[str, list[EmitSignalInputs]] = {}
+        signal_ids = [str(uuid4()), str(uuid4())]
+        for index, signal_id in enumerate(signal_ids):
+            record_llm_spend(team_id=self.team.id, signal_id=signal_id, stage="actionability", token_cost_microusd=100)
+            batches[f"batch-{index}"] = [
+                EmitSignalInputs(
+                    team_id=self.team.id,
+                    source_product="error_tracking",
+                    source_type="issue_created",
+                    source_id=str(index),
+                    description="Example signal",
+                    signal_id=signal_id,
+                )
+            ]
+
+        with patch(
+            "products.signals.backend.temporal.grouping_v2.object_storage.read",
+            side_effect=lambda key: json.dumps([asdict(signal) for signal in batches[key]]),
+        ):
+            async_to_sync(discard_signal_batches_activity)(list(batches))
+            async_to_sync(discard_signal_batches_activity)(list(batches))
+
+        for signal_id in signal_ids:
+            spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+            assert spend.finalized_at is not None
+            assert spend.spend == Decimal("0.01")
+
     def test_filtered_signal_finalizes_only_when_every_source_is_priced(self) -> None:
         driver = str(uuid4())
         record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="summarization")
@@ -879,6 +634,8 @@ class TestSignalSpend(BaseTest):
                 original_table = cursor.fetchone()[0]
             with connection.schema_editor() as editor:
                 state = migration.Migration("0208_reset_signal_spend", "signals").apply(state, editor)
+                meter_migration = import_module("products.signals.backend.migrations.0235_signalspend_usage_billing")
+                state = meter_migration.Migration("0235_signalspend_usage_billing", "signals").apply(state, editor)
             spend = state.apps.get_model("signals", "SignalSpend")
             assert not spend.objects.exists()
             row = spend.objects.create(
@@ -890,6 +647,7 @@ class TestSignalSpend(BaseTest):
                 finalized_at=timezone.now(),
             )
             assert spend.objects.get(id=row.id).spend == Decimal("4.0123")
+            assert not spend.objects.get(id=row.id).usage_billing
             legacy_signal = old_spend.objects.create(
                 team_id=self.team.id,
                 signal_id=row.signal_id,
@@ -911,9 +669,10 @@ class TestSignalSpend(BaseTest):
                     "kind", "spend", "finalized_at"
                 )
             ) == [(None, Decimal(0), None), (None, Decimal(0), None)]
-            assert signal_spend_summaries(team_id=self.team.id, signal_ids=[str(row.signal_id)]) == {
-                str(row.signal_id): SignalSpendSummary(total_spend=4.0123, failed_stages=[])
-            }
+            # Current billing queries require columns added after this historical schema.
+            assert list(spend.objects.filter(finalized_at__isnull=False).values_list("spend", flat=True)) == [
+                Decimal("4.0123")
+            ]
             with self.assertRaises(IntegrityError), transaction.atomic():
                 spend.objects.filter(id=legacy_signal.id).update(finalized_at=timezone.now())
             with connection.cursor() as cursor:
@@ -964,7 +723,11 @@ class TestSignalSpend(BaseTest):
 
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="model", provider="provider", cost_microusd=61, standard_cost_microusd=123
+                )
+            ),
         ):
             with (
                 connection.execute_wrapper(refuse_owner_write),
@@ -993,8 +756,7 @@ class TestSignalSpend(BaseTest):
         assert all(query["sql"].startswith("SELECT") and "FOR UPDATE" not in query["sql"] for query in queries)
         self._refresh_task_spend(team_id=self.team.id, run_id=str(run.id))
         begin_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
-        with self.assertRaises(ValueError):
-            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
+        record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
         assert (
             list(SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).order_by("id").values()) == before
@@ -1076,11 +838,13 @@ class TestSignalSpend(BaseTest):
             owner = SignalSpend.objects.for_team(self.team.id).get(
                 **({"scout_run_id": scout.id} if scout else {"signal_id": driver})
             )
-            assert owner.accounting_failed
+            assert not owner.accounting_failed
             assert owner.finalized_at is None
             self.temporal.start_workflow.assert_not_called()
             fetch.reset_mock()
-            fetch.return_value = GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)
+            fetch.return_value = GatewayRequestCost(
+                model="example", provider="example", cost_microusd=61_728, standard_cost_microusd=123_456
+            )
             self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
             fetch.assert_awaited_once_with("pending-request")
         if scout:
@@ -1131,7 +895,7 @@ class TestSignalSpend(BaseTest):
         scout.refresh_from_db()
         assert scout.total_spend == (Decimal("16.3456") if settled_before_owner else Decimal("4"))
         assert scout.metadata is not None
-        assert scout.metadata["spend_accounting_failed_stages"] == (["scout"] if settled_before_owner else [])
+        assert scout.metadata["spend_accounting_failed_stages"] == []
         task_run.status = TaskRun.Status.FAILED
         task_run.save(update_fields=["status"])
         self._set_task_cost(task_run, 123_456)
@@ -1141,12 +905,41 @@ class TestSignalSpend(BaseTest):
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
         assert scout.metadata is not None
-        assert scout.metadata["spend_accounting_failed_stages"] == ["scout"]
+        assert scout.metadata["spend_accounting_failed_stages"] == []
         self._set_task_cost(task_run, 123_457)
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3457")
         assert scout.metadata is not None
         assert scout.metadata["spend_accounting_failed_stages"] == []
+
+    @parameterized.expand([("subscription",), ("missing_cost",), ("gateway_error",)])
+    def test_task_cost_failure_distinguishes_permanent_from_recoverable(self, failure: str) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report)
+        self._set_task_cost(run, 100_000)
+        run.refresh_from_db()
+        run.status = TaskRun.Status.IN_PROGRESS if failure == "subscription" else TaskRun.Status.COMPLETED
+        run.state["unprocessed_request_ids"] = ["missing-request"]
+        if failure == "subscription":
+            run.state["token_cost_incomplete"] = True
+        run.save(update_fields=["state", "status"])
+        with patch(
+            "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
+            new=AsyncMock(side_effect=RuntimeError("gateway unavailable"))
+            if failure == "gateway_error"
+            else AsyncMock(return_value=None),
+        ):
+            if failure == "subscription":
+                process_pending_gateway_usage(team_id=self.team.id, run_id=run.id)
+            else:
+                complete_task_spend(team_id=self.team.id, run_id=str(run.id), final_attempt=True)
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.accounting_failed is (failure == "subscription")
+        if failure != "subscription":
+            assert spend.accounting_pending
+        assert spend.finalized_at is None
+        assert spend.spend == Decimal("14")
 
     @parameterized.expand([(TaskRun.Status.IN_PROGRESS,), (TaskRun.Status.COMPLETED,)])
     def test_reaped_scout_retries_accounting_until_gateway_cost_settles(self, status: str) -> None:
@@ -1177,7 +970,11 @@ class TestSignalSpend(BaseTest):
         assert spend.finalized_at is None
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123_456)),
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="example", provider="example", cost_microusd=123_456, standard_cost_microusd=123_456
+                )
+            ),
         ):
             settle_scout_spend(team_id=self.team.id, run_id=str(run.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
@@ -1210,3 +1007,364 @@ class TestSignalSpend(BaseTest):
                 record_llm_spend(token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability")
         assert not SignalSpend.objects.for_team(self.team.id).exists()
         assert not TaskRun.objects.filter(team_id=self.team.id).exists()
+
+
+class TestSignalSpendGenerations(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [("priced", 12_345), ("cutover", 12_345), ("free", 0), ("cancelled", None), ("missing_id", None)]
+    )
+    async def test_generation_waits_for_spend_without_regenerating(self, outcome: str, cost: int | None) -> None:
+        driver = str(uuid4())
+        response = Mock(_request_id=None if outcome == "missing_id" else "generation-1")
+
+        async def generate_response():
+            if outcome == "cutover":
+                await Organization.objects.filter(id=self.organization.id).aupdate(
+                    usage={"signals_spend_credits": {"billing_start_date": timezone.now().date().isoformat()}}
+                )
+            return response
+
+        generate = AsyncMock(side_effect=generate_response)
+        with (
+            patch(
+                "products.signals.backend.llm_spend.fetch_gateway_cost",
+                new=AsyncMock(
+                    side_effect=[
+                        None,
+                        None,
+                        GatewayRequestCost(
+                            model="model", provider="provider", cost_microusd=cost, standard_cost_microusd=cost
+                        ),
+                    ]
+                    if cost is not None
+                    else [None]
+                ),
+            ) as lookup,
+            patch(
+                "products.signals.backend.llm_spend.asyncio.sleep",
+                new=AsyncMock(side_effect=asyncio.CancelledError if outcome == "cancelled" else None),
+            ),
+        ):
+            generation = generate_with_spend(
+                generate(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
+                team_id=self.team.id,
+                signal_id=driver,
+                stage="summarization",
+            )
+            if outcome == "cancelled":
+                with self.assertRaises(asyncio.CancelledError):
+                    await generation
+            elif outcome == "missing_id":
+                priced = await generation
+                assert priced.response is response
+                assert priced.spend is None
+                lookup.assert_not_awaited()
+            else:
+                priced = await generation
+                assert priced.response is response
+                assert cost is not None
+                assert priced.spend == Decimal(cost) / 10_000
+                assert lookup.await_count == 3
+            generate.assert_awaited_once()
+        spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
+        assert spend.spend == cost_to_spend(cost or 0)
+        assert spend.accounting_failed is (cost is None)
+        assert spend.llm_failed_stages == (["summarization"] if cost is None else [])
+        if outcome == "cutover":
+            assert not spend.usage_billing
+
+    @parameterized.expand([("unavailable",), ("hung",), ("activity_deadline",)])
+    async def test_usage_timeout_preserves_completed_generation(self, outcome: str) -> None:
+        driver = str(uuid4())
+        response = Mock(_request_id="generation-1")
+        generate = AsyncMock(return_value=response)
+
+        async def lookup(*args: object, **kwargs: object) -> None:
+            if outcome == "hung":
+                await asyncio.Event().wait()
+            return None
+
+        now = timezone.now()
+        info = SimpleNamespace(
+            started_time=now - timedelta(seconds=5),
+            scheduled_time=now - timedelta(seconds=5),
+            start_to_close_timeout=timedelta(seconds=5),
+            schedule_to_close_timeout=timedelta(seconds=60),
+        )
+        with (
+            patch("products.signals.backend.llm_spend.USAGE_WAIT_SECONDS", 0.01),
+            patch(
+                "products.signals.backend.llm_spend.activity.in_activity", return_value=outcome == "activity_deadline"
+            ),
+            patch("products.signals.backend.llm_spend.activity.info", return_value=info),
+            patch("products.signals.backend.llm_spend.fetch_gateway_cost", new=AsyncMock(side_effect=lookup)),
+        ):
+            priced = await generate_with_spend(
+                generate(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
+                team_id=self.team.id,
+                signal_id=driver,
+                stage="actionability",
+            )
+        assert priced.response is response
+        assert priced.spend is None
+        generate.assert_awaited_once()
+        receipt = await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
+        )()
+        assert receipt.accounting_failed is True
+        assert receipt.llm_failed_stages == ["actionability"]
+
+    @parameterized.expand([("priced", True), ("unpriced", False)])
+    async def test_generation_on_finalized_spend_keeps_response_and_totals(self, _name: str, use_gateway: bool) -> None:
+        driver = str(uuid4())
+
+        def finalize() -> SignalSpend:
+            record_llm_spend(token_cost_microusd=100_000, team_id=self.team.id, signal_id=driver, stage="grouping")
+            complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
+            return SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
+
+        before = await database_sync_to_async(finalize)()
+        assert before.finalized_at is not None
+        response = Mock(_request_id="generation-1")
+        generate = AsyncMock(return_value=response)
+        with patch(
+            "products.signals.backend.llm_spend.fetch_gateway_cost",
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="model", provider="provider", cost_microusd=12_345, standard_cost_microusd=12_345
+                )
+            ),
+        ):
+            priced = await generate_with_spend(
+                generate(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key")
+                if use_gateway
+                else None,
+                team_id=self.team.id,
+                signal_id=driver,
+                stage="query_generation",
+            )
+        assert priced.response is response
+        generate.assert_awaited_once()
+        after = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
+        assert (after.spend, after.finalized_at, after.llm_failed_stages) == (
+            before.spend,
+            before.finalized_at,
+            before.llm_failed_stages,
+        )
+
+    @parameterized.expand(
+        [(gateway, failure) for gateway in (True, False) for failure in ("timeout", "transport", "cancelled")]
+    )
+    async def test_failed_generation_records_stage_before_propagating(self, use_gateway: bool, failure: str) -> None:
+        driver = str(uuid4())
+        error = {
+            "timeout": TimeoutError(),
+            "transport": httpx.ReadError("connection lost"),
+            "cancelled": asyncio.CancelledError(),
+        }[failure]
+        generate = AsyncMock(side_effect=error)
+        with self.assertRaises(type(error)):
+            await generate_with_spend(
+                generate(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key")
+                if use_gateway
+                else None,
+                team_id=self.team.id,
+                signal_id=driver,
+                stage="actionability",
+            )
+        spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
+        assert spend.accounting_failed is True
+        assert spend.llm_failed_stages == ["actionability"]
+        generate.assert_awaited_once()
+
+    @parameterized.expand([("invalid_json",), ("invalid_message",)])
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
+    async def test_unreadable_generation_preserves_request_id_or_records_failed_stage(self, failure: str) -> None:
+        driver = str(uuid4())
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={
+                    "x-request-id": "generation-1",
+                    "request-id": "generation-1",
+                    "content-type": "application/json",
+                },
+                content=b"not-json" if failure == "invalid_json" else b"{}",
+            )
+        )
+        async with AsyncAnthropic(
+            api_key="test-key",
+            http_client=httpx.AsyncClient(transport=transport),
+            _strict_response_validation=True,
+        ) as client:
+            with (
+                patch("products.signals.backend.temporal.llm.build_async_anthropic_client", return_value=client),
+                patch(
+                    "products.signals.backend.llm_spend.fetch_gateway_cost",
+                    new=AsyncMock(
+                        return_value=GatewayRequestCost(
+                            model="model", provider="provider", cost_microusd=123, standard_cost_microusd=123
+                        )
+                    ),
+                ),
+                self.assertRaises(json.JSONDecodeError if failure == "invalid_json" else APIResponseValidationError),
+            ):
+                await call_llm(
+                    team_id=self.team.id,
+                    signal_id=driver,
+                    system_prompt="Example prompt",
+                    user_prompt="Example finding",
+                    validate=lambda text: text,
+                    stage="safety",
+                    ai_product="signals",
+                )
+        spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
+        assert spend.llm_failed_stages == (["safety"] if failure == "invalid_json" else [])
+        assert spend.accounting_failed is (failure == "invalid_json")
+
+    async def test_parallel_generations_record_every_attempt_for_the_explicit_owner(self) -> None:
+        drivers = [str(uuid4()), str(uuid4())]
+        attempts: dict[str, int] = {}
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            key = json.loads(request.content)["messages"][0]["content"]
+            attempts[key] = attempts.get(key, 0) + 1
+            return httpx.Response(
+                200,
+                headers={"x-request-id": f"{key}-{attempts[key]}", "request-id": f"{key}-{attempts[key]}"},
+                json={
+                    "id": "msg_example",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-sonnet-5",
+                    "content": [
+                        {"type": "text", "text": "invalid" if key == "request-a" and attempts[key] == 1 else "ok"}
+                    ],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 10, "output_tokens": 1},
+                },
+            )
+
+        def validate(text: str) -> str:
+            if text != "ok":
+                raise ValueError("Invalid generation")
+            return text
+
+        async def call(driver: str | None, request_id: str) -> str:
+            return await call_llm(
+                team_id=self.team.id,
+                signal_id=driver,
+                system_prompt="Example prompt",
+                user_prompt=request_id,
+                validate=validate,
+                stage="actionability",
+                ai_product="signals",
+                model="claude-sonnet-5",
+            )
+
+        with (
+            override_settings(
+                AI_GATEWAY_URL="https://gateway.example.com/v1",
+                AI_GATEWAY_API_KEY="phs_test",
+            ),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", new=AsyncMock(side_effect=respond)),
+            patch(
+                "products.signals.backend.llm_spend.fetch_gateway_cost",
+                new=AsyncMock(
+                    return_value=GatewayRequestCost(
+                        model="model", provider="provider", cost_microusd=61, standard_cost_microusd=123
+                    )
+                ),
+            ),
+        ):
+            results = await asyncio.gather(call(drivers[0], "request-a"), call(drivers[1], "request-b"))
+            assert list(results) == ["ok", "ok"]
+            assert await call(None, "unattributed") == "ok"
+        rows = await database_sync_to_async(lambda: list(SignalSpend.objects.for_team(self.team.id).values()))()
+        assert await database_sync_to_async(
+            lambda: signal_spend_totals(team_id=self.team.id, signal_ids=drivers)
+        )() == {drivers[0]: 0.0246, drivers[1]: 0.0123}
+        assert len(rows) == 2
+        assert {str(row["signal_id"]) for row in rows} == set(drivers)
+        assert all(row["accounting_failed"] is False for row in rows)
+
+    @parameterized.expand(
+        [
+            ("system-one-only", True),
+            ("system-one-shadow", True),
+            ("traditional-shadow", True),
+            ("traditional-only", False),
+        ]
+    )
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
+    async def test_system_one_is_excluded_from_spend_while_traditional_calls_are_accounted(
+        self, mode: str, request_id_available: bool
+    ) -> None:
+        driver = str(uuid4())
+        output = SignalEmitterOutput(
+            signal_id=driver,
+            source_id="issue-1",
+            source_product="linear",
+            source_type="issue",
+            description="An example finding",
+            weight=1.0,
+            extra={},
+        )
+        result = DecisionResult(
+            model="jevk5-fp8-0.2",
+            answers={"actionable": NoulAnswer(probability=0.98)},
+            input_tokens=10,
+        )
+        client = Mock()
+        client.messages.create = AsyncMock(
+            return_value=Mock(
+                content=[Mock(type="text", text="ACTIONABLE" if request_id_available else "NOT_ACTIONABLE")],
+                _request_id="traditional-request" if request_id_available else None,
+            )
+        )
+        TEST_reset_scripts()
+        try:
+            with (
+                patch(
+                    "products.signals.backend.llm_spend.fetch_gateway_cost",
+                    new=AsyncMock(
+                        return_value=GatewayRequestCost(
+                            model="model", provider="provider", cost_microusd=123, standard_cost_microusd=123
+                        )
+                    ),
+                ),
+                patch("products.signals.backend.system_one_decision.get_client", return_value=FakeRedis()),
+                patch("products.signals.backend.system_one_decision.model_mode", new=AsyncMock(return_value=mode)),
+                patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
+                patch(
+                    "products.signals.backend.system_one_decision.decision_api.decide_when_available",
+                    return_value=result,
+                ),
+            ):
+                assert (
+                    await check_actionability(
+                        client,
+                        self.team.id,
+                        output,
+                        "Is this actionable? {description}",
+                        system_one_prompt=bundled_prompt("example-prompt", "policy", "Actionable?", 0.9),
+                    )
+                    is request_id_available
+                )
+        finally:
+            TEST_reset_scripts()
+        rows = await database_sync_to_async(lambda: list(SignalSpend.objects.for_team(self.team.id).values()))()
+        if mode == "system-one-only":
+            assert rows == []
+        else:
+            assert len(rows) == 1
+            assert str(rows[0]["signal_id"]) == driver
+            assert rows[0]["spend"] == (Decimal("0.0123") if request_id_available else 0)
+            assert rows[0]["accounting_failed"] is (not request_id_available)
+            client.messages.create.assert_awaited_once()

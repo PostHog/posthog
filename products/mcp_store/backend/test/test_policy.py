@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.policy import is_destructive_tool, member_preset_team_state
+from products.mcp_store.backend.policy import is_destructive_tool, is_read_only_connector_tool, member_preset_team_state
 
 
 class TestDestructiveToolDetection(SimpleTestCase):
@@ -27,6 +27,24 @@ class TestDestructiveToolDetection(SimpleTestCase):
         self, _name: str, tool_name: str, annotations: dict[str, Any] | None, expected: bool
     ) -> None:
         assert is_destructive_tool(tool_name, annotations) is expected
+
+
+class TestReadOnlyToolDetection(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("read_verb_with_hint", "list_issues", {"readOnlyHint": True}, True),
+            ("camel_case", "getIssue", {"readOnlyHint": True}, True),
+            ("hint_absent", "list_issues", {}, False),
+            ("hint_non_bool_ignored", "list_issues", {"readOnlyHint": "true"}, False),
+            ("write_verb_ignores_hint", "create_issue", {"readOnlyHint": True}, False),
+            ("chained_write_verb", "get_and_update_issue", {"readOnlyHint": True}, False),
+            ("destructive_hint_wins", "get_issue", {"readOnlyHint": True, "destructiveHint": True}, False),
+        ]
+    )
+    def test_requires_read_verb_and_hint(
+        self, _name: str, tool_name: str, annotations: dict[str, Any], expected: bool
+    ) -> None:
+        assert is_read_only_connector_tool(tool_name, annotations) is expected
 
     @parameterized.expand(
         [

@@ -178,6 +178,7 @@ class Command(BaseCommand):
                 previous_tier=decision.previous_tier,
                 new_tier=decision.new_tier,
                 reason=decision.reason,
+                pin_change=(False, False),
                 trigger=trigger,
             )
         return written
@@ -217,7 +218,7 @@ class Command(BaseCommand):
             share = (count / sending_teams * 100) if sending_teams else 0.0
             self.stdout.write(
                 f"  tier {tier}: {count:>6} teams ({share:5.1f}%)  "
-                f"{limits.per_hour:>9,}/hour  {limits.per_day:>10,}/day  {limits.max_batch_audience:>10,} batch"
+                f"{limits.per_day:>10,}/day  {limits.max_batch_audience:>10,} batch"
             )
         self.stdout.write("")
 

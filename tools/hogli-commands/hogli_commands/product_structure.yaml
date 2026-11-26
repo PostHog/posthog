@@ -6,6 +6,7 @@
 #   required_lenient: bool - whether lint should warn if missing (in lenient mode)
 #   can_be_folder: bool - whether file.py can also be file/ directory
 #   template: str - content template with {product} and {Product} placeholders
+#   scaffold: bool - whether product:bootstrap creates the file (default true)
 #
 # Modes:
 #   strict: product has backend/facade/contracts.py (isolated architecture)
@@ -72,7 +73,8 @@ root_files:
                             "backend/webhook_consumers.py",
                             "backend/tasks/**",
                             "backend/models.py",
-                            "backend/migrations/**"
+                            "backend/migrations/**",
+                            "backend/apps.py"
                         ],
                         "outputs": [],
                         "cache": true
@@ -94,14 +96,14 @@ root_files:
 # Backend files (in backend/)
 #
 # `backend/`, `backend/facade/`, and `backend/presentation/` carry an empty
-# `__init__.py`. `products/` is a regular package, and grimp stops descending at
-# the first directory without a marker — without them import-linter cannot see
-# the product's modules and every contract passes there vacuously.
+# `__init__.py`. `products/` is a regular package, and mypy names a module by the
+# `__init__.py` files above it, so a missing marker gives the modules below a
+# short, wrong name.
 # `tests/__init__.py` is separate: pytest's default `prepend` import mode would
 # collide on duplicate test filenames across products (11× `test_models.py`,
 # 11× `test_api.py`, etc.) without it.
-# Everything else stays a namespace package: no contract targets it, and the
-# convention under products/ is to keep package surfaces intentional.
+# Everything else stays a namespace package: the convention under products/ is
+# to keep package surfaces intentional.
 backend_files:
     __init__.py:
         required: true
@@ -117,6 +119,13 @@ backend_files:
             class {Product}Config(AppConfig):
                 name = "products.{product}.backend"
                 label = "{product}"
+
+    # Django system checks for the product. Optional, and not scaffolded: add it when the product
+    # has a setting worth validating at startup. product:lint requires that apps.py ready()
+    # imports it and that its IDs start with posthog.{product}. (see posthog/checks.py).
+    checks.py:
+        required: false
+        scaffold: false
 
     models.py:
         required: true

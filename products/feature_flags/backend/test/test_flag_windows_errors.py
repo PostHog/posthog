@@ -29,9 +29,6 @@ MULTIVARIATE = WatchedEdit(
     variants=("control", "test"),
     enables=False,
 )
-ENABLED = WatchedEdit(
-    id="enabled", flag_key="new-checkout", edited_at=EDITED_AT, group_type_index=None, variants=(), enables=True
-)
 
 # (distinct id, event, minutes after the edit, event properties)
 Event = tuple[str, str, int, dict[str, Any]]
@@ -59,20 +56,21 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (
-                "error_events_split_by_the_flag_value_they_carry",
+                "errors_count_whether_or_not_their_event_carries_the_flag",
                 BOOLEAN,
                 [
                     ("person-1", "$exception", 1, {"$feature/new-checkout": True}),
                     ("person-1", "$exception", 2, {"$feature/new-checkout": True}),
                     ("person-2", "$exception", 3, {"$feature/new-checkout": False}),
-                    # A server error without the flag counts only among all errors.
                     ("person-3", "$exception", 4, {}),
                     ("person-4", "$pageview", 5, {"$feature/new-checkout": True}),
                     # Errors before the edit belong to the old value.
                     ("person-5", "$exception", -5, {"$feature/new-checkout": True}),
                 ],
                 ErrorCounts(
-                    with_errors=3, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
+                    with_errors=3,
+                    with_new_errors=0,
+                    by_variant={},
                 ),
             ),
             (
@@ -86,25 +84,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                 ErrorCounts(
                     with_errors=3,
                     with_new_errors=0,
-                    exposed_with_errors=2,
-                    unexposed_with_errors=1,
                     by_variant={"control": 1, "test": 1},
-                ),
-            ),
-            (
-                "enabling_edit_counts_errors_of_apps_that_loaded_flags_without_it_as_unexposed",
-                ENABLED,
-                [
-                    ("person-1", "$exception", 1, {"$feature/new-checkout": True}),
-                    (
-                        "person-2",
-                        "$exception",
-                        2,
-                        {"$active_feature_flags": ["other-flag"], "$feature/other-flag": True},
-                    ),
-                ],
-                ErrorCounts(
-                    with_errors=2, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
                 ),
             ),
         ]

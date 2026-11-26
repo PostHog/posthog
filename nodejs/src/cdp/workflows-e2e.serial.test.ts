@@ -43,6 +43,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
@@ -55,9 +56,10 @@ import {
     insertHogFunctionTemplate,
     insertIntegration,
 } from './_tests/fixtures'
-import { insertHogFlow } from './_tests/fixtures-hogflows'
+import { hideHogFlowsFromReplica, insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailSandbox } from './consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
@@ -740,6 +742,83 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     })
 
+    describe('sandbox email workflow: trigger → email_sandbox → delay → exit', () => {
+        let sandboxWorker: CdpCyclotronWorkerEmailSandbox | undefined
+
+        beforeEach(async () => {
+            hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
+            await hogflowWorker.stop()
+            await hogflowQueue.startAsProducer()
+            hogflowWorker = new CdpCyclotronWorkerHogFlow(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await hogflowWorker.start()
+
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    email: {
+                        type: 'email_sandbox',
+                        on_error: 'continue',
+                        output_variable: { key: 'email_result' },
+                        config: {
+                            inputs: {
+                                email: {
+                                    templating: 'liquid',
+                                    value: { to: { email: 'member@example.com' }, subject: 'Hi', text: 'Hello' },
+                                },
+                            },
+                        },
+                    },
+                    delay_1: delayAction('0.5s'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'email', type: 'continue' },
+                    { from: 'email', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            globals = createGlobals()
+        })
+
+        afterEach(async () => {
+            await sandboxWorker?.stop()
+            sandboxWorker = undefined
+        })
+
+        it('waits on the sandbox queue until the sandbox worker hands the step back, then runs the next action', async () => {
+            const jobState = (job: any): any => parseJSON(job.state.toString('utf-8')).state
+            await triggerWorkflow(globals)
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['emailsandbox', 'available']])
+            }, 5000)
+            const [parked] = await queryCyclotronJobs()
+            expect(jobState(parked).currentAction.id).toBe('email')
+
+            sandboxWorker = new CdpCyclotronWorkerEmailSandbox(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await sandboxWorker.start()
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['hogflow', 'completed']])
+            }, 10000)
+            const [completed] = await queryCyclotronJobs()
+            expect(jobState(completed)).toMatchObject({
+                currentAction: { id: 'delay_1' },
+                variables: { email_result: { status: 'failed', reason: 'sandbox_worker_unavailable' } },
+            })
+        })
+    })
+
     describe('delay until a date carried by the data', () => {
         const workflowWaitingUntil = async (offset?: string): Promise<void> => {
             await createWorkflow({
@@ -886,8 +965,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     uuid: PERSON_UUID,
                     team_id: team.id,
                     properties: {},
-                    properties_last_updated_at: {},
-                    properties_last_operation: null,
                     created_at: DateTime.utc(),
                     version: 1,
                     is_identified: true,
@@ -1364,6 +1441,135 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('wakes a run whose wait event fired while a worker still held the run', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            let openGate!: () => void
+            const gate = new Promise<void>((resolve) => (openGate = resolve))
+            mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(async () => {
+                await gate
+                return []
+            })
+
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running'])
+            }, 5000)
+
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+            openGate()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        describe('pending wakes recorded on the job row', () => {
+            const match = { kind: 'match', eventName: 'wakeup_event', eventUuid: 'event-1' }
+
+            // Parks a wait, then moves it to a queue no worker reads, so the row shows only what the matcher wrote.
+            const parkOutOfReach = async (): Promise<string> => {
+                await createWaitUntilWorkflow({
+                    condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                    events: [eventNameFilter('wakeup_event')],
+                    max_wait_duration: '5m',
+                })
+                await triggerWorkflow(createGlobals())
+                await expectParked()
+                const [job] = await queryCyclotronJobs()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET queue_name = 'out_of_reach' WHERE id = $1`, [
+                    job.id,
+                ])
+                return job.id
+            }
+            const record = (id: string, wake: Record<string, string>): Promise<void> =>
+                (matcher as any).recordPendingWakes([{ id, wakes: { wait_condition: wake } }])
+            const rowOf = async (id: string): Promise<{ due: boolean; pending_wake: any }> =>
+                (
+                    await cyclotronPool.query(
+                        `SELECT scheduled <= now() AS due, pending_wake FROM cyclotron_jobs WHERE id = $1`,
+                        [id]
+                    )
+                ).rows[0]
+
+            it.each([
+                ['wakes a run that parked on its wait before the match landed', false, true],
+                ['keeps a wait that is retrying a failed cohort lookup on its backoff', true, false],
+            ])('%s', async (_name, cohortRetry, due) => {
+                const id = await parkOutOfReach()
+                if (cohortRetry) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET state = convert_to(jsonb_set(convert_from(state, 'UTF8')::jsonb,
+                             '{state,currentAction,cohortLookupAttempts}', '1')::text, 'UTF8') WHERE id = $1`,
+                        [id]
+                    )
+                }
+
+                await record(id, match)
+
+                const row = await rowOf(id)
+                expect(row.due).toBe(due)
+                expect(row.pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it.each([
+                ['__proto__', match],
+                ['constructor', { kind: 'recheck' }],
+            ])('records a wake for a step whose id is %s', async (stepId, wake) => {
+                const id = await parkOutOfReach()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET action_id = $2 WHERE id = $1`, [id, stepId])
+
+                await (matcher as any).recordPendingWakes([
+                    { id, wakes: parseJSON(`{"${stepId}": ${JSON.stringify(wake)}}`) },
+                ])
+
+                const row = await rowOf(id)
+                expect(row.due).toBe(true)
+                expect(Object.keys(row.pending_wake)).toEqual([stepId])
+                expect(row.pending_wake[stepId]).toMatchObject(wake)
+            })
+
+            it.each([
+                ['while the run is parked', false],
+                ['after the run parked again with the match still unapplied', true],
+            ])('keeps a recorded match when a re-check for the same step follows %s', async (_name, reparked) => {
+                const id = await parkOutOfReach()
+
+                await record(id, match)
+                if (reparked) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET last_transition = clock_timestamp() WHERE id = $1`,
+                        [id]
+                    )
+                }
+                await record(id, { kind: 'recheck' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it('records a match whose event name contains a NUL byte', async () => {
+                const id = await parkOutOfReach()
+
+                await record(id, { ...match, eventName: 'wakeup\u0000event' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition.eventName).toBe('wakeup\uFFFDevent')
+            })
+
+            it('does not rewrite the row when the same wake arrives again', async () => {
+                const id = await parkOutOfReach()
+                await record(id, match)
+                const first = (await rowOf(id)).pending_wake.wait_condition.at
+
+                await record(id, match)
+
+                expect((await rowOf(id)).pending_wake.wait_condition.at).toBe(first)
+            })
+        })
+
         it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
             await createWaitUntilWorkflow({
                 // Property condition never matches the trigger event, so the job parks.
@@ -1641,8 +1847,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     uuid: 'uuid',
                     team_id: team.id,
                     properties: { email: 'test@posthog.com' },
-                    properties_last_updated_at: {},
-                    properties_last_operation: null,
                     created_at: DateTime.utc(),
                     version: 1,
                     is_identified: true,
@@ -1813,8 +2017,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     uuid: 'uuid',
                     team_id: team.id,
                     properties: { shop_id: '42' },
-                    properties_last_updated_at: {},
-                    properties_last_operation: null,
                     created_at: DateTime.utc(),
                     version: 1,
                     is_identified: true,
@@ -1858,8 +2060,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             uuid: 'old-uuid',
             team_id: team.id,
             properties: { email: 'test@posthog.com' },
-            properties_last_updated_at: {},
-            properties_last_operation: null,
             created_at: DateTime.utc(),
             version: 1,
             is_identified: true,
@@ -1886,8 +2086,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             uuid: 'new-uuid',
             team_id: team.id,
             properties: { email: 'test@posthog.com', plan: 'enterprise' },
-            properties_last_updated_at: {},
-            properties_last_operation: null,
             created_at: DateTime.utc(),
             version: 2,
             is_identified: true,
@@ -1916,6 +2114,51 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('re-checks a wait whose distinct_id was merged while a slow step in the same batch held the run', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_slow: fetchAction('https://example.com/slow'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_slow', type: 'continue' },
+                    { from: 'function_slow', to: 'exit', type: 'continue' },
+                ],
+            })
+            let merged = false
+            mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(() =>
+                Promise.resolve([merged ? { ...survivorPersonRow(), distinct_id: 'distinct_id' } : anonPersonRow()])
+            )
+            let openGate!: () => void
+            const gate = new Promise<void>((resolve) => (openGate = resolve))
+            const okResponse = mockFetch.getMockImplementation()!
+            mockFetch.mockImplementation(async (...args: Parameters<typeof okResponse>) => {
+                if (args[0] === 'https://example.com/slow') {
+                    await gate
+                }
+                return okResponse(...args)
+            })
+
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/slow', expect.anything())
+            }, 5000)
+            expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running', 'running'])
+
+            merged = true
+            await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
+            openGate()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+            }, 10000)
         })
 
         it('anchors and wakes a wait that parked before its distinct_id had a person', async () => {
@@ -2104,6 +2347,130 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
         })
+
+        it('counts a conversion whose goal expired while its event was held, but not one that arrived after', async () => {
+            await createWorkflowFlow(
+                {
+                    actions: {
+                        trigger: trigger(),
+                        delay: { type: 'delay', config: { delay_duration: '5m' } },
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'exit', type: 'continue' },
+                    ],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: { filters: [], bytecode: [], events: [eventNameFilter('conversion_event')] } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+            const expiredAt = new Date(Date.now() - 60_000)
+            await cyclotronPool.query('UPDATE conversion_watchers SET expires_at = $1', [expiredAt])
+            const conversionCount = (): number =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.metric_name === 'conversion')
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            expect(conversionCount()).toBe(0)
+
+            await matcher.processBatch(
+                [createGlobals({ event: 'conversion_event' })],
+                'events',
+                () => new Date(expiredAt.getTime() - 1000)
+            )
+            await waitForExpect(() => {
+                expect(conversionCount()).toBe(1)
+            }, 5000)
+        })
+
+        it('counts a conversion on the goal a run enrolled with after the flow changed goal, with lookups gated on every goal the flow has had', async () => {
+            const flow = await createWorkflowFlow(
+                {
+                    // The run finishes at once, so only its watcher can count the conversion.
+                    actions: { trigger: trigger(), exit: exitAction() },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: { filters: [], bytecode: [], events: [eventNameFilter('old_goal')] } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(async () => {
+                const rows = await cyclotronPool.query('SELECT 1 FROM conversion_watchers WHERE function_id = $1', [
+                    flow.id,
+                ])
+                expect(rows.rows).toHaveLength(1)
+                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['completed'])
+            }, 5000)
+            // What saving the new goal does in Django: the flow takes the new goal, which is recorded.
+            const newConversion = { filters: [], bytecode: [], events: [eventNameFilter('new_goal')] }
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET conversion = $1 WHERE id = $2`,
+                [JSON.stringify(newConversion), flow.id],
+                'editHogFlowGoal'
+            )
+            const recordGoal = (eventName: string, lastLiveAt: string): Promise<unknown> =>
+                hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_hogflowconversiongoal
+                         (id, team_id, hog_flow_id, goal_hash, goal, event_names, created_at, last_live_at)
+                     VALUES (gen_random_uuid(), $1, $2, md5($3::text), $3::jsonb, $4::jsonb, NOW(), NOW() - $5::interval)`,
+                    [
+                        flow.team_id,
+                        flow.id,
+                        JSON.stringify({ events: [eventNameBytecode(eventName)] }),
+                        JSON.stringify([eventName]),
+                        lastLiveAt,
+                    ],
+                    'recordHogFlowGoal'
+                )
+            await recordGoal('new_goal', '0 seconds')
+            const gated = new CdpHogflowSubscriptionMatcherConsumer(
+                { ...hub, CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' },
+                deps
+            )
+            await (gated as any).refreshWatcherState()
+            // The old goal arrives as the backfill writes it, after the matcher's first read, stamped with the
+            // workflow's last change. The next read has to pick it up.
+            await recordGoal('old_goal', '30 days')
+            await (gated as any).refreshWatcherState()
+            const conversionCount = (): number =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(
+                        (m: any) =>
+                            m.value.app_source === 'hog_flow' &&
+                            m.value.metric_name === 'conversion' &&
+                            m.value.app_source_id === flow.id
+                    )
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            try {
+                // The run is judged by the goal it enrolled with, not the flow's current one.
+                await gated.processBatch([createGlobals({ event: 'new_goal' }), createGlobals({ event: 'unrelated' })])
+                expect(conversionCount()).toBe(0)
+                await gated.processBatch([createGlobals({ event: 'old_goal' })])
+
+                await waitForExpect(() => {
+                    expect(conversionCount()).toBe(1)
+                }, 5000)
+                const watchers = await cyclotronPool.query(
+                    'SELECT count(*)::int AS n FROM conversion_watchers WHERE function_id = $1',
+                    [flow.id]
+                )
+                expect(watchers.rows[0].n).toBe(0)
+            } finally {
+                await gated.stop().catch(() => {})
+            }
+        })
     })
 
     describe('wait_until_time_window: window in the future', () => {
@@ -2241,8 +2608,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
                 team_id: team.id,
                 properties: { email: 'test@example.com', name: 'Test User', plan: 'enterprise' },
-                properties_last_updated_at: {},
-                properties_last_operation: null,
                 created_at: DateTime.utc(),
                 version: 1,
                 is_identified: true,
@@ -2324,8 +2689,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 uuid: personUuid,
                 team_id: team.id,
                 properties: { email: 'batch@example.com', plan: 'enterprise' },
-                properties_last_updated_at: {},
-                properties_last_operation: null,
                 created_at: DateTime.utc(),
                 version: 1,
                 is_identified: true,
@@ -3009,6 +3372,33 @@ describe('Workflows E2E (email queue)', () => {
         return result.rows
     }
 
+    async function bulkEmailPickupsByOutcome(): Promise<Record<string, number>> {
+        const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
+        const samples = metric ? (await metric.get()).values : []
+        const pickups: Record<string, number> = {}
+        for (const sample of samples) {
+            if (
+                'metricName' in sample &&
+                sample.metricName === 'cdp_cyclotron_job_lateness_seconds_count' &&
+                sample.labels.queue === 'email' &&
+                sample.labels.priority === '1'
+            ) {
+                const outcome = String(sample.labels.outcome)
+                pickups[outcome] = (pickups[outcome] ?? 0) + sample.value
+            }
+        }
+        return pickups
+    }
+
+    async function bulkEmailPickupsSince(before: Record<string, number>): Promise<Record<string, number>> {
+        const now = await bulkEmailPickupsByOutcome()
+        return Object.fromEntries(
+            Object.entries(now)
+                .map(([outcome, count]) => [outcome, count - (before[outcome] ?? 0)])
+                .filter(([, count]) => count !== 0)
+        )
+    }
+
     function createGlobals(
         overrides: Partial<HogFunctionInvocationGlobals['event']> = {}
     ): HogFunctionInvocationGlobals {
@@ -3202,8 +3592,6 @@ describe('Workflows E2E (email queue)', () => {
             uuid: '5b0c4a6e-2f0c-4a43-9c1e-7f6a1d0b9e21',
             team_id: team.id,
             properties: { email: 'recipient@example.com' },
-            properties_last_updated_at: {},
-            properties_last_operation: null,
             created_at: DateTime.utc(),
             version: 1,
             is_identified: true,
@@ -3893,6 +4281,7 @@ describe('Workflows E2E (email queue)', () => {
             'set-email-sending-rate-limit'
         )
 
+        const pickupsBefore = await bulkEmailPickupsByOutcome()
         const events = [
             ...Array.from({ length: 8 }, (_, i) =>
                 createGlobals({ event: 'signup_a', uuid: new UUIDT().toString(), distinct_id: `person_a_${i}` } as any)
@@ -3937,26 +4326,26 @@ describe('Workflows E2E (email queue)', () => {
         for (const job of parkedA) {
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 4, parked: 7 })
     })
 
     it("a team over its tier cap does not hold up another team's emails", async () => {
         // Two teams, each with one email workflow. Team A sits on a tier that allows
-        // 2 emails per hour and gets 6 sends queued; team B is on a high tier with 3
+        // 2 emails per day and gets 6 sends queued; team B is on a high tier with 3
         // sends. The whole pipeline is real and the tier caps are enforced: B's emails
         // must all go out while A's over-cap sends park on future slots from A's own
         // refill, without cycling.
         //
         // The default email worker was built with the caps off, so swap in one that
-        // enforces them. Tier 0 allows 2/hour, tier 1 is effectively unlimited.
+        // enforces them. Tier 0 allows 2/day, tier 1 is effectively unlimited.
         await emailWorker.stop()
         hub.EMAIL_TEAM_SENDING_CAP_MODE = 'enforce'
-        hub.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER = '2,10000'
-        hub.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER = '48,240000'
+        hub.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER = '2,240000'
         const enforcedQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         emailWorker = new CdpCyclotronWorkerEmail(hub, deps, enforcedQueue)
         await emailWorker.start()
 
-        // The tier buckets are keyed by team id and the test Redis keeps data between
+        // The tier bucket is keyed by team id and the test Redis keeps data between
         // runs, so team A's bucket must start full or a previous run drains this one.
         const capValkey = createRedisV2PoolFromConfig({
             connection: hub.CDP_REDIS_HOST
@@ -3968,7 +4357,6 @@ describe('Workflows E2E (email queue)', () => {
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
-        await deleteKeysWithPrefix(capValkey, '@posthog/team-email-rate-hour')
         await deleteKeysWithPrefix(capValkey, '@posthog/team-email-rate-day')
 
         // Team A has no config row and defaults to tier 0. Team B gets tier 1.
@@ -4047,6 +4435,8 @@ describe('Workflows E2E (email queue)', () => {
                     timestamp: '2024-09-03T09:00:00Z',
                 } as any,
             })
+
+        const pickupsBefore = await bulkEmailPickupsByOutcome()
         const events = [
             ...Array.from({ length: 6 }, (_, i) =>
                 createGlobals({
@@ -4076,7 +4466,7 @@ describe('Workflows E2E (email queue)', () => {
         }, 15000)
 
         // Team A's 4 over-cap sends are parked far in the future (its refill is one
-        // token per 30 minutes), each dequeued once on the email queue.
+        // token per 12 hours), each dequeued once on the email queue.
         const jobs = await queryCyclotronJobs()
         const parkedA = jobs.filter(
             (j: any) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'
@@ -4086,6 +4476,7 @@ describe('Workflows E2E (email queue)', () => {
             expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now() + 25 * 60 * 1000)
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 5, parked: 4 })
     })
 
     it('rate-limited variant processes emails end-to-end through the dedicated bucket', async () => {
@@ -4852,6 +5243,76 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         }, 10000)
     })
 
+    it.each([
+        ['refuses a batch that starts over the workflow quota', 0, 'failed', 0],
+        ['finishes a batch that goes over the workflow quota after its first page', 1, 'completed', 4],
+    ])('%s', async (_name, pagesBeforeLimit, expectedStatus, expectedChildren) => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+        let personPageCalls = 0
+
+        mockInternalFetch.mockImplementation(async (url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                personPageCalls += 1
+                if (personPageCalls === pagesBeforeLimit) {
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                }
+                const page =
+                    personPageCalls === 1
+                        ? {
+                              users_affected: [new UUIDT().toString(), new UUIDT().toString()],
+                              cursor: 'c1',
+                              has_more: true,
+                          }
+                        : {
+                              users_affected: [new UUIDT().toString(), new UUIDT().toString()],
+                              cursor: null,
+                              has_more: false,
+                          }
+                return {
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(JSON.stringify(page)),
+                    dump: async () => {},
+                }
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return {
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: async () => {},
+                }
+            }
+            throw new Error(`Unexpected internalFetch call to ${url}`)
+        })
+
+        try {
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', pagesBeforeLimit === 0)
+            await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .expect(200)
+
+            resolverWorker = buildResolverConsumer()
+            await resolverWorker.start()
+
+            await waitForExpect(() => expect(statusPuts).toHaveLength(1), 20000)
+            expect(statusPuts[0]).toMatchObject({ status: expectedStatus })
+            const children = await cyclotronPool.query(
+                `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+                [parentRunId]
+            )
+            expect(children.rows).toHaveLength(expectedChildren)
+        } finally {
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+        }
+    })
+
     it('keeps the job lock and worker health during a slow audience fetch', async () => {
         const flow = await insertActiveBatchFlow()
         const parentRunId = new UUIDT().toString()
@@ -5150,6 +5611,55 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(0)
+    })
+
+    it('a workflow the read replica has not caught up on yet still runs instead of failing as deleted', async () => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const personIds = [new UUIDT().toString(), new UUIDT().toString()]
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            const body = url.includes('/user_blast_radius_persons')
+                ? JSON.stringify({ users_affected: personIds, cursor: null, has_more: false })
+                : '{}'
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+            } else if (!url.includes('/user_blast_radius_persons')) {
+                return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+            }
+            return Promise.resolve({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(body),
+                dump: () => Promise.resolve(),
+            })
+        })
+
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        const replicaHidden = hideHogFlowsFromReplica(hub.postgres, [flow.id])
+        try {
+            resolverWorker = buildResolverConsumer()
+            await resolverWorker.start()
+
+            await waitForExpect(() => {
+                expect(statusPuts).toHaveLength(1)
+            }, 20000)
+        } finally {
+            replicaHidden.mockRestore()
+        }
+
+        expect(statusPuts[0]).toEqual({ status: 'completed' })
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(personIds.length)
     })
 
     it('Django down: resolver retries the terminal PUT instead of acking', async () => {

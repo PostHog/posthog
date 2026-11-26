@@ -22,6 +22,8 @@ LOG_EVENTS_PAGE_SIZE = 10_000
 LOG_GROUPS_PAGE_SIZE = 50
 # DescribeAlarms and DescribeAlarmHistory cap at 100 records.
 ALARMS_PAGE_SIZE = 100
+# DescribeLogStreams, DescribeMetricFilters and ListAnomalies cap at 50. ListMetrics takes no page size.
+LOGS_DESCRIBE_PAGE_SIZE = 50
 # GetMetricData returns up to 100,800 datapoints per call before it needs a NextToken.
 METRIC_DATA_MAX_DATAPOINTS = 100_800
 # Log groups discovered when the user names none. Beyond this a user should list the groups.
@@ -48,6 +50,8 @@ class CloudWatchEndpointConfig:
     # `desc` makes the pipeline commit the highest timestamp only when the run completes. Log events
     # arrive per log group and datapoints per query, so neither is ordered across the run.
     sort_mode: Literal["asc", "desc"] = "asc"
+    # One request series per synced log group, the same groups log_events reads.
+    per_log_group: bool = False
 
 
 AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
@@ -68,6 +72,7 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         partition_key="timestamp",
         partition_format="day",
         sort_mode="desc",
+        per_log_group=True,
     ),
     "alarms": CloudWatchEndpointConfig(
         name="alarms",
@@ -101,12 +106,43 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         partition_format="day",
         sort_mode="desc",
     ),
+    "metrics": CloudWatchEndpointConfig(
+        name="metrics",
+        service=MONITORING_SERVICE,
+        operation="ListMetrics",
+        # A metric has no id: its namespace, name and dimension set identify it, so the key is a hash of them.
+        primary_key=["metric_id"],
+    ),
+    "log_streams": CloudWatchEndpointConfig(
+        name="log_streams",
+        service=LOGS_SERVICE,
+        operation="DescribeLogStreams",
+        primary_key=["log_group_name", "log_stream_name"],
+        partition_key="creation_time",
+        partition_format="month",
+        per_log_group=True,
+    ),
+    "metric_filters": CloudWatchEndpointConfig(
+        name="metric_filters",
+        service=LOGS_SERVICE,
+        operation="DescribeMetricFilters",
+        primary_key=["log_group_name", "filter_name"],
+    ),
+    "log_anomalies": CloudWatchEndpointConfig(
+        name="log_anomalies",
+        service=LOGS_SERVICE,
+        operation="ListAnomalies",
+        primary_key=["anomaly_detector_arn", "anomaly_id"],
+        partition_key="first_seen",
+        partition_format="month",
+    ),
 }
 
 ENDPOINTS = tuple(AMAZON_CLOUDWATCH_ENDPOINTS.keys())
 
 # Every time-bound operation filters server-side on the event timestamp, so that is the cursor.
-# Log groups and alarms are catalogs with no time filter and stay full refresh.
+# The catalogs (log groups, log streams, metric filters, alarms, metrics, log anomalies) have no time
+# filter and stay full refresh.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: [
         {
@@ -126,4 +162,8 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "alarms": "Metric and composite alarms with their current state, thresholds and actions.",
     "alarm_history": "State transitions, configuration updates and action executions for every alarm.",
     "metric_data": "Datapoints for the metric queries configured on the source, one row per query and timestamp.",
+    "metrics": "Metrics in the region that received data in the last two weeks, with their namespace, name and dimensions. Use it to find metrics for the metric queries.",
+    "log_streams": "Log streams in the synced log groups, with their first and last event times.",
+    "metric_filters": "Metric filters in the region, which turn matching log events into CloudWatch metrics.",
+    "log_anomalies": "Anomalies that log anomaly detectors found in the log groups.",
 }

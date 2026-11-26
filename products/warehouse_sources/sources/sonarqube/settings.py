@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -9,6 +9,17 @@ PAGE_SIZE = 500
 # /api/issues/search rejects any request where `p * ps` exceeds 10,000. To read past it we
 # re-window using `createdAfter` set to the last issue's creation date and start paging again.
 ISSUES_MAX_RESULTS = 10_000
+
+# /api/measures/component_tree caps `metricKeys` at 15 keys from 6.3 (75 from 10.8), so request the
+# metric catalog in chunks small enough for every supported server.
+METRIC_KEYS_PER_REQUEST = 15
+
+# Metric value types the measures tables skip. component_tree rejects DISTRIB outright and accepts only
+# a few DATA metrics, whose values are serialized structures rather than numbers.
+UNSUPPORTED_METRIC_TYPES = frozenset({"DISTRIB", "DATA"})
+
+# /api/measures/search_history pages over the history points of each metric and allows up to 1,000.
+HISTORY_PAGE_SIZE = 1_000
 
 
 def _created_at_incremental_fields() -> list[IncrementalField]:
@@ -26,6 +37,35 @@ def _created_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
+def _history_date_incremental_fields() -> list[IncrementalField]:
+    # /api/measures/search_history and /api/project_analyses/search filter server-side with `from`
+    # on each analysis date.
+    return [
+        {
+            "label": "date",
+            "type": IncrementalFieldType.DateTime,
+            "field": "date",
+            "field_type": IncrementalFieldType.DateTime,
+        },
+    ]
+
+
+@dataclass(frozen=True)
+class ProjectFanout:
+    # How the per-project request and rows are built; `sonarqube.py` dispatches on it.
+    kind: Literal["quality_gate_status", "hotspots", "component_measures", "measures_history", "project_rows"]
+    # Query param names that carry the project key.
+    project_params: tuple[str, ...] = ("component",)
+    # The list endpoint whose items the fan-out runs over, the item field that names each one, and the
+    # column that carries that name on `project_rows` rows. Most endpoints run once per project.
+    parent: str = "projects"
+    parent_key: str = "key"
+    parent_column: str = "project"
+    page_size: int = PAGE_SIZE
+    # Hard per-project page cap for endpoints that refuse p*ps beyond 10,000. None means no cap.
+    max_pages: Optional[int] = None
+
+
 @dataclass(frozen=False)
 class SonarqubeEndpointConfig:
     name: str
@@ -40,6 +80,12 @@ class SonarqubeEndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # issues/search hard-caps results at p*ps<=10000; walk past it by re-windowing on createdAfter.
     windowed_incremental: bool = False
+    # False for endpoints that return the whole list in one response with no `p`/`ps` paging.
+    paginated: bool = True
+    # Fan-out endpoints run once per project (see `ProjectFanout`); None for top-level list endpoints.
+    fanout: Optional[ProjectFanout] = None
+    # Runs once per issue of the issues endpoint, for endpoints that take a single issue key.
+    per_issue: bool = False
     should_sync_default: bool = True
 
 
@@ -75,6 +121,163 @@ SONARQUBE_ENDPOINTS: dict[str, SonarqubeEndpointConfig] = {
         incremental_fields=_created_at_incremental_fields(),
         partition_key="creationDate",
         windowed_incremental=True,
+    ),
+    # Quality gate definitions. The endpoint returns every gate in one unpaged response, and gates
+    # have had no id since SonarQube 10.0, so the name is the key.
+    "quality_gates": SonarqubeEndpointConfig(
+        name="quality_gates",
+        path="/api/qualitygates/list",
+        response_key="qualitygates",
+        primary_keys=["name"],
+        paginated=False,
+    ),
+    # Current quality gate status (pass/fail plus each condition) of every project's main branch.
+    "project_quality_gate_status": SonarqubeEndpointConfig(
+        name="project_quality_gate_status",
+        path="/api/qualitygates/project_status",
+        response_key="projectStatus",
+        primary_keys=["projectKey"],
+        paginated=False,
+        fanout=ProjectFanout(kind="quality_gate_status", project_params=("projectKey",)),
+    ),
+    # Security hotspots per project. No server-side date filter, so full refresh. SonarQube 10.2
+    # renamed `projectKey` to `project` and 2026.5 removed the old name; the server ignores a param
+    # it does not read, so sending both works on every version.
+    "hotspots": SonarqubeEndpointConfig(
+        name="hotspots",
+        path="/api/hotspots/search",
+        response_key="hotspots",
+        partition_key="creationDate",
+        fanout=ProjectFanout(
+            kind="hotspots",
+            project_params=("project", "projectKey"),
+            max_pages=ISSUES_MAX_RESULTS // PAGE_SIZE,
+        ),
+    ),
+    # Current value of every metric on every component (project, directories, files) of each project,
+    # one row per component and metric. Row count grows with files x metrics, so it is off by default.
+    "component_measures": SonarqubeEndpointConfig(
+        name="component_measures",
+        path="/api/measures/component_tree",
+        response_key="components",
+        primary_keys=["component", "metric"],
+        extra_params={"strategy": "all"},
+        should_sync_default=False,
+        fanout=ProjectFanout(kind="component_measures"),
+    ),
+    # Value of every metric at each analysis of each project, one row per project, metric and date.
+    "measures_history": SonarqubeEndpointConfig(
+        name="measures_history",
+        path="/api/measures/search_history",
+        response_key="measures",
+        primary_keys=["project", "metric", "date"],
+        supports_incremental=True,
+        incremental_fields=_history_date_incremental_fields(),
+        partition_key="date",
+        fanout=ProjectFanout(kind="measures_history", page_size=HISTORY_PAGE_SIZE),
+    ),
+    # Analyses of each project's main branch, with their version and event markers. `from` filters
+    # server-side on the analysis date. The key is the analysis UUID, unique across the instance.
+    "project_analyses": SonarqubeEndpointConfig(
+        name="project_analyses",
+        path="/api/project_analyses/search",
+        response_key="analyses",
+        supports_incremental=True,
+        incremental_fields=_history_date_incremental_fields(),
+        partition_key="date",
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Branches of each project, with their quality gate status and last analysis date. Unpaged.
+    "project_branches": SonarqubeEndpointConfig(
+        name="project_branches",
+        path="/api/project_branches/list",
+        response_key="branches",
+        primary_keys=["project", "name"],
+        paginated=False,
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Pull requests of each project, with their quality gate status. Unpaged. Only Developer Edition
+    # and above serve this endpoint; Community Build answers 404, which leaves the table empty.
+    "project_pull_requests": SonarqubeEndpointConfig(
+        name="project_pull_requests",
+        path="/api/project_pull_requests/list",
+        response_key="pullRequests",
+        primary_keys=["project", "key"],
+        paginated=False,
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Change history of every issue, one row per change. The endpoint takes one issue per request
+    # and has no date filter, so a sync makes one request per issue; it is off by default. Changes
+    # come sorted by date and carry no id, so a change is keyed on its position in the issue's list.
+    "issue_changelog": SonarqubeEndpointConfig(
+        name="issue_changelog",
+        path="/api/issues/changelog",
+        response_key="changelog",
+        primary_keys=["issue", "changeIndex"],
+        partition_key="creationDate",
+        paginated=False,
+        per_issue=True,
+        should_sync_default=False,
+    ),
+    # Quality profiles of every language. The endpoint returns every profile in one unpaged response.
+    "quality_profiles": SonarqubeEndpointConfig(
+        name="quality_profiles",
+        path="/api/qualityprofiles/search",
+        response_key="profiles",
+        paginated=False,
+    ),
+    # The profile each project uses for each language, the default profile included. Read per project
+    # with /api/qualityprofiles/search, because /api/qualityprofiles/projects lists only the projects
+    # bound to a profile explicitly and leaves out those that use the default.
+    "project_quality_profiles": SonarqubeEndpointConfig(
+        name="project_quality_profiles",
+        path="/api/qualityprofiles/search",
+        response_key="profiles",
+        primary_keys=["project", "key"],
+        paginated=False,
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Every directory and file of each project's main branch. Row count grows with files, so it is off
+    # by default.
+    "components": SonarqubeEndpointConfig(
+        name="components",
+        path="/api/components/tree",
+        response_key="components",
+        primary_keys=["project", "key"],
+        extra_params={"strategy": "all"},
+        should_sync_default=False,
+        fanout=ProjectFanout(kind="project_rows"),
+    ),
+    # Languages the instance can analyze. Unpaged: `ps` defaults to 0, which returns all of them.
+    "languages": SonarqubeEndpointConfig(
+        name="languages",
+        path="/api/languages/list",
+        response_key="languages",
+        paginated=False,
+    ),
+    # User groups. Like the users table, this needs the Administer System permission, so it's off by
+    # default. Groups have had no id since SonarQube 10.0, so the name is the key.
+    "user_groups": SonarqubeEndpointConfig(
+        name="user_groups",
+        path="/api/user_groups/search",
+        response_key="groups",
+        primary_keys=["name"],
+        should_sync_default=False,
+    ),
+    # Members of each user group, one row per group and user. Needs Administer System, off by default.
+    "user_group_members": SonarqubeEndpointConfig(
+        name="user_group_members",
+        path="/api/user_groups/users",
+        response_key="users",
+        primary_keys=["group", "login"],
+        should_sync_default=False,
+        fanout=ProjectFanout(
+            kind="project_rows",
+            project_params=("name",),
+            parent="user_groups",
+            parent_key="name",
+            parent_column="group",
+        ),
     ),
     # Users. /api/users/search requires Administer System permission, so it's off by default —
     # a token without it can still sync everything else.

@@ -59,7 +59,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
@@ -82,7 +82,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(
+        action = create_action(
             team_id=team_id,
             name=name,
             steps_json=[
@@ -130,27 +130,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team=team,
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
-        )
-
-    def test_filters_recommended_recordings_by_surfacing_score(self) -> None:
-        recommended_session_id = str(uuid7())
-        for session_id, surfacing_score in (
-            (recommended_session_id, 0.8),
-            (str(uuid7()), 0.36),
-            (str(uuid7()), 0.2),
-            (str(uuid7()), None),
-        ):
-            produce_replay_summary(
-                distinct_id="user",
-                session_id=session_id,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-                surfacing_score=surfacing_score,
-            )
-
-        self._assert_query_matches_session_ids(
-            {"recommended_only": True},
-            [recommended_session_id],
         )
 
     @property
@@ -248,7 +227,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_two,
                 "activity_score": 40.16,
-                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 2,
@@ -271,7 +249,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
-                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -526,7 +503,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 40.16,
-                "surfacing_score": 0.36,
                 "session_id": session_id_two,
                 "team_id": self.team.pk,
                 "distinct_id": user,
@@ -557,7 +533,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
-                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -1022,9 +997,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         entities_property: str,
     ) -> None:
         # API callers can omit the entity type or send one Entity rejects; both used to 500.
-        entity_id = (
-            Action.objects.create(team=self.team, name="untyped action").id if source_list == "actions" else "$pageview"
-        )
+        entity_id = create_action(team=self.team, name="untyped action").id if source_list == "actions" else "$pageview"
         raw_entity: dict[str, Any] = {"id": entity_id}
         if raw_type is not None:
             raw_entity["type"] = raw_type
@@ -1048,7 +1021,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # filter and an unknown id escaped as an uncaught Action.DoesNotExist.
         if action_exists:
             other_team = Team.objects.create(organization=self.organization)
-            action_id = Action.objects.create(team=other_team, name="other project action").id
+            action_id = create_action(team=other_team, name="other project action").id
         else:
             action_id = 0
 
@@ -1076,7 +1049,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_filter_in_the_same_project_is_accepted(self) -> None:
         sibling_environment = Team.objects.create(organization=self.organization, project=self.team.project)
-        action = Action.objects.create(team=sibling_environment, name="sibling environment action")
+        action = create_action(team=sibling_environment, name="sibling environment action")
 
         sub_query = ReplayFiltersEventsSubQuery(
             team=self.team, query=RecordingsQuery(actions=[{"id": action.id, "type": "actions"}])
@@ -2246,7 +2219,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 0,
-                "surfacing_score": 0.36,
                 "session_id": session_id,
                 "distinct_id": user,
                 "duration": 60,
@@ -3304,6 +3276,27 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
             [],
+        )
+
+    def test_hogql_filter_on_the_event_name(self):
+        user = "test_hogql_filter_on_the_event_name-user"
+        create_person(team=self.team, distinct_ids=[user])
+        rageclick_session = f"rageclick-{uuid4()}"
+        pageview_session = f"pageview-{uuid4()}"
+        for session_id, event in ((rageclick_session, "$rageclick"), (pageview_session, "$pageview")):
+            create_event(
+                distinct_id=user,
+                timestamp=self.an_hour_ago,
+                team=self.team,
+                event_name=event,
+                properties={"$session_id": session_id, "$window_id": str(uuid4())},
+            )
+            produce_replay_summary(
+                distinct_id=user, session_id=session_id, first_timestamp=self.an_hour_ago, team_id=self.team.id
+            )
+
+        self._assert_query_matches_session_ids(
+            {"properties": [{"key": "event = '$rageclick'", "type": "hogql"}]}, [rageclick_session]
         )
 
     @snapshot_clickhouse_queries
@@ -5190,7 +5183,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "active_seconds": 0.0,
                 "activity_score": 0.28,
-                "surfacing_score": 0.36,
                 "click_count": 10,  # in the bug this value was 10 X number of events in the session
                 "console_error_count": 0,
                 "console_log_count": 0,

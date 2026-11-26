@@ -10,6 +10,7 @@ workspace = true
 anyhow = { workspace = true }
 arc-swap = { workspace = true }
 axum = { workspace = true }
+cohort-core = { path = "../cohort-core" }
 common-alloc = { path = "../common/alloc" }
 common-cohort-team-access = { path = "../common/cohort-team-access" }
 common-database = { path = "../common/database" }
@@ -24,7 +25,7 @@ metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

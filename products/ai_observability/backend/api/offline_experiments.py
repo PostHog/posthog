@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from functools import partial
-from typing import TYPE_CHECKING, cast
+from typing import cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -9,7 +9,7 @@ from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -17,42 +17,41 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.event_usage import report_user_action
-from posthog.permissions import is_service_auth
+from posthog.permissions import is_service_auth, scopes_caller_lacks
 
 from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
-from products.ai_observability.backend.api.offline_experiment_access import (
-    OfflineEvaluationIngestionBurstThrottle,
-    OfflineEvaluationIngestionSustainedThrottle,
-    OfflineEvaluationIngestionTeamBurstThrottle,
-    OfflineEvaluationIngestionTeamSustainedThrottle,
-)
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
+from products.ai_observability.backend.api.offline_experiment_mutations import (
+    MUTATION_SCOPES,
+    OfflineExperimentMutationViewSet,
+)
 from products.ai_observability.backend.api.offline_experiment_parser import OfflineEvaluationJSONParser
 from products.ai_observability.backend.api.offline_experiment_read_serializers import OfflineExperimentReadSerializer
-from products.ai_observability.backend.api.offline_experiment_reads import (
-    READ_ERROR_RESPONSES,
-    OfflineExperimentReadViewSet,
-)
+from products.ai_observability.backend.api.offline_experiment_reads import READ_ERROR_RESPONSES
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ExperimentSubmissionSerializer,
     UploadSubmissionSerializer,
 )
 from products.ai_observability.backend.api.resource_tags import ResourceTagNamesField
-from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_service import (
     ExperimentReceipt,
     OfflineEvaluationConflict,
     OfflineEvaluationIngestionService,
     OfflineEvaluationNotFound,
+    OfflineEvaluationPermissionDenied,
     OfflineExperimentService,
 )
 from products.ai_observability.backend.offline_evaluation_types import ExperimentSubmission, UploadSubmission
+from products.ai_observability.backend.presentation.throttles import (
+    OfflineEvaluationIngestionBurstThrottle,
+    OfflineEvaluationIngestionSustainedThrottle,
+    OfflineEvaluationIngestionTeamBurstThrottle,
+    OfflineEvaluationIngestionTeamSustainedThrottle,
+)
 from products.ai_observability.backend.resource_tags import ResourceTags
-
-if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 OFFLINE_UPLOAD_RESULTS = Counter(
     "aio_offline_upload_results_total", "Acknowledged offline evaluation results", labelnames=["outcome"]
@@ -86,6 +85,11 @@ class ItemReceiptSerializer(serializers.Serializer):
 class ResultReceiptSerializer(ItemReceiptSerializer):
     item_id = serializers.UUIDField(help_text="Item this result evaluates.")
     scorer_version_id = serializers.UUIDField(help_text="Pinned scorer version used by this result.")
+    status = serializers.ChoiceField(
+        choices=OfflineEvaluationResult.Status.choices,
+        help_text="Stored result status, including calculation failures.",
+    )
+    error_code = serializers.CharField(allow_null=True, help_text="Error code for a failed result, otherwise null.")
 
 
 class UploadReceiptSerializer(serializers.Serializer):
@@ -128,9 +132,14 @@ class OfflineExperimentMetadataSerializer(serializers.Serializer):
     tags = ResourceTagNamesField(required=False)
 
 
-class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
-    scope_object_write_actions = ["create", "upload", "complete", "fail", "partial_update"]
-    psak_allowed_actions = ["create", "upload", "complete", "fail"]
+class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
+    ingestion_actions = ["create", "upload", "complete", "fail"]
+    scope_object_write_actions = [*ingestion_actions, "partial_update"]
+    psak_allowed_actions = [
+        *OfflineExperimentMutationViewSet.scope_object_read_actions,
+        *scope_object_write_actions,
+        *MUTATION_SCOPES,
+    ]
     parser_classes = [OfflineEvaluationJSONParser]
     ingestion_throttle_classes = [
         OfflineEvaluationIngestionBurstThrottle,
@@ -139,7 +148,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
         OfflineEvaluationIngestionTeamSustainedThrottle,
     ]
     serializer_class = ExperimentSubmissionSerializer
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
         if self.action == "partial_update":
@@ -149,12 +158,9 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
         return super().dangerously_get_required_scopes(request, view)
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action in self.psak_allowed_actions:
+        if self.action in self.ingestion_actions or self.action in MUTATION_SCOPES:
             return [throttle() for throttle in self.ingestion_throttle_classes]
         return super().get_throttles()
-
-    def _reference_access_control(self) -> "UserAccessControl | None":
-        return None if is_service_auth(self.request) else self.user_access_control
 
     def _report_experiment_action(self, event: str, receipt: ExperimentReceipt) -> None:
         experiment = receipt.experiment
@@ -200,6 +206,8 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
             )
         if isinstance(exc, OfflineEvaluationNotFound):
             exc = NotFound("Experiment not found.")
+        elif isinstance(exc, OfflineEvaluationPermissionDenied):
+            exc = PermissionDenied(str(exc))
         response = OfflineEvaluationViewSet.handle_exception(self, exc)
         OFFLINE_UPLOAD_ERRORS.labels(outcome="rejected" if response.status_code < 500 else "server_error").inc()
         return response
@@ -226,7 +234,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_create", method="POST")
     def create(self, request: TypedRequest[ExperimentSubmission], **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id, user_access_control=self.reference_access_control
         ).create(
             request.validated_data,
             created_by_id=None if is_service_auth(request) else request.user.pk,
@@ -249,7 +257,9 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     def upload(self, request: TypedRequest[UploadSubmission], **kwargs: object) -> Response:
         experiment_id = self._experiment_id()
         receipt = OfflineEvaluationIngestionService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id,
+            user_access_control=self.reference_access_control,
+            can_read_results=not scopes_caller_lacks(request, ["evaluation:read", "llm_analytics:read"]),
         ).upload(experiment_id, request.validated_data)
         for created in (True, False):
             OFFLINE_UPLOAD_RESULTS.labels(outcome="created" if created else "duplicate").inc(
@@ -284,7 +294,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_complete", method="POST")
     def complete(self, request: Request, **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id, user_access_control=self.reference_access_control
         ).close(self._experiment_id(), status="completed")
         if receipt.status_changed:
             self._report_experiment_action("llma offline experiment completed", receipt)
@@ -300,7 +310,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_fail", method="POST")
     def fail(self, request: Request, **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id, user_access_control=self.reference_access_control
         ).close(self._experiment_id(), status="failed")
         if receipt.status_changed:
             self._report_experiment_action("llma offline experiment failed", receipt)

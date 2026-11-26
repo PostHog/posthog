@@ -54,8 +54,8 @@ const reply = await posthog.withContext(
 `.trim()
 
 const GO_CODE = `
-// Requires github.com/posthog/posthog-go/otel v1.35.0 or later
-import "github.com/posthog/posthog-go"
+// Requires github.com/posthog/posthog-go/otel/v2
+import "github.com/posthog/posthog-go/v2"
 
 ctx = posthog.WithRequestContext(ctx, posthog.RequestContext{
     DistinctId: userID,

@@ -27,9 +27,11 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.aeo.backend import prompt_limit
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH
 from products.aeo.backend.facade.contracts import PROMPT_TOPIC_MAX_LENGTH
 from products.aeo.backend.models import AEOPrompt, AEOPromptVersion
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 
 logger = structlog.get_logger(__name__)
 
@@ -41,6 +43,8 @@ class PromptCandidate:
     topic: str = ""
     rank: float = 0
     evidence: dict[str, Any] = field(default_factory=dict)
+    # Only a new prompt takes this. A prompt that already exists keeps its own state.
+    active: bool = True
 
 
 def normalize_prompt(text: str) -> str:
@@ -72,7 +76,7 @@ def import_prompts_csv(path: str, *, source: str = AEOPrompt.Source.IMPORTED) ->
     return [PromptCandidate(text=text, source=source, topic=topic, evidence={"file": path}) for text, topic in rows]
 
 
-def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, int]:
+def upsert_prompts(team: Team, candidates: list[PromptCandidate], *, fit_to_limit: bool = False) -> dict[str, int]:
     """Write the candidates to the prompt set, skipping empty, oversized and archived ones.
 
     MAX_PROMPT_LENGTH is a payload-size guard, not a security control: it keeps a
@@ -101,16 +105,39 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
             topic=normalize_prompt(candidate.topic)[:PROMPT_TOPIC_MAX_LENGTH],
             rank=candidate.rank,
             evidence=candidate.evidence,
-            active=True,
+            active=candidate.active,
             updated_at=now,
         )
+    held_back: list[str] = []
     with team_scope(team_id), transaction.atomic():
-        existing = dict(AEOPrompt.objects.filter(prompt_hash__in=rows.keys()).values_list("prompt_hash", "archived_at"))
+        limit = prompt_limit.lock(team_id) if any(row.active for row in rows.values()) else None
+        # Locked in hash order, so a concurrent import cannot overwrite evidence this one merged.
+        existing = {
+            key: (archived_at, evidence)
+            for key, archived_at, evidence in AEOPrompt.objects.filter(prompt_hash__in=rows.keys())
+            .select_for_update()
+            .order_by("prompt_hash")
+            .values_list("prompt_hash", "archived_at", "evidence")
+        }
         # An archived prompt stays archived, so re-importing its text neither revives nor duplicates it.
-        archived = {key for key, archived_at in existing.items() if archived_at is not None}
+        archived = {key for key, (archived_at, _) in existing.items() if archived_at is not None}
         skipped += sum(1 for key in candidate_keys if key in archived)
         for key in archived:
             del rows[key]
+        if limit is not None:
+            turning_on = sorted(
+                (key for key, row in rows.items() if key not in existing and row.active),
+                key=lambda key: -rows[key].rank,
+            )
+            if not fit_to_limit:
+                prompt_limit.check_room(limit, len(turning_on))
+            held_back = turning_on[limit.remaining :]
+            for key in held_back:
+                rows[key].active = False
+        # A re-import that leaves out a field, such as external_visibility, keeps the value already stored.
+        for key, (_, evidence) in existing.items():
+            if key in rows:
+                rows[key].evidence = (evidence or {}) | rows[key].evidence
         # `active` is left out of the update, so a re-import keeps prompts someone turned off. So is `prompt`:
         # it copies the current version's text, which only a version change may rewrite.
         # Sorted so concurrent imports lock conflicting rows in the same order and cannot deadlock.
@@ -135,4 +162,5 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
     created = len(rows.keys() - existing.keys())
     if skipped:
         logger.info("aeo_seed_candidates_skipped", team_id=team.id, skipped=skipped)
-    return {"created": created, "updated": valid - created, "skipped": skipped}
+    bump_data_version_on_commit(team_id)
+    return {"created": created, "updated": valid - created, "skipped": skipped, "held_back": len(held_back)}

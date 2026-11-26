@@ -11,29 +11,11 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from products.warehouse_sources.sources.sdk import make_tracked_session
 
-from .auth import HubspotRetryableError, hubspot_refresh_access_token
+from .auth import HubspotRetryableError, _is_retryable_status, hubspot_refresh_access_token
 from .scopes import HubspotForbiddenError, missing_scope_error, scope_gated_object_for_url
 from .settings import OBJECT_TYPE_PLURAL, apply_crm_api_version
 
 BASE_URL = "https://api.hubapi.com/"
-
-
-def _is_retryable_status(status_code: int) -> bool:
-    """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
-
-    408, 429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the
-    non-standard 477 HubSpot's edge has been observed returning during brief incidents) aren't
-    actionable client errors, so treat any unknown 4xx as transient too instead of crashing the
-    import on it.
-    """
-    if status_code in (408, 429) or status_code >= 500:
-        return True
-    if 400 <= status_code < 500:
-        try:
-            HTTPStatus(status_code)
-        except ValueError:
-            return True
-    return False
 
 
 def get_url(endpoint: str) -> str:
@@ -139,6 +121,7 @@ def fetch_data(
     params: Optional[dict[str, Any]] = None,
     source_id: str | None = None,
     follow_after_cursor: bool = False,
+    unwrap_properties: bool = True,
 ) -> Iterator[list[dict[str, Any]]]:
     """
     Fetch data from HUBSPOT endpoint using a specified API key and yield the properties of each result.
@@ -150,6 +133,8 @@ def fetch_data(
         params: Optional dict of query params to include in the request
         follow_after_cursor: Page by re-sending `params` with `paging.next.after` instead of
             following `paging.next.link`, for APIs that document `link` as optional.
+        unwrap_properties: Yield each result's `properties` object as the row. Turn it off for an
+            API that keeps other fields (such as `createdAt`) next to `properties`.
 
     Yields:
         A List of CRM object dicts
@@ -202,7 +187,7 @@ def fetch_data(
         if "results" in _data:
             _objects: list[dict[str, Any]] = []
             for _result in _data["results"]:
-                _obj = _result.get("properties", _result)
+                _obj = _result.get("properties", _result) if unwrap_properties else _result
                 if "id" not in _obj and "id" in _result:
                     # Move id from properties to top level
                     _obj["id"] = _result["id"]

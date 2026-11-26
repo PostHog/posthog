@@ -247,11 +247,13 @@ def test_schemas_hide_internal_tables_and_offer_only_comparable_columns() -> Non
         schemas = {schema.name: schema for schema in CloudflareD1Source().get_schemas(CONFIG, team_id=1)}
 
     assert sorted(schemas) == ["active_users", "memberships", "recent_events", "users"]
-    assert [(field["field"], field["type"], field["is_indexed"]) for field in schemas["users"].incremental_fields] == [
+    assert sorted(
+        (field["field"], field["type"], field["is_indexed"]) for field in schemas["users"].incremental_fields
+    ) == [
+        ("born", IncrementalFieldType.Date, False),
+        ("created_at", IncrementalFieldType.DateTime, True),
         ("id", IncrementalFieldType.Integer, True),
         ("score", IncrementalFieldType.Numeric, False),
-        ("created_at", IncrementalFieldType.DateTime, True),
-        ("born", IncrementalFieldType.Date, False),
     ]
     # A view pages by offset, and an offset breaks once a later attempt moves the watermark.
     assert schemas["recent_events"].incremental_fields == []
@@ -313,6 +315,15 @@ def test_validate_credentials_reports_an_unreachable_api_instead_of_raising() ->
     # generic failure instead of what went wrong.
     with scripted_network(always(requests.ConnectionError("connection refused"))):
         assert CloudflareD1Source().validate_credentials(CONFIG, team_id=1) == (False, UNREACHABLE_MESSAGE)
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504, 520])
+def test_an_exhausted_retry_status_is_retryable_not_a_bug(status: int) -> None:
+    error = str(D1QueryError(f"D1 query failed ({status}): internal error; reference = e_abc123"))
+
+    source = CloudflareD1Source()
+    assert any(pattern in error for pattern in source.get_retryable_errors())
+    assert not any(key in error for key in source.get_non_retryable_errors())
 
 
 def test_an_id_that_could_change_the_api_path_is_refused_without_a_request() -> None:

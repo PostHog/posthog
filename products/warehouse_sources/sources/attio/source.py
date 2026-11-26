@@ -65,7 +65,8 @@ class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
 You can generate an API key in your Attio workspace settings. Check out [this guide](https://attio.com/help/apps/other-apps/generating-an-api-key) for more details.
 
 **Required API scopes:**
-- `object_configuration:read` - To read object configurations
+- `object_configuration:read` - To read objects and their attributes, select options, and statuses
+- `list_configuration:read` - To read lists and their attributes, select options, and statuses
 - `record_permission:read` - To read record permissions
 - `record:read` - To read records (companies, people, deals, users, workspaces)
 - `list_entry:read` - To read list entries
@@ -73,6 +74,9 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
 - `task:read` - To read tasks
 - `user_management:read` - To read workspace members
 - `activity_configuration:read` - To read activity types
+- `comment:read` - To read comment threads
+- `meeting:read` - To read meetings and call recordings
+- `call_recording:read` - To read call recordings
 """,
             iconPath="/static/services/attio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/attio",

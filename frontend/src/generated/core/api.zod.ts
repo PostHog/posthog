@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ * Approve a device grant for one project. The token gets the requested scopes the person kept.
  */
 export const oauthDeviceApproveCreateBodyUserCodeMax = 20
 
@@ -20,6 +20,12 @@ export const OauthDeviceApproveCreateBody = /* @__PURE__ */ zod.object({
         .max(oauthDeviceApproveCreateBodyUserCodeMax)
         .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
     project_id: zod.number().describe('The project the token is scoped to.'),
+    scopes: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes.'
+        ),
 })
 
 /**
@@ -603,6 +609,21 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Tell PostHog staff about the application. On a declined review, or one where staff asked for changes, the note asks for another review. A blocked application cannot send one.
+ * @summary Send a note on the app's provisioning review
+ */
+export const oauthApplicationsReviewNoteCreateBodyNoteMax = 4000
+
+export const OauthApplicationsReviewNoteCreateBody = /* @__PURE__ */ zod.object({
+    note: zod
+        .string()
+        .max(oauthApplicationsReviewNoteCreateBodyNoteMax)
+        .describe(
+            'What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.'
+        ),
+})
+
+/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
@@ -661,13 +682,6 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Manage experiment configuration for this project.
  */
 export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PURE__ */ zod
@@ -685,13 +699,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
@@ -718,7 +725,11 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
  * Submit a one-column HogQL query for event deletion.
  */
 export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    query: zod
+        .string()
+        .describe(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL."
+        ),
     variables: zod
         .record(
             zod.string(),
@@ -738,7 +749,11 @@ export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
  * Validate a one-column HogQL query and count the selected event UUIDs.
  */
 export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    query: zod
+        .string()
+        .describe(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL."
+        ),
     variables: zod
         .record(
             zod.string(),
@@ -846,17 +861,12 @@ export const FileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
-export const fileSystemMoveCreateBodyTypeMax = 100
-
-export const fileSystemMoveCreateBodyRefMax = 100
-
 export const FileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(fileSystemMoveCreateBodyTypeMax).optional(),
-    ref: zod.string().max(fileSystemMoveCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
+    new_path: zod
+        .string()
+        .describe(
+            "Full new path for the entry, including its own name as the last segment, such as 'Experiments\/Q4\/Weekly signups'. Missing parent folders are created. Escape a '\/' inside a name as '\\\/'."
+        ),
 })
 
 /**
@@ -1214,6 +1224,43 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Returns how many query executions referenced each property in the last 30 days, including cached insight views. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
+ * @summary 30-day query usage for a set of properties
+ */
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault = `event`
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax = 400
+
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin = 0
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax = 4
+
+export const PropertyDefinitionsUsageMetricsCreateBody = /* @__PURE__ */ zod.object({
+    properties: zod
+        .array(
+            zod.object({
+                type: zod
+                    .enum(['event', 'person', 'group', 'session'])
+                    .default(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault)
+                    .describe(
+                        'Property definition type the name belongs to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                    ),
+                name: zod
+                    .string()
+                    .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax)
+                    .describe('Property name, for example `$current_url`.'),
+                group_type_index: zod
+                    .number()
+                    .min(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin)
+                    .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax)
+                    .nullish()
+                    .describe(
+                        'Group type index of a group property. Required when `type` is `group`, otherwise omit it.'
+                    ),
+            })
+        )
+        .describe('Properties to fetch 30-day query usage for, at most 100 per request.'),
+})
+
+/**
  * Create a new password for the sharing configuration.
  */
 export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod
@@ -1305,10 +1352,10 @@ export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
 export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
     image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
     purpose: zod
-        .enum(['email', 'canvas', 'experiment'])
+        .enum(['email', 'canvas', 'experiment', 'conversations'])
         .optional()
         .describe(
-            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.'
         ),
 })
 
@@ -1327,7 +1374,9 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 export const workloadTrustPoliciesCreateBodyNameMax = 200
@@ -1462,6 +1511,48 @@ export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object
             'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
         ),
     enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPolicyRequestsCreateBodyNameMax = 200
+
+export const workloadTrustPolicyRequestsCreateBodyIssuerMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectNameMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodyScopesItemMax = 100
+
+export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyNameMax)
+        .describe('The name the policy gets once approved.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPolicyRequestsCreateBodyScopesItemMax))
+        .describe("The scopes the policy's tokens would carry."),
 })
 
 /**
@@ -1871,13 +1962,6 @@ export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
             .max(usersOnboardingSkipCreateBodyStepAtSkipMax)
             .optional()
             .describe('Onboarding step key the user was on when skipping, for analytics only.'),
-        flow_variant: zod
-            .enum(['legacy', 'simple'])
-            .describe('\* `legacy` - Default onboarding\n\* `simple` - Simple onboarding')
-            .optional()
-            .describe(
-                'Which onboarding flow the user skipped from, for analytics only.\n\n\* `legacy` - Default onboarding\n\* `simple` - Simple onboarding'
-            ),
     })
     .describe(
         'Request body for POST \/api\/users\/{id}\/onboarding\/skip\/.\n\nSource of truth for OpenAPI \/ generated TS \/ zod \/ MCP — bind this serializer at\nruntime so the contract clients believe is enforced (length cap, choice validation,\nno extra fields) is actually enforced server-side.'

@@ -70,6 +70,29 @@ def _check_credit_ceiling(credit_limit: int, max_credit_limit: int | None) -> No
         )
 
 
+def _scope_settings(scope: "dict | None") -> "tuple | None":
+    """A scope's settings as a comparable value, or None when it names no scope.
+
+    Parsed rather than compared raw, so a resend that omits a defaulted key still reads as the
+    scope it was read from.
+    """
+    # Deferred: the scope package imports the model this module is called from.
+    from products.replay_vision.backend.scope.experiment import ExperimentScope  # noqa: PLC0415
+    from products.replay_vision.backend.scope.registry import SETTINGS  # noqa: PLC0415
+
+    if not isinstance(scope, dict) or scope.get("kind") != ExperimentScope.kind:
+        return None
+    settings_model = SETTINGS.get(scope["kind"])
+    if settings_model is None:
+        return None
+    try:
+        settings = settings_model(**{k: v for k, v in scope.items() if k != "kind"})
+    except Exception:
+        # An unparseable blob is not a value to compare; treat it as a change so the limit applies.
+        return ("unparseable", repr(scope))
+    return (scope["kind"], settings.model_dump())
+
+
 def check_scout_scanner_credit_limit(
     is_scout_caller: bool,
     *,
@@ -112,11 +135,17 @@ def check_scout_scanner_credit_limit(
         and (instance.scanner_config or {}).get("start_on_launch") is not True
     )
     turning_on = (attrs.get("enabled") and not instance.enabled) or arms_start_on_launch
-    cost_fields = {"query", "sampling_rate", "sampling_mode", "provider", "model", "experiment_targeting"}
+    cost_fields = {"query", "sampling_rate", "provider", "model", "experiment_targeting"}
     changes_cost = any(field in attrs and attrs[field] != getattr(instance, field) for field in cost_fields)
     if not changes_cost and instance.scanner_type == ScannerType.EXPERIMENT and "scanner_config" in attrs:
         # The experiment type keeps its scope (and therefore its volume) in scanner_config.
         changes_cost = config_experiment_scope(attrs["scanner_config"]) != instance.experiment_scope()
+    if not changes_cost and "scope" in attrs:
+        # A scope decides which sessions the scanner sweeps, so widening or clearing one costs what
+        # retargeting the legacy column costs. Compared through the parsed settings rather than the
+        # raw blobs, because an editor resends the scope it read and a defaulted key it dropped
+        # would otherwise read as a change.
+        changes_cost = _scope_settings(attrs["scope"]) != _scope_settings(instance.scope)
     changes_enabled_cost = attrs.get("enabled", instance.enabled) and changes_cost
     credit_limit = attrs.get("credit_limit", instance.credit_limit)
     if credit_limit is None:

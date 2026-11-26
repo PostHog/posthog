@@ -1,13 +1,16 @@
 import { MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET, MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
     buildAvailableToolsBlock,
+    nameExecRead,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     type QueryToolInfo,
     type ToolInfo,
 } from '@/lib/instructions'
+import { metricCatalogPromptVars, resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { formatPrompt } from '@/lib/utils'
+import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
 import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
@@ -17,7 +20,7 @@ import BUSINESS_KNOWLEDGE_FIRST from '@/templates/sections/business-knowledge-fi
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
-import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
+import CLI_EXAMPLES_LEARN from '@/templates/sections/cli-examples-learn.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
 import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
 import CLI_LEARN from '@/templates/sections/cli-learn.md'
@@ -32,18 +35,26 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
+import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
+import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
+import METRIC_DISCOVERY_EMPTY from '@/templates/sections/metric-discovery-empty.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
+import QUERY_TOOL_ROUTING from '@/templates/sections/query-tool-routing.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
-import type { BusinessKnowledgeContent } from '@/tools/types'
+import type { BusinessKnowledgeContent, MetricCatalogContent } from '@/tools/types'
+
+export const HOGQL_GUIDE_ID = 'hogql'
+export const HOGQL_TABLES_GUIDE_ID = 'hogql-tables'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
@@ -82,12 +93,27 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
+    /** Moves SQL catalog guidance from `analytics` to a `sql` guide, so the guide loaded on most tasks does not steer typed-runner questions toward SQL. */
+    cliLearnLayout?: boolean | undefined
+    /** Whether `endpoint-create` is advertised to this client. Same reason as `docsSearchEnabled`. */
+    endpointsEnabled?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
+    /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
+    inboxFirstEnabled?: boolean | undefined
+    /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
+    inboxClaimEnabled?: boolean | undefined
+    metricCatalog?: MetricCatalogContent | undefined
+    learnToolEnabled?: boolean | undefined
+    splitWrites?: boolean | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
 const REPLAY_VISION =
     'To learn what happened inside session recordings (what users did, saw, or struggled with), use Replay Vision instead of SQL over the replay tables. Call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have, or `vision-requests-create` for up to 200 sessions and read the result with `vision-requests-get`. SQL over `session_replay_events` returns recording metadata only, such as duration, URLs and event counts; use it to find candidate sessions.'
+
+const ENDPOINT_CREATE_TOOL = 'endpoint-create'
+const ENDPOINTS_ROUTING =
+    'When the user wants PostHog data in code, a script, a scheduled job, a backend, or a customer-facing feature, offer to save the query as an endpoint, even if they never say "endpoint". Create it with `endpoint-create` only after they agree, then give them its run URL. Do not write code that calls `/api/projects/:id/query/`, which is for one-off exploration. Use variables for values the caller changes, and materialization for heavy or frequent aggregates. Raw-data exports belong on batch exports.'
 
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
@@ -140,12 +166,58 @@ function docsSearchAvailable(ctx: InstructionsContext): boolean {
     return ctx.docsSearchEnabled ?? ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
 }
 
+function endpointsAvailable(ctx: InstructionsContext): boolean {
+    return ctx.endpointsEnabled ?? ctx.tools?.some(({ name }) => name === ENDPOINT_CREATE_TOOL) ?? false
+}
+
 function replayVisionAvailable(ctx: InstructionsContext): boolean {
     return (
         ctx.replayVisionEnabled ??
         REPLAY_VISION_TOOLS.every((tool) => ctx.tools?.some(({ name }) => name === tool)) ??
         false
     )
+}
+
+const SKILL_SEARCH_STEP = [
+    "Assistant: Skills come first, so I'll search for this task on its own.",
+    '[Runs `posthog:exec({"command":"learn -s \\"weekly active users\\""})`]',
+    "Assistant: It matched `posthog:querying-posthog-data`, so I'll load that skill.",
+    '[Runs `posthog:exec({"command":"learn posthog:querying-posthog-data"})`]',
+    '',
+].join('\n')
+
+function learnExampleVars(renderUiEnabled: boolean | undefined, skillsEnabled: boolean): Record<string, string> {
+    const skillStep = skillsEnabled ? SKILL_SEARCH_STEP : ''
+    if (!renderUiEnabled) {
+        return {
+            visualization_example: '',
+            skill_step: skillStep,
+            analytics_learn_intro: skillsEnabled
+                ? "Analytics applies too, so I'll load its guide."
+                : "Analytics applies, so I'll load it before any other command.",
+            analytics_learn_topics: 'analytics',
+            render_step: '',
+        }
+    }
+    return {
+        skill_step: skillStep,
+        visualization_example: [
+            '<example>',
+            'User: create pageviews visualization',
+            "Assistant: This needs analytics and visualization guidance, so I'll load both first.",
+            '[Runs `posthog:exec({"command":"learn analytics visualizations"})`]',
+            '</example>',
+        ].join('\n'),
+        analytics_learn_intro: skillsEnabled
+            ? "This also needs analytics and visualization guidance, so I'll load both."
+            : "This needs analytics and visualization guidance, so I'll load both before any other command.",
+        analytics_learn_topics: 'analytics visualizations',
+        render_step: [
+            '',
+            "Assistant: [Briefly summarizes the weekly active user trend.] I'll render it so you can verify the result.",
+            '[Runs `render-ui({ "tool_name": "query-trends", "tool_input": {...} })` with the same query input]',
+        ].join('\n'),
+    }
 }
 
 function envContextSections(ctx: InstructionsContext): string[] {
@@ -165,6 +237,21 @@ function envContextSections(ctx: InstructionsContext): string[] {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    buildMetricDiscovery(ctx: InstructionsContext): string {
+        return this.compose(this.metricDiscoverySections(ctx, METRIC_DISCOVERY), ctx, { compact: false })
+    }
+
+    private metricDiscoverySections(
+        ctx: InstructionsContext,
+        rule: string,
+        opts: { learnAnalytics?: boolean } = {}
+    ): string[] {
+        if (resolveMetricCatalogMode(ctx.metricCatalog) !== 'empty') {
+            return [rule]
+        }
+        return opts.learnAnalytics ? [METRIC_DISCOVERY_EMPTY, METRIC_DISCOVERY_EMPTY_LEARN] : [METRIC_DISCOVERY_EMPTY]
+    }
+
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
@@ -209,13 +296,54 @@ export class InstructionsFormatter {
         ]
     }
 
+    /** Kept out of the exec tool description: Claude Code cuts it at 2,048 characters. */
+    private inboxFirstSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
+        if (!ctx.inboxFirstEnabled) {
+            return []
+        }
+        const toolRef = (name: string): string =>
+            execSyntax ? `\`call ${name} <json_input>\`` : `the \`${name}\` tool`
+        return [
+            formatPrompt(INBOX_FIRST, {
+                inbox_list: toolRef('inbox-reports-list'),
+                inbox_retrieve: toolRef('inbox-reports-retrieve'),
+                inbox_claim_line: ctx.inboxClaimEnabled
+                    ? `- When you fix the problem, attach your pull request to the report with ${toolRef('inbox-reports-claim')} and \`pr_url\`. Its merge then resolves the report.`
+                    : '',
+            }),
+        ]
+    }
+
+    buildLearnToolDescription(): string {
+        return this.skillsFirstSection(false)
+    }
+
+    private skillsFirstSection(execSyntax: boolean): string {
+        return formatPrompt(SKILLS_FIRST, {
+            learn_call: execSyntax
+                ? 'run `learn -s "<task keywords>"` here'
+                : 'call the `learn` tool with `learn -s "<task keywords>"`',
+            skill_store_note: execSyntax
+                ? ''
+                : ' Find and load skills with `learn`, not with `skill-list` or `skill-get`: those manage the skills your team stores and do not hold the built-in PostHog skills.',
+        })
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.tools?.some(({ name }) => name === 'explain-chart') ? [EXPLAIN_CHART] : []),
+            ...(ctx.tools?.some(({ name }) => name === 'explain-chart')
+                ? [
+                      formatPrompt(EXPLAIN_CHART, {
+                          explain_chart_link_line: ctx.tools.some(({ name }) => name === 'explain-chart-save')
+                              ? 'Where the conversation cannot show the chart explanation, call `explain-chart-save` with the same arguments and give the person the link it returns, which opens it beside the chart in PostHog.'
+                              : '',
+                      }),
+                  ]
+                : []),
             ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
@@ -235,10 +363,13 @@ export class InstructionsFormatter {
     buildToolsInstructions(ctx: InstructionsContext): string {
         return this.compose(
             [
+                PROJECT_SCOPE,
+                ...(ctx.learnToolEnabled ? [this.skillsFirstSection(false)] : []),
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
+                ...this.inboxFirstSections(ctx, false),
                 TOOL_SEARCH,
-                METRIC_DISCOVERY,
+                ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
                 CATALOG_TRUST_DISCOVERY,
@@ -283,7 +414,7 @@ export class InstructionsFormatter {
 
     /** Build the top-level description of the `posthog:exec` tool. Lives in the
      *  uncapped top-level `description`, so the skills text costs no schema budget.
-     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  Project clarification and the skills mandate lead the description to reach
      *  an agent before its first tool call, and agents that answer PostHog-behavior
      *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(
@@ -298,7 +429,8 @@ export class InstructionsFormatter {
         const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
-            ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            PROJECT_SCOPE,
+            ...(opts.skillsEnabled ? [this.skillsFirstSection(true)] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
         ]
@@ -306,33 +438,81 @@ export class InstructionsFormatter {
             .join('\n\n')
     }
 
-    /**
-     * Build the optional guidance catalog used by Claude web/desktop. The
-     * existing prompt sections remain the source of truth; only their delivery
-     * moves from the advertised schema to `exec learn`.
-     */
-    buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+    buildExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+        // Agents load `analytics` for almost every data task, so it holds only the query
+        // routing and discovery rules; artifacts, history, and worked examples load apart.
         const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
                 title: 'Analytics',
-                description:
-                    'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.',
+                description: ctx.cliLearnLayout
+                    ? 'Query or analyze data: governed metrics, typed runners over SQL, schema checks.'
+                    : 'Query or analyze data: governed metrics, typed runners over SQL, schema checks, certified tables, verified joins.',
                 content: this.compose(
                     [
-                        METRIC_DISCOVERY,
+                        ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
                         RETRIEVING_DATA,
                         SCHEMA_WORKFLOW,
-                        CATALOG_TRUST_DISCOVERY,
-                        ...this.artifactSections(ctx),
-                        ...this.activityHistorySections(ctx),
-                        EXAMPLES,
+                        ...(ctx.cliLearnLayout ? [] : [CATALOG_TRUST_DISCOVERY]),
                     ],
                     ctx,
                     { compact: false }
                 ),
             },
+            ...(ctx.cliLearnLayout
+                ? [
+                      {
+                          id: 'sql',
+                          title: 'SQL',
+                          description:
+                              'Before writing `execute-sql`: searching saved entities, certified tables, verified joins.',
+                          content: this.compose([ENTITY_SCHEMA_DISCOVERY, CATALOG_TRUST_DISCOVERY], ctx, {
+                              compact: false,
+                          }),
+                      },
+                  ]
+                : []),
+            {
+                id: 'artifacts',
+                title: 'Analysis artifacts',
+                description: 'Notebooks, dashboards, saved insights, chart explanations.',
+                content: this.compose(this.artifactSections(ctx), ctx, { compact: false }),
+            },
         ]
+
+        const activityHistory = this.activityHistorySections(ctx)
+        if (activityHistory.length > 0) {
+            entries.push({
+                id: 'activity',
+                title: 'Activity history',
+                description: 'Who changed a configuration, and when.',
+                content: this.compose(activityHistory, ctx, { compact: false }),
+            })
+        }
+
+        entries.push({
+            id: 'examples',
+            title: 'Analytics examples',
+            description: 'Worked multi-step analysis plans.',
+            content: this.compose([EXAMPLES], ctx, { compact: false }),
+        })
+
+        // The compact `execute-sql` description points here, so this guide must keep the
+        // complete guidelines and every section that description leaves out.
+        entries.push(
+            {
+                id: HOGQL_GUIDE_ID,
+                title: 'HogQL guidelines',
+                description: 'Syntax and query guidelines for `execute-sql`.',
+                content: `${ctx.guidelines.trim()}\n\nRun \`learn ${HOGQL_TABLES_GUIDE_ID}\` for examples and the observability and LLM tables.`,
+            },
+            {
+                id: HOGQL_TABLES_GUIDE_ID,
+                title: 'HogQL tables and examples',
+                description: 'Examples and table details for observability and LLM queries.',
+                content: EXECUTE_SQL_REFERENCE.trim(),
+            }
+        )
 
         if (ctx.renderUiEnabled) {
             entries.push({
@@ -343,7 +523,7 @@ export class InstructionsFormatter {
             })
         }
 
-        // URL rules are task-specific and load on demand instead of consuming Claude's capped input schema.
+        // URL rules are task-specific, so they load on demand instead of riding in every advertised schema.
         entries.push({
             id: 'urls',
             title: 'URL patterns',
@@ -362,44 +542,58 @@ export class InstructionsFormatter {
     }
 
     /**
-     * claude.ai's registry silently drops a tool whose serialized `inputSchema`
-     * crosses ~16,384 chars. This reference lands in
-     * `inputSchema.properties.command.description`, so keep routine tool-use
-     * guidance inline and move only task-specific sections behind `learn <topic...>`.
-     * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
+     * `claudeChat` hosts never show `instructions` to the model, so the domain index goes inline, and they
+     * drop a tool whose serialized `inputSchema` crosses ~16,384 chars, so they get the compact skills section.
      */
-    buildClaudeExecCommandReference(
+    buildCompactExecCommandReference(
         ctx: InstructionsContext,
-        opts: { learnEnabled?: boolean; skillsEnabled?: boolean } = {}
+        opts: { claudeChat?: boolean; learnEnabled?: boolean; skillsEnabled?: boolean } = {}
     ): string {
+        const claudeChat = opts.claudeChat ?? false
         const learnEnabled = opts.learnEnabled ?? true
         const skillsEnabled = opts.skillsEnabled ?? false
-        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const learnGuides = this.buildExecLearnGuides(ctx)
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
+        // Claude web/desktop keep the learn-first framing; with skills on, cli clients must search skills before guides.
+        const learnHeading = claudeChat ? '**LEARN FIRST: HARD REQUIREMENT**' : '**Built-in guides**'
+        const learnLead = claudeChat
+            ? 'First, load only the topics this task needs in one `learn` command.'
+            : skillsEnabled
+              ? 'Search skills first, as above, and load the matching ones: these guides add general workflow and never replace a skill. Load only the topics this task needs in one `learn` command.'
+              : 'Load only the topics this task needs in one `learn` command.'
+        const learnSection = learnEnabled
+            ? formatPrompt(EXEC_LEARN, {
+                  learn_heading: learnHeading,
+                  learn_lead: learnLead,
+                  help_topics: learnGuideList,
+              })
+            : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
-            tools: ctx.tools,
+            tools: claudeChat ? ctx.tools : undefined,
+            docsSearchEnabled: docsSearchAvailable(ctx),
+            cliLearnLayout: !claudeChat && ctx.cliLearnLayout,
+            metricCatalog: ctx.metricCatalog,
         }
 
         return this.compose(
             [
                 CLI_SYNTAX,
-                // Compact skills-first variant: this reference lives inside the
-                // schema-capped `command` description (see the budget test), so the
-                // content-routing paragraph is reserved for the uncapped full reference.
-                ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
+                ...(skillsEnabled ? [claudeChat ? CLI_LEARN_COMPACT : CLI_LEARN] : []),
                 ...(learnSection ? [learnSection] : []),
-                METRIC_DISCOVERY_COMPACT,
+                // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
+                ...(claudeChat ? [] : this.inboxFirstSections(ctx, true)),
+                ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection }),
+                ...(ctx.cliLearnLayout ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
-                CLI_EXAMPLES_CLAUDE,
+                formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ...envContextSections(ctx),
-                // URL patterns live behind `learn urls` to protect the schema budget;
-                // with learn unavailable there is no topic to load, so stay inline.
+                // URL patterns and activity history normally load through `learn urls`
+                // and `learn activity`; with learn unavailable there is no topic to load.
                 ...(learnSection ? [] : [URL_PATTERNS]),
                 ...(learnSection ? [] : this.activityHistorySections(ctx)),
             ],
@@ -413,17 +607,12 @@ export class InstructionsFormatter {
         )
     }
 
-    /** Build the `command` parameter description for the exec tool. The
-     *  query-tool catalog lives here: in single-exec mode `instructions` only
-     *  carries the `query` tool domain.
-     *
-     *  Claude web/desktop uses `buildClaudeExecCommandReference` instead because
-     *  its complete JSON schema has a smaller client-enforced size budget. */
-    buildExecCommandReference(ctx: InstructionsContext, opts: { learnEnabled?: boolean } = {}): string {
+    /** The query-tool catalog lives here: in single-exec mode `instructions` only carries the `query` tool domain. */
+    buildExecCommandReference(ctx: InstructionsContext): string {
         const sections = [
             CLI_SYNTAX,
-            ...(opts.learnEnabled ? [CLI_LEARN] : []),
-            METRIC_DISCOVERY,
+            ...this.inboxFirstSections(ctx, true),
+            ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -446,6 +635,7 @@ export class InstructionsFormatter {
             tools: undefined,
             docsSearchEnabled: docsSearchAvailable(ctx),
             replayVisionEnabled: replayVisionAvailable(ctx),
+            endpointsEnabled: endpointsAvailable(ctx),
         }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
@@ -472,21 +662,29 @@ export class InstructionsFormatter {
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
+        const metricVars = metricCatalogPromptVars(resolveMetricCatalogMode(ctx.metricCatalog))
         const vars = {
             guidelines: ctx.guidelines.trim(),
-            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
+            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled, ctx.splitWrites),
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
-            entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            entity_schema_discovery: ctx.cliLearnLayout ? '' : ENTITY_SCHEMA_DISCOVERY.trim(),
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
+            query_tool_routing: ctx.cliLearnLayout ? '' : formatPrompt(QUERY_TOOL_ROUTING, metricVars),
+            sql_trust_pointer: ctx.cliLearnLayout
+                ? '`info execute-sql` and `learn sql` cover certified tables/views and verified joins'
+                : 'Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins',
+            endpoints_routing: endpointsAvailable(ctx) ? ENDPOINTS_ROUTING : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
+            ...metricVars,
         }
         const body = sections
             .map((s) => s.trim())
             .filter((s) => s.length > 0)
             .join('\n\n')
         // An empty placeholder on its own line would otherwise leave a double blank line.
-        return formatPrompt(body, vars).replace(/\n{3,}/g, '\n\n')
+        const rendered = formatPrompt(body, vars).replace(/\n{3,}/g, '\n\n')
+        return ctx.splitWrites ? nameExecRead(rendered) : rendered
     }
 }

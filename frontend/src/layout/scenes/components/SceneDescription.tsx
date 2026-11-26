@@ -36,19 +36,20 @@ export function SceneDescription({
     maxLength,
     isGeneratingMetadata = false,
 }: SceneDescriptionProps): JSX.Element | null {
+    const [isEditing, setIsEditing] = useState(forceEdit)
     const [description, setDescription] = useState(initialDescription)
     const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
     // See SceneName: keep external updates from clobbering an in-flight local edit.
     const latestDescriptionRef = useRef(initialDescription)
     if (initialDescription !== prevInitialDescription) {
         setPrevInitialDescription(initialDescription)
-        if (initialDescription !== latestDescriptionRef.current) {
+        // With saveOnBlur, text typed in the open editor reaches no save until blur, so a rollback must not erase it.
+        const hasUnsentDraft = saveOnBlur && isEditing && latestDescriptionRef.current !== prevInitialDescription
+        if (initialDescription !== latestDescriptionRef.current && !hasUnsentDraft) {
             setDescription(initialDescription)
             latestDescriptionRef.current = initialDescription
         }
     }
-
-    const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses = 'text-sm my-0 select-auto'
 

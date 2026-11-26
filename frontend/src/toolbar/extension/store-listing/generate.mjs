@@ -24,39 +24,32 @@ const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolbar-store-listing-'))
 const PR_ASSETS = 'https://raw.githubusercontent.com/PostHog/pr-assets'
 const SCREENSHOTS = [
     {
-        file: 'screenshot-1-heatmaps.png',
-        tool: 'heatmap',
-        capture: `${PR_ASSETS}/27e0f0f7e953a1b8e4dc0cf1e36f8616dfcbce6a/2026/10/798494be-3d08-4f27-8098-a82a7fd43968.png`,
-        title: 'See where people click',
-        subtitle: 'Heatmaps, clickmaps and scroll depth on your live site',
-    },
-    {
-        file: 'screenshot-2-inspect.png',
-        tool: 'inspect',
-        capture: `${PR_ASSETS}/521bc21aa47401892fba163deb1b8e2cfb047340/2026/10/91795ef3-5229-4fc3-b24e-10631d9b4fb3.png`,
-        title: 'Inspect any element',
-        subtitle: 'See its selector, clicks and actions, then create an action from it',
-    },
-    {
-        file: 'screenshot-3-feature-flags.png',
+        file: 'screenshot-2-feature-flags.png',
         tool: 'flags',
         capture: `${PR_ASSETS}/08f1b71ce12c27f330166e11428a02abfa9caa30/2026/10/15f8cb5d-9725-409f-994d-53e2e57627d1.png`,
         title: 'Override feature flags on the page',
         subtitle: 'Try each variant and payload in your browser without changing code',
     },
     {
-        file: 'screenshot-4-events.png',
+        file: 'screenshot-3-events.png',
         tool: 'events',
         capture: `${PR_ASSETS}/02038f1dc6c53b4e6335a458096049efba8d98c6/2026/10/a65dd337-f722-48bf-96f8-66ad4d28427d.png`,
         title: 'Watch events as they happen',
         subtitle: 'Check every event and property posthog-js sends from the page',
     },
     {
-        file: 'screenshot-5-experiments.png',
-        tool: 'experiments',
-        capture: `${PR_ASSETS}/5032a99804a861bade3e77e0df2299d1027fe48e/2026/10/f92228c9-3e47-4f2a-b0fd-586dce8f5629.png`,
-        title: 'Build no-code experiments',
-        subtitle: 'Edit a variant and preview it on the page before you launch',
+        file: 'screenshot-4-inspect.png',
+        tool: 'inspect',
+        capture: `${PR_ASSETS}/521bc21aa47401892fba163deb1b8e2cfb047340/2026/10/91795ef3-5229-4fc3-b24e-10631d9b4fb3.png`,
+        title: 'Inspect any element',
+        subtitle: 'See its selector, clicks and actions, then create an action from it',
+    },
+    {
+        file: 'screenshot-5-heatmaps.png',
+        tool: 'heatmap',
+        capture: `${PR_ASSETS}/27e0f0f7e953a1b8e4dc0cf1e36f8616dfcbce6a/2026/10/798494be-3d08-4f27-8098-a82a7fd43968.png`,
+        title: 'See where people click',
+        subtitle: 'Heatmaps, clickmaps and scroll depth on your live site',
     },
 ]
 const CAPTURE = { width: 1681, siteWidth: 1279, barHeight: 44 }
@@ -65,6 +58,17 @@ const PANEL = { width: 400, height: 820 }
 const TILE_COLOR = '#ff5c1c'
 const TILE_TAGLINE = 'Toolbar in<br>a side panel'
 const TILES = [
+    {
+        file: 'screenshot-1-side-panel.png',
+        width: 1280,
+        height: 800,
+        logo: 400,
+        tagline: 72,
+        hog: 640,
+        hogRight: 90,
+        hogBottom: -50,
+        padLeft: 120,
+    },
     {
         file: 'small-promo-tile.png',
         width: 440,
@@ -161,9 +165,6 @@ function installFakeBrowser({ state, uiHost }) {
         permissions: {
             contains: async () => true,
             request: async () => true,
-            getAll: async () => ({ origins: [] }),
-            onAdded: fakeEvent(),
-            onRemoved: fakeEvent(),
         },
         action: { onClicked: fakeEvent() },
     }
@@ -232,8 +233,10 @@ body { font-family: RoundHog, sans-serif; -webkit-font-smoothing: antialiased; p
 function screenshotHtml({ title, subtitle, captureFile, panelFile }) {
     return `<!doctype html><html><head><style>${baseCss}
 body { width: ${SCREEN.width}px; height: ${SCREEN.height}px; background: #eeefe9; }
-.copy { position: absolute; inset: 0 0 auto; height: ${WINDOW_TOP}px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding-bottom: 6px; }
-h1 { font-size: 46px; font-weight: 700; color: #151515; letter-spacing: -0.5px; }
+.header { position: absolute; left: ${SCREEN.margin}px; right: ${SCREEN.margin}px; top: 0; height: ${WINDOW_TOP}px; display: flex; align-items: center; gap: 36px; padding-bottom: 6px; }
+.header-logo { width: 200px; flex: none; }
+.copy { display: flex; flex-direction: column; gap: 8px; padding-left: 36px; border-left: 2px solid #d3d4cc; }
+h1 { font-size: 42px; font-weight: 700; color: #151515; letter-spacing: -0.5px; }
 p { font-size: 22px; font-weight: 500; color: #5b5d55; }
 .window { position: absolute; left: ${SCREEN.margin}px; top: ${WINDOW_TOP}px; width: ${SITE_WIDTH + PANEL_WIDTH + 2}px; height: ${SCREEN.barHeight + CONTENT_HEIGHT + 20}px; border: 1px solid #c9cbc2; border-radius: 12px 12px 0 0; overflow: hidden; background: #fff; box-shadow: 0 18px 48px rgba(40, 42, 35, 0.18), 0 2px 6px rgba(40, 42, 35, 0.08); }
 .bar { height: ${SCREEN.barHeight}px; background: #e3e4dd; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid #d3d4cc; }
@@ -245,7 +248,7 @@ p { font-size: 22px; font-weight: 500; color: #5b5d55; }
 .site img { display: block; width: ${CAPTURE.width * SCALE}px; margin-top: ${-CAPTURE.barHeight * SCALE}px; }
 .panel { display: block; width: ${PANEL_WIDTH}px; height: ${CONTENT_HEIGHT}px; border-left: 1px solid #d3d4cc; }
 </style></head><body>
-<div class="copy"><h1>${title}</h1><p>${subtitle}</p></div>
+<div class="header"><div class="header-logo">${svg({})}</div><div class="copy"><h1>${title}</h1><p>${subtitle}</p></div></div>
 <div class="window">
   <div class="bar">
     <span class="dot" style="background: #ff5f57"></span><span class="dot" style="background: #febc2e"></span><span class="dot" style="background: #28c840"></span>

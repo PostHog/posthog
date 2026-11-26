@@ -218,6 +218,8 @@ class TestSchemaHelpers(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ({}, {"showSummaryOnDashboards": True}, 0),
+            ({}, {"showSummaryOnDashboards": False}, 0),
             # general: missing filter
             (None, {}, 0),
             # general: ordering of keys

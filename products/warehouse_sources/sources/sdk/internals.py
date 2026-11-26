@@ -1,7 +1,7 @@
 """Names from warehouse_sources modules that the product does not expose to other modules.
 
-These modules (the pipeline core, the naming convention, the job errors) are product internals, so
-tach does not check this file (`unchecked` in `tach.toml`). To remove a name from here, move it to
+These modules (the pipeline core, the naming convention, the job errors) are product internals. The
+SDK may import them, and a vendor may not (hoglint's `sources-vendors-use-sdk`). To remove a name from here, move it to
 a module the product exposes (`common` or the facade) and re-export it from `products.warehouse_sources.sources.sdk`.
 """
 

@@ -21,3 +21,10 @@ class DevTokenStatus(LabeledStrEnum):
     LIVE = "live", "Live"
     REVOKED = "revoked", "Revoked"
     EXPIRED = "expired", "Expired"
+
+
+class TeamAccessAction(LabeledStrEnum):
+    ENABLE = "enable", "Enable"
+    UNENABLE = "unenable", "Remove enablement"
+    REVOKE = "revoke", "Revoke"
+    UNREVOKE = "unrevoke", "Clear revoke"

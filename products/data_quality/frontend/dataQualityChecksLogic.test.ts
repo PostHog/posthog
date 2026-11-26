@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -38,7 +40,7 @@ jest.mock('lib/api', () => {
 })
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
-    lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
+    lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn(), dismiss: jest.fn() },
 }))
 
 jest.mock('scenes/data-management/database/databaseTableListLogic', () => ({
@@ -134,6 +136,22 @@ describe('dataQualityChecksLogic', () => {
         expect(dataQualityRunsList).toHaveBeenCalledWith('1', { ...subject, limit: 20 })
     })
 
+    it('opens the run history and records that it was opened', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        await mountLogic()
+
+        logic.actions.openRunHistory()
+
+        expect(logic.values.runHistoryOpen).toBe(true)
+        expect(capture).toHaveBeenCalledWith(
+            'data quality run history opened',
+            expect.objectContaining({ subject_type: VIEW_PROPS.subjectType })
+        )
+
+        logic.actions.closeRunHistory()
+        expect(logic.values.runHistoryOpen).toBe(false)
+    })
+
     it('keeps a failed metric check load distinct from an empty result and can retry', async () => {
         ;(dataQualityChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
         await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
@@ -218,7 +236,7 @@ describe('dataQualityChecksLogic', () => {
         expect(dataQualityRunsRetrieve).not.toHaveBeenCalled()
         expect(dataQualityChecksList).toHaveBeenCalledTimes(2)
         // pluralize() joins the count to the noun with a non-breaking space.
-        expect(lemonToast.success).toHaveBeenCalledWith('All 2\u00a0checks passed')
+        expect(lemonToast.success).toHaveBeenCalledWith('All 2\u00a0data quality checks passed')
     })
 
     it('reloads the run history after completion when it was empty', async () => {
@@ -261,7 +279,50 @@ describe('dataQualityChecksLogic', () => {
         await advancePoll(3000)
 
         expect(logic.values.isSuiteRunning).toBe(false)
-        expect(lemonToast.warning).toHaveBeenCalledWith('1 passed, 1 failed')
+        expect(lemonToast.warning).toHaveBeenCalledWith('1 data quality check failed', expect.anything())
+    })
+
+    function lastWarningButton(): { label: string; action: () => void } {
+        const [, options] = (lemonToast.warning as jest.Mock).mock.calls.at(-1)
+        return options.button
+    }
+
+    it('replaces the previous run warning with the newest one', async () => {
+        await mountLogic()
+
+        logic.actions.finishSuiteRun(buildSuiteRun({ id: 'suite-1', status: 'completed', checks_failed: 1 }))
+        logic.actions.finishSuiteRun(buildSuiteRun({ id: 'suite-2', status: 'completed', checks_failed: 1 }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.dismiss).toHaveBeenCalledWith('data-quality-suite-run-suite-1')
+        expect(lemonToast.dismiss).not.toHaveBeenCalledWith('data-quality-suite-run-suite-2')
+    })
+
+    it('opens the run history on the finished run from the toast', async () => {
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(
+            buildSuiteRun({ id: 'suite-9', status: 'completed', checks_failed: 2 })
+        )
+        ;(dataQualityRunsCheckRunsList as jest.Mock).mockResolvedValue([])
+        await mountLogic()
+
+        logic.actions.runAll()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.warning).toHaveBeenCalledWith(
+            '2\u00a0data quality checks failed',
+            expect.objectContaining({ toastId: 'data-quality-suite-run-suite-9' })
+        )
+        expect(lastWarningButton().label).toBe('View results')
+        lastWarningButton().action()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runHistoryOpen).toBe(true)
+        expect(logic.values.expandedSuiteRunId).toBe('suite-9')
+        expect(logic.values.suiteRunCheckRunsBySuiteRunId['suite-9']).toEqual([])
+
+        expect(lemonToast.dismiss).not.toHaveBeenCalled()
+        logic.unmount()
+        expect(lemonToast.dismiss).toHaveBeenCalledWith('data-quality-suite-run-suite-9')
+        logic.mount()
     })
 
     it('ignores a stale poll after a newer run has replaced the active one', async () => {
@@ -314,6 +375,20 @@ describe('dataQualityChecksLogic', () => {
         await drainListeners()
 
         expect(logic.values.activeSuiteRun?.id).toEqual('suite-second')
+    })
+
+    it('tracks which check a manual run was started for until the run finishes', async () => {
+        ;(dataQualityChecksRunCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockResolvedValue(buildSuiteRun({ status: 'completed' }))
+        await mountLogic()
+
+        jest.useFakeTimers()
+        logic.actions.runCheck('check-1')
+        await drainListeners()
+        expect(logic.values.activeSuiteCheckId).toEqual('check-1')
+
+        await advancePoll(3000)
+        expect(logic.values.activeSuiteCheckId).toBeNull()
     })
 
     it('reloads an expanded suite run detail once the run finishes', async () => {

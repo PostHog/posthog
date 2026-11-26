@@ -31,6 +31,11 @@ if TEST or DEBUG:
 else:
     RECORDING_API_URL = os.getenv("RECORDING_API_URL", "")
 
+# A recording-api pool only recording exports call, so an export never queues behind playback.
+RECORDING_API_EXPORT_URL = os.getenv("RECORDING_API_EXPORT_URL", RECORDING_API_URL if TEST or DEBUG else "")
+# A headless Service over that pool, whose DNS answer lists its ready pods. Without it, a run starts without waiting.
+RECORDING_API_EXPORT_PODS_HOST = os.getenv("RECORDING_API_EXPORT_PODS_HOST", "")
+
 # Dedicated signing secret for the team-scoped JWTs that authorize recording-api calls.
 # Kept off SECRET_KEY/JWT_SIGNING_KEY (which are fleet-wide) so only the designated minters
 # — Django web and the Python Temporal workers — can mint recording-api tokens. Comma-separated
@@ -40,7 +45,22 @@ RECORDING_API_JWT_SECRET = os.getenv(
     "RECORDING_API_JWT_SECRET", "dev-recording-api-jwt-secret" if (TEST or DEBUG) else ""
 )
 
+# Signs the tokens the replay player sends to recording-api's public block route. Kept apart from
+# RECORDING_API_JWT_SECRET because the internet-facing recording-api pods hold this key, and an HMAC key that verifies
+# can also sign. The dev/test default matches the recording-api Node default. Comma-separated `new,old` for rotation.
+RECORDING_API_BLOCKS_JWT_SECRET = os.getenv(
+    "RECORDING_API_BLOCKS_JWT_SECRET", "dev-recording-api-blocks-jwt-secret" if (TEST or DEBUG) else ""
+)
+
+# Signs the staff read tokens `recording_api_token` mints on toolbox pods, apart from RECORDING_API_JWT_SECRET so the toolbox holds no key that can delete or write.
+RECORDING_API_STAFF_JWT_SECRET = os.getenv(
+    "RECORDING_API_STAFF_JWT_SECRET", "dev-recording-api-staff-jwt-secret" if (TEST or DEBUG) else ""
+)
+
 # Signs the replay player's tokens for replay.ph-proxy.com, which holds the same comma-separated `new,old` keys.
 # Never reuse SECRET_KEY or JWT_SIGNING_KEY. No dev default, because a key in public source lets anyone mint tokens.
 # Empty means no token, so self-hosted installs never use the proxy.
 REPLAY_PROXY_JWT_SECRET = os.getenv("REPLAY_PROXY_JWT_SECRET", "")
+
+# The external-access role that recording exports assume before a customer's role. Customers trust it.
+RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN = os.getenv("RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN", "")

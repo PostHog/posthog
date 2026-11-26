@@ -68,7 +68,6 @@ def redact_webhook_urls_in_destination_names(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("alerts", "0008_platformalert_firing_started_at_and_uuid7_pk"),
-        ("cdp", "0005_repair_hogfunction_batch_export_id_index"),
     ]
 
     operations = [

@@ -1,3 +1,6 @@
+import { generateText } from '@tiptap/core'
+
+import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { getCommentText } from './commentUtils'
@@ -89,5 +92,23 @@ describe('getCommentText', () => {
             ],
         }
         expect(getCommentText({ rich_content: richContent })).toBe('hey @member:42')
+    })
+
+    const paragraph = (...content: JSONContent[]): JSONContent => ({ type: 'paragraph', content })
+    const text = (value: string): JSONContent => ({ type: 'text', text: value })
+
+    // Comments render their text without the editor, so text from the comment schema must match what the editor extracts.
+    it.each<[string, JSONContent[]]>([
+        ['one paragraph', [paragraph(text('hello'))]],
+        ['two paragraphs', [paragraph(text('first')), paragraph(text('second'))]],
+        ['an empty paragraph between two', [paragraph(text('first')), paragraph(), paragraph(text('second'))]],
+        ['a mention', [paragraph(text('hey '), { type: 'ph-mention', attrs: { id: 42 } }, text(' look'))]],
+        ['an empty document', [paragraph()]],
+    ])('extracts the same text as the editor from %s', (_label, content) => {
+        const richContent: JSONContent = { type: 'doc', content }
+
+        expect(getCommentText({ rich_content: richContent })).toBe(
+            generateText(richContent, DEFAULT_EXTENSIONS, serializationOptions)
+        )
     })
 })

@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.experiments.backend.models.web_experiment import WebExperiment
@@ -17,9 +18,9 @@ from products.experiments.backend.presentation.web_experiments import WebExperim
 
 
 class TestWebExperiment(APIBaseTest):
-    def _create_web_experiment(self, name="Zero to Web Experiment"):
+    def _create_web_experiment(self, name="Zero to Web Experiment", project_id: int | None = None):
         return self.client.post(
-            f"/api/projects/{self.team.id}/web_experiments/",
+            f"/api/projects/{project_id or self.team.id}/web_experiments/",
             data={
                 "name": name,
                 "variants": {
@@ -70,10 +71,12 @@ class TestWebExperiment(APIBaseTest):
             ANY,
             "feature flag created",
             {
+                "feature_flag_id": linked_flag.id,
                 "groups_count": 1,
                 "has_variants": True,
                 "variants_count": 2,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [100],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": linked_flag.created_at,
@@ -85,7 +88,7 @@ class TestWebExperiment(APIBaseTest):
             request=ANY,
         )
 
-    @patch("products.experiments.backend.presentation.web_experiments.report_user_action")
+    @patch("products.experiments.backend.logic.web_experiments.report_user_action")
     def test_web_experiment_creation_reports_experiment_created(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()
@@ -200,6 +203,10 @@ class TestWebExperiment(APIBaseTest):
         deleted_experiment.deleted = True
         deleted_experiment.save()
 
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        other_response = self._create_web_experiment("Other Project Experiment", project_id=other_project.id)
+        assert other_response.status_code == status.HTTP_201_CREATED
+
         # List experiments via API - should only show active experiment
         list_response = self.client.get(f"/api/projects/{self.team.id}/web_experiments/")
         assert list_response.status_code == status.HTTP_200_OK
@@ -230,6 +237,20 @@ class TestWebExperiment(APIBaseTest):
         response_data = detail_response.json()
         assert response_data["id"] == experiment_id
         assert response_data["name"] == "Test Experiment"
+
+    @parameterized.expand([("retrieve", "get"), ("update", "patch"), ("destroy", "delete")])
+    def test_detail_routes_do_not_find_another_projects_web_experiment(self, _name: str, method: str) -> None:
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        other_id = self._create_web_experiment("Other project experiment", project_id=other_project.id).json()["id"]
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/web_experiments/{other_id}/",
+            data={"name": "Renamed", "variants": {"control": {"rollout_percentage": 100}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert WebExperiment.objects.get(id=other_id).name == "Other project experiment"
 
     def test_list_pages_experiments_with_equal_created_at(self):
         ids = [self._create_web_experiment(f"Experiment {index}").json()["id"] for index in range(3)]
@@ -524,11 +545,90 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
             ],
             ["iframe in html", {"selector": "#t", "html": '<iframe src="https://evil.com"></iframe>'}, "iframe"],
             ["object tag in html", {"selector": "#t", "html": "<object data=x></object>"}, "object"],
-            ["data:text/html in html", {"selector": "#t", "html": "data:text/html,<b>x</b>"}, "data:text/html"],
+            [
+                "data:text/html in html",
+                {"selector": "#t", "html": '<a href="data:text/html,<b>x</b>">x</a>'},
+                "data:text/html",
+            ],
+            [
+                "event handler in upper case after slash separator",
+                {"selector": "#t", "html": "<SVG/ONLOAD=alert(1)>"},
+                "event handler",
+            ],
+            [
+                "event handler without space",
+                {"selector": "#t", "html": '<img src="x"onerror=alert(1)>'},
+                "event handler",
+            ],
+            [
+                "javascript protocol with entities, mixed case and whitespace",
+                {"selector": "#t", "html": '<a href=" &#106;aVa&#x09;ScRiPt&#x0A;&#58;alert(1)">x</a>'},
+                "javascript:",
+            ],
+            [
+                "javascript protocol in svg animation values",
+                {"selector": "#t", "html": '<svg><animate attributeName="href" values="x;javascript:alert(1)"/></svg>'},
+                "javascript:",
+            ],
+            ["vbscript protocol in html", {"selector": "#t", "html": '<a href="vbscript:x">x</a>'}, "vbscript:"],
+            [
+                "markup hidden in a style comment",
+                {"selector": "#t", "html": "<style><!--</style><img src=x onerror=alert(1)>--></style>"},
+                "event handler",
+            ],
+            [
+                "markup hidden in an attribute value",
+                {"selector": "#t", "html": '<style><a title="</style><img src=x onerror=alert(1)>"></a></style>'},
+                "event handler",
+            ],
+            [
+                "markup hidden in an end tag attribute",
+                {"selector": "#t", "html": '<style></a title="</style><img src=x onerror=alert(1)>">'},
+                "event handler",
+            ],
+            [
+                "unterminated quoted start tag",
+                {"selector": "#t", "html": '<img src=x onerror=alert(1) title="x'},
+                "event handler",
+            ],
+            [
+                "markup inside svg style",
+                {"selector": "#t", "html": "<svg><style><img src=x onerror=alert(1)></style></svg>"},
+                "event handler",
+            ],
         ]
     )
     def test_rejects_xss_in_transform(self, _name: str, transform: dict, expected_substring: str) -> None:
         self._assert_invalid(_variants_with_test_transform(transform), expected_substring)
+
+    @parameterized.expand(
+        [
+            ["link and image", '<a href="https://example.com/?a=1&amp;b=2">Link</a><img src="/logo.png" alt="Logo">'],
+            ["relative and mailto links", '<a href="/pricing">Pricing</a> <a href="mailto:hi@example.com">Mail</a>'],
+            ["inline style and data attributes", '<p style="color: red" data-testid="hero">Buy now</p>'],
+            ["scheme words in a non-url attribute", '<span title="javascript is fun" class="online">x</span>'],
+            ["encoded markup in an attribute", '<span title="&lt;b&gt;bold&lt;/b&gt;">x</span>'],
+        ]
+    )
+    def test_accepts_safe_html_in_transform(self, _name: str, html: str) -> None:
+        serializer = WebExperimentsAPISerializer(
+            data={"name": "x", "variants": _variants_with_test_transform({"selector": "#t", "html": html})}
+        )
+        assert serializer.is_valid(), serializer.errors
+
+    @parameterized.expand(
+        [
+            ["start tags", "<b>x</b>" * 2600],
+            ["attributes in one tag", "<div " + " ".join(f"a{i}=x" for i in range(5001)) + "></div>"],
+        ]
+    )
+    def test_rejects_html_over_request_parse_budget(self, _name: str, html: str) -> None:
+        variants = {
+            "control": {"rollout_percentage": 50},
+            "test": {"rollout_percentage": 50, "transforms": [{"selector": "#a", "html": html}]},
+            "test2": {"rollout_percentage": 50, "transforms": [{"selector": "#b", "html": html}]},
+        }
+        self._assert_invalid(variants, "too much html")
 
     def test_rejects_missing_control_variant(self) -> None:
         self._assert_invalid({"test": {"rollout_percentage": 50}}, "control variant")
@@ -544,7 +644,7 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
         self._assert_invalid(variants, "selector")
 
     def test_validation_serializer_is_wired_to_viewset(self) -> None:
-        # Wiring guard (no DB): the ModelViewSet validates input through this serializer on
+        # Wiring guard (no DB): the viewset validates input through this serializer on
         # create/update, so the no-DB matrix above covers the real endpoint validation path.
         # If serializer_class is swapped or dropped, validation silently stops running.
         assert WebExperimentViewSet.serializer_class is WebExperimentsAPISerializer

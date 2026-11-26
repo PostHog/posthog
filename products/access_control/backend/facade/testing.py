@@ -1,13 +1,20 @@
 """Test-support facade for access_control.
 
-Test suites outside the product plant roles, role members and access control rows. They get
+Test suites outside the product plant roles, role members, access control rows and property
+access control rows. They get
 them here instead of importing the models.
 """
 
+from typing import Literal
 from uuid import UUID
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
+
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def create_role(*, organization_id: UUID, name: str) -> UUID:
@@ -46,3 +53,60 @@ def create_access_control(
         organization_member_id=organization_member_id,
         role_id=role_id,
     ).id
+
+
+def delete_access_control(*, team_id: int, access_control_id: UUID) -> None:
+    """Delete one access control row, signals and all, as the production delete does."""
+    AccessControl.objects.get(id=access_control_id, team_id=team_id).delete()
+
+
+def remove_role_member(*, organization_id: UUID, role_membership_id: UUID) -> None:
+    RoleMembership.objects.get(id=role_membership_id, role__organization_id=organization_id).delete()
+
+
+def create_property_access_control(
+    *,
+    team_id: int,
+    property_definition_id: UUID,
+    access_level: str,
+    organization_member_id: UUID | None = None,
+    role_id: UUID | None = None,
+) -> UUID:
+    return PropertyAccessControl.objects.create(
+        team_id=team_id,
+        property_definition_id=property_definition_id,
+        access_level=access_level,
+        organization_member_id=organization_member_id,
+        role_id=role_id,
+    ).id
+
+
+def delete_property_access_control_rule(*, team_id: int, property_access_control_id: UUID) -> None:
+    PropertyAccessControl.objects.get(id=property_access_control_id, team_id=team_id).delete()
+
+
+PropertyAccess = Literal["restricted", "granted", "admin"]
+
+
+def set_member_property_access(*, team: Team, membership: OrganizationMembership, access: PropertyAccess) -> None:
+    """Hide one event property from members of the team, then give `membership` the named access.
+
+    "restricted" leaves the member under the rule, "granted" gives the member read access back,
+    and "admin" makes the member an organization admin, whom property rules never restrict.
+    """
+    organization = team.organization
+    features = {feature["key"] for feature in organization.available_product_features or []}
+    if AvailableFeature.PROPERTY_ACCESS_CONTROL not in features:
+        organization.available_product_features = [
+            *(organization.available_product_features or []),
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        organization.save()
+    membership.level = OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
+    membership.save()
+    definition = PropertyDefinition.objects.create(team=team, name="private_note", type=PropertyDefinition.Type.EVENT)
+    PropertyAccessControl.objects.create(team=team, property_definition=definition, access_level="none")
+    if access == "granted":
+        PropertyAccessControl.objects.create(
+            team=team, property_definition=definition, organization_member=membership, access_level="read"
+        )

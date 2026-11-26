@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 from products.warehouse_sources.sources.sdk import (
     UNVERSIONED_API_VERSION,
+    DatetimeStyle,
     DependentEndpointConfig,
     IncrementalField,
     SortMode,
@@ -36,6 +37,9 @@ class CourierEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Request param carrying the server-side lower-bound timestamp filter.
     incremental_param: str | None = None
+    # How the watermark is written into `incremental_param`. None sends Python's `isoformat()`;
+    # set it where the endpoint rejects any timestamp form but the ones it documents.
+    incremental_param_style: DatetimeStyle | None = None
     # Stable datetime field to partition on; None disables partitioning.
     partition_key: str | None = None
     # Courier's list endpoints document no explicit sort param at all. Treated as newest-first
@@ -365,6 +369,78 @@ ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
             parent_field_renames={"id": "journey_id"},
             # A journey archived between the listing and this fetch 404s; skip that parent
             # rather than failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Runs of the Journeys we sync, for flow success and failure rates. `start_date` is a documented
+    # inclusive lower bound on `created_at`. A run's status keeps changing after it starts, and an
+    # incremental run does not revisit a run created before the watermark, so a full refresh is
+    # what keeps statuses current. Courier keeps runs for 95 days.
+    "JourneyRuns": CourierEndpointConfig(
+        name="JourneyRuns",
+        path="/journeys/runs",
+        data_selector="runs",
+        primary_keys=("run_id",),
+        incremental_fields=[incremental_field("created_at")],
+        incremental_param="start_date",
+        # Any form other than an ISO 8601 date or a `Z` timestamp returns 400.
+        incremental_param_style="iso_z_millis",
+        partition_key="created_at",
+        # Documented as newest first.
+        sort_mode="desc",
+        timestamp_fields=("created_at",),
+        cursor_path="next_cursor",
+        # Courier clamps `limit` to 50 on this endpoint.
+        page_size=50,
+    ),
+    # Runs of the (v2) Automations we sync. Same shape and filters as JourneyRuns, and the two
+    # endpoints never return each other's runs.
+    "AutomationRuns": CourierEndpointConfig(
+        name="AutomationRuns",
+        path="/automations/runs",
+        data_selector="runs",
+        primary_keys=("run_id",),
+        incremental_fields=[incremental_field("created_at")],
+        incremental_param="start_date",
+        incremental_param_style="iso_z_millis",
+        partition_key="created_at",
+        sort_mode="desc",
+        timestamp_fields=("created_at",),
+        cursor_path="next_cursor",
+        page_size=50,
+    ),
+    # One-off sends to a list or audience. No server-side timestamp filter, so full refresh only.
+    "Broadcasts": CourierEndpointConfig(
+        name="Broadcasts",
+        path="/broadcasts",
+        data_selector="results",
+        primary_keys=("id",),
+        partition_key="created_at",
+        # Documented as newest first.
+        sort_mode="desc",
+        timestamp_fields=("created_at", "updated_at", "archived_at"),
+    ),
+    # The templates a tenant overrides. No timestamp filter on the tenant walk or the template
+    # listing, so full refresh only.
+    "TenantTemplates": CourierEndpointConfig(
+        name="TenantTemplates",
+        path="/tenants/{tenant_id}/templates",
+        data_selector="items",
+        # A tenant template takes the id of the workspace template it overrides, so the id repeats
+        # across tenants. The entry carries no reference back to its tenant, so the parent's id is
+        # projected in.
+        primary_keys=("tenant_id", "id"),
+        partition_key="created_at",
+        timestamp_fields=("created_at", "updated_at", "published_at"),
+        cursor_path="cursor",
+        fanout=DependentEndpointConfig(
+            parent_name="Tenants",
+            resolve_param="tenant_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "tenant_id"},
+            # A tenant deleted between the listing and this fetch 404s; skip that parent rather
+            # than failing the whole fan-out.
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

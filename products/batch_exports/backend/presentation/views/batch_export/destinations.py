@@ -10,7 +10,7 @@ from rest_framework import serializers
 from posthog.integrations.fields import IntegrationReferenceField
 
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
+from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError, InvalidKeyError
 from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     BATCH_EXPORT_INTEGRATION_KINDS,
@@ -69,9 +69,8 @@ class BigQueryDestinationConfigSerializer(serializers.Serializer):
 class PostgresDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a PostgreSQL batch-export destination.
 
-    Connection credentials may live in a linked Integration (when one is provided) or
-    inline in this config (legacy). Mirrors the non-credential fields of
-    `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+    Connection credentials live in the linked Integration, never here. Mirrors the
+    non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
     """
 
     database = serializers.CharField(help_text="PostgreSQL database name to connect to.")
@@ -239,26 +238,9 @@ class SnowflakeDestinationConfigSerializer(serializers.Serializer):
     )
 
 
-_AWS_CREDENTIALS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "aws_access_key_id": {"type": "string"},
-        "aws_secret_access_key": {"type": "string"},
-    },
-    "required": ["aws_access_key_id", "aws_secret_access_key"],
-}
-
-
-@extend_schema_field(
-    {
-        "oneOf": [
-            {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
-            _AWS_CREDENTIALS_SCHEMA,
-        ],
-    }
-)
+@extend_schema_field({"type": "integer", "description": "ID of an aws-s3-kind Integration."})
 class RedshiftCopyBucketCredentialsField(serializers.JSONField):
-    """Inline AWS credentials or the id of an aws-s3-kind Integration."""
+    """AWS S3 integration ID."""
 
     pass
 
@@ -268,12 +250,11 @@ class RedshiftCopyBucketCredentialsField(serializers.JSONField):
         "oneOf": [
             {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
             {"type": "string", "description": "ARN of an IAM role attached to the Redshift cluster."},
-            _AWS_CREDENTIALS_SCHEMA,
         ],
     }
 )
 class RedshiftCopyAuthorizationField(serializers.JSONField):
-    """IAM role ARN, inline AWS credentials, or the id of an aws-s3-kind Integration."""
+    """IAM role ARN or AWS S3 integration ID."""
 
     pass
 
@@ -286,15 +267,11 @@ class RedshiftCopyInputsSerializer(serializers.Serializer):
     s3_key_prefix = serializers.CharField(help_text="Key prefix for staged files in the S3 bucket.")
     authorization = RedshiftCopyAuthorizationField(
         help_text=(
-            "Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached "
-            "to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration."
+            "Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID."
         ),
     )
     bucket_credentials = RedshiftCopyBucketCredentialsField(
-        help_text=(
-            "Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an "
-            "aws-s3-kind Integration."
-        ),
+        help_text=("AWS S3 integration ID used to stage files in the S3 bucket."),
     )
 
 
@@ -306,8 +283,7 @@ class RedshiftExportMode(models.TextChoices):
 class RedshiftDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a Redshift batch-export destination.
 
-    Connection credentials may live in a linked Integration (when one is provided) or inline in
-    this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+    Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
     `products/batch_exports/backend/service.py`.
     """
 
@@ -503,8 +479,7 @@ class BatchExportDestinationRequestField(serializers.JSONField):
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
     S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
-    every one of them. Existing Postgres and Redshift exports created before integrations keep
-    their inline credentials and stay valid when edited. Runtime validation remains
+    every one of them. Runtime validation remains
     `BatchExportDestinationSerializer.validate_destination`.
     """
 
@@ -561,7 +536,7 @@ class BatchExportDestinationSerializer(serializers.Serializer):
             attrs["config"] = batch_exports_api.validate_destination_config(
                 attrs["type"], attrs["config"], partial=partial
             )
-        except InvalidDestinationConfigError as e:
+        except (InvalidDestinationConfigError, InvalidKeyError) as e:
             raise serializers.ValidationError(str(e))
 
         return attrs

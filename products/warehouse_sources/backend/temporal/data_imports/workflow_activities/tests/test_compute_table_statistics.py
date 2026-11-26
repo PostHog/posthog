@@ -773,6 +773,71 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
+    def test_truncates_a_column_name_too_long_for_the_db(self) -> None:
+        # A deeply nested source schema can produce a column name longer than the 400-char limit
+        # on WarehouseColumnStatistics.column_name; the whole table's stats write must not fail for it.
+        long_name = "deeply_nested_field_" * 25
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team, columns={long_name: {"clickhouse": "Nullable(Int64)"}})
+        add_actions = pa.table(
+            {
+                "num_records": [10],
+                f"null_count.{long_name}": [1],
+                f"min.{long_name}": [2],
+                f"max.{long_name}": [9],
+            }
+        )
+        with patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id)
+        assert len(stat.column_name) == comp.COLUMN_NAME_DB_MAX_LENGTH
+        assert stat.min_value == "2"
+
+    @pytest.mark.parametrize(
+        "saved_during",
+        [
+            pytest.param("_aggregate_add_action_stats", id="mask_saved_during_the_read"),
+            pytest.param("_upsert_statistics", id="mask_saved_during_the_writes"),
+        ],
+    )
+    def test_a_masked_column_keeps_its_counts_but_stores_no_bounds(self, saved_during: str) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(
+            team, columns={"amount": {"clickhouse": "Nullable(Int64)"}, "email": {"clickhouse": "Nullable(String)"}}
+        )
+        add_actions = pa.table(
+            {
+                "num_records": [10],
+                "null_count.amount": [0],
+                "min.amount": [2],
+                "max.amount": [9],
+                "null_count.email": [1],
+                "min.email": ["a@example.com"],
+                "max.email": ["z@example.com"],
+            }
+        )
+        original = getattr(comp, saved_during)
+
+        def save_mask_then_continue(*args: Any) -> Any:
+            # The profiler loaded the schema before this save, so it must read the masks again.
+            ExternalDataSchema.objects.filter(id=schema.id).update(masked_columns=["Email"])
+            return original(*args)
+
+        with (
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+            patch.object(comp, saved_during, save_mask_then_continue),
+        ):
+            compute_table_statistics_sync(team.id, schema.id)
+
+        stats = {
+            s.column_name: s for s in WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id)
+        }
+        assert (stats["email"].null_count, stats["email"].min_value, stats["email"].max_value) == (1, None, None)
+        assert stats["email"].has_min_max is False
+        assert (stats["amount"].min_value, stats["amount"].max_value) == ("2", "9")
+
     def test_recovers_from_stale_connection_during_write(self) -> None:
         # The Delta-log read can run long enough for the pooled connection opened by the earlier
         # metadata queries to go stale before the write loop runs, raising OperationalError on the

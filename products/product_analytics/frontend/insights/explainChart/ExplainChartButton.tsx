@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import type { InsightLogicProps } from '~/types'
@@ -12,13 +12,19 @@ import type { InsightLogicProps } from '~/types'
 import { explainChartLogic } from './explainChartLogic'
 
 export function ExplainChartButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
-    const { explainAvailable, storyVisible, investigating, consentRequested, explainDisabledReason } = useValues(
-        explainChartLogic(insightProps)
-    )
+    const {
+        storyAvailable,
+        explainAvailable,
+        story,
+        storyVisible,
+        investigating,
+        consentRequested,
+        explainDisabledReason,
+    } = useValues(explainChartLogic(insightProps))
     const { explainClicked, approveConsent, dismissConsent } = useActions(explainChartLogic(insightProps))
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
-    if (!explainAvailable) {
+    if (!explainAvailable && !(storyAvailable && story)) {
         return null
     }
     const label = investigating ? 'Investigating…' : 'Explain this chart'
@@ -29,7 +35,7 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
             onApprove={approveConsent}
             onDismiss={dismissConsent}
         >
-            {todayRailNav ? (
+            {quillSurface ? (
                 <span data-quill>
                     <Button
                         variant="outline"

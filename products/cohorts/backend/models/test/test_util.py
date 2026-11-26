@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime
 from typing import Any, cast
 
 from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
@@ -16,6 +18,7 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.hogql.constants import FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.api.cohort import CohortFilters
@@ -30,7 +33,7 @@ from posthog.exceptions import (
 )
 from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
@@ -39,15 +42,19 @@ from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     ERROR_CODE_MESSAGES,
+    STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     _recalculate_cohortpeople_for_team,
     _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
+    count_cohort_members,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
     insert_cohort_filter_actors_into_ch,
+    insert_cohort_people_into_pg,
     insert_cohort_query_actors_into_ch,
     legacy_groups_to_filters,
     parse_error_code,
@@ -57,6 +64,8 @@ from products.cohorts.backend.models.util import (
     sort_cohorts_topologically,
     validate_actors_query_for_cohort,
 )
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 MISSING_COHORT_ID = 12345
 
@@ -562,13 +571,92 @@ class TestCohortUtils(BaseTest):
             query={"kind": "ActorsQuery", "search": "example.com"},
         )
 
-        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+        self.assertEqual(insert_cohort_query_actors_into_ch(cohort, team=self.team), 1)
+        self.assertEqual(insert_cohort_query_actors_into_ch(cohort, team=self.team), 0)
 
         rows = sync_execute(
             f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
             {"team_id": self.team.id, "cohort_id": cohort.id},
         )
         self.assertEqual(rows[0][0], 1)
+
+    def test_insert_by_query_skips_actors_without_a_person(self):
+        from products.cohorts.backend.models.util import insert_actors_into_cohort_by_query
+
+        cohort = Cohort.objects.create(team=self.team, name="query cohort", is_static=True)
+        member = uuid.uuid4()
+
+        written = insert_actors_into_cohort_by_query(
+            cohort,
+            "SELECT arrayJoin([toUUID(%(member)s), toUUID('00000000-0000-0000-0000-000000000000')]) AS actor_id",
+            {"member": str(member)},
+            HogQLContext(team_id=self.team.id),
+            team_id=self.team.id,
+        )
+
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.id},
+        )
+        self.assertEqual((written, rows), (1, [(member,)]))
+
+    def test_copy_to_postgres_rereads_until_it_has_seen_the_rows_it_wrote(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        person = _create_person(team_id=self.team.id, distinct_ids=["person"], uuid=uuid.uuid4())
+        flush_persons_and_events()
+
+        # The first pass reads an empty replica. The second pass reads the row, then the empty page that ends it.
+        with (
+            patch(
+                "products.cohorts.backend.models.util.sync_execute",
+                side_effect=[[], [(str(person.uuid), 1, 0)], []],
+            ),
+            patch("products.cohorts.backend.models.util.time.sleep"),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        self.assertEqual(cohort.count, 1)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
+
+    def test_copy_to_postgres_fails_when_the_written_rows_never_appear(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", return_value=[]),
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            self.assertRaises(StaticCohortReadBackIncomplete),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], list(STATIC_COHORT_READ_BACK_WAITS_SECONDS))
+
+    def test_copy_to_postgres_does_not_count_existing_members_as_the_rows_it_wrote(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        existing = _create_person(team_id=self.team.id, distinct_ids=["existing"], uuid=uuid.uuid4())
+        added = _create_person(team_id=self.team.id, distinct_ids=["added"], uuid=uuid.uuid4())
+        flush_persons_and_events()
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), existing.uuid, cohort.pk, self.team.id, datetime(2026, 1, 1))],
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.time.sleep"),
+            self.assertRaises(StaticCohortReadBackIncomplete),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
+
+        # A retry queued before written_since existed counts every row.
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
+
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), added.uuid, cohort.pk, self.team.id, datetime(2026, 6, 1))],
+        )
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
+
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 2)
 
     def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
@@ -766,6 +854,70 @@ class TestCohortUtils(BaseTest):
         settings = execute.call_args.kwargs["settings"]
         self.assertEqual(settings["json_type_escape_dots_in_keys"], 1)
         self.assertEqual(settings["output_format_json_escape_forward_slashes"], 0)
+
+    def _assert_flag_call_memory_capped(self, settings: dict[str, Any]) -> None:
+        cap = FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
+        self.assertEqual(settings["max_memory_usage"], cap)
+        self.assertEqual(settings["max_bytes_before_external_group_by"], cap // 2)
+        self.assertEqual(settings["max_bytes_before_external_sort"], cap // 2)
+
+    def test_recalculation_caps_memory_for_a_cohort_that_reads_a_feature_property_on_mode_2(self):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="saw new-checkout",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag_called",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "event_filters": [
+                                        {
+                                            "key": "$feature/new-checkout",
+                                            "type": "event",
+                                            "value": "true",
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        history = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=timezone.now()
+        )
+
+        with (
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
+            patch("products.cohorts.backend.models.util.sync_execute", return_value=0) as execute,
+        ):
+            _recalculate_cohortpeople_for_team_hogql(cohort, 1, self.team, history)
+        self._assert_flag_call_memory_capped(execute.call_args.kwargs["settings"])
+
+    def test_insert_actors_into_cohort_by_query_caps_memory_when_the_context_marks_a_flag_call_read(self):
+        from products.cohorts.backend.models.util import insert_actors_into_cohort_by_query
+
+        cohort = Cohort.objects.create(team=self.team, name="Static Query Cohort", is_static=True)
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True, cap_flag_call_memory=True)
+
+        with patch("products.cohorts.backend.models.util.sync_execute") as execute:
+            insert_actors_into_cohort_by_query(cohort, "SELECT 1", {}, context, team_id=self.team.id)
+        self._assert_flag_call_memory_capped(execute.call_args.kwargs["settings"])
 
     def test_print_cohort_hogql_query_with_select_star_raises_error(self):
         """Test that SELECT * queries without explicit ID columns raise an error"""
@@ -1098,15 +1250,18 @@ class TestCohortUtils(BaseTest):
     def test_print_cohort_hogql_query_supports_multi_column_aliased_and_aggregating_queries(
         self, _name: str, hogql_query: str
     ):
+        # Person rows outlive each test in ClickHouse, so a fixed uuid could pick up another test's properties.
         p_with_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_domain_{_name}"],
             properties={"email": f"with_{_name}@example.com", "domain": "example.com"},
+            uuid=uuid.uuid4(),
         )
-        _create_person(
+        p_without_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_nodomain_{_name}"],
             properties={"email": f"without_{_name}@example.com"},
+            uuid=uuid.uuid4(),
         )
         flush_persons_and_events()
 
@@ -1130,7 +1285,9 @@ class TestCohortUtils(BaseTest):
                 f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
                 {"team_id": self.team.id, "cohort_id": cohort.id},
             )
-            self.assertEqual([str(r[0]) for r in rows], [str(p_with_domain.uuid)])
+            member_ids = {str(r[0]) for r in rows}
+            self.assertIn(str(p_with_domain.uuid), member_ids)
+            self.assertNotIn(str(p_without_domain.uuid), member_ids)
 
     def test_print_cohort_hogql_query_with_multi_column_distinct_id_query(self):
         from posthog.hogql import ast

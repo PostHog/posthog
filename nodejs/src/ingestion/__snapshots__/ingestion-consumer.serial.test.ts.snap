@@ -161,6 +161,7 @@ exports[`IngestionConsumer general should not blend person properties from 2 dif
 [
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -190,6 +191,7 @@ exports[`IngestionConsumer general should not blend person properties from 2 dif
 [
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -246,6 +248,7 @@ exports[`IngestionConsumer general should process a cookieless event 1`] = `
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -302,6 +305,7 @@ exports[`IngestionConsumer general should process a standard event 1`] = `
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -346,6 +350,7 @@ exports[`IngestionConsumer typical event processing $identify event 1`] = `
   },
   {
     "headers": {
+      "event": "$identify",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -402,6 +407,7 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
   },
   {
     "headers": {
+      "event": "$ai_generation",
       "productTrack": "llma",
       "team_id": "2",
     },
@@ -443,6 +449,7 @@ exports[`IngestionConsumer typical event processing event with common distinct_i
 [
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -529,6 +536,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -553,6 +561,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -577,6 +586,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
   },
   {
     "headers": {
+      "event": "$identify",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -601,6 +611,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -670,6 +681,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
   },
   {
     "headers": {
+      "event": "$groupidentify",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -694,6 +706,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
   },
   {
     "headers": {
+      "event": "$groupidentify",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -718,6 +731,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -774,6 +788,7 @@ exports[`IngestionConsumer typical event processing malformed event 1`] = `
   },
   {
     "headers": {
+      "event": "",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -815,6 +830,7 @@ exports[`IngestionConsumer typical event processing malformed person information
 [
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -871,6 +887,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
 [
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -907,6 +924,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
   },
   {
     "headers": {
+      "event": "$identify",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -931,6 +949,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -1017,6 +1036,7 @@ exports[`IngestionConsumer typical event processing normal event 1`] = `
   },
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -1058,6 +1078,7 @@ exports[`IngestionConsumer typical event processing person processing off 1`] = 
 [
   {
     "headers": {
+      "event": "$pageview",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -1087,6 +1108,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
 [
   {
     "headers": {
+      "event": "custom event",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -1135,6 +1157,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
   },
   {
     "headers": {
+      "event": "custom event",
       "productTrack": "general",
       "team_id": "2",
     },
@@ -1159,6 +1182,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
   },
   {
     "headers": {
+      "event": "$create_alias",
       "productTrack": "general",
       "team_id": "2",
     },

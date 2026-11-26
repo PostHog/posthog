@@ -37,6 +37,11 @@ const S3CompatibleSetupModal = lazyWithRetry(() =>
         default: module.S3CompatibleSetupModal,
     }))
 )
+const MotherDuckSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/motherduck/MotherDuckSetupModal').then((module) => ({
+        default: module.MotherDuckSetupModal,
+    }))
+)
 const SnowflakeSetupModal = lazyWithRetry(() =>
     import('scenes/integrations/snowflake/SnowflakeSetupModal').then((module) => ({
         default: module.SnowflakeSetupModal,
@@ -101,9 +106,10 @@ registerIntegrationSetup({
         label: 'Configure new PostgreSQL connection',
         onClick: () => openModal('postgresql'),
     }),
-    SetupModal: ({ isOpen, integration, onComplete }) => (
-        <PostgreSQLSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    SetupModal: ({ isOpen, integration, locked, onComplete }) => (
+        <PostgreSQLSetupModal isOpen={isOpen} integration={integration} locked={locked} onComplete={onComplete} />
     ),
+    vendorConfigKeys: { host: 'host', port: 'port', user: 'user' },
 })
 
 registerIntegrationSetup({
@@ -178,5 +184,16 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <SnowflakeSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'motherduck',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new MotherDuck connection',
+        onClick: () => openModal('motherduck'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <MotherDuckSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })

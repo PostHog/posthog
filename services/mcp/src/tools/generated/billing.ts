@@ -98,6 +98,11 @@ const billingOverviewGet = (): ToolBase<
             'products.*.addons.*.trial',
             'products.*.addons.*.inclusion_only',
             'products.*.addons.*.legacy_product',
+            'products.*.description',
+            'products.*.addons.*.description',
+            'available_product_features.*.description',
+            'available_product_features.*.note',
+            'available_product_features.*.is_plan_default',
         ]) as typeof result
         return filtered
     },
@@ -184,12 +189,12 @@ const BillingSpendGetSchema = () => {
 
 const billingSpendGet = (): ToolBase<
     ReturnType<typeof BillingSpendGetSchema>,
-    WithInformationalResponse<Schemas.BillingTimeSeriesResponse>
+    WithInformationalResponse<Schemas.BillingSpendTimeSeriesResponse>
 > => ({
     name: 'billing-spend-get',
     schema: BillingSpendGetSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof BillingSpendGetSchema>>) => {
-        const result = await context.api.request<Schemas.BillingTimeSeriesResponse>({
+        const result = await context.api.request<Schemas.BillingSpendTimeSeriesResponse>({
             method: 'GET',
             path: `/api/billing/spend/`,
             query: {
@@ -253,13 +258,13 @@ const BillingSpendTimeseriesGetSchema = () => {
 
 const billingSpendTimeseriesGet = (): ToolBase<
     ReturnType<typeof BillingSpendTimeseriesGetSchema>,
-    WithInformationalResponse<Schemas.PaginatedBillingTimeSeriesPointList>
+    WithInformationalResponse<Schemas.PaginatedBillingSpendTimeSeriesList>
 > => ({
     name: 'billing-spend-timeseries-get',
     schema: BillingSpendTimeseriesGetSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof BillingSpendTimeseriesGetSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedBillingTimeSeriesPointList>({
+        const result = await context.api.request<Schemas.PaginatedBillingSpendTimeSeriesList>({
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/spend/timeseries/`,
             query: {

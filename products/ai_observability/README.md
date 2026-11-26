@@ -12,7 +12,11 @@ should also read [AGENTS.md](./AGENTS.md) for product-specific rules.
 ```txt
 products/ai_observability/
   backend/                # Django app (label: llm_analytics)
-    api/                  # DRF viewsets (one file per resource;
+    presentation/views/   # Thin DRF viewsets that call the facade
+    facade/               # Public entry points (api.py) and contracts
+    logic/                # Behavior and data access, one folder per concept
+    temporal/             # Temporal workflows and activities
+    api/                  # Older DRF viewsets (one file per resource;
                           # api/__init__.py is the canonical inventory)
     llm/                  # Unified LLM client
       client.py           # Single entry point for provider calls
@@ -25,18 +29,19 @@ products/ai_observability/
     translation/
     text_repr/            # Text-representation formatters for events
     tools/                # Shared backend tools
-    test/
+    test/                 # Tests for the older code
+    tests/                # Tests for the layered code, one folder per layer
   frontend/               # React + kea
+    redesign/             # Layered frontend: logics, hosts, components
     components/           # Reusable UI
     <feature>/            # clusters, datasets, evaluations, playground,
                           # prompts, settings, traceReviews,
                           # scoreDefinitions, skills, ...
     generated/            # Generated types (do not edit)
   mcp/                    # MCP tool definitions
-  dags/                   # Dagster jobs + metrics
   skills/                 # Agent skills scoped to the product
-  docs/                   # Product-level docs (architecture decision records)
-  shared/                 # Cross-frontend/backend constants, schemas
+  docs/                   # Product decision records (created with the first one)
+  shared/                 # Constants and schemas shared across frontend, backend, capture and ingestion (crosslang/)
   manifest.tsx            # Scene + navigation registration
   package.json            # Turborepo package (@posthog/products-ai-observability)
 ```
@@ -72,4 +77,4 @@ hogli build:openapi
 ## Further reading
 
 - [AGENTS.md](./AGENTS.md) — product-specific conventions.
-- [products/architecture.md](../architecture.md) — target architecture for products (facades, contracts, isolation). This product has not yet been migrated.
+- [products/architecture.md](../architecture.md) — target architecture for products (facades, contracts, isolation). [AGENTS.md](./AGENTS.md) says which parts of this product follow it.

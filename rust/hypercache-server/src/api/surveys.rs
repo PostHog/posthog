@@ -2,7 +2,7 @@ use crate::{
     config_cache::{get_cached_data, CacheNamespace},
     router::State as AppState,
     sanitize::sanitize_surveys_for_client,
-    token::{Token, TokenError},
+    token::{loggable_token, Token, TokenError},
 };
 use axum::{
     extract::{Query, State},
@@ -49,7 +49,7 @@ pub async fn surveys_endpoint(
 ) -> Response {
     info!(
         method = %method,
-        token = ?params.token,
+        token = ?params.token.as_deref().map(loggable_token),
         "Processing surveys request"
     );
 

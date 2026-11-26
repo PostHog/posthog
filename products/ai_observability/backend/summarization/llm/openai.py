@@ -25,8 +25,13 @@ class SummarizationFailedError(exceptions.APIException, NonReportableError):
     pass
 
 
-def _is_gpt5_model(model: OpenAIModel) -> bool:
-    return str(model).startswith("gpt-5")
+def _reasoning_effort(model: OpenAIModel) -> Literal["minimal", "low"] | Omit:
+    if str(model).startswith("gpt-5"):
+        return "minimal"
+    # gpt-6 has no "minimal" tier, so "low" is its cheapest.
+    if str(model).startswith("gpt-6"):
+        return "low"
+    return omit
 
 
 def _provider_status(error: Exception) -> int | None:
@@ -67,7 +72,6 @@ def summarize_with_openai(
     """Generate summary using OpenAI API via LLM gateway with structured outputs."""
     resolved_distinct_id = user_id or team_distinct_id(team_id)
     client = build_openai_client(
-        "llma_summarization",
         ai_product="aio_summarization",
         properties={"team_id": str(team_id)},
         distinct_id=resolved_distinct_id,
@@ -78,13 +82,13 @@ def summarize_with_openai(
         {"role": "user", "content": load_summarization_template("prompts/user.djt", {"text_repr": text_repr})},
     ]
 
-    # gpt-5 models spend hidden reasoning tokens that bill as output. Minimal effort removes
-    # them without changing the visible summary volume. Family-wide on purpose, unlike the
-    # flex allowlist: every gpt-5 reasoning model wants minimal effort for this task, and a
-    # new one silently paying reasoning tokens is the costlier default mistake.
+    # Reasoning models spend hidden reasoning tokens that bill as output. The lowest effort
+    # removes most of them without changing the visible summary volume. Family-wide on purpose,
+    # unlike the flex allowlist: a new reasoning model silently paying reasoning tokens is the
+    # costlier default mistake.
     # Both kwargs go through the SDK's typed signature; `omit` leaves the field out of the
     # request entirely, where None would send an explicit null.
-    reasoning_effort: Literal["minimal"] | Omit = "minimal" if _is_gpt5_model(model) else omit
+    reasoning_effort = _reasoning_effort(model)
 
     def _create(request_client: OpenAI, service_tier: Literal["flex"] | Omit, timeout: float) -> ChatCompletion:
         return request_client.chat.completions.create(

@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { PreflightStatus, UserType } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import { webmcpExecCreate } from '../generated/api'
 import type { WebMCPExecResultApi } from '../generated/api.schemas'
@@ -75,10 +76,10 @@ export interface webmcpLogicActions {
         value: true
     } // sceneRenderedLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     registerTool: () => {

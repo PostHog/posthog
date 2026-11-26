@@ -112,7 +112,7 @@ class OnepagecrmPaginator(PageNumberPaginator):
 
     def _read_max_page(self, response: Response) -> Optional[int]:
         try:
-            values = find_values(self.total_path, response.json())
+            values = find_values(self.total_path, response.json()) if self.total_path else []
         except Exception:
             return None
         if values and isinstance(values[0], int):

@@ -14,7 +14,6 @@ class TestAITemporalModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected workflows are present in the module."""
         expected_workflows = [
-            "SyncVectorsWorkflow",
             "AssistantConversationRunnerWorkflow",
             "ChatAgentWorkflow",
             "ConversationMirrorWorkflow",
@@ -40,9 +39,6 @@ class TestAITemporalModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected activities are present in the module."""
         expected_activities = [
-            "get_approximate_actions_count",
-            "batch_summarize_actions",
-            "batch_embed_and_sync_actions",
             "process_conversation_activity",
             "process_chat_agent_activity",
             "mirror_conversation_to_task_activity",
@@ -70,7 +66,6 @@ class TestAITemporalModuleIntegrity:
     def test_all_exports_remain_unchanged(self):
         """Ensure __all__ exports remain unchanged."""
         expected_exports = [
-            "SyncVectorsInputs",
             "SummarizeLLMTracesInputs",
         ]
         actual_exports = ai.__all__
@@ -98,6 +93,8 @@ class TestSignalsProductModuleIntegrity:
             "BackfillErrorTrackingWorkflow",
             "TeamSignalGroupingWorkflow",
             "TeamSignalGroupingV2Workflow",
+            "SignalGroupingRecordCleanupWorkflow",
+            "SignalSpendCleanupWorkflow",
             "BufferSignalsWorkflow",
             "SignalEmitterWorkflow",
             "SignalReportSummaryWorkflow",
@@ -114,6 +111,7 @@ class TestSignalsProductModuleIntegrity:
             "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
+            "MonitorPRWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -128,6 +126,8 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "check_signals_ai_consent_activity",
+            "discard_signal_batches_activity",
             "update_signal_spend_activity",
             "poll_monitoring_assessment_activity",
             "exhaust_monitoring_assessment_activity",
@@ -143,6 +143,9 @@ class TestSignalsProductModuleIntegrity:
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
+            "assigned_signal_ids_activity",
+            "delete_expired_grouping_records_activity",
+            "delete_expired_spend_activity",
             "complete_signal_grouping_activity",
             "capture_signal_dropped_activity",
             "check_signals_quota_limited_activity",
@@ -189,6 +192,7 @@ class TestSignalsProductModuleIntegrity:
             "wait_for_signal_in_clickhouse_activity",
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
+            "drain_pending_workflow_triggers_activity",
             "run_due_signal_report_checks_activity",
             "evaluate_signals_scout_precheck_activity",
             "check_signals_scout_config_runnable_activity",
@@ -208,6 +212,8 @@ class TestSignalsProductModuleIntegrity:
             "run_scout_suggestions_activity",
             "stamp_requested_scout_suggestions_activity",
             "run_custom_signal_agent_activity",
+            "research_monitored_pr_activity",
+            "fail_monitored_pr_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

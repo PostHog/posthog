@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import dataclasses
 from collections.abc import Callable, Generator, Iterable
 from typing import Optional, cast
 
@@ -10,6 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    CTETable,
     DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -26,8 +28,8 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
 )
-from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
-from posthog.hogql.escape_sql import escape_hogql_identifier, quote_hogql_identifier
+from posthog.hogql.errors import AmbiguousFieldError, QueryError, ResolutionError, SyntaxError
+from posthog.hogql.escape_sql import backquote_clickhouse_identifier, escape_hogql_identifier, quote_hogql_identifier
 
 # Bounds the message for wide warehouse tables. A longer list stops helping the reader pick a column.
 MAX_LISTED_FIELD_NAMES = 30
@@ -40,14 +42,11 @@ def lookup_field_by_name(
 
     if isinstance(scope, ast.SelectSetQueryType):
         field: Optional[ast.Type] = None
-        field_sources: list[str] = []
-        for index, select_type in enumerate(scope.types, start=1):
+        for select_type in scope.types:
             new_field = lookup_field_by_name(select_type, name, context)
             if new_field:
                 if field:
-                    field_sources.append(_select_set_type_source_name(index))
-                    raise _ambiguous_field_resolution_error(name, field_sources)
-                field_sources.append(_select_set_type_source_name(index))
+                    raise AmbiguousFieldError(name, [], "Qualify the field in the SELECT that uses it.")
                 field = new_field
         return field
 
@@ -61,10 +60,17 @@ def lookup_field_by_name(
         tables_with_field = [table for _, table in named_tables] + anonymous_tables
 
         if len(tables_with_field) > 1:
-            field_sources = [
-                _table_source_name(table, context, alias=table_alias) for table_alias, table in named_tables
-            ] + [_anonymous_table_source_name(table, index) for index, table in enumerate(anonymous_tables, start=1)]
-            raise _ambiguous_field_resolution_error(name, field_sources)
+            source_aliases = [
+                alias
+                for alias, _ in named_tables
+                if not scope.implicit_table_aliases or alias not in scope.implicit_table_aliases
+            ]
+            hint = (
+                "Give unnamed sources an alias, then use a qualified field name."
+                if len(source_aliases) < len(tables_with_field)
+                else "Use a qualified field name."
+            )
+            raise AmbiguousFieldError(name, source_aliases, hint)
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name, context)
 
@@ -74,44 +80,18 @@ def lookup_field_by_name(
         return None
 
 
-def _ambiguous_field_resolution_error(name: str, field_sources: list[str]) -> ResolutionError:
-    source_names = ", ".join(f"{source}.{name}" for source in field_sources)
-    return ResolutionError(
-        f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). Use a qualified field name."
-    )
+def qualified_field_suggestion(source: str, name: str) -> str:
+    try:
+        from posthog.hogql.parser import parse_expr  # noqa: PLC0415 -- the parser imports the AST
 
-
-def _table_source_name(table: ast.TableOrSelectType, context: HogQLContext, *, alias: str | None = None) -> str:
-    if alias:
-        return alias
-
-    if isinstance(
-        table,
-        ast.TableAliasType
-        | ast.ColumnAliasedTableType
-        | ast.SelectViewType
-        | ast.CTETableAliasType
-        | ast.SelectQueryAliasType,
-    ):
-        return table.alias
-    if isinstance(table, ast.CTETableType):
-        return table.name
-
-    if isinstance(table, ast.TableType | ast.LazyTableType):
-        try:
-            return table.resolve_database_table(context).to_printed_hogql()
-        except Exception:
-            return "source"
-
-    return "source"
-
-
-def _anonymous_table_source_name(_table: ast.SelectQueryType | ast.SelectSetQueryType, index: int) -> str:
-    return f"anonymous source {index}"
-
-
-def _select_set_type_source_name(index: int) -> str:
-    return f"query source {index}"
+        candidate = f"{quote_hogql_identifier(source)}.{quote_hogql_identifier(name)}"
+        parsed = parse_expr(candidate)
+        if isinstance(parsed, ast.Field) and parsed.chain == [source, name]:
+            return candidate
+    except Exception:
+        # Formatting is best effort. A parser failure must not hide the original query error.
+        pass
+    return f"{backquote_clickhouse_identifier(source)}.{backquote_clickhouse_identifier(name)}"
 
 
 def _names_on_table_type(
@@ -216,6 +196,17 @@ def suggest_field_names(
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
+def zero_argument_function_call(name: str) -> Optional[str]:
+    """`name()` when `name` is a function that can be called with no arguments, such as `today`."""
+    # Imported here because `ast` imports this module and the functions package imports the parser
+    from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
+
+    meta = find_hogql_function(name) or find_hogql_aggregation(name) or find_hogql_posthog_function(name)
+    if meta is None or meta.min_args != 0:
+        return None
+    return f"{name}()"
+
+
 def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
     """Replacement text for the range `node` marks, or None when no edit is safe to offer.
 
@@ -289,19 +280,20 @@ def lookup_table_by_nested_name(
     return match
 
 
+def table_folds_identifier_case(table: Table, alias: Optional[str] = None) -> bool:
+    """Whether the resolver matches a qualifier to `table` in any case. An explicit `alias` keeps the user's exact
+    spelling, so only an alias that re-spells the table's own name counts."""
+    if not getattr(table, "case_insensitive_identifiers", False):
+        return False
+    return alias is None or (table.name is not None and table.name.lower() == alias.lower())
+
+
 def _folds_identifier_case(table_type: ast.TableOrSelectType) -> bool:
     if isinstance(table_type, ast.TableType):
-        return getattr(table_type.table, "case_insensitive_identifiers", False)
+        return table_folds_identifier_case(table_type.table)
     # A table referenced with different casing than discovery registers as an implicit alias.
-    # Fold only that re-spelling; an explicit alias keeps the user's exact name.
-    if isinstance(table_type, ast.TableAliasType):
-        inner = table_type.table_type
-        return (
-            isinstance(inner, ast.TableType)
-            and getattr(inner.table, "case_insensitive_identifiers", False)
-            and inner.table.name is not None
-            and inner.table.name.lower() == table_type.alias.lower()
-        )
+    if isinstance(table_type, ast.TableAliasType) and isinstance(table_type.table_type, ast.TableType):
+        return table_folds_identifier_case(table_type.table_type.table, table_type.alias)
     return False
 
 
@@ -390,6 +382,14 @@ def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Gene
             yield from extract_select_queries(select_query.select_query)
 
 
+def projecting_select_type(table_type: ast.TableOrSelectType) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
+    if isinstance(table_type, ast.CTETableAliasType):
+        table_type = table_type.cte_table_type
+    if isinstance(table_type, (ast.SelectQueryAliasType, ast.CTETableType)):
+        table_type = table_type.select_query_type
+    return table_type if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)) else None
+
+
 def _collect_table_types(
     select_type: ast.SelectQueryType | ast.SelectSetQueryType, wanted: tuple[type, ...]
 ) -> list[ast.BaseTableType]:
@@ -467,6 +467,22 @@ def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) ->
         return UnknownDatabaseField(name=name, nullable=nullable)
 
 
+def _cte_property_alias_source(
+    name: str,
+    alias: ast.FieldAliasType,
+    fields: dict[str, FieldOrTable],
+    context: HogQLContext,
+) -> FieldOrTable:
+    if alias.cte_source_field is not None:
+        return alias.cte_source_field
+    _recursively_resolve_column(name, alias.type, fields, context)
+    source = fields[name]
+    if isinstance(source, DatabaseField):
+        # Retyping another column clears the CTE table cache. On rebuild, lazy joins may have replaced this field.
+        alias.cte_source_field = source
+    return source
+
+
 def _recursively_resolve_column(
     name: str,
     column: ast.Type,
@@ -474,7 +490,20 @@ def _recursively_resolve_column(
     context: HogQLContext,
 ) -> None:
     if isinstance(column, ast.FieldAliasType):
-        return _recursively_resolve_column(name, column.type, fields, context)
+        constant_type = column.constant_type
+        if not isinstance(column.type, ast.PropertyType):
+            if constant_type is None:
+                return _recursively_resolve_column(name, column.type, fields, context)
+            fields[name] = _constant_type_to_database_field(name, constant_type)
+            return
+
+        source = _cte_property_alias_source(name, column, fields, context)
+        if constant_type is None:
+            fields[name] = source
+            return
+        if isinstance(source, DatabaseField):
+            constant_type = dataclasses.replace(constant_type, nullable=source.is_nullable())
+        fields[name] = _constant_type_to_database_field(name, constant_type)
     elif isinstance(column, ast.FieldType):
         db_field = column.resolve_database_field(context)
         if db_field:
@@ -552,4 +581,4 @@ def _build_cte_database_table(
     for name, column in columns.items():
         _recursively_resolve_column(name, column, fields, context)
 
-    return Table(fields=fields)
+    return CTETable(fields=fields)

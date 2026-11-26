@@ -131,6 +131,19 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("bracketed_hostname", "https://[bucket.example.com]/data.csv"),
+            ("unclosed_bracket", "https://[::1/data.csv"),
+            ("unopened_bracket", "https://bucket.example.com]/data.csv"),
+        ]
+    )
+    def test_rejects_a_url_that_urlparse_cannot_parse(self, _name: str, url_pattern: str) -> None:
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid
+        assert error_message == "URL pattern is not a valid URL."
+
+    @parameterized.expand(
+        [
             ("brace_expansion", "https://s3.us-east-1.amazonaws.com/{ph-warehouse,acme}/x.csv"),
             ("wildcard", "https://s3.us-east-1.amazonaws.com/ph-*/x.csv"),
         ]

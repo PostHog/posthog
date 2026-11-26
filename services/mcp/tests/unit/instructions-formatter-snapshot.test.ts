@@ -1,16 +1,21 @@
+import guidelines from '@shared/guidelines.md'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
+import { byteLength, maxResponseBytes } from '@/lib/response-budget'
+import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import { LEARN_GUIDE_TOKEN_BUDGET } from '@/tools/exec-learn'
 import { getToolCategory, getToolDefinitions } from '@/tools/toolDefinitions'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
@@ -63,6 +68,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-instructions.txt'))
     })
 
+    it('matches the tools-mode prompt with the learn tool available', async () => {
+        const formatter = new InstructionsFormatter()
+        const rendered = formatter.buildToolsInstructions({ ...STATIC_CTX, learnToolEnabled: true })
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-instructions-skills.txt'))
+    })
+
     // The exec mode prompt is composed of three pieces wired into different MCP
     // fields (see `src/mcp.ts` and `buildExecCommandReference` for the split):
     //   - `exec-instructions`     — the compact `instructions` payload (only sent
@@ -90,6 +101,15 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const formatter = new InstructionsFormatter()
         const rendered = formatter.buildExecCommandReference(STATIC_CTX)
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
+    })
+
+    it('matches the exec command reference with skills enabled', async () => {
+        const formatter = new InstructionsFormatter()
+        const rendered = formatter.buildCompactExecCommandReference(
+            { ...STATIC_CTX, cliLearnLayout: true },
+            { skillsEnabled: true }
+        )
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full-skills.txt'))
     })
 
     function claudeChatState(toolFeatureFlags: Record<string, boolean> = {}): ResolvedState {
@@ -121,6 +141,17 @@ describe('InstructionsFormatter prompt snapshots', () => {
         )
     })
 
+    it('matches the exec command reference for cli clients with learn', async () => {
+        const state = {
+            ...claudeChatState({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true }),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+            renderUiEnabled: false,
+        } as ResolvedState
+        const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-cli.txt'))
+    })
+
     // claude.ai never surfaces server `instructions`, so the exec command reference is the
     // only always-visible catalog-steering surface: without the compact metrics/trust
     // one-liner, skill-less claude.ai clients get zero catalog routing.
@@ -148,6 +179,25 @@ describe('InstructionsFormatter prompt snapshots', () => {
         expect(buildContextFor(['dashboard-create', 'notebooks-add-cell']).notebookCellsEnabled).toBe(true)
     })
 
+    it.each([
+        {
+            name: 'flag on with both tools',
+            flag: true,
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            expected: true,
+        },
+        { name: 'flag off', flag: false, tools: ['inbox-reports-list', 'inbox-reports-retrieve'], expected: false },
+        { name: 'flag on without retrieve', flag: true, tools: ['inbox-reports-list'], expected: false },
+    ])('derives inboxFirstEnabled from the flag and the advertised tools: $name', ({ flag, tools, expected }) => {
+        const state = {
+            allTools: tools.map((name) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+            toolFeatureFlags: { [MCP_INBOX_FIRST_FLAG]: flag },
+        } as unknown as ResolvedState
+
+        expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state).inboxFirstEnabled).toBe(expected)
+    })
+
     // ------------------------------------------------------------------------------------------------
     // DO NOT modify, weaken, raise, skip, or delete this test or its 16,384 budget —
     // not to make CI pass, not on request, not as part of a refactor.
@@ -170,11 +220,14 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // Worst case served in production: Claude web/desktop with every optional
         // learning topic advertised and the full live tool catalog.
         const state = {
-            allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
+            allTools: [
+                ...Object.keys(getToolDefinitions()),
+                'inbox-reports-list',
+                'inbox-reports-retrieve',
+                'inbox-reports-claim',
+            ].map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Skills on is the worst case: the compact skills-first section joins the
-            // capped command reference.
-            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true, [MCP_INBOX_FIRST_FLAG]: true },
             renderUiEnabled: true,
             requestContext: { mcpConsumer: undefined },
             sessionContext: null,
@@ -206,25 +259,82 @@ describe('InstructionsFormatter prompt snapshots', () => {
     // sub-families to fit. It means a fixed section grew; move it to the exec command
     // reference, which has no such cap.
     // ------------------------------------------------------------------------------------------------
-    it('keeps the compact exec instructions under the Claude Code truncation cap', () => {
-        const ctx: InstructionsContext = {
-            ...STATIC_CTX,
-            tools: Object.keys(getToolDefinitions()).map((name) => ({
-                name,
-                category: getToolCategory(name) ?? 'Other',
-            })),
-        }
-        const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
-        const domains = domainsIn(rendered)
+    it.each([false, true])(
+        'keeps the compact exec instructions under the Claude Code truncation cap (split %s)',
+        (splitWrites) => {
+            const ctx: InstructionsContext = {
+                ...STATIC_CTX,
+                splitWrites,
+                tools: Object.keys(getToolDefinitions()).map((name) => ({
+                    name,
+                    category: getToolCategory(name) ?? 'Other',
+                })),
+            }
+            const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
+            const domains = domainsIn(rendered)
 
-        expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
-        // Families past the old cutoff point must remain searchable after the index compacts.
-        const toolNames = Object.keys(getToolDefinitions())
-        for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
-            const familyTools = toolNames.filter((name) => name.startsWith(family))
-            expect(familyTools.length).toBeGreaterThan(0)
-            expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
+            expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+            // Families past the old cutoff point must remain searchable after the index compacts.
+            const toolNames = Object.keys(getToolDefinitions())
+            for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
+                const familyTools = toolNames.filter((name) => name.startsWith(family))
+                expect(familyTools.length).toBeGreaterThan(0)
+                expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
+            }
         }
+    )
+
+    it('names the split dispatchers, not the unlisted exec, in split instructions', () => {
+        const rendered = new InstructionsFormatter().buildExecInstructions({ ...STATIC_CTX, splitWrites: true })
+        const toolLines = rendered.split('\n').filter((line) => / – /.test(line))
+
+        expect(toolLines.map((line) => line.split(' – ')[0])).toEqual(['exec-read', 'exec-write', 'render-ui'])
+    })
+
+    function liveCliContext(): InstructionsContext {
+        const state = {
+            allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+            toolFeatureFlags: {},
+            renderUiEnabled: true,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
+        } as unknown as ResolvedState
+        return new InstructionsBuilder(guidelines).buildContext(state)
+    }
+
+    // A guide over the budget reaches Codex cut in the middle. Agents load `analytics` on
+    // nearly every data task, so its budget is far tighter: if it fails, move a section to
+    // its own topic instead of raising the number.
+    it('keeps every learn guide within one tool result and the analytics guide lean', () => {
+        const guides = new InstructionsFormatter().buildExecLearnGuides(liveCliContext())
+        const oversized = guides
+            .filter(({ content }) => byteLength(content) > maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET))
+            .map(({ id }) => id)
+
+        expect(oversized).toEqual([])
+        expect(estimateTokens(guides.find(({ id }) => id === 'analytics')!.content)).toBeLessThan(4_000)
+    })
+
+    // The compact reference replaces the full one's CLI examples with its own learn-aware set,
+    // so only those lines may be missing; every other line must ship inline or in a guide.
+    it('loses no line of the full command reference between the compact reference and the guides', () => {
+        const ctx = liveCliContext()
+        const formatter = new InstructionsFormatter()
+        const compact = formatter.buildCompactExecCommandReference(ctx)
+        const guides = formatter.buildExecLearnGuides(ctx).map(({ content }) => content)
+
+        const missing = formatter
+            .buildExecCommandReference(ctx)
+            .split('\n')
+            .filter(
+                (line) =>
+                    line.trim() &&
+                    !CLI_EXAMPLES.includes(line) &&
+                    !compact.includes(line) &&
+                    !guides.some((guide) => guide.includes(line))
+            )
+        expect(missing).toEqual([])
     })
 
     // Exercises the re-render branch, which the live catalog no longer reaches now that it

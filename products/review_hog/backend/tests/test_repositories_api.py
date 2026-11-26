@@ -25,6 +25,7 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.repository_settings import ProjectRepositories
 from products.review_hog.backend.temporal.client import WorkflowProbe
+from products.stamphog.backend.facade.testing import seed_repo_config
 
 INSTALLATION = "1001"
 WEB = {"installation_id": INSTALLATION, "full_name": "example-org/web", "github_repo_id": 501}
@@ -42,6 +43,8 @@ ADMIN_WRITES = [
 
 
 class TestReviewRepositorySettingsAPI(APIBaseTest):
+    databases = {"default", "stamphog_db_writer", "stamphog_db_reader"}
+
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
@@ -66,7 +69,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(level=level)
 
     def _url(self, path: str, team: Team | None = None) -> str:
-        return f"/api/projects/{(team or self.team).id}/review_hog/{path}"
+        return f"/api/projects/{(team or self.team).id}/code_review/{path}"
 
     def _claim(self, team: Team, scope: str) -> ReviewInstallationClaim:
         return ReviewInstallationClaim.objects.for_team(team.id).create(
@@ -83,6 +86,87 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         self._set_level(OrganizationMembership.Level.ADMIN)
 
         assert getattr(self.client, method)(self._url(path), body, format="json").status_code in (200, 201)
+
+    @parameterized.expand(
+        [
+            ("turn_on_for_everyone", "all", None, {"flash_for": "everyone"}, 200),
+            ("include_into_selected", "selected", None, {"selected": True}, 200),
+            ("raise_listed_to_everyone", "all", {"flash_for": "listed"}, {"flash_for": "everyone"}, 200),
+            (
+                "raise_listed_to_everyone_over_a_listed_and_excepted_person",
+                "all",
+                {"flash_for": "listed", "people": ["listed", "excepted"]},
+                {"flash_for": "everyone"},
+                403,
+            ),
+            ("turn_drafts_on", "all", None, {"review_drafts": True}, 200),
+            ("turn_deep_reviews_on", "all", None, {"deep_review_gated_prs": True}, 200),
+            ("turn_pushes_on", "all", None, {"review_pushes": True}, 200),
+            ("lower_everyone_to_off", "all", {"flash_for": "everyone"}, {"flash_for": "off"}, 403),
+            ("clear_the_exception", "all", {"flash_for": "everyone"}, {"flash_for": None}, 403),
+            ("pin_the_project_default", "all", None, {"flash_for": "off"}, 403),
+            ("remove_from_the_project", "selected", {"selected": True}, {"selected": False}, 403),
+            ("turn_drafts_off", "all", {"review_drafts": True}, {"review_drafts": False}, 403),
+            (
+                "turn_deep_reviews_off",
+                "all",
+                {"deep_review_gated_prs": True},
+                {"deep_review_gated_prs": False},
+                403,
+            ),
+            ("turn_pushes_off", "all", {"review_pushes": True}, {"review_pushes": False}, 403),
+            ("take_from_another_project", "selected_while_other_claims_all", None, {"selected": True}, 403),
+        ]
+    )
+    def test_members_can_only_turn_repository_reviews_up(
+        self, _name: str, claim_scope: str, row: dict | None, body: dict, expected_status: int
+    ) -> None:
+        if claim_scope == "selected_while_other_claims_all":
+            self._claim(self.other_team, ReviewInstallationClaim.Scope.ALL)
+            claim_scope = "selected"
+        self._claim(self.team, claim_scope)
+        if row is not None:
+            fields = {key: value for key, value in row.items() if key != "people"}
+            repository = ReviewRepository.objects.for_team(self.team.id).create(
+                team=self.team, installation_id=INSTALLATION, github_repo_id=501, full_name="example-org/web", **fields
+            )
+            for kind in row.get("people", []):
+                ReviewRepositoryPerson.objects.for_team(self.team.id).create(
+                    team=self.team, repository=repository, user=self.user, kind=kind
+                )
+        compared = ("team_id", "selected", "flash_for", "review_drafts", "review_pushes", "deep_review_gated_prs")
+        before = list(ReviewRepository.objects.unscoped().values(*compared))
+        self._set_level(OrganizationMembership.Level.MEMBER)
+
+        res = self.client.post(self._url("repositories/"), {**WEB, **body}, format="json")
+
+        assert res.status_code == expected_status, res.json()
+        after = list(ReviewRepository.objects.unscoped().values(*compared))
+        assert (after == before) is (expected_status == 403)
+
+    @parameterized.expand(
+        [
+            ("add_myself_to_listed", "post", "people/", "me", "listed", 201),
+            ("add_someone_else", "post", "people/", "other", "listed", 403),
+            ("add_myself_to_excepted", "post", "people/", "me", "excepted", 403),
+            ("delete_the_repository", "delete", "", None, None, 403),
+        ]
+    )
+    def test_members_cannot_narrow_a_repository_exception(
+        self, _name: str, method: str, suffix: str, who: str | None, kind: str | None, expected_status: int
+    ) -> None:
+        other = User.objects.create_and_join(self.organization, "colleague@example.com", None)
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        repository = ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=INSTALLATION, full_name="example-org/web", flash_for="listed"
+        )
+        self._set_level(OrganizationMembership.Level.MEMBER)
+        body = {"user_id": (self.user if who == "me" else other).id, "kind": kind} if who else None
+
+        res = getattr(self.client, method)(self._url(f"repositories/{repository.id}/{suffix}"), body, format="json")
+
+        assert res.status_code == expected_status
+        assert ReviewRepository.objects.for_team(self.team.id).filter(id=repository.id).exists()
 
     @parameterized.expand(ADMIN_WRITES)
     def test_admin_of_an_environment_cannot_change_the_parent_project(self, path: str, method: str, body: dict) -> None:
@@ -280,7 +364,12 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("exception_without_ownership", {**WEB, "flash_for": "everyone"}, 400),
+            ("drafts_without_ownership", {**WEB, "review_drafts": True}, 400),
+            ("deep_reviews_without_ownership", {**WEB, "deep_review_gated_prs": True}, 400),
+            ("pushes_without_ownership", {**WEB, "review_pushes": True}, 400),
             ("nothing_to_store", {**WEB, "selected": False}, 200),
+            ("drafts_off_is_nothing_to_store", {**WEB, "review_drafts": False}, 200),
+            ("deep_reviews_off_is_nothing_to_store", {**WEB, "deep_review_gated_prs": False}, 200),
             ("unknown_to_the_installation", {**WEB, "full_name": "example-org/secret", "selected": True}, 400),
             ("id_of_another_repository", {**WEB, "github_repo_id": 502, "selected": True}, 400),
             (
@@ -343,6 +432,27 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             assert (stored.full_name, stored.github_repo_id) == ("example-org/web", other_row_repo_id)
 
     @patch(
+        "products.review_hog.backend.facade.api.reviewable_repositories",
+        side_effect=RuntimeError("stamphog unavailable"),
+    )
+    @patch(
+        "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
+    )
+    def test_overview_lists_the_repositories_when_stamphog_is_unavailable(
+        self, _cached: object, _reviewable: object
+    ) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+
+        res = self.client.get(self._url(f"repository_overview/?installation_id={INSTALLATION}"))
+
+        assert res.status_code == 200, res.json()
+        assert {entry["full_name"]: entry["auto_approval"] for entry in res.json()["results"]} == {
+            "example-org/web": False,
+            "example-org/api": False,
+            "example-org/docs": False,
+        }
+
+    @patch(
         "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
     )
     def test_overview_joins_the_cached_list_with_ownership_and_my_result(self, _cached: object) -> None:
@@ -366,6 +476,11 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
         )
+        # Auto-approval covers web, in GitHub's casing. Docs has a config nobody connected, which reviews nothing.
+        seed_repo_config(
+            team_id=self.team.id, repository="Example-Org/Web", installation_id="1", connected_by_user_id=self.user.id
+        )
+        seed_repo_config(team_id=self.team.id, repository="example-org/docs", installation_id="1")
         url = self._url(f"repository_overview/?installation_id={INSTALLATION}")
 
         everything = self.client.get(url)
@@ -387,6 +502,11 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert entries["example-org/docs"]["my_result"] == {"flash": False, "reason": "own_repository_choice"}
         assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "own_default"}
         assert entries["example-org/docs"]["repository_result"] == {"flash": True, "reason": "repository_everyone"}
+        assert {name: entry["auto_approval"] for name, entry in entries.items()} == {
+            "example-org/web": True,
+            "example-org/api": False,
+            "example-org/docs": False,
+        }
 
         exceptions = self.client.get(f"{url}&view=exceptions").json()
         assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]
@@ -404,6 +524,29 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         searched = self.client.get(f"{url}&search=API").json()
         assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
         assert searched["folded"] == 0
+
+    @parameterized.expand([("review_drafts",), ("review_pushes",), ("deep_review_gated_prs",)])
+    @patch(
+        "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
+    )
+    def test_a_repository_switch_alone_keeps_a_repository_row_out_of_the_fold(
+        self, switch: str, _cached: object
+    ) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        url = self._url(f"repository_overview/?installation_id={INSTALLATION}&view=differs")
+
+        turned_on = self.client.post(self._url("repositories/"), {**WEB, switch: True}, format="json")
+
+        assert turned_on.status_code == 200, turned_on.json()
+        assert turned_on.json()["repository"][switch] is True
+        [entry] = [entry for entry in self.client.get(url).json()["results"] if entry["full_name"] == "example-org/web"]
+        assert entry[switch] is True
+
+        turned_off = self.client.post(self._url("repositories/"), {**WEB, switch: False}, format="json")
+
+        assert turned_off.json()["repository"] is None
+        assert not ReviewRepository.objects.for_team(self.team.id).exists()
+        assert "example-org/web" in self.client.get(url).json()["folded_preview"]
 
     def test_overview_needs_a_connected_installation(self) -> None:
         res = self.client.get(self._url("repository_overview/?installation_id=9999"))

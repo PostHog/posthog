@@ -2,7 +2,7 @@ import { RRule } from 'rrule'
 
 import { dayjs } from 'lib/dayjs'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
 import type {
     HogFlowScheduleApi,
@@ -11,7 +11,7 @@ import type {
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { audienceCohortIds } from '../Broadcasts/audience/audienceList'
+import { audienceCohortIds, isCohortInclusion, withCohortExclusionOperator } from '../Broadcasts/audience/audienceList'
 import { manageDisabledReason } from '../Broadcasts/broadcastLifecycle'
 import {
     fakeUtcToReal,
@@ -82,11 +82,9 @@ export function sendAudience(
 
 export function audienceFromProperties(properties: AnyPropertyFilter[], accounts = false): SendAudience {
     // An excluded cohort says nothing about who else the audience reaches, so it counts like any other filter.
-    const isCohortInclusion = (filter: AnyPropertyFilter): boolean =>
-        filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
     return {
         cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
-        filters: properties.filter((filter) => !isCohortInclusion(filter)),
+        filters: properties.filter((filter) => !isCohortInclusion(filter)).map(withCohortExclusionOperator),
         accounts,
         address: null,
     }
@@ -218,7 +216,8 @@ export function calendarSendsForFlow(
 }
 
 function batchJobState(status: SendCalendarBatchJobApi['status']): CalendarSendState {
-    if (status === 'completed') {
+    // A partially failed run reached part of its audience. Showing it as failed could prompt a resend to those people.
+    if (status === 'completed' || status === 'partially_failed') {
         return 'sent'
     }
     if (status === 'failed' || status === 'cancelled') {
@@ -364,10 +363,16 @@ export function groupSendsByDay(sends: CalendarSend[], timezone: string): Record
 
 /** Splits a range into consecutive pieces of at most `maxDays`, for an endpoint that limits the range it takes. */
 export function splitRange(range: CalendarRange, maxDays: number): CalendarRange[] {
+    // The server limits each piece to an exact duration. Dayjs day math keeps the local clock time, and its
+    // zoned comparisons reread the offset, so both drift by an hour across a daylight saving change. Epoch
+    // milliseconds do not.
     const pieces: CalendarRange[] = []
+    const maxPieceMs = maxDays * 24 * 60 * 60 * 1000
+    const endMs = range.end.valueOf()
     let start = range.start
-    while (start.isBefore(range.end)) {
-        const end = start.add(maxDays, 'day').isBefore(range.end) ? start.add(maxDays, 'day') : range.end
+    while (start.valueOf() < endMs) {
+        const pieceEndMs = start.valueOf() + maxPieceMs
+        const end = pieceEndMs < endMs ? dayjs(pieceEndMs) : range.end
         pieces.push({ start, end })
         start = end
     }

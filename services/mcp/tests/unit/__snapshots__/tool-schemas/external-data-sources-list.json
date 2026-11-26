@@ -1,6 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "compact": {
+            "default": true,
+            "description": "Return source health only: status, latest_error, last_run_at and one summary row per table. Defaults to true. Set to false for connection settings and full source configuration.",
+            "type": "boolean"
+        },
+        "include_schemas": {
+            "default": true,
+            "description": "Include the `schemas` (tables) of each source. Set to false to get source-level fields only.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

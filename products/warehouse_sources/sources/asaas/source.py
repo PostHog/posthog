@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.asaas._config import AsaasSourceConfig
 from products.warehouse_sources.sources.asaas.asaas import (
+    INVALID_KEY_ERROR,
     AsaasResumeConfig,
     asaas_source,
     validate_credentials as validate_asaas_credentials,
@@ -50,7 +51,7 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": "Your Asaas API key is invalid or expired. Please generate a new key and reconnect.",
+            "401 Client Error": INVALID_KEY_ERROR,
             "403 Client Error": "Your Asaas API key doesn't have permission for this request. Check the key's account and try again.",
         }
 
@@ -77,10 +78,7 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_asaas_credentials(config.api_key, config.environment):
-            return True, None
-
-        return False, "Invalid credentials"
+        return validate_asaas_credentials(config.api_key, config.environment)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AsaasResumeConfig]:
         return ResumableSourceManager[AsaasResumeConfig](inputs, AsaasResumeConfig)

@@ -41,34 +41,69 @@ class SplitIoEndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # Most endpoints live under /internal/api/v2; flag sets are served from v3.
     api_version: str = "v2"
+    # Page size and marker param names. The attributes endpoint uses `markerLimit`/`afterMarker`.
+    limit_param: str = "limit"
+    after_param: str = "after"
+    # Parent levels walked inside each workspace, outermost first. Each parent row fills one
+    # path placeholder of the levels below it and adds one column to every child row.
+    parents: tuple["SplitIoParentLevel", ...] = ()
+
+
+@dataclass(frozen=True)
+class SplitIoParentLevel:
+    config: SplitIoEndpointConfig
+    path_var: str
+    id_field: str
+    column: str
 
 
 # Split (Harness FME) Admin API v2 endpoints. All are full-refresh only: the Admin API exposes
 # no server-side timestamp filter (`since`/`updated_after`) on any of these resources — its
 # timestamps are epoch-millisecond integers with no range query params — so there is no
 # reliable incremental cursor to advance.
+_ENVIRONMENTS = SplitIoEndpointConfig(
+    name="environments",
+    path="/environments/ws/{workspace_id}",
+    primary_keys=["id"],
+    pagination="none",
+    data_key=None,
+    requires_workspace=True,
+)
+
+_TRAFFIC_TYPES = SplitIoEndpointConfig(
+    name="traffic_types",
+    path="/trafficTypes/ws/{workspace_id}",
+    primary_keys=["id"],
+    pagination="none",
+    data_key=None,
+    requires_workspace=True,
+)
+
+_ENVIRONMENT_PARENT = SplitIoParentLevel(
+    config=_ENVIRONMENTS, path_var="environment_id", id_field="id", column="_environment_id"
+)
+
+# Only the segments active in an environment have keys there, so segment keys walk this list
+# rather than the workspace-level segments table.
+_SEGMENT_IN_ENVIRONMENT_PARENT = SplitIoParentLevel(
+    config=SplitIoEndpointConfig(
+        name="segments_in_environment",
+        path="/segments/ws/{workspace_id}/environments/{environment_id}",
+        primary_keys=["name"],
+    ),
+    path_var="segment_name",
+    id_field="name",
+    column="_segment_name",
+)
+
 SPLIT_IO_ENDPOINTS: dict[str, SplitIoEndpointConfig] = {
     "workspaces": SplitIoEndpointConfig(
         name="workspaces",
         path="/workspaces",
         primary_keys=["id"],
     ),
-    "environments": SplitIoEndpointConfig(
-        name="environments",
-        path="/environments/ws/{workspace_id}",
-        primary_keys=["id"],
-        pagination="none",
-        data_key=None,
-        requires_workspace=True,
-    ),
-    "traffic_types": SplitIoEndpointConfig(
-        name="traffic_types",
-        path="/trafficTypes/ws/{workspace_id}",
-        primary_keys=["id"],
-        pagination="none",
-        data_key=None,
-        requires_workspace=True,
-    ),
+    "environments": _ENVIRONMENTS,
+    "traffic_types": _TRAFFIC_TYPES,
     "feature_flags": SplitIoEndpointConfig(
         name="feature_flags",
         path="/splits/ws/{workspace_id}",
@@ -122,6 +157,40 @@ SPLIT_IO_ENDPOINTS: dict[str, SplitIoEndpointConfig] = {
         primary_keys=["id"],
         pagination="marker",
         data_key="data",
+    ),
+    "attributes": SplitIoEndpointConfig(
+        name="attributes",
+        path="/schema/ws/{workspace_id}/trafficTypes/{traffic_type_id}",
+        # Attribute ids are unique only within a traffic type.
+        primary_keys=["id", "_traffic_type_id", "_workspace_id"],
+        pagination="marker",
+        data_key="data",
+        requires_workspace=True,
+        # Without this flag the endpoint returns every attribute in one unpaginated (deprecated)
+        # response with no nextMarker, which still ends the walk after one page.
+        extra_params={"paginate": "true"},
+        limit_param="markerLimit",
+        after_param="afterMarker",
+        parents=(
+            SplitIoParentLevel(
+                config=_TRAFFIC_TYPES, path_var="traffic_type_id", id_field="id", column="_traffic_type_id"
+            ),
+        ),
+    ),
+    "feature_flag_definitions": SplitIoEndpointConfig(
+        name="feature_flag_definitions",
+        path="/splits/ws/{workspace_id}/environments/{environment_id}",
+        primary_keys=["name", "_environment_id", "_workspace_id"],
+        requires_workspace=True,
+        parents=(_ENVIRONMENT_PARENT,),
+    ),
+    "segment_keys": SplitIoEndpointConfig(
+        name="segment_keys",
+        path="/segments/{environment_id}/{segment_name}/keys",
+        primary_keys=["key", "_segment_name", "_environment_id", "_workspace_id"],
+        data_key="keys",
+        requires_workspace=True,
+        parents=(_ENVIRONMENT_PARENT, _SEGMENT_IN_ENVIRONMENT_PARENT),
     ),
 }
 

@@ -98,7 +98,6 @@ describe('LogsIngestionConsumer thread relief', () => {
             [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: true }), team.id],
             'updateTeamLogsForThreadRelief'
         )
-        hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
 
         consumer = new LogsIngestionConsumer(hub, {
             ...hub,
@@ -150,7 +149,8 @@ describe('LogsIngestionConsumer thread relief', () => {
             }
         )
 
-        let lastCheck = Date.now()
+        const startedAt = Date.now()
+        let lastCheck = startedAt
         let longestDelay = 0
         const interval = setInterval(() => {
             longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
@@ -164,6 +164,7 @@ describe('LogsIngestionConsumer thread relief', () => {
         } finally {
             clearInterval(interval)
         }
+        const elapsed = Date.now() - startedAt
 
         // Counted rather than decoded: the logs output carries AVRO, not JSON.
         const produced = mockProducerObserver
@@ -171,6 +172,9 @@ describe('LogsIngestionConsumer thread relief', () => {
             .filter((batch) => batch.topic === KAFKA_LOGS_CLICKHOUSE)
             .flatMap((batch) => batch.messages)
         expect(produced).toHaveLength(numberToTest)
-        expect(longestDelay).toBeLessThan(120)
+        // A fixed cap in milliseconds measures the runner, and a slow shard exceeds it with no change in the code.
+        // Both values come from the same runner, so the ratio does not depend on its speed.
+        // A consumer that stops yielding blocks the loop for almost the whole batch, which fails this bound.
+        expect(longestDelay).toBeLessThan(elapsed / 4)
     })
 })

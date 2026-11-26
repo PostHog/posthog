@@ -17,6 +17,8 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    exposure_criteria_on_the_event,
+    exposure_filters_off_the_event_narrow_who,
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
@@ -49,15 +51,15 @@ class TestGetExposureEventAndProperty:
                 EXPERIMENT_EXPOSURE_EVENT,
                 (EXPERIMENT_EXPOSURE_EVENT, "$feature_flag_response"),
             ),
-            # An explicit $experiment_exposure config keeps its event either side of the rollout,
+            # An explicit $experiment_exposure config keeps its event either side of the cutoff,
             # with the variant on $feature_flag_response since the event duplicates flag calls.
             (
-                "explicit_rollout_event_config",
+                "explicit_experiment_exposure_config",
                 _event_config("$experiment_exposure"),
                 DEFAULT_EXPOSURE_EVENT,
                 (EXPERIMENT_EXPOSURE_EVENT, "$feature_flag_response"),
             ),
-            # Custom events and actions are untouched by the rollout.
+            # Custom events and actions are untouched by the cutoff.
             (
                 "custom_event",
                 _event_config("checkout_started"),
@@ -79,7 +81,7 @@ class TestGetExposureEventAndProperty:
             ),
         ]
     )
-    def test_resolves_default_exposure_against_the_rollout_event(
+    def test_resolves_default_exposure_against_the_passed_default_event(
         self, _name, exposure_criteria, default_exposure_event, expected
     ):
         assert (
@@ -148,6 +150,59 @@ class TestNormalizeToExposureCriteria:
         assert from_dict == ExperimentExposureCriteria(exposure_config=_WAREHOUSE_NATIVE_EXPOSURE)
 
 
+class TestExposureCriteriaOnTheEvent:
+    @parameterized.expand(
+        [
+            # (name, filter, kept, can be left out)
+            ("event_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}, True, True),
+            (
+                "event_semver",
+                {"key": "$app_version", "value": "2.1.0", "operator": "semver_gte", "type": "event"},
+                True,
+                True,
+            ),
+            ("person_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, False, True),
+            ("cohort", {"key": "id", "value": 1, "type": "cohort"}, False, True),
+            ("session", {"key": "$entry_pathname", "value": "/", "operator": "exact", "type": "session"}, False, True),
+            (
+                "event_date",
+                {"key": "signup", "value": "2026-01-01", "operator": "is_date_after", "type": "event"},
+                False,
+                False,
+            ),
+            (
+                "event_virtual_property",
+                {"key": "$virt_is_bot", "value": "false", "operator": "exact", "type": "event"},
+                False,
+                False,
+            ),
+            (
+                "event_cleaned_path",
+                {"key": "$pathname", "value": "/a", "operator": "is_cleaned_path_exact", "type": "event"},
+                False,
+                False,
+            ),
+            ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, False, False),
+            ("hogql", {"key": "timestamp >= toDateTime('2026-01-01', 'UTC')", "type": "hogql"}, False, False),
+            (
+                "event_metadata",
+                {"key": "distinct_id", "value": "a", "operator": "exact", "type": "event_metadata"},
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_keeps_only_the_filters_on_the_exposure_event(self, _name, prop, kept, can_be_left_out):
+        exposure_criteria = {
+            "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": [prop]}
+        }
+        criteria = exposure_criteria_on_the_event(exposure_criteria)
+
+        assert criteria is not None and isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
+        assert len(criteria.exposure_config.properties or []) == int(kept)
+        assert exposure_filters_off_the_event_narrow_who(exposure_criteria) is (kept or can_be_left_out)
+
+
 class TestGetExposureConfigParamsForBuilder:
     @parameterized.expand(
         [
@@ -157,7 +212,7 @@ class TestGetExposureConfigParamsForBuilder:
     )
     def test_refuses_warehouse_native_exposure_as_a_query_error(self, _name, exposure_criteria):
         with pytest.raises(ExposedHogQLError, match="cannot be calculated yet"):
-            get_exposure_config_params_for_builder(exposure_criteria, Team(id=1, project_id=1), None)
+            get_exposure_config_params_for_builder(exposure_criteria, None)
 
 
 class TestGetTestAccountsFilter:

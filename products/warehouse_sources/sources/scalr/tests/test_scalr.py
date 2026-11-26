@@ -11,7 +11,13 @@ from products.warehouse_sources.sources.scalr._config import ScalrSourceConfig
 from products.warehouse_sources.sources.scalr.scalr import ScalrResumeConfig
 from products.warehouse_sources.sources.scalr.source import ScalrSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 MIXINS = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
@@ -138,9 +144,10 @@ def test_validation_uses_one_small_page(config: ScalrSourceConfig) -> None:
     assert dict(network.requests_log[0].query) == {"filter[account]": ("acc-example",), "page[size]": ("1",)}
 
 
+@pytest.mark.parametrize("endpoint", ["runs", "plans"])
 @pytest.mark.parametrize("body", [{"errors": [{"title": "Unexpected result"}]}, {"data": {"id": "wrong-shape"}}])
-def test_malformed_response_fails(config: ScalrSourceConfig, body: dict[str, Any]) -> None:
-    result = SourceDriver(ScalrSource(), config).run("runs", [response(body)])
+def test_malformed_response_fails(config: ScalrSourceConfig, endpoint: str, body: dict[str, Any]) -> None:
+    result = SourceDriver(ScalrSource(), config).run(endpoint, [response(body)])
 
     assert isinstance(result.raised, ValueError)
     assert len(result.requests) == 1
@@ -192,3 +199,166 @@ def test_unsupported_incremental_field_fails(config: ScalrSourceConfig, endpoint
     assert isinstance(result.raised, ValueError)
     assert "only for the workspace updated_at" in str(result.raised)
     assert result.requests == []
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "include", "resource_type", "many"),
+    [
+        ("plans", "plan", "plans", False),
+        ("cost_estimates", "cost-estimate", "cost-estimates", False),
+        ("policy_checks", "policy-checks", "policy-checks", True),
+    ],
+)
+def test_run_phases_come_from_included_runs_on_every_page(
+    config: ScalrSourceConfig, endpoint: str, include: str, resource_type: str, many: bool
+) -> None:
+    def ref(identifier: str) -> dict[str, str]:
+        return {"id": identifier, "type": resource_type}
+
+    def run(run_id: str, phase_ids: list[str]) -> dict[str, Any]:
+        linked: Any = [ref(i) for i in phase_ids] if many else (ref(phase_ids[0]) if phase_ids else None)
+        return {"id": run_id, "type": "runs", "attributes": {}, "relationships": {include: {"data": linked}}}
+
+    def runs_page(runs: list[dict[str, Any]], phase_ids: list[str], next_page: int | None) -> ScriptedResponse:
+        return response(
+            {
+                "data": runs,
+                "included": [
+                    *({"id": i, "type": resource_type, "attributes": {"status": "finished"}} for i in phase_ids),
+                    {"id": "ws-1", "type": "workspaces", "attributes": {}},
+                ],
+                "meta": {"pagination": {"next-page": next_page}},
+            }
+        )
+
+    second_run_phases = ["phase-2", "phase-3"] if many else ["phase-2"]
+    result = SourceDriver(ScalrSource(), config).run(
+        endpoint,
+        [
+            runs_page([run("run-1", ["phase-1"]), run("run-0", [])], ["phase-1"], 2),
+            runs_page([run("run-2", second_run_phases)], second_run_phases, 3),
+            response({"data": [], "meta": {}}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [(row["id"], row["run_id"], row["status"]) for row in result.rows] == [
+        ("phase-1", "run-1", "finished"),
+        *((phase, "run-2", "finished") for phase in second_run_phases),
+    ]
+    assert [request.path for request in result.requests] == ["/api/iacp/v3/runs"] * 3
+    assert all(request.param("include") == include for request in result.requests)
+
+
+def test_tags_walk_every_page_sorted_by_name_without_account_filter(config: ScalrSourceConfig) -> None:
+    result = SourceDriver(ScalrSource(), config).run(
+        "tags", [page("tags", "tag-1", 2), page("tags", "tag-2", 3), page("tags", None, None)]
+    )
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["tag-1", "tag-2"]
+    assert [request.path for request in result.requests] == ["/api/iacp/v3/tags"] * 3
+    assert [request.param("page[number]") for request in result.requests] == ["1", "2", "3"]
+    for request in result.requests:
+        assert request.query["sort"] == ("name",)
+        assert "filter[account]" not in request.query
+
+
+def test_state_versions_fan_out_over_workspaces_without_state_secrets(config: ScalrSourceConfig) -> None:
+    state_versions = {
+        "ws-1": [
+            response(
+                {
+                    "data": [
+                        {
+                            "id": "sv-1",
+                            "type": "state-versions",
+                            "attributes": {
+                                "created-at": "2025-01-01T00:00:00Z",
+                                "serial": 1,
+                                "state": "c2VjcmV0",
+                                "outputs": [
+                                    {"name": "password", "sensitive": True, "value": "secret"},
+                                    {"name": "url", "sensitive": False, "value": "https://example.com"},
+                                ],
+                            },
+                        }
+                    ],
+                    "meta": {"pagination": {"next-page": 2}},
+                }
+            ),
+            page("state-versions", "sv-2", None),
+        ],
+        "ws-2": [response({"errors": [{"status": "404"}]}, 404)],
+    }
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/workspaces"):
+            return response(
+                {
+                    "data": [{"id": ws, "type": "workspaces", "attributes": {}} for ws in state_versions],
+                    "meta": {"pagination": {"next-page": None}},
+                }
+            )
+        workspace = request.param("filter[workspace]")
+        assert workspace is not None
+        return state_versions[workspace].pop(0)
+
+    result = SourceDriver(ScalrSource(), config).run("state_versions", respond)
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["sv-1", "sv-2"]
+    assert "state" not in result.rows[0]
+    assert result.rows[0]["outputs"] == [
+        {"name": "password", "sensitive": True, "value": None},
+        {"name": "url", "sensitive": False, "value": "https://example.com"},
+    ]
+    assert [(request.path, request.param("filter[workspace]")) for request in result.requests] == [
+        ("/api/iacp/v3/workspaces", None),
+        ("/api/iacp/v3/state-versions", "ws-1"),
+        ("/api/iacp/v3/state-versions", "ws-1"),
+        ("/api/iacp/v3/state-versions", "ws-2"),
+    ]
+    assert result.requests[2].param("page[number]") == "2"
+    assert all(options.get("capture") is False for options in result.session_options)
+
+
+def test_state_versions_resume_skips_finished_workspaces(config: ScalrSourceConfig) -> None:
+    def respond_with(state_versions: dict[str, list[ScriptedResponse]]) -> Any:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/workspaces"):
+                return response(
+                    {
+                        "data": [{"id": ws, "type": "workspaces", "attributes": {}} for ws in ("ws-1", "ws-2")],
+                        "meta": {"pagination": {"next-page": None}},
+                    }
+                )
+            workspace = request.param("filter[workspace]")
+            assert workspace is not None
+            return state_versions[workspace].pop(0)
+
+        return respond
+
+    driver = SourceDriver(ScalrSource(), config)
+    first = driver.run(
+        "state_versions",
+        respond_with(
+            {
+                "ws-1": [page("state-versions", "sv-1", None)],
+                "ws-2": [response({"errors": [{"status": "401"}]}, 401)],
+            }
+        ),
+    )
+
+    assert isinstance(first.raised, HTTPError)
+    assert first.final_state is not None
+
+    resumed = driver.run(
+        "state_versions",
+        respond_with({"ws-2": [page("state-versions", "sv-2", None)]}),
+        resume_state=first.final_state,
+    )
+
+    assert resumed.raised is None
+    assert [row["id"] for row in resumed.rows] == ["sv-2"]
+    assert [request.param("filter[workspace]") for request in resumed.requests] == [None, "ws-2"]

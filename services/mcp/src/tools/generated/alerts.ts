@@ -118,7 +118,7 @@ const AlertDestinationsCreateSchema = () => {
 
 const alertDestinationsCreate = (): ToolBase<
     ReturnType<typeof AlertDestinationsCreateSchema>,
-    Schemas.AlertDestinationResponse
+    Schemas.AlertCreatedDestinationResponse
 > => ({
     name: 'alert-destinations-create',
     schema: AlertDestinationsCreateSchema(),
@@ -137,12 +137,12 @@ const alertDestinationsCreate = (): ToolBase<
         if (params.slack_channel_name !== undefined) {
             body['slack_channel_name'] = params.slack_channel_name
         }
-        const result = await context.api.request<Schemas.AlertDestinationResponse>({
+        const result = await context.api.request<Schemas.AlertCreatedDestinationResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/destinations/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['hog_function_ids']) as typeof result
+        const filtered = pickResponseFields(result, ['id', 'hog_function_ids']) as typeof result
         return filtered
     },
 })
@@ -163,6 +163,9 @@ const alertDestinationsDelete = (): ToolBase<ReturnType<typeof AlertDestinations
         const body: Record<string, unknown> = {}
         if (params.hog_function_ids !== undefined) {
             body['hog_function_ids'] = params.hog_function_ids
+        }
+        if (params.destination_ids !== undefined) {
+            body['destination_ids'] = params.destination_ids
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

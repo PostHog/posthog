@@ -16,6 +16,7 @@ import { reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { ReportChecksSection } from './ReportChecksSection'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 
 jest.mock('./ReportCheckMetricChart', () => ({ ReportCheckMetricChart: () => <div>Chart</div> }))
@@ -98,8 +99,8 @@ describe('ReportExpectedImpact', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE], {
-            [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         })
         inboxTaskKickoffLogic.mount()
         logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -165,6 +166,17 @@ describe('ReportExpectedImpact', () => {
                     },
                 },
             ])
+            const detailsToggle = screen.getByText('Measurement details').closest('button')!
+            const queryToggle = screen.getByText('Measurement query').closest('button')!
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
+            expect(queryToggle).toHaveAttribute('aria-expanded', 'false')
+            expect(screen.queryByText('Target reference period: 7 days.')).not.toBeInTheDocument()
+            expect(screen.getByText('Chart')).toBeInTheDocument()
+            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
+
+            const user = userEvent.setup()
+            await user.click(detailsToggle)
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
             expect(screen.getByText('Measurement window: since Monitoring starts.')).toBeInTheDocument()
             expect(screen.getByText('Target reference period: 7 days.')).toBeInTheDocument()
             expect(screen.getByText('Check observation window after implementation: 14 days.')).toBeInTheDocument()
@@ -176,12 +188,12 @@ describe('ReportExpectedImpact', () => {
                         : 'The target stays fixed as the measurement period grows.'
                 )
             ).toBeInTheDocument()
-            expect(screen.getByText('View measurement details').closest('details')).not.toHaveAttribute('open')
-            expect(screen.getByText('Target reference period: 7 days.')).not.toBeVisible()
-            expect(screen.getByText('Chart')).toBeInTheDocument()
-            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
-            await userEvent.setup().click(screen.getByText('View measurement details'))
-            expect(screen.getByText('Target reference period: 7 days.')).toBeVisible()
+
+            await user.click(queryToggle)
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
+            expect(queryToggle).toHaveAttribute('aria-expanded', 'true')
+            expect(document.querySelector('.CodeSnippet')).toHaveTextContent('"event": "checkout_failed"')
+            expect(document.querySelector('[data-attr="copy-code-button"]')).toBeInTheDocument()
         }
     )
 
@@ -203,10 +215,37 @@ describe('ReportExpectedImpact', () => {
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
-    it('disables metric suggestions until the replacement tool is available', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false })
+    it.each([false, undefined])('hides Expected impact and sidebar suggestions when Monitoring is %s', (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [],
+            enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }
+        )
         renderMeasurements([check])
-        expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        render(<ReportChecksSection report={report} />)
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
+        expect(screen.getByText('Cancel this check')).toBeInTheDocument()
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Chart')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="report-expected-impact"]')).not.toBeInTheDocument()
+    })
+
+    it('starts Monitoring from the follow-up checks section', async () => {
+        const stateRequests: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/state/': async ({ request }) => {
+                    stateRequests.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        logic.actions.loadReportChecksSuccess([check])
+        render(<ReportChecksSection report={{ ...report, monitoring_started_at: null }} />)
+
+        await userEvent.setup().click(screen.getByText('Start monitoring now'))
+
+        await waitFor(() => expect(stateRequests).toEqual([{ state: 'monitoring' }]))
     })
 
     it('caps visible measurements after skipping malformed check configs', () => {
@@ -231,6 +270,10 @@ describe('ReportExpectedImpact', () => {
         await waitFor(() => expect(screen.getAllByText(/Approved measurement/)).toHaveLength(2))
         expect(approvalRequests).toEqual(['check-1', 'check-2', 'check-2'])
         expect(logic.values.reportChecks?.every((check) => check.next_run_at === '2026-10-13T00:00:00Z')).toBe(true)
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Suggest another metric'))
+        expect(screen.getByText('Describe what success would look like')).toBeInTheDocument()
     })
 
     it('shows range goals and verdicts, and does not offer approval or replacement for finished checks', () => {
@@ -274,7 +317,7 @@ describe('ReportExpectedImpact', () => {
 
         expect(screen.getByText('The query is not available to you.')).toBeInTheDocument()
         expect(screen.queryByText('Chart')).not.toBeInTheDocument()
-        expect(screen.queryByText('View measurement query')).not.toBeInTheDocument()
+        expect(screen.queryByText('Measurement query')).not.toBeInTheDocument()
         expect(screen.queryByText(/Baseline:/)).not.toBeInTheDocument()
         expect(screen.getByText('Looks good').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })

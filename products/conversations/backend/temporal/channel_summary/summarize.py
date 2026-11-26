@@ -317,9 +317,7 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
         f"Transcript (untrusted data):\n<transcript>\n{transcript}\n</transcript>"
     )
     trace_id = str(uuid5(CHANNEL_SUMMARY_TRACE_NAMESPACE, f"{input.account_id}:{input.cadence}:{input.period_start}"))
-    llm_client = build_async_anthropic_client(
-        product="conversations", ai_product="conversations", team_id=input.team_id, trace_id=trace_id
-    )
+    llm_client = build_async_anthropic_client(ai_product="conversations", team_id=input.team_id, trace_id=trace_id)
     message = await create_message(
         llm_client,
         model=SUMMARY_MODEL,

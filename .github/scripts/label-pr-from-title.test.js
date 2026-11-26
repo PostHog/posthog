@@ -92,9 +92,60 @@ const PATH_RULES = [
         paths: ['packages/agent/', 'bin/start-agent', 'posthog/*agent_root*', 'products/**/*agent_any*'],
         labels: ['feature/agent-infra'],
     },
+    {
+        paths: ['services/sized/', 'nodejs/src/ingestion/pipelines/ai/costs/providers/'],
+        minLines: 10,
+        minFiles: 3,
+        labels: ['feature/sized'],
+    },
 ]
 
+const changed = (filename, additions, deletions = 0) => ({ filename, status: 'modified', additions, deletions })
+
 const LABELS_FOR_FILES_CASES = [
+    {
+        files: [changed('services/sized/a.py', 9)],
+        expected: [],
+        description: 'a sized rule with one file under the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 10)],
+        expected: ['feature/sized'],
+        description: 'a sized rule with one file at the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 4, 6)],
+        expected: ['feature/sized'],
+        description: 'a sized rule counts deletions toward the line minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 5), changed('services/sized/b.py', 5)],
+        expected: ['feature/sized'],
+        description: 'a sized rule adds up lines across matching files',
+    },
+    {
+        files: [changed('services/sized/a.py', 1), changed('services/sized/b.py', 1), changed('services/sized/c.py', 1)],
+        expected: ['feature/sized'],
+        description: 'a sized rule with few lines across the file minimum',
+    },
+    {
+        files: [changed('services/sized/a.py', 2), changed('posthog/api/survey.py', 500)],
+        expected: [],
+        description: 'a sized rule ignores lines outside its paths',
+    },
+    {
+        files: [changed('services/sized/pyproject.toml', 2), changed('services/sized/uv.lock', 40)],
+        expected: [],
+        description: 'a sized rule ignores lockfile lines',
+    },
+    {
+        files: [
+            changed('services/sized/a.py', 2),
+            changed('nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', 80),
+        ],
+        expected: [],
+        description: 'a sized rule ignores generated file lines',
+    },
     {
         files: [
             { filename: 'posthog/api/survey.py', status: 'modified' },
@@ -279,46 +330,6 @@ for (const scope of ['desktop', 'canvas']) {
         )
     })
 }
-
-for (const scope of [
-    'agent',
-    'tasks',
-    'tasks-agent',
-    'agent-proxy',
-    'agent-runner',
-    'cloud-agent',
-    'sandboxes',
-    'gateway',
-    'llm-gateway',
-    'ai-gateway',
-]) {
-    test(`the shipped config maps the ${scope} scope to the agent infra label`, () => {
-        const labels = labelsForTitle(`feat(${scope}): x`, loadRules())
-        assert.ok(labels.includes('feature/agent-infra'), `${scope} scope does not map to feature/agent-infra`)
-        assert.ok(!labels.includes('feature/desktop'), `${scope} scope still maps to feature/desktop`)
-    })
-}
-
-for (const filename of [
-    'nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts',
-    'packages/agent/src/run.ts',
-    'posthog/migrations/1225_team_llm_gateway_overspend_allowance_usd.py',
-    'posthog/tasks/team_llm_gateway_quota.py',
-    'products/tasks/backend/api.py',
-    'services/agent-proxy/src/main.rs',
-    'services/llm-gateway/src/app.py',
-]) {
-    test(`the shipped config maps a change to ${filename} to the agent infra label`, () => {
-        const labels = labelsForFiles([{ filename, status: 'modified' }], loadRules())
-        assert.ok(labels.includes('feature/agent-infra'), `${filename} does not map to feature/agent-infra`)
-    })
-}
-
-test('the shipped config keeps labels from mixed desktop and agent infra scopes', () => {
-    const labels = labelsForTitle('feat(desktop, tasks): x', loadRules())
-    assert.ok(labels.includes('feature/desktop'))
-    assert.ok(labels.includes('feature/agent-infra'))
-})
 
 // ---------------------------------------------------------------------------
 // Feature flags team only: the `review/low-hanging-fruit` label.

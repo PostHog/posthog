@@ -63,7 +63,7 @@ from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
 from products.event_definitions.backend.facade.testing import create_property_definition
@@ -173,7 +173,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _basic_funnel(self, query: FunnelsQuery | None = None, properties=None):
-        action_credit_card = Action.objects.create(
+        action_credit_card = create_action(
             team=self.team,
             name="paid",
             steps_json=[
@@ -184,7 +184,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        action_play_movie = Action.objects.create(
+        action_play_movie = create_action(
             team=self.team,
             name="watched movie",
             steps_json=[
@@ -203,8 +203,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                         event="user signed up",
                         name="user signed up",
                     ),
-                    ActionsNode(id=action_credit_card.pk),
-                    ActionsNode(id=action_play_movie.pk),
+                    ActionsNode(id=action_credit_card.id),
+                    ActionsNode(id=action_play_movie.id),
                 ],
             )
 
@@ -346,7 +346,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(result[2]["count"], 1)
 
     def test_funnel_with_messed_up_order(self):
-        action_play_movie = Action.objects.create(
+        action_play_movie = create_action(
             team=self.team,
             name="watched movie",
             steps_json=[
@@ -366,7 +366,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                         name="user signed up",
                     ),
                     ActionsNode(
-                        id=action_play_movie.pk,
+                        id=action_play_movie.id,
                     ),
                 ],
             )
@@ -450,7 +450,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     # TODO: obsolete test as new entities aren't part of the query schema?
     def test_funnel_with_new_entities_that_mess_up_order(self):
-        action_play_movie = Action.objects.create(
+        action_play_movie = create_action(
             team=self.team,
             name="watched movie",
             steps_json=[
@@ -470,7 +470,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                         name="user signed up",
                     ),
                     ActionsNode(
-                        id=action_play_movie.pk,
+                        id=action_play_movie.id,
                     ),
                 ],
             )
@@ -541,7 +541,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(["$browser"])
     def test_funnel_prop_filters_per_entity(self):
-        action_credit_card = Action.objects.create(
+        action_credit_card = create_action(
             team_id=self.team.pk,
             name="paid",
             steps_json=[
@@ -552,7 +552,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        action_play_movie = Action.objects.create(
+        action_play_movie = create_action(
             team_id=self.team.pk,
             name="watched movie",
             steps_json=[
@@ -581,7 +581,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                     ],
                 ),
                 ActionsNode(
-                    id=action_credit_card.pk,
+                    id=action_credit_card.id,
                     properties=[
                         {
                             "key": "$browser",
@@ -590,7 +590,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                     ],
                 ),
                 ActionsNode(
-                    id=action_play_movie.pk,
+                    id=action_play_movie.id,
                     properties=[
                         {
                             "key": "$browser",
@@ -631,7 +631,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(person_properties=["email"])
     def test_funnel_person_prop(self):
-        action_credit_card = Action.objects.create(
+        action_credit_card = create_action(
             team_id=self.team.pk,
             name="paid",
             steps_json=[
@@ -642,7 +642,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        action_play_movie = Action.objects.create(
+        action_play_movie = create_action(
             team_id=self.team.pk,
             name="watched movie",
             steps_json=[
@@ -668,10 +668,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                     ],
                 ),
                 ActionsNode(
-                    id=action_credit_card.pk,
+                    id=action_credit_card.id,
                 ),
                 ActionsNode(
-                    id=action_play_movie.pk,
+                    id=action_play_movie.id,
                 ),
             ],
         )
@@ -706,7 +706,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        action1 = Action.objects.create(
+        action1 = create_action(
             team_id=self.team.pk,
             name="event2",
             steps_json=[
@@ -716,7 +716,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        action2 = Action.objects.create(
+        action2 = create_action(
             team_id=self.team.pk,
             name="event2",
             steps_json=[
@@ -734,10 +734,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                     name="event1",
                 ),
                 ActionsNode(
-                    id=action1.pk,
+                    id=action1.id,
                 ),
                 ActionsNode(
-                    id=action2.pk,
+                    id=action2.id,
                 ),
             ],
         )
@@ -832,7 +832,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         _create_event(distinct_id="person2", event="event1", team=self.team)
         _create_event(distinct_id="person3", event="event1", team=self.team)
 
-        action = Action.objects.create(
+        action = create_action(
             team_id=self.team.pk,
             name="event1",
             steps_json=[
@@ -853,10 +853,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         query = FunnelsQuery(
             series=[
                 ActionsNode(
-                    id=action.pk,
+                    id=action.id,
                 ),
                 ActionsNode(
-                    id=action.pk,
+                    id=action.id,
                 ),
             ],
         )
@@ -3701,7 +3701,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(results[0]["count"], 0)
 
     def test_funnel_with_sampling(self):
-        action_play_movie = Action.objects.create(
+        action_play_movie = create_action(
             team=self.team,
             name="watched movie",
             steps_json=[
@@ -3722,7 +3722,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                         name="user signed up",
                     ),
                     ActionsNode(
-                        id=action_play_movie.pk,
+                        id=action_play_movie.id,
                     ),
                 ],
             )
@@ -3938,7 +3938,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._signup_event(distinct_id="user")
         self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
 
-        action_checkout_all = Action.objects.create(
+        action_checkout_all = create_action(
             team=self.team,
             name="user signed up",
             steps_json=[
@@ -3954,7 +3954,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                     name="user signed up",
                 ),
                 ActionsNode(
-                    id=action_checkout_all.pk,
+                    id=action_checkout_all.id,
                 ),
             ],
         )
@@ -4014,7 +4014,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             properties={"email": "fake_2@test.com"},
         )
 
-        Action.objects.create(team=self.team, name="action1", steps_json=[{"event": "$pageview"}])
+        create_action(team=self.team, name="action1", steps_json=[{"event": "$pageview"}])
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -4555,7 +4555,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["count"], 0)
 
     def test_first_time_for_user_funnel_with_actions(self):
-        action_credit_card = Action.objects.create(
+        action_credit_card = create_action(
             team=self.team,
             name="paid",
             steps_json=[
@@ -4566,7 +4566,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-        action_play_movie = Action.objects.create(
+        action_play_movie = create_action(
             team=self.team,
             name="watched movie",
             steps_json=[
@@ -4608,8 +4608,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         query = FunnelsQuery(
             series=[
                 EventsNode(event="user signed up"),
-                ActionsNode(id=action_credit_card.pk),
-                ActionsNode(id=action_play_movie.pk, math=BaseMathType.FIRST_TIME_FOR_USER),
+                ActionsNode(id=action_credit_card.id),
+                ActionsNode(id=action_play_movie.id, math=BaseMathType.FIRST_TIME_FOR_USER),
             ],
             dateRange=DateRange(
                 date_from="-14d",
@@ -5833,7 +5833,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[1]["count"], 1)
 
     def test_group_node_with_action_child(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Page Action",
             steps_json=[{"event": "$pageview"}, {"event": "$pageleave"}],

@@ -7,7 +7,7 @@ platform, read recipients here, so a user who loses access to the insight stops 
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from uuid import UUID
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -18,6 +18,9 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
 )
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 # A failed check has no internal event of its own, because production emails it directly. The
 # platform routes errored transitions to email by this id, which no HogFunction can subscribe to.
@@ -47,11 +50,11 @@ def recipients_with_access(alert: AlertConfiguration) -> list[tuple[int, str]]:
         .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
         .only("id", "email")
     )
-    return [
-        (user.id, user.email)
-        for user in candidates
-        if UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
-    ]
+    return [(user.id, user.email) for user in candidates if can_view_insight(user, alert)]
+
+
+def can_view_insight(user: User, alert: AlertConfiguration) -> bool:
+    return UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
 
 
 def insight_email_groups(recipients: Collection[tuple[int, str]]) -> list[AlertDestinationGroup]:

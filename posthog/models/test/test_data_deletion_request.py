@@ -1,7 +1,6 @@
 import uuid as uuid_lib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from itertools import pairwise
 
 import pytest
 import time_machine
@@ -9,6 +8,7 @@ from posthog.test.base import materialized
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -21,13 +21,14 @@ from posthog.models.data_deletion_request import (
     auto_approve_blocker,
     cached_compile_hogql_predicate,
     compile_hogql_predicate,
+    event_removal_where,
     invalidate_compiled_predicate_cache,
-    uncopied_rows_predicate,
 )
 from posthog.models.deletion_targets import FLAG_EVALUATIONS, FLAG_EVALUATIONS_HOGQL_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models import PropertyDefinition
@@ -213,9 +214,12 @@ def test_hogql_predicate_subquery_is_team_scoped(db):
     [
         "SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
         "AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 7 DAY",
+        "SELECT distinct_id FROM events WHERE event IN ('$pageview', '$feature_flag_called') "
+        "AND timestamp >= now() - INTERVAL 7 DAY",
         "SELECT e.distinct_id FROM events AS e JOIN (SELECT 'probe' AS id) AS d "
         "ON e.distinct_id = d.id WHERE event = '$feature_flag_called'",
     ],
+    ids=["only_flag_calls", "flag_calls_with_other_events", "flag_calls_behind_a_join"],
 )
 @pytest.mark.parametrize("through_a_view", [False, True])
 def test_compile_hogql_predicate_keeps_a_flag_call_subquery_on_events(team, flag_calls, through_a_view):
@@ -369,24 +373,6 @@ def materialized_browser():
         yield
 
 
-@pytest.fixture
-def dmat_slot_for_plan(team):
-    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-
-    from products.event_definitions.backend.models.property_definition import PropertyType
-
-    prop_def = PropertyDefinition.objects.create(
-        team=team,
-        project_id=team.project_id,
-        name="plan",
-        property_type=PropertyType.String,
-        type=PropertyDefinition.Type.EVENT,
-    )
-    MaterializedColumnSlot.objects.create(
-        team=team, property_definition=prop_def, slot_index=0, state=MaterializedColumnSlotState.READY
-    )
-
-
 def _flag_call_request(team: Team, hogql_predicate: str) -> DataDeletionRequest:
     # OPTIMIZED is the cloud setting. It makes events read non-$ keys and $feature/ keys from
     # property-group maps, which flag_evaluations does not have.
@@ -415,48 +401,13 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
 
 
 @pytest.mark.parametrize(
-    "predicate, error_match",
-    [
-        ("person_id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'", "join"),
-        ("person.id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'", "join"),
-        # Exposing elements_chain as '' on flag_evaluations would make this match every row.
-        ("NOT elements_chain ILIKE '%checkout%'", "elements_chain"),
-        ("properties.plan = 'pro'", "property-group map"),
-        ("properties.`$feature/beta` = 'true'", "property-group map"),
-        # Events reads a non-$ person property from person_properties_map_custom.
-        ("person.properties.email = 'a@example.com'", "person_properties_map_custom"),
-        # mat_$browser reads a stored "" as NULL, and the raw JSON read on flag_evaluations reads it as "".
-        ("properties.$browser = ''", "materialized column mat_$browser"),
-        ("properties.$browser IS NULL", "materialized column mat_$browser"),
-        # The built-in $group_0 column scrubs the same way, with no mat_ prefix.
-        ("properties.$group_0 IS NULL", "materialized column $group_0"),
-        # A team's READY dynamic slot makes events read dmat_string_0, which the column registry does not list.
-        ("properties.plan IS NULL", "materialized column dmat_string_0"),
-    ],
-    ids=[
-        "person_id",
-        "person_id_through_person",
-        "elements_chain",
-        "custom_property",
-        "feature_flag_property",
-        "custom_person_property",
-        "materialized_property_equals_empty_string",
-        "materialized_property_is_null",
-        "builtin_group_column_is_null",
-        "dynamic_slot_is_null",
-    ],
+    "predicate",
+    ["person_id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'", "person.id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'"],
+    ids=["person_id", "person_id_through_person"],
 )
-def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(
-    team, request, predicate, error_match
-):
-    if "$browser" in predicate:
-        request.getfixturevalue("materialized_browser")
-    if predicate == "properties.plan IS NULL":
-        request.getfixturevalue("dmat_slot_for_plan")
-    uncopied = uncopied_rows_predicate(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
-
-    assert uncopied.compiled is None
-    assert error_match in uncopied.error
+def test_event_removal_where_refuses_a_predicate_that_needs_a_join_on_flag_evaluations(team, predicate):
+    with pytest.raises(ValidationError, match="join"):
+        event_removal_where(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
 
 
 # A missing key, a JSON null and an escaped quote are the rows where two ways of reading a property can
@@ -887,31 +838,6 @@ def test_query_backed_deletion_stats_are_rejected():
 
 
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)
-@pytest.mark.parametrize("start_days_ago,end_days_ago", [(15, 0), (400, 300), (400, 0), (15, -27_000)])
-def test_copy_check_windows_tile_the_request_range(start_days_ago: int, end_days_ago: int) -> None:
-    now = timezone.now()
-    horizon = ddr._ttl_horizon(FLAG_EVALUATIONS)
-    assert horizon is not None
-    request = DataDeletionRequest(
-        team_id=TEAM_ID,
-        start_time=now - timedelta(days=start_days_ago),
-        end_time=now - timedelta(days=end_days_ago),
-    )
-
-    windows = [
-        (params["start_time"], params["end_time"])
-        for _, params in ddr.rows_without_events_copy_criteria(request, FLAG_EVALUATIONS)
-    ]
-
-    assert windows[0][0] == request.start_time
-    assert windows[-1][1] == request.end_time
-    assert all(end == next_start for (_, end), (next_start, _) in pairwise(windows))
-    # Only a window before the TTL horizon or after now may span more than 7 days.
-    assert all(end - start <= timedelta(days=7) for start, end in windows if end > horizon and start < now)
-    assert len(windows) <= 20
-
-
-@time_machine.travel("2026-06-17T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     "overrides,expected_fragment",
     [
@@ -982,3 +908,109 @@ def test_refresh_deletion_stats_does_not_write_over_a_concurrent_criteria_edit(t
     request.refresh_from_db()
     assert request.count is None
     assert request.stats_calculated_at is None
+
+
+@pytest.mark.parametrize(
+    "status,marked,deletable",
+    [
+        (RequestStatus.FAILED, True, False),
+        (RequestStatus.IN_PROGRESS, True, False),
+        (RequestStatus.COMPLETED, True, True),
+        (RequestStatus.FAILED, False, True),
+    ],
+)
+@pytest.mark.parametrize("delete", [lambda obj: obj.delete(), lambda obj: type(obj).objects.filter(pk=obj.pk).delete()])
+def test_a_started_unfinished_property_removal_cannot_be_deleted(team, status, marked, deletable, delete):
+    obj = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        properties=["$ip"],
+        start_time=datetime(2026, 6, 10, tzinfo=UTC),
+        end_time=datetime(2026, 6, 16, tzinfo=UTC),
+        status=status,
+        property_removal_marker=datetime(2026, 6, 17, tzinfo=UTC) if marked else None,
+    )
+
+    if deletable:
+        delete(obj)
+    else:
+        with pytest.raises(ValidationError, match="run started and did not complete"), transaction.atomic():
+            delete(obj)
+
+    assert DataDeletionRequest.objects.filter(pk=obj.pk).exists() != deletable
+
+
+def _staff_request(**fields) -> DataDeletionRequest:
+    defaults = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.EVENT_REMOVAL,
+        "events": ["$pageview"],
+        "status": RequestStatus.DRAFT,
+    }
+    obj = DataDeletionRequest(**{**defaults, **fields})
+    obj._state.adding = False
+    return obj
+
+
+# A criteria edit reads the database to refuse a property removal whose run started.
+@pytest.mark.django_db
+@override_settings(CACHES=LOCMEM_CACHE)
+@time_machine.travel("2026-11-06T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    "start_status,changed_fields,expected_status,stats_cleared,warned",
+    [
+        (RequestStatus.PENDING, ["events"], RequestStatus.DRAFT, True, True),
+        (RequestStatus.DRAFT, ["events"], RequestStatus.DRAFT, True, False),
+        (RequestStatus.PENDING, ["notes"], RequestStatus.PENDING, False, False),
+    ],
+)
+def test_staff_edit_of_criteria_resets_stats_and_status(
+    start_status, changed_fields, expected_status, stats_cleared, warned
+):
+    obj = _staff_request(
+        status=start_status, count=5, stats_calculated_at=timezone.now(), property_removal_marker=timezone.now()
+    )
+    user = User(email="staff@example.com", is_staff=True)
+
+    notices = obj.apply_staff_edit(user, changed_fields, is_new=False)
+
+    assert obj.status == expected_status
+    assert (obj.count is None, obj.stats_calculated_at is None, obj.property_removal_marker is None) == (
+        stats_cleared,
+        stats_cleared,
+        stats_cleared,
+    )
+    assert (obj.criteria_updated_by is user) == stats_cleared
+    assert any(notice.warning for notice in notices) == warned
+
+
+@pytest.mark.parametrize(
+    "fields,cleared",
+    [
+        ({"properties": ["$ip"], "person_properties": ["email"]}, {"properties": [], "person_properties": []}),
+        ({"person_distinct_ids": ["user-1"], "person_drop_events": True}, {"person_distinct_ids": []}),
+        (
+            {
+                "request_type": RequestType.PERSON_REMOVAL,
+                "hogql_predicate": "event = 'x'",
+                "person_distinct_ids": ["user-1"],
+                "person_drop_events": True,
+            },
+            {"events": [], "hogql_predicate": "", "person_distinct_ids": ["user-1"]},
+        ),
+        (
+            {"request_type": RequestType.PROPERTY_REMOVAL, "properties": ["$ip"], "person_properties": ["email"]},
+            {"properties": ["$ip"], "person_properties": ["email"]},
+        ),
+    ],
+)
+def test_staff_create_clears_fields_the_type_does_not_use(fields, cleared):
+    obj = DataDeletionRequest(
+        team_id=TEAM_ID, events=["$pageview"], **{"request_type": RequestType.EVENT_REMOVAL, **fields}
+    )
+    user = User(email="staff@example.com", is_staff=True)
+
+    obj.apply_staff_edit(user, [], is_new=True)
+
+    assert (obj.created_by, obj.created_by_staff) == (user, True)
+    assert {field: getattr(obj, field) for field in cleared} == cleared

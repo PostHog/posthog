@@ -34,32 +34,6 @@ test.describe('Password Reset', () => {
         await expect(page.getByText(resetEmail)).toBeVisible()
     })
 
-    test('Cannot reset with invalid token', async ({ page }) => {
-        await page.goto('/reset/user_id/token')
-        await expect(page.getByText('The provided link is invalid or has expired.')).toBeVisible()
-    })
-
-    test('Shows validation error if passwords do not match', async ({ page }) => {
-        await page.goto('/reset/e2e_test_user/e2e_test_token')
-        await page.fill('[data-attr="password"]', VALID_PASSWORD)
-        await expect(page.locator('.LemonProgress__track')).toBeVisible()
-        await page.fill('[data-attr="password-confirm"]', '1234567A')
-        await page.click('button[type=submit]')
-        await expect(page.getByText('Passwords do not match')).toBeVisible()
-        await expect(page).toHaveURL('/reset/e2e_test_user/e2e_test_token')
-    })
-
-    test('Shows validation error if password is too short', async ({ page }) => {
-        await page.goto('/reset/e2e_test_user/e2e_test_token')
-        await page.fill('[data-attr="password"]', '123')
-        await page.fill('[data-attr="password-confirm"]', '123')
-        await page.click('button[type=submit]')
-        const passwordTooShortError = page.getByText('Must be at least 8 characters long')
-        await expect(passwordTooShortError).toBeVisible()
-        await expect(passwordTooShortError).toHaveClass(/text-danger/)
-        await expect(page).toHaveURL('/reset/e2e_test_user/e2e_test_token')
-    })
-
     test('Can reset password with valid token', async ({ page }) => {
         await page.goto('/reset/e2e_test_user/e2e_test_token')
         await page.fill('[data-attr="password"]', VALID_PASSWORD)

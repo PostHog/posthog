@@ -15,7 +15,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.alerts.metrics_investigation import MAX_SUMMARY_LENGTH
-from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+from posthog.tasks.alerts.test.alert_check_helpers import keep_team_alerts_on_insight, run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.metrics.backend.facade.contracts import (
@@ -79,6 +79,7 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
 class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
     def setUp(self) -> None:
         super().setUp()
+        keep_team_alerts_on_insight(self.team)
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
@@ -254,6 +255,31 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         mock_send_breaches.assert_called_once()
         breach_messages = mock_send_breaches.call_args.args[1]
         assert any("big" in message for message in breach_messages), breach_messages
+
+    def test_alert_checks_with_its_own_variable_values(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        self.seed_gauge({6: 5.0, 7: 5.0}, labels={"container": "small"})
+        self.seed_gauge({6: 50.0, 7: 50.0}, labels={"container": "big"})
+        insight = self.create_metrics_insight(
+            clauses=[
+                {
+                    "name": "a",
+                    "metricName": self.metric_name,
+                    "aggregation": "avg",
+                    "filters": [{"key": "container", "op": "eq", "value": "$container"}],
+                }
+            ]
+        )
+        alert = self.create_alert(
+            insight, upper=20.0, config={"type": "MetricsAlertConfig", "variables": {"container": {"values": ["big"]}}}
+        )
+
+        run_alert_check(alert["id"])
+
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.calculated_value == 50.0
 
     def test_formula_alert_evaluates_only_the_formula_series(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock

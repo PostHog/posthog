@@ -1,16 +1,12 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { emailDomainAgentLogic } from '../emailDomainAgentLogic'
 
-export function AgentSetupButton(): JSX.Element | null {
-    const { agentSetupEnabled } = useValues(emailDomainAgentLogic)
+export function AgentSetupButton(): JSX.Element {
     const { openAgentModal } = useActions(emailDomainAgentLogic)
-    if (!agentSetupEnabled) {
-        return null
-    }
     return (
         <LemonButton
             type="tertiary"

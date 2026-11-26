@@ -32,7 +32,6 @@ interface OnboardingInstallStepProps {
     hideInstallationCheck?: boolean
     header?: React.ReactNode
     wizardOverrides?: WizardOverrides
-    compact?: boolean
 }
 
 /**
@@ -48,7 +47,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     hideInstallationCheck = false,
     header,
     wizardOverrides,
-    compact = false,
 }) => {
     const {
         setAvailableSDKInstructionsMap,
@@ -154,7 +152,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         header,
         wizardOverrides,
         installTitle,
-        compact,
     }
 
     const instructionsModal = selectedSDK && (

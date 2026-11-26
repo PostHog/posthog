@@ -5,9 +5,11 @@ The only module other products and core may import, besides `contracts`, `enums`
 instances or querysets.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from uuid import UUID
 
-from ..logic import event_property_purge, placeholder, property_definitions
+from ..logic import definition_metadata, event_property_purge, placeholder, property_definitions
 from . import contracts
 from .enums import PropertyDefinitionType, PropertyType
 
@@ -52,3 +54,21 @@ def get_property_type(
     return property_definitions.get_property_type(
         project_id=project_id, name=name, type=type, group_type_index=group_type_index
     )
+
+
+def copy_definition_metadata(kind: contracts.DefinitionKind, definition_ids: Sequence[UUID | str]) -> int:
+    return definition_metadata.copy_definition_metadata(kind, definition_ids)
+
+
+def copy_definition_metadata_on_commit(kind: contracts.DefinitionKind, definition_id: UUID | str) -> None:
+    definition_metadata.copy_definition_metadata_on_commit(kind, definition_id)
+
+
+@contextmanager
+def batch_definition_metadata_copies() -> Iterator[None]:
+    with definition_metadata.batch_definition_metadata_copies():
+        yield
+
+
+def next_enterprise_definition_ids(kind: contracts.DefinitionKind, *, after: str | None, limit: int) -> list[str]:
+    return definition_metadata.next_enterprise_definition_ids(kind, after=after, limit=limit)

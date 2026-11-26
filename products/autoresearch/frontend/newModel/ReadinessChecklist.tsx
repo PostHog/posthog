@@ -3,8 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconCircleDashed, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { Readiness, ReadinessCheck, autoresearchNewLogic, hasTarget } from '../autoresearchNewLogic'
-import { ValidationWarningApi } from '../generated/api.schemas'
+import {
+    Readiness,
+    ReadinessCheck,
+    autoresearchNewLogic,
+    hasTarget,
+    populationChosen,
+    populationHasEvent,
+} from '../autoresearchNewLogic'
+import { ValidatePipelineResponseApi, ValidationWarningApi } from '../generated/api.schemas'
 
 const WARNING_TEXT_CLASS: Record<ValidationWarningApi['severity'], string> = {
     error: 'text-danger',
@@ -57,6 +64,53 @@ function CheckRow({ check }: { check: ReadinessCheck }): JSX.Element {
     )
 }
 
+function ValidationErrorBanner({ validation }: { validation: ValidatePipelineResponseApi }): JSX.Element {
+    const { validationLoading, newPipeline } = useValues(autoresearchNewLogic)
+    const { runValidate, setPopulationPickerOpen } = useActions(autoresearchNewLogic)
+
+    if (validation.error_code === 'too_expensive') {
+        const isCustom = newPipeline.template_key === null
+        return (
+            <LemonBanner
+                type="warning"
+                action={
+                    isCustom
+                        ? {
+                              children: 'Change who to predict for',
+                              onClick: () => setPopulationPickerOpen(true),
+                              'data-attr': 'autoresearch-new-validate-narrow-population',
+                          }
+                        : undefined
+                }
+            >
+                {populationHasEvent(newPipeline.inference_population_kind)
+                    ? "The check ran out of time on this project's data. Pick an event fewer people do, add filters, or shorten the training lookback in Advanced."
+                    : isCustom
+                      ? "The check ran out of time on this project's data, because it reads every event to find these people. Choose people who did a specific event instead."
+                      : "The check ran out of time on this project's data, because this template reads every event to find its people. Use Custom and choose people who did a specific event instead."}
+            </LemonBanner>
+        )
+    }
+
+    if (validation.error_code === 'invalid_definition') {
+        return <LemonBanner type="error">Couldn't check this model: {validation.error}</LemonBanner>
+    }
+
+    return (
+        <LemonBanner
+            type="error"
+            action={{
+                children: 'Retry',
+                onClick: () => runValidate(null),
+                loading: validationLoading,
+                'data-attr': 'autoresearch-new-validate-retry',
+            }}
+        >
+            Couldn't check this model: {validation.error}
+        </LemonBanner>
+    )
+}
+
 export function ReadinessChecklist(): JSX.Element {
     const {
         validation,
@@ -103,6 +157,14 @@ export function ReadinessChecklist(): JSX.Element {
         )
     }
 
+    if (!validation && !validationLoading && !populationChosen(newPipeline)) {
+        return (
+            <div className="border rounded p-4 bg-bg-light text-muted text-sm">
+                Choose who the model predicts for to check if it's ready to train.
+            </div>
+        )
+    }
+
     return (
         <div className="border rounded p-4 flex flex-col gap-3" data-attr="autoresearch-new-readiness">
             <div className="flex items-center justify-between">
@@ -114,19 +176,7 @@ export function ReadinessChecklist(): JSX.Element {
 
             {validation ? (
                 <>
-                    {validation.error && (
-                        <LemonBanner
-                            type="error"
-                            action={{
-                                children: 'Retry',
-                                onClick: () => runValidate(null),
-                                loading: validationLoading,
-                                'data-attr': 'autoresearch-new-validate-retry',
-                            }}
-                        >
-                            Couldn't check this model: {validation.error}
-                        </LemonBanner>
-                    )}
+                    {validation.error && <ValidationErrorBanner validation={validation} />}
                     {readinessChecks.length > 0 && (
                         <ul className="flex flex-col gap-3 text-sm">
                             {readinessChecks.map((check) => (

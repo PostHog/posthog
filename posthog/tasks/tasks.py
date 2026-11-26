@@ -1,3 +1,4 @@
+import json
 import time
 import datetime
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from django.db.models import Model
 from django.utils import timezone
 
 import requests
+import posthoganalytics
 from celery import Task, shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
@@ -24,8 +26,8 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags, tag_queries
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
@@ -33,11 +35,11 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.person_db_router import PersonDBRouter
 from posthog.ph_client import get_regional_ph_client
-from posthog.redis import get_client
+from posthog.redis import get_celery_broker_client, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
-from posthog.utils import safe_cache_delete
+from posthog.utils import get_instance_region, safe_cache_delete
 
 logger = get_logger(__name__)
 
@@ -119,6 +121,33 @@ STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
 )
 
 
+@shared_task(
+    ignore_result=True,
+    soft_time_limit=120,
+    time_limit=150,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+)
+@skip_team_scope_audit
+def store_pinned_recording_metadata(team_id: int, session_ids: list[str]) -> None:
+    """Store start_time and retention on pinned recordings so collection counts drop them once they expire."""
+    from posthog.models import Team
+    from posthog.session_recordings.models.session_recording import SessionRecording
+    from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+    team = Team.objects.get(pk=team_id)
+    found = SessionReplayEvents().get_session_timestamps(session_ids, team)
+    for recording in SessionRecording.objects.filter(
+        team_id=team_id, session_id__in=list(found), start_time__isnull=True
+    ):
+        timestamps = found[recording.session_id]
+        recording.start_time = timestamps.min_timestamp
+        # Match the 30-day default ClickHouse applies to recordings with no stored retention
+        recording.retention_period_days = timestamps.retention_period_days or 30
+        recording.save(update_fields=["start_time", "retention_period_days"])
+
+
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
     from products.exports.backend.models.exported_asset import ExportedAsset
@@ -135,6 +164,15 @@ def fail_stuck_video_exports() -> None:
     indistinguishable from a render still in progress.
     """
     from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+@skip_team_scope_audit
+def delete_scheduled_event_definitions() -> None:
+    """Delete event definitions whose ingestion was stopped, once nothing can recreate them."""
+    from posthog.tasks.event_definitions import delete_scheduled_event_definitions as run_sweep
 
     run_sweep()
 
@@ -469,6 +507,7 @@ def process_query_task(
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    staff_rights_withheld: bool = False,
 ) -> None:
     """
     Kick off query
@@ -477,7 +516,9 @@ def process_query_task(
     from posthog.clickhouse.client import execute_process_query
 
     existing_query_tags = get_query_tags()
-    all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
+    # A web pod on a newer release can send tags this worker's QueryTags doesn't know yet; drop them.
+    known_query_tags = {key: value for key, value in query_tags.items() if key in QueryTags.model_fields}
+    all_query_tags = {**known_query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
     tag_queries(**all_query_tags)
 
     if is_query_service:
@@ -493,6 +534,7 @@ def process_query_task(
             is_query_service=is_query_service,
             analytics_props=analytics_props,
             sharing_configuration_id=sharing_configuration_id,
+            staff_rights_withheld=staff_rights_withheld,
         )
     except ClickHouseAtCapacity as exc:
         # A remote capacity failure can arrive after other shards have done expensive work.
@@ -810,7 +852,7 @@ def redis_celery_queue_depth() -> None:
             )
 
             for queue in CeleryQueue:
-                llen = get_client().llen(queue.value)
+                llen = get_celery_broker_client().llen(queue.value)
                 celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
 
     except:
@@ -910,6 +952,64 @@ def capture_task_run_state_metrics() -> None:
         capture_exception(err)
 
 
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
+def capture_task_status_shadow_metrics() -> None:
+    from products.tasks.backend.facade import api as tasks_facade
+
+    try:
+        with pushed_metrics_registry("tasks_status_shadow") as registry:
+            mismatches_gauge = Gauge(
+                "posthog_tasks_status_shadow_mismatches",
+                "Tasks whose stored status differs from the status derived from their latest run.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.collect_task_status_mismatches():
+                mismatches_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(
+                    row.count
+                )
+            repaired_gauge = Gauge(
+                "posthog_tasks_status_shadow_repaired",
+                "Tasks whose stored status was repaired from their latest run in the last pass.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.repair_task_status_mismatches():
+                repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
+            stale_runs_gauge = Gauge(
+                "posthog_tasks_stale_live_runs",
+                "Live task runs that went quiet for longer than their idle timeout allows, by the rule that finds them.",
+                registry=registry,
+                labelnames=["profile", "run_environment", "rule"],
+            )
+            for stale in tasks_facade.collect_stale_live_task_runs():
+                stale_runs_gauge.labels(
+                    profile=stale.profile, run_environment=stale.run_environment, rule=stale.rule
+                ).set(stale.count)
+            swept_runs_gauge = Gauge(
+                "posthog_tasks_stale_live_runs_swept",
+                "Live task runs the stale sweep ended in the last pass because they went quiet.",
+                registry=registry,
+                labelnames=["profile"],
+            )
+            for swept in tasks_facade.sweep_stale_live_task_runs():
+                swept_runs_gauge.labels(profile=swept.profile).set(swept.count)
+            fenced_tokens_gauge = Gauge(
+                "posthog_tasks_ended_run_gateway_tokens",
+                "Gateway tokens of ended task runs that the last pass revoked or would have revoked.",
+                registry=registry,
+                labelnames=["profile", "outcome"],
+            )
+            for fenced in tasks_facade.fence_ended_task_runs():
+                fenced_tokens_gauge.labels(profile=fenced.profile, outcome=fenced.outcome).set(fenced.count)
+    except OperationalError as err:
+        logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
+    except Exception as err:
+        logger.exception("capture_task_status_shadow_metrics", exception=err)
+        capture_exception(err)
+
+
 @shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:
@@ -939,11 +1039,15 @@ class Polling:
     _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
     NANOSECONDS_IN_SECOND = int(1e9)
     TIME_BETWEEN_RUNS_SECONDS = 2
+    # Hobby only needs the query heartbeat, which lives QueryStatusManager.HEARTBEAT_TTL_SECONDS, not second-by-second progress.
+    # Stays below ASSUME_TASK_DEAD_SECONDS, or start_poll_query_performance would restart a healthy loop.
+    HOBBY_TIME_BETWEEN_RUNS_SECONDS = 10
     SOFT_TIME_LIMIT_SECONDS = 10
     HARD_TIME_LIMIT_SECONDS = 12
     ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
 
     TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * TIME_BETWEEN_RUNS_SECONDS
+    HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * HOBBY_TIME_BETWEEN_RUNS_SECONDS
     ASSUME_TASK_DEAD_NANOSECONDS = NANOSECONDS_IN_SECOND * ASSUME_TASK_DEAD_SECONDS
 
     @staticmethod
@@ -970,6 +1074,9 @@ class Polling:
     time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
 )
 def poll_query_performance(last_known_run_time_ns: int) -> None:
+    time_between_runs_ns = (
+        Polling.HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS if is_hobby() else Polling.TIME_BETWEEN_RUNS_NANOSECONDS
+    )
     start_time_ns = time.time_ns()
 
     try:
@@ -985,14 +1092,14 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
         logger.exception("Poll query performance failed", error=e)
 
     elapsed_ns = time.time_ns() - start_time_ns
-    if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+    if elapsed_ns > time_between_runs_ns:
         # right again right away if more than time_between_runs has elapsed
         poll_query_performance.delay(start_time_ns)
     else:
         # delay until time_between_runs has elapsed
         poll_query_performance.apply_async(
             args=[start_time_ns],
-            countdown=((Polling.TIME_BETWEEN_RUNS_NANOSECONDS - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
+            countdown=((time_between_runs_ns - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
         )
 
 
@@ -1077,6 +1184,20 @@ def sync_all_organization_available_product_features() -> None:
     sync_all_organization_available_product_features()
 
 
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
+def report_upcoming_events_deletions() -> None:
+    from posthog.models.events_plan_deletion import report_upcoming_deletions
+
+    report_upcoming_deletions()
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
+def report_events_retention_shortened(organization_id: str, notice: dict[str, object]) -> None:
+    from posthog.models.events_plan_deletion import report_retention_shortened
+
+    report_retention_shortened(UUID(organization_id), notice)
+
+
 @shared_task(ignore_result=False, track_started=True, max_retries=0)
 def check_async_migration_health() -> None:
     from posthog.tasks.async_migrations import check_async_migration_health
@@ -1127,10 +1248,47 @@ def clickhouse_materialize_columns() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
-def send_org_usage_reports() -> None:
+def send_org_usage_reports(organization_ids: list[str] | None = None) -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
-    send_all_org_usage_reports.delay()
+    send_all_org_usage_reports.delay(organization_ids=organization_ids)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
+def send_delayed_org_usage_reports() -> None:
+    region = get_instance_region()
+    if region not in ("US", "EU"):
+        return
+
+    payload = posthoganalytics.get_feature_flag_payload(
+        "delayed-usage-report-orgs",
+        "internal_billing_events",
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+    if payload is None:
+        return
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            logger.warning("Invalid delayed usage report flag payload", region=region)
+            return
+    if not isinstance(payload, dict):
+        logger.warning("Invalid delayed usage report flag payload", region=region)
+        return
+
+    organization_ids = payload.get(region, [])
+    if not isinstance(organization_ids, list) or any(
+        not isinstance(organization_id, str) or not organization_id.strip() for organization_id in organization_ids
+    ):
+        logger.warning("Invalid delayed usage report organization list", region=region)
+        return
+    # An empty filter makes the reporting worker process every organization.
+    if not organization_ids:
+        return
+
+    send_org_usage_reports(organization_ids=organization_ids)
 
 
 def ensure_not_persons_db_model(model: type[Model]) -> None:

@@ -4,6 +4,8 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+// The deploy requirements manifest. tools/deploy-requirements holds the spec and the JSON Schema
+// that this writer and the Rust writer share. A change to the format starts there.
 export const MANIFEST_SCHEMA_VERSION = 1
 
 // Resolves to /code/nodejs/schema-requirements.json in the Node image, next to nodejs/dist.
@@ -25,7 +27,9 @@ export interface DjangoRequirement {
 export interface SqlxRequirement {
     kind: 'sqlx'
     database: SqlxDatabase
-    version: number
+    // Every version in the migration directory, ascending. A version is the timestamp in the file name, so a
+    // late merge can add a version below the highest one, and `sqlx migrate run` still applies it.
+    versions: number[]
 }
 
 export type Requirement = DjangoRequirement | SqlxRequirement
@@ -84,10 +88,15 @@ function parseSqlxRequirement(item: Record<string, unknown>, index: number): Sql
     if (!database) {
         throw new ManifestError(`requirements[${index}].database must be one of ${SQLX_DATABASES.join(', ')}`)
     }
-    if (typeof item.version !== 'number' || !Number.isSafeInteger(item.version) || item.version <= 0) {
-        throw new ManifestError(`requirements[${index}].version must be a positive integer`)
+    const versions = item.versions
+    if (
+        !Array.isArray(versions) ||
+        versions.length === 0 ||
+        !versions.every((version) => typeof version === 'number' && Number.isSafeInteger(version) && version > 0)
+    ) {
+        throw new ManifestError(`requirements[${index}].versions must be a non-empty list of positive integers`)
     }
-    return { kind: 'sqlx', database, version: item.version }
+    return { kind: 'sqlx', database, versions: [...new Set<number>(versions)].sort((a, b) => a - b) }
 }
 
 // An unknown kind is an error. Skipping it would report a pass for a requirement that nothing checked.

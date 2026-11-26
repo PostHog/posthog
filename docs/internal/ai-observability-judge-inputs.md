@@ -42,17 +42,19 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 Generation evaluations extract message text without the per-message character cutoff.
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
-An exception applies when the judge sees images (the `llm-analytics-judge-images` flag is on and the evaluation does not turn attachments off).
+An exception applies when the judge sees attachments, which is the default unless the evaluation turns them off.
 Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
 The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line that names the rest.
 PDFs reach OpenAI, Anthropic and Gemini judges, up to 10 MB each.
-WAV and MP3 audio becomes an `[audio N]` marker and reaches Gemini judges and OpenAI audio models, always inline.
+WAV, MP3, AAC, AIFF, FLAC and OGG audio becomes an `[audio N]` marker and always goes inline.
+Gemini judges read all six. OpenAI audio models and non-Gemini OpenRouter models get WAV and MP3 only.
 MP4, MPEG, QuickTime and WebM video becomes a `[video N]` marker and reaches Gemini judges, up to 15 MB each.
 OpenRouter judges get each type that OpenRouter's model catalogue lists as an input of their model. PDFs need the `file` input, so OpenRouter never parses them with its paid OCR engine. Everything except images goes inline, and a model the catalogue doesn't list gets images only.
 Attachments a judge can't read take none of its 20 slots, and one summary line names them.
+Media the event never carried, such as an SDK's `[base64 image redacted]` placeholder, becomes `[image, not attached]`.
 When any attachment is left out, the judge is told it can't see it and not to guess what it contains.
 
-Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Generation evaluation user prompts repair UTF-16 surrogate sequences after sampling.
 Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
@@ -66,7 +68,7 @@ Responses, including errors and streamed completions, are limited to 1 MiB.
 The endpoint must return uncompressed responses; compressed responses are rejected before decoding.
 Expired requests, rejected responses, and streams closed by the caller close their underlying connection.
 
-The OpenAI SDK does not retry custom-provider requests. Online evaluations and taggers use their existing Temporal retry policies for transient failures, and worker cancellation propagates to Temporal.
+The OpenAI SDK does not retry custom-provider requests. Online evaluations use their existing Temporal retry policies for transient failures, and worker cancellation propagates to Temporal.
 Rate-limit responses retry without disabling the evaluation or marking its connection invalid, honoring `Retry-After` up to one minute. Quota and authentication errors keep their existing terminal behavior.
 Models without native structured-output support retain the JSON fallback, which can make one additional bounded request.
 Oversized or compressed completion responses skip the evaluation as a rejected request without disabling the connection.
@@ -102,7 +104,7 @@ The picker does not exclude individual decision models. Listed models may not su
 The catalogue does not expose supported question types. If a model rejects a request, the run is skipped without retrying, with a reason to check output-type and criteria compatibility.
 Support added by a provider works on subsequent runs without a PostHog code change.
 Chat models such as Jev Router keep using chat completions.
-Models without text output are excluded from the playground and tagger model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
+Models without text output are excluded from the playground and evaluation model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
 The catalogue refreshes hourly and keeps its last successful response when a refresh fails, retrying refreshes after one minute.
 For projects with this flag enabled, an unavailable catalogue makes automatically routed OpenRouter runs retry only when no successful response is cached.
 Automatic routing and explicit decision selection also need the catalogue when changing a model or output configuration, changing the evaluation type, enabling an evaluation, or changing the judge method.
@@ -220,12 +222,18 @@ Existing backfills keep their stored windows; **Retry remaining** applies the bo
 
 Generation references get up to three lookup attempts.
 A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
-Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+Live references marked `awaiting_ingestion` wait 30 seconds after the first miss and 90 seconds after the second, and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
+A running backfill with no reported dispatches or outcomes shows **Waiting for progress** below its progress count.
+The tooltip explains that evaluations may already be running before progress appears.
+The label disappears when the run reports progress or leaves the running state.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
 A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
+A run that fails because the provider stayed rate limited or unavailable through every retry halves that backfill's cap, down to 1.
+After as many evaluated runs as the cap within one page, the cap rises by one, back up to the maximum.
+The cap carries over between pages, but that count of evaluated runs starts again on each page, and each change logs `llma.evaluation_backfill_in_flight_limit`.
 A run holds one of the shared ClickHouse slots only while it reads its unit, and spends most of its time waiting on the judge.
 Lower the setting if backfills crowd out live evaluations.
 Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
@@ -242,6 +250,9 @@ An interrupted backfill preserves completed results.
 **Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
 It preserves usable existing results and retries units without usable results.
 It is not available for a backfill that re-ran existing results.
+Runs stopped because the evaluation was disabled or deleted count as failed, so **Retry remaining** runs them again.
+Older workers recorded those runs as skips, and an error that disables the evaluation, such as an invalid provider key, still records a skip.
+Those units stay blocked for **Retry remaining**, so recover them with a new backfill that includes units that already have a result.
 A cancelled backfill still counts the runs it started before the cancel, because they finish and are billed.
 Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 
@@ -321,6 +332,8 @@ Source-property rules do not automatically apply to evaluation outputs. To keep 
 User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
 results even when the project's default rules hide those result properties from users.
 Report agents also read complete source conversations when inspecting trace or session evaluation results.
+Evaluation reports require organization approval for third-party AI processing.
+If an admin withdraws approval during a run, the agent stops before its next model request, including a retry.
 
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.

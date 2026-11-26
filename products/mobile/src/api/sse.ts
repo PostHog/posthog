@@ -1,4 +1,5 @@
 import { abortError } from '@/lib/abort'
+import { requestWithDeadline } from './transport'
 
 /** One server-sent event. `event` defaults to `message` when the frame names none. */
 export interface SseEvent {
@@ -88,7 +89,8 @@ export function createSseParser(onEvent: (event: SseEvent) => void): SseParser {
 export async function readSse(
     response: Response,
     onEvent: (event: SseEvent) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    inactivityTimeoutMs?: number
 ): Promise<void> {
     const body = response.body
     if (!body) {
@@ -102,7 +104,7 @@ export async function readSse(
     const reader = body.getReader()
     const decoder = new TextDecoder()
     const abort = (): void => {
-        void reader.cancel()
+        void reader.cancel().catch(() => undefined)
     }
     signal?.addEventListener('abort', abort, { once: true })
     try {
@@ -110,7 +112,9 @@ export async function readSse(
             if (signal?.aborted) {
                 throw abortError()
             }
-            const { value, done } = await reader.read()
+            const { value, done } = await (inactivityTimeoutMs === undefined
+                ? reader.read()
+                : requestWithDeadline(() => reader.read(), signal, inactivityTimeoutMs))
             if (done) {
                 parser.feed(decoder.decode())
                 break
@@ -119,5 +123,6 @@ export async function readSse(
         }
     } finally {
         signal?.removeEventListener('abort', abort)
+        abort()
     }
 }

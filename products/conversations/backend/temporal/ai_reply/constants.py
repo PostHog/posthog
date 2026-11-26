@@ -12,7 +12,23 @@ DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolu
 BLOCKER_AWARE_LOOP_PATCH = "blocker-aware-loop-2026-09"
 # Histories without this marker treat blocked_on_customer as findings, not a clarifying question.
 TIERED_CLARIFY_PATCH = "tiered-clarify-2026-09"
+# Histories without this marker retry every knowledge blocker and send an answerable draft
+# that has no clarifying question to findings.
+GROUNDING_AWARE_GATE_PATCH = "grounding-aware-gate-2026-11"
+# Histories without this marker start every child under the first-draft or clarification id.
+CUSTOMER_REPLY_RERUN_PATCH = "customer-reply-rerun-2026-11"
+MAX_THREAT_TYPE_CHARS = 100
 MAX_CLARIFICATION_ROUNDS = 1
+# Each run is billed, so one ticket gets at most this many runs from later customer messages.
+MAX_CUSTOMER_REPLY_RERUNS = 3
+
+RunTrigger = Literal["first_message", "customer_reply", "manual"]
+TRIGGER_FIRST_MESSAGE: RunTrigger = "first_message"
+TRIGGER_CUSTOMER_REPLY: RunTrigger = "customer_reply"
+TRIGGER_MANUAL: RunTrigger = "manual"
+
+RERUN_MODE_FIRST_MESSAGE = "first_message"
+RERUN_MODE_UNTIL_TEAM_REPLY = "until_team_reply"
 MAX_CLARIFYING_QUESTION_CHARS = 500
 
 # Stable namespace for deterministic per-ticket trace ids (uuid5).

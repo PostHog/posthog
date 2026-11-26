@@ -85,6 +85,7 @@ def test_admin_api_store_not_found_is_non_retryable(status_code, reason):
 @pytest.mark.parametrize(
     "status_code,reason",
     [
+        (408, "Request Timeout"),
         (429, "Too Many Requests"),
         (500, "Internal Server Error"),
         (502, "Bad Gateway"),
@@ -106,6 +107,7 @@ def test_transient_http_errors_stay_retryable(status_code, reason):
         "Shopify: internal error from request 500 Internal Server Error",
         'Shopify: internal errors in payload [{"message": "internal error", "extensions": {"code": "internal_server_error"}}]',
         "Shopify: connection broken while reading response: Connection broken: IncompleteRead(0 bytes read)",
+        "Shopify: request timeout from request 408 Request Timeout",
         "Failed to retrieve Shopify access token: 500 Internal Server Error",
         "Failed to retrieve Shopify access token: 429 Too Many Requests",
     ],

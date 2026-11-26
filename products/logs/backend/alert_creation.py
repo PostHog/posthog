@@ -4,10 +4,11 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from django.db import connection
-
 from posthog.models.team.team import Team
 
+from products.alerts_platform.backend.facade.api import count_configurations, hold_cap_lock, rows_with_counted_copies
+from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_utils import next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -28,13 +29,27 @@ class AlertLimitReached(Exception):
 
 
 def claim_alert_slot(team_id: int) -> None:
-    """Serializes the team's creates until the caller's transaction ends, and raises
-    `AlertLimitReached` when the team is at its cap."""
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"logs_alerts:{team_id}"])
+    """Serializes the team's logs alert creates on every route, the platform's included, until the
+    caller's transaction ends, and raises `AlertLimitReached` when the team is at its cap."""
+    hold_cap_lock(team_id=team_id, source_kind=SourceKind.LOGS)
+    check_alert_slot(team_id)
+
+
+def check_alert_slot(team_id: int) -> None:
+    """Raises `AlertLimitReached` when the team is at its cap. The caller holds the cap lock."""
     if team_id in UNCAPPED_ALERT_TEAM_IDS:
         return
-    if LogsAlertConfiguration.objects.filter(team_id=team_id).count() >= MAX_ALERTS_PER_TEAM:
+    # Each alert counts once: from its copy when the platform holds its settings, so it still counts once
+    # its logs row is deleted, else from its logs row. A copy the logs row owns is not counted, and a row
+    # that says logs owns it while its copy says the platform does counts from the copy.
+    row_ids = set(
+        LogsAlertConfiguration.objects.filter(team_id=team_id)
+        .exclude(owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", flat=True)
+    )
+    row_ids -= rows_with_counted_copies(team_id=team_id, source_kind=SourceKind.LOGS, legacy_configuration_ids=row_ids)
+    alerts = len(row_ids) + count_configurations(team_id=team_id, source_kind=SourceKind.LOGS, held_only=True)
+    if alerts >= MAX_ALERTS_PER_TEAM:
         raise AlertLimitReached()
 
 

@@ -76,9 +76,19 @@ def _with_live_credential_state(ctx: TaskProcessingContext) -> TaskProcessingCon
     on every Slack turn — while `ctx.state` is a snapshot from workflow start, so reading
     either from there mints the wrong person's credentials.
     """
-    persisted = TaskRun.objects.filter(id=ctx.run_id).values_list("state", flat=True).first() or {}
+    persisted = TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).values_list("state", flat=True).first() or {}
     live = {key: persisted[key] for key in ("pr_authorship_mode", "slack_actor_user_id") if key in persisted}
-    return dataclasses.replace(ctx, state={**(ctx.state or {}), **live})
+    return dataclasses.replace(
+        ctx,
+        state={
+            **(ctx.state or {}),
+            **live,
+            "agent_egress_probe": persisted.get("agent_egress_probe"),
+            "agent_egress_git_reads": ctx.agent_egress_git_reads
+            or (ctx.state or {}).get("agent_egress_git_reads")
+            or persisted.get("agent_egress_git_reads"),
+        },
+    )
 
 
 @dataclass
@@ -130,9 +140,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
             # transient blip from escaping as error-tracking noise (Temporal still retries
             # the activity if the DB is genuinely degraded).
             task = retry_on_db_connection_drop(
-                lambda: Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-                    id=ctx.task_id
-                )
+                lambda: Task.objects.select_related("created_by", "github_user_integration").get(id=ctx.task_id)
             )
             context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
             if context_ownership_version != task.ownership_version:

@@ -7,6 +7,7 @@ CODE_OF_CONDUCT.md export-ignore
 
 # Generated code: exclude from GitHub Linguist stats and suppress diffs.
 frontend/src/generated/** linguist-generated
+frontend/public/admin-console/console.css linguist-generated
 frontend/src/lib/posthog-typed.ts linguist-generated
 frontend/src/products.tsx linguist-generated
 frontend/src/queries/schema/latest-versions.json linguist-generated
@@ -17,6 +18,7 @@ frontend/src/taxonomy/core-filter-definitions-by-group.json linguist-generated
 
 products/*/frontend/generated/** linguist-generated
 
+services/mcp/schema/cli-catalog-tools.json linguist-generated
 services/mcp/schema/generated-tool-definitions.json linguist-generated
 services/mcp/src/api/generated.ts linguist-generated
 services/mcp/src/generated/** linguist-generated
@@ -49,3 +51,5 @@ hog/test/parity/bundles/** linguist-generated -text
 hog/test/parity/golden/** linguist-generated
 hog/test/parity/native/bin/** binary linguist-generated
 hog/test/parity/real/** -text linguist-generated
+
+products/mobile/src/features/replay/web/phonePlayer.generated.replay linguist-generated diff whitespace=-blank-at-eol

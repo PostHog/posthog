@@ -34,7 +34,7 @@ describe('queries', () => {
             })
         })
 
-        it('adds severity without changing an OR property filter', () => {
+        it('sends severity as its own field and leaves the filter group unchanged', () => {
             const browserFilter: EventPropertyFilter = {
                 type: PropertyFilterType.Event,
                 key: '$browser',
@@ -59,22 +59,11 @@ describe('queries', () => {
                 columns: ['error'],
             })
 
-            expect((actual.source as ErrorTrackingQuery).filterGroup).toEqual({
+            const source = actual.source as ErrorTrackingQuery
+            expect(source.severity).toEqual('high')
+            expect(source.filterGroup).toEqual({
                 type: FilterLogicalOperator.And,
-                values: [
-                    {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            { type: FilterLogicalOperator.Or, values: [browserFilter, osFilter] },
-                            {
-                                type: PropertyFilterType.ErrorTrackingIssue,
-                                key: 'severity',
-                                operator: PropertyOperator.Exact,
-                                value: ['high'],
-                            },
-                        ],
-                    },
-                ],
+                values: [{ type: FilterLogicalOperator.Or, values: [browserFilter, osFilter] }],
             })
         })
     })

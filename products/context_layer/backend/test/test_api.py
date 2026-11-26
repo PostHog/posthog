@@ -13,6 +13,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -20,7 +21,11 @@ from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rate_limit import ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle
+from posthog.rate_limit import (
+    ContextSelectionBurstThrottle,
+    ContextSelectionSustainedThrottle,
+    ContextSelectionTaskThrottle,
+)
 from posthog.storage.object_storage import UnavailableStorage
 from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import safe_cache_set
@@ -1260,15 +1265,19 @@ class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("burst", ContextSelectionBurstThrottle, "1/minute"),
-            ("sustained", ContextSelectionSustainedThrottle, "1/hour"),
+            ("burst", ContextSelectionBurstThrottle, "1/minute", 200),
+            ("sustained", ContextSelectionSustainedThrottle, "1/hour", 200),
+            ("task", ContextSelectionTaskThrottle, "1/minute", 429),
         ]
     )
     def test_selection_rate_limit_covers_sandbox_oauth(
         self,
         name: str,
-        throttle: type[ContextSelectionBurstThrottle | ContextSelectionSustainedThrottle],
+        throttle: type[
+            ContextSelectionBurstThrottle | ContextSelectionSustainedThrottle | ContextSelectionTaskThrottle
+        ],
         rate: str,
+        limited_status: int,
     ) -> None:
         task = apps.get_model("tasks", "Task").objects.create(
             team=self.team, created_by=self.user, title="Question", origin_product="posthog_ai"
@@ -1309,7 +1318,10 @@ class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             patch.object(throttle, "rate", rate),
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
-            patch("products.context_layer.backend.selection.get_feature_flag_or_none", return_value="treatment"),
+            patch(
+                "products.context_layer.backend.selection.posthoganalytics.get_feature_flag_result",
+                return_value=FeatureFlagResult.from_value_and_payload("phai-context-selection", "treatment", None),
+            ),
             patch("products.context_layer.backend.selection.httpx.Client") as source,
             patch("products.context_layer.backend.selection.build_system_one_client") as model,
         ):
@@ -1318,6 +1330,8 @@ class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
             assert allowed.status_code == 200, allowed.content
             assert model.call_count == 1
             limited = self.client.post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {tokens[1]}")
-            assert limited.status_code == 429, limited.content
+            assert limited.status_code == limited_status, limited.content
+            if limited_status == 200:
+                assert limited.json()["reason"] == "rate_limited"
             assert model.call_count == 1
             source.assert_not_called()

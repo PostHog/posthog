@@ -130,6 +130,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(run.task.created_by_id, self.user.id)
         self.assertTrue(run.task.internal)
         self.assertEqual(run.task.origin_product, "account_audit")
+        self.assertEqual(run.task.profile, "account_audit")
         self.assertIsNone(run.task.repository)
         self.assertIn(self.skill.body, run.task.description)
         self.assertIn(admission.notebook_short_id, run.task.description)
@@ -137,7 +138,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertFalse(run.state["pending_dispatch"]["create_pr"])
         self.assertEqual(
             run.state["pending_dispatch"]["posthog_mcp_scopes"],
-            ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
+            ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write", "billing:read"],
         )
         env = SandboxEnvironment.objects.get(id=run.state["sandbox_environment_id"])
         self.assertTrue(env.internal)

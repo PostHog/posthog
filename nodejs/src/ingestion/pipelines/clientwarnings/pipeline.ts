@@ -16,7 +16,6 @@ import {
 import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
-    createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
@@ -36,6 +35,7 @@ export interface ClientWarningsPipelineConfig {
     promiseScheduler: PromiseScheduler
     topHog: TopHogRegistry
     teamsPrefetchEnabled: boolean
+    concurrentBatches: number
 }
 
 interface ClientWarningsPipelineInput {
@@ -49,6 +49,7 @@ interface ClientWarningsPipelineContext {
 export function createClientWarningsPipeline<
     TInput extends ClientWarningsPipelineInput,
     TContext extends ClientWarningsPipelineContext,
+    CFeed extends object = Record<never, never>,
 >(config: ClientWarningsPipelineConfig) {
     const {
         outputs,
@@ -58,29 +59,33 @@ export function createClientWarningsPipeline<
         promiseScheduler,
         topHog,
         teamsPrefetchEnabled,
+        concurrentBatches,
     } = config
 
-    return newCommonIngestionPipeline<TInput, TContext>({
-        teamManager,
-        outputs,
-        promiseScheduler,
-        concurrentBatches: 1,
-        topHog,
-    })
-        .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
-        .parseHeaders()
-        .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
-        .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
-        .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
-        .parseMessage()
-        .resolveTeam()
-        .pipe(createValidateHistoricalMigrationStep())
-        .pipe(createValidateEventMetadataStep())
-        .pipe(createValidateEventPropertiesStep())
-        .pipe(createApplyEventFiltersStep(eventFilterManager))
-        .pipe(createDropOldEventsStep())
-        .pipe(createHandleClientIngestionWarningStep(outputs))
-        .pipe(createRecordIngestionLagStep())
-        .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
-        .build()
+    return (
+        newCommonIngestionPipeline<TInput, TContext>({
+            teamManager,
+            outputs,
+            promiseScheduler,
+            concurrentBatches,
+            topHog,
+        })
+            .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
+            .parseHeaders()
+            .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
+            .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
+            .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
+            .parseMessage()
+            .resolveTeam()
+            .pipe(createValidateEventMetadataStep())
+            .pipe(createValidateEventPropertiesStep())
+            .pipe(createApplyEventFiltersStep(eventFilterManager))
+            .pipe(createDropOldEventsStep())
+            // From here on the event produces its warning, so a redelivery would duplicate it.
+            .timeoutBarrier()
+            .pipe(createHandleClientIngestionWarningStep(outputs))
+            .pipe(createRecordIngestionLagStep())
+            .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
+            .build<CFeed>()
+    )
 }

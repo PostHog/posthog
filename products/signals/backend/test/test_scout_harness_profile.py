@@ -27,17 +27,19 @@ from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.business_knowledge.backend.models.knowledge_chunk import KnowledgeChunk
 from products.business_knowledge.backend.models.knowledge_document import KnowledgeDocument
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.testing import create_dashboard
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -530,33 +532,27 @@ class TestExistingInboxReports(BaseTest):
 
 class TestRecentDashboards(BaseTest):
     def test_orders_by_last_accessed_desc(self) -> None:
-        old = Dashboard.objects.create(team=self.team, name="old")
-        new = Dashboard.objects.create(team=self.team, name="new")
-        Dashboard.objects.filter(id=old.id).update(last_accessed_at=timezone.now() - timedelta(hours=2))
-        Dashboard.objects.filter(id=new.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="old", last_accessed_at=timezone.now() - timedelta(hours=2))
+        create_dashboard(team_id=self.team.id, name="new", last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["new", "old"]
 
     def test_excludes_deleted(self) -> None:
-        live = Dashboard.objects.create(team=self.team, name="live")
-        gone = Dashboard.objects.create(team=self.team, name="gone", deleted=True)
-        Dashboard.objects.filter(id=live.id).update(last_accessed_at=timezone.now())
-        Dashboard.objects.filter(id=gone.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="live", last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="gone", deleted=True, last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["live"]
 
     def test_excludes_never_accessed(self) -> None:
         # last_accessed_at null = never opened — surfacing it as "recent" would lie.
-        accessed = Dashboard.objects.create(team=self.team, name="accessed")
-        Dashboard.objects.filter(id=accessed.id).update(last_accessed_at=timezone.now())
-        Dashboard.objects.create(team=self.team, name="never")  # last_accessed_at = null
+        create_dashboard(team_id=self.team.id, name="accessed", last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="never")  # last_accessed_at = null
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["accessed"]
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        d = Dashboard.objects.create(team=other, name="other-team")
-        Dashboard.objects.filter(id=d.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=other.id, name="other-team", last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert result == []
 
@@ -695,9 +691,20 @@ class TestRecentAlerts(BaseTest):
     def test_total_and_enabled_counts(self) -> None:
         AlertConfiguration.objects.create(team=self.team, insight=self._insight("a"), name="on", enabled=True)
         AlertConfiguration.objects.create(team=self.team, insight=self._insight("b"), name="off", enabled=False)
+        with team_scope(self.team.id):
+            platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="no insight row",
+                source_kind="insight",
+                source_config={"insight_id": self._insight("c").id},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+            )
         result = _recent_alerts(self.team)
-        assert result["total_count"] == 2
-        assert result["enabled_count"] == 1
+        assert result["total_count"] == 3
+        assert result["enabled_count"] == 2
+        assert {row["name"] for row in result["recent"]} == {"on", "off", "no insight row"}
 
     def test_orders_by_created_at_desc(self) -> None:
         # AlertConfiguration has no `updated_at` (CreatedMetaFields only) — sort uses
@@ -828,22 +835,22 @@ class TestRecentCohorts(BaseTest):
 
 class TestRecentActions(BaseTest):
     def test_orders_by_updated_at_desc(self) -> None:
-        a = Action.objects.create(team=self.team, name="a", created_by=self.user)
-        Action.objects.filter(id=a.id).update(updated_at=timezone.now() - timedelta(days=1))
-        Action.objects.create(team=self.team, name="b", created_by=self.user)
+        a = create_action(team=self.team, name="a", created_by=self.user)
+        update_action(a, updated_at=timezone.now() - timedelta(days=1))
+        create_action(team=self.team, name="b", created_by=self.user)
         result = _recent_actions(self.team)
         assert [r["name"] for r in result["recent"]] == ["b", "a"]
 
     def test_excludes_deleted(self) -> None:
-        Action.objects.create(team=self.team, name="kept", created_by=self.user)
-        Action.objects.create(team=self.team, name="gone", deleted=True, created_by=self.user)
+        create_action(team=self.team, name="kept", created_by=self.user)
+        create_action(team=self.team, name="gone", deleted=True, created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 1
         assert result["recent"][0]["name"] == "kept"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        Action.objects.create(team=other, name="x", created_by=self.user)
+        create_action(team=other, name="x", created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 0
 

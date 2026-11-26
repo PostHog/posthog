@@ -65,8 +65,13 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
-from .visibility import slack_dev_mcp_ui_enabled
+from ..policy import (
+    GatewayCaller,
+    PolicyContext,
+    is_destructive_tool,
+    is_policy_state_allowed,
+    is_read_only_connector_tool,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -232,7 +237,7 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return False
-    return not (installation.sensitive_configuration or {}).get("access_token")
+    return not installation.upstream_access_token()
 
 
 def _installation_needs_reauth(installation: MCPServerInstallation) -> bool:
@@ -352,8 +357,6 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_team_enabled(self, obj: MCPGatewayServer) -> bool:
-        if obj.template is not None and not obj.template.oauth_credentials_source_is_allowed_for_team(obj.team_id):
-            return False
         return obj.is_team_enabled
 
     @extend_schema_field(serializers.IntegerField())
@@ -492,6 +495,9 @@ class ResolvedToolPolicySerializer(serializers.Serializer):
     input_schema = MCPToolInputSchemaField(help_text="JSON Schema describing the tool's input arguments.")
     is_destructive = serializers.BooleanField(
         help_text="Whether the canonical gateway heuristic treats this tool as destructive."
+    )
+    is_read_only = serializers.BooleanField(
+        help_text="Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb."
     )
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="Effective state for the scope.")
     team_state = serializers.ChoiceField(
@@ -724,16 +730,9 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
                     "connection_state": connection_state,
-                    # Mirrors the run path's grant, server, and credential-source checks so
+                    # Mirrors the run path's grant and server checks so
                     # pickers can hide grants a run cannot mount.
-                    "reachable": (
-                        server.is_team_enabled
-                        and (
-                            server.template is None
-                            or server.template.oauth_credentials_source_is_allowed_for_team(server.team_id)
-                        )
-                        and not getattr(access, "grant_owner_revoked", False)
-                    ),
+                    "reachable": (server.is_team_enabled and not getattr(access, "grant_owner_revoked", False)),
                 }
             )
         return servers
@@ -954,10 +953,6 @@ class MCPGatewayServerViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[MCPGatewayServer]) -> QuerySet[MCPGatewayServer]:
         servers = MCPGatewayServer.objects.for_team(self.team_id)
-        if servers.filter(template__oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
-            user=cast(User, self.request.user), team=self.team
-        ):
-            servers = servers.exclude(template__oauth_credentials_source="slack_dev_app")
         if not self._is_project_admin():
             user_id = cast(int, self.request.user.id)
             servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=user_id)
@@ -966,7 +961,10 @@ class MCPGatewayServerViewSet(
             .prefetch_related(
                 Prefetch(
                     "installations",
-                    queryset=MCPServerInstallation.objects.select_related("user").order_by("created_at"),
+                    # The token resolver reads the template of a link-backed installation.
+                    queryset=MCPServerInstallation.objects.select_related(
+                        "user", "template", "linked_user_integration"
+                    ).order_by("created_at"),
                 ),
                 Prefetch(
                     "agent_access",
@@ -1165,6 +1163,7 @@ class MCPGatewayServerViewSet(
                     "description": description,
                     "input_schema": input_schema,
                     "is_destructive": is_destructive_tool(tool_name, annotations),
+                    "is_read_only": is_read_only_connector_tool(tool_name, annotations),
                     "policy_state": resolved.state,
                     "team_state": resolved.team_state,
                     "locked": resolved.locked or (scope_type != "team" and resolved.team_state == "do_not_use"),
@@ -1750,7 +1749,7 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
             rows.append(
                 {
                     "user": UserBasicSerializer(membership.user).data,
-                    "is_org_admin": membership.level >= OrganizationMembership.Level.ADMIN,
+                    "is_org_admin": membership.effective_level >= OrganizationMembership.Level.ADMIN,
                     "connected_server_ids": connected.get(membership.user_id, []),
                     "revoked_server_ids": revoked.get(membership.user_id, []),
                 }

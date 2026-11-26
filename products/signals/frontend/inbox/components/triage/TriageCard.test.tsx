@@ -27,6 +27,7 @@ function makeReport(id: string): SignalReport {
         is_suggested_reviewer: true,
         priority: 'P2',
         source_products: ['error_tracking'],
+        repo_slug: 'example/app',
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
     } satisfies SignalReport
@@ -101,7 +102,7 @@ describe('TriageCard', () => {
         if (entrypoint === 'keyboard') {
             logic.actions.createPrForCurrent()
         } else {
-            fireEvent.click(screen.getByText('Implement').closest('button')!)
+            fireEvent.click(screen.getByLabelText('More implementation options'))
             expect(screen.getByText('Copy prompt for your agent')).toBeInTheDocument()
             if (status === 200) {
                 fireEvent.click(screen.getByText('Implement with PostHog').closest('button')!)

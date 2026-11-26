@@ -50,7 +50,7 @@ class SemgrepSource(ResumableSource[SemgrepSourceConfig, SemgrepResumeConfig]):
             label="Semgrep",
             releaseStatus=ReleaseStatus.GA,
             keywords=["sast", "sca", "appsec"],
-            caption="""Enter your Semgrep API token to sync your static analysis data — deployments, projects, code (SAST) and supply chain (SCA) findings, and secrets — into the PostHog Data warehouse.
+            caption="""Enter your Semgrep API token to sync your static analysis data into the PostHog Data warehouse. This covers deployments, projects, scans, code (SAST) and supply chain (SCA) findings, secrets, and the supply chain dependency inventory.
 
 Create a token in Semgrep AppSec Platform under **Settings → Tokens** and grant it the **Web API** scope. The API requires a Semgrep Team or Enterprise plan.""",
             iconPath="/static/services/semgrep.png",

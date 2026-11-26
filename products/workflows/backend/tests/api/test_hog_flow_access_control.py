@@ -11,9 +11,10 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -106,6 +107,71 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("create", "post", "", "restricted", 403),
+            ("update", "patch", "detail", "restricted", 403),
+            ("test", "post", "invocations", "restricted", 403),
+            ("rerun", "post", "rerun", "restricted", 403),
+            ("logs", "get", "logs", "restricted", 403),
+            ("results", "get", "invocation_results", "restricted", 403),
+            ("count", "get", "invocation_results_count", "restricted", 403),
+            ("result", "get", "invocation_results/example", "restricted", 403),
+            ("assets", "get", "assets", "restricted", 403),
+            ("read", "get", "detail", "restricted", 200),
+            ("admin", "post", "", "admin", 201),
+            ("member_override", "post", "", "granted", 201),
+        ]
+    )
+    def test_property_permissions_apply_to_workflows(
+        self, _name: str, method: str, action: str, access: PropertyAccess, expected_status: int
+    ) -> None:
+        user = self.user if access == "admin" else self.editor_user
+        set_member_property_access(
+            team=self.team,
+            membership=OrganizationMembership.objects.get(organization=self.organization, user=user),
+            access=access,
+        )
+        self._create_access_control(user, access_level="editor")
+        self.client.force_login(user)
+        url = self._list_url() if not action else self._detail_url()
+        if action not in {"", "detail"}:
+            url += f"/{action}"
+        response = getattr(self.client, method)(url, data=self._create_payload(), format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert "property access" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            (f"{path}_{access}".replace("/", "_"), path, payload, access)
+            for path, payload in (
+                ("workflow_imports", {"source": "customerio", "campaigns": []}),
+                ("workflow_data_suggestions/build", {}),
+                ("hog_flow_templates", {}),
+            )
+            for access in ("restricted", "granted")
+        ]
+    )
+    def test_property_permissions_apply_to_other_routes_that_write_workflows(
+        self, _name: str, path: str, payload: dict, access: PropertyAccess
+    ) -> None:
+        set_member_property_access(
+            team=self.team,
+            membership=OrganizationMembership.objects.get(organization=self.organization, user=self.editor_user),
+            access=access,
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(f"/api/projects/{self.team.pk}/{path}/", data=payload, format="json")
+
+        # The empty payload fails validation, so a granted member's 400 shows the request got past the check.
+        assert response.status_code == (403 if access == "restricted" else 400), response.json()
+        if access == "restricted":
+            assert "property access" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
             ("viewer", "get", status.HTTP_200_OK),
             ("viewer", "patch", status.HTTP_403_FORBIDDEN),
             ("viewer", "delete", status.HTTP_403_FORBIDDEN),
@@ -175,7 +241,7 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("trigger",), ("conversion",)])
     def test_action_reference_needs_viewer_access_unless_already_used(self, placement: str):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team, name="restricted", steps_json=[{"event": "$pageview"}], created_by=self.user
         )
         self._create_access_control(self.editor_user, access_level="editor")

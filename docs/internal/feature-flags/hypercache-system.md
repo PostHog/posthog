@@ -217,6 +217,22 @@ These cases can change cached bodies and ETags even before an unsupported config
 Deploy this builder to every region before storing an unsupported configuration, and never deploy an older builder after one exists.
 Tightening these exclusion rules later requires rebuilding existing cache entries.
 
+### Definitions v2 entry
+
+`products/feature_flags/backend/local_evaluation_v2.py` writes a second entry, `flags_with_cohorts_v2.json`, in the same namespace and with its own ETag.
+Its body is the team's legacy response plus one entry per valid config version 2 flag, whose `filters` is the stored document as it is.
+An inactive flag is included with `active: false`. A deleted, survey-linked, encrypted or invalid flag is left out.
+
+Only a team that holds at least one config version 2 flag that is not deleted has the entry.
+For every other team the legacy entry already is the complete feed, so nothing is written.
+The entry is removed when the team's last such flag is deleted and when the team is deleted.
+
+The legacy entry is built and written first, by the unchanged legacy path.
+The v2 entry follows in its own error boundary: a failure is logged and counted under `posthog_hypercache_sync` and leaves the legacy entry and its ETag as they were.
+The entry lives in Redis only, on the same Redis tiers as the legacy entry.
+An object-storage copy would outlive every expiry, and a reader decides from Redis alone whether a team has the entry.
+Nothing reads the entry yet.
+
 ### Cache invalidation
 
 Django signals trigger cache updates when models change:
@@ -233,6 +249,18 @@ Models that invalidate the flags cache:
 - `Cohort` - Cohort properties changed
 - `FeatureFlagEvaluationTag` - Evaluation tags changed
 - `Tag` - Tag renamed
+
+Deleting a `Team` clears its flags, local evaluation and team metadata entries from Redis and S3 after the deletion commits.
+Celery tasks run the clears, because the process that deletes the team can lack `FLAGS_REDIS_URL`.
+The flags clear needs `FLAGS_REDIS_URL` on the worker, and returns without deleting when the worker lacks it. The other two clears do not check the setting.
+A clear retries when a delete fails. An entry whose clear fails on every retry keeps its expiry tracking member, so the daily cleanup task deletes it.
+The rebuild task cannot run for a deleted team, and the flags service falls back to the S3 copies, which have no TTL.
+A stale team metadata entry lets the flags service resolve the deleted team's token without a Postgres check.
+A refresh run that loaded the team before the deletion can write an entry again. The daily cleanup task deletes that entry from Redis and S3.
+
+The staff cache tools `clear` action also accepts the ids of deleted teams.
+Use it to purge an orphaned flags entry for a team that no longer exists.
+It does not clear team metadata entries, because it takes team ids and those entries are keyed by API token.
 
 ## Remote config caching
 
@@ -356,7 +384,7 @@ ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stal
 
 `redis_missing` and `redis_error` are the pair that separates a cache-tier problem from an unreachable cluster. Keep them apart on dashboards and alerts. `redis_missing` reports the read, not the cause: reads go to the replica, so a key Django wrote to the primary counts here until it replicates. A sustained rise is a tier that holds nothing, and a short burst that clears on its own is lag.
 
-`hit`, `miss`, and `none` partition every request. The two failure labels sit on top of that partition, and do not slice it. A failed ETag read increments `redis_missing` or `redis_error`, then falls through and increments `none` or `miss` as well. So read a failure label as a ratio over `hit + miss + none`, and never as a share of a stacked total. Stacked, the total exceeds the request rate, and `none` climbs in step with `redis_missing` for the same underlying cause.
+`hit`, `miss`, and `none` partition every request. The two failure labels sit on top of that partition, and do not slice it. A failed read of the legacy entry's ETag increments `redis_missing` or `redis_error`, then falls through and increments `none` or `miss` as well. So read a failure label as a ratio over `hit + miss + none`, and never as a share of a stacked total. Stacked, the total exceeds the request rate, and `none` climbs in step with `redis_missing` for the same underlying cause.
 
 Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
 
@@ -546,12 +574,13 @@ The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache u
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                              | Schedule         | Purpose                                              |
-| ------------------------------------------------- | ---------------- | ---------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
-| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
-| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire   |
-| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database       |
+| Task                                              | Schedule         | Purpose                                            |
+| ------------------------------------------------- | ---------------- | -------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire   |
+| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Delete deleted teams' entries and tracking members |
+| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire |
+| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database     |
+| `maintain_flag_definitions_v2_cache_entries`      | Hourly at :05    | Verify, refresh and clean up the v2 entries        |
 
 ### Refresh task
 
@@ -611,6 +640,8 @@ Django signals automatically invalidate the cache when models change.
 | -------------------------- | ----------- | ---------------------------------- |
 | `FeatureFlag`              | post_save   | Refresh team's flags cache         |
 | `FeatureFlag`              | post_delete | Refresh team's flags cache         |
+| `Cohort`                   | post_save   | Refresh team's flags cache         |
+| `Cohort`                   | post_delete | Refresh team's flags cache         |
 | `Team`                     | post_save   | Warm cache for new team            |
 | `Team`                     | post_delete | Clear team's flags cache           |
 | `FeatureFlagEvaluationTag` | post_save   | Refresh team's flags cache         |
@@ -625,12 +656,18 @@ All signal handlers use `transaction.on_commit()` to avoid race conditions:
 # products/feature_flags/backend/flags_cache.py
 @receiver([post_save, post_delete], sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance, **kwargs):
-    transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))
+    team_id = instance.team_id
+    transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 ```
 
-This ensures the cache update task runs after the database transaction commits, not before.
+This ensures the cache update runs after the database transaction commits, not before.
+`_enqueue_invalidation` routes each team by the `flags-cache-kafka-dual-write` flag: a `flags_cache_invalidation` Kafka message for the Rust `flags-cache-builder`, or the `update_team_service_flags_cache` Celery task.
 
 ### Cohort invalidation
+
+Cohort saves, coalesced cohort rebuilds, and the cohort backfill finalizer raise the same invalidation with `source="cohort"`, so the builder counts them separately on `flags_cache_builder_builds_total{source}`.
+The finalizer dispatches the `invalidate_team_flags_cache_for_cohorts` task by name, because `products.cohorts` cannot import `products.feature_flags`.
+The verifier does not compare cohorts, so a lost cohort invalidation stays stale until the expiry refresh rebuilds the team.
 
 The local evaluation cache (for SDKs) also invalidates when cohorts change. See `posthog/models/feature_flag/local_evaluation.py` for the full signal handler list.
 
@@ -672,6 +709,7 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 
 - `posthog/storage/hypercache.py` - Core HyperCache implementation
 - `products/feature_flags/backend/local_evaluation.py` - Local evaluation caching
+- `products/feature_flags/backend/local_evaluation_v2.py` - Definitions v2 entry for local evaluation
 - `products/feature_flags/backend/flags_cache.py` - Flags cache, signal handlers, verification, dependency computation
 - `posthog/storage/hypercache_manager.py` - Batch management operations (warm, invalidate, stats)
 - `posthog/caching/flags_redis_cache.py` - `FLAGS_DEDICATED_CACHE_ALIAS` constant for the dedicated flags Redis

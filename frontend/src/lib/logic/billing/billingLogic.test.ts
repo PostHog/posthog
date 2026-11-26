@@ -7,7 +7,13 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { BillingAPIErrorCodes, billingLogic } from 'lib/logic/billing/billingLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import {
+    BillingAPIErrorCodes,
+    GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY,
+    billingLogic,
+} from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -816,6 +822,31 @@ describe('billingLogic', () => {
         }
     )
 
+    it('hides the open invoice banner quietly when the user has no billing access', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        useMocks({
+            get: {
+                '/api/billing/get_invoices': [
+                    403,
+                    { type: 'authentication_error', code: 'permission_denied', detail: 'No billing access.' },
+                ],
+            },
+        })
+        apiStatusLogic.mount()
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => billingLogic.actions.loadInvoices())
+            .toDispatchActions([billingLogic.actionCreators.loadInvoicesSuccess(null)])
+            .toNotHaveDispatchedActions(['loadInvoicesFailure'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.openInvoices).toBeNull()
+        expect(billingLogic.values.billingError).toBeNull()
+        expect(toastError).not.toHaveBeenCalled()
+        toastError.mockRestore()
+    })
+
     it.each<{
         name: string
         code: BillingAPIErrorCodes
@@ -881,4 +912,204 @@ describe('billingLogic', () => {
             expect(billingLogic.values.unsubscribeError).toEqual({ detail: UNSUBSCRIBE_ERROR_DETAIL })
         }
     )
+
+    it.each([
+        {
+            name: 'another paid plan',
+            paidPlanKeys: ['paid-20240111'],
+            grandfathered: false,
+            planAfterPackageDowngrade: 'paid-20240111',
+        },
+        {
+            name: 'the 7-year plan, which billing lists with only the free plan',
+            paidPlanKeys: [GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY],
+            grandfathered: true,
+            planAfterPackageDowngrade: undefined,
+        },
+        {
+            name: 'the 7-year plan once billing offers the 2-year plan',
+            paidPlanKeys: [GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY, 'paid-20261105'],
+            grandfathered: true,
+            planAfterPackageDowngrade: 'paid-20261105',
+        },
+    ])(
+        'decides grandfathered events retention for $name',
+        async ({ paidPlanKeys, grandfathered, planAfterPackageDowngrade }) => {
+            const [freePlan, paidPlan] = billingJson.products[0].plans
+            const paidPlans = paidPlanKeys.map((plan_key, index) => ({
+                ...paidPlan,
+                plan_key,
+                current_plan: index === 0,
+            }))
+            billingState = billingWithProducts([productWithUsage(0.5, { plans: [freePlan, ...paidPlans] })])
+            billingLogic.mount()
+
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+            expect(billingLogic.values.hasGrandfatheredEventsRetention).toBe(grandfathered)
+            expect(billingLogic.values.productAnalyticsPlanAfterPackageDowngrade?.plan_key).toBe(
+                planAfterPackageDowngrade
+            )
+        }
+    )
+
+    describe('unpaid invoice alert', () => {
+        const PORTAL_URL = 'https://posthog.com/api/billing/portal'
+        let invoiceRequests: number
+
+        const loadAlert = async (
+            uncollectible: [number, unknown],
+            billing: Partial<BillingType> = {},
+            membershipLevel = OrganizationMembershipLevel.Admin
+        ): Promise<void> => {
+            billingState = {
+                ...billingState,
+                has_active_subscription: false,
+                stripe_portal_url: PORTAL_URL,
+                ...billing,
+            }
+            invoiceRequests = 0
+            useMocks({
+                get: {
+                    '/api/billing/get_invoices': (req) => {
+                        if (new URL(req.request.url).searchParams.get('status') !== 'uncollectible') {
+                            return [200, { count: 0, link: null }]
+                        }
+                        invoiceRequests += 1
+                        return uncollectible
+                    },
+                },
+            })
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            billingLogic.mount()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                membership_level: membershipLevel,
+            })
+            await expectLogic(preflightLogic).toFinishAllListeners()
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+            // The invoices load lazily on a timer once the alert logic first reads them.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await expectLogic(billingLogic).toFinishAllListeners()
+        }
+
+        it('links one unpaid invoice to its payment page', async () => {
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
+
+            expect(billingLogic.values.billingAlert).toMatchObject({
+                kind: 'unpaid_invoice',
+                status: 'warning',
+                title: 'You have an unpaid invoice',
+                message: 'Your payment failed and your subscription was cancelled.',
+                action: { to: HOSTED_INVOICE_URL, children: 'Pay invoice', targetBlank: true },
+            })
+            expect(billingLogic.values.billingAlert?.dismissKey).toBeUndefined()
+
+            billingLogic.values.billingAlert?.onClose?.()
+            expect(billingLogic.values.billingAlert).toBeNull()
+        })
+
+        it('keeps the banner closed when billing reloads in the same session', async () => {
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
+            billingLogic.values.billingAlert?.onClose?.()
+
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+            expect(billingLogic.values.billingAlert).toBeNull()
+        })
+
+        it('reports closing the unpaid invoice banner', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
+
+            billingLogic.values.billingAlert?.onClose?.()
+
+            const dismissed = capture.mock.calls.filter(([event]) => event === 'billing alert dismissed')
+            expect(dismissed).toHaveLength(1)
+            expect(dismissed[0][1]).toMatchObject({ kind: 'unpaid_invoice', title: 'You have an unpaid invoice' })
+            expect(JSON.stringify(dismissed)).not.toContain(HOSTED_INVOICE_URL)
+            capture.mockRestore()
+        })
+
+        it('keeps the hosted invoice URL out of alert analytics', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
+            const alert = billingLogic.values.billingAlert
+            expect(alert?.action?.to).toBe(HOSTED_INVOICE_URL)
+
+            billingLogic.actions.reportBillingAlertShown(alert!)
+            billingLogic.actions.reportBillingAlertActionClicked(alert!)
+
+            const alertEvents = capture.mock.calls.filter(([event]) => String(event).startsWith('billing alert'))
+            expect(alertEvents.length).toBeGreaterThanOrEqual(2)
+            expect(JSON.stringify(alertEvents)).not.toContain(HOSTED_INVOICE_URL)
+            capture.mockRestore()
+        })
+
+        it('links several unpaid invoices to the billing portal', async () => {
+            await loadAlert([200, { count: 3, link: HOSTED_INVOICE_URL }])
+
+            expect(billingLogic.values.billingAlert).toMatchObject({
+                kind: 'unpaid_invoice',
+                status: 'warning',
+                title: 'You have 3 unpaid invoices',
+                message: 'Your payment failed and your subscription was cancelled.',
+                action: { to: PORTAL_URL, children: 'Pay invoices', targetBlank: true },
+            })
+        })
+
+        it('keeps a usage limit alert ahead of an unpaid invoice', async () => {
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }], {
+                products: [productWithUsage(1)],
+            })
+
+            expect(billingLogic.values.billingAlert?.title).toBe('Usage limit reached')
+        })
+
+        it('puts an unpaid invoice ahead of a usage limit warning', async () => {
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }], {
+                products: [productWithUsage(0.9)],
+            })
+
+            expect(billingLogic.values.billingAlert).toMatchObject({
+                kind: 'unpaid_invoice',
+                title: 'You have an unpaid invoice',
+            })
+        })
+
+        it.each([
+            { name: 'there are no unpaid invoices', answer: [200, { count: 0, link: null }], requests: 1 },
+            { name: 'the invoices request fails', answer: [500, { detail: 'Server error' }], requests: 1 },
+            {
+                name: 'the organization is billed by Vercel',
+                answer: [200, { count: 1, link: HOSTED_INVOICE_URL }],
+                billing: { billing_provider: BillingProvider.Vercel },
+                requests: 0,
+            },
+            {
+                name: 'the organization has an active subscription',
+                answer: [200, { count: 1, link: HOSTED_INVOICE_URL }],
+                billing: { has_active_subscription: true },
+                requests: 0,
+            },
+            {
+                name: 'the user has no billing access',
+                answer: [200, { count: 1, link: HOSTED_INVOICE_URL }],
+                membershipLevel: OrganizationMembershipLevel.Member,
+                requests: 0,
+            },
+        ] as {
+            name: string
+            answer: [number, unknown]
+            billing?: Partial<BillingType>
+            membershipLevel?: OrganizationMembershipLevel
+            requests: number
+        }[])('shows no unpaid invoice alert when $name', async ({ answer, billing, membershipLevel, requests }) => {
+            await loadAlert(answer, billing, membershipLevel)
+
+            expect(billingLogic.values.billingAlert).toBeNull()
+            expect(invoiceRequests).toBe(requests)
+        })
+    })
 })

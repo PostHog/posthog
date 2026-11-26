@@ -2,13 +2,14 @@ import json
 import uuid as uuid_module
 from datetime import timedelta
 from typing import Any, Optional, TypedDict, Union, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.contrib.sessions.backends.base import SessionBase, UpdateError
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
@@ -18,12 +19,14 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
+from posthog.api.authentication import BrowserTokenField
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
@@ -42,10 +45,17 @@ from posthog.helpers.email_utils import (
     validate_display_name,
 )
 from posthog.helpers.oauth_pending_connection import (
-    apply_connector_signup_onboarding_skip,
+    apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
+from posthog.helpers.sso import (
+    IDP_SIGNUP_CONTINUATION_SESSION_KEY,
+    IDP_SSO_BACKENDS,
+    idp_authentication_is_fresh,
+    idp_identity_key,
+)
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
+from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import (
     InviteExpiredException,
     Organization,
@@ -59,10 +69,22 @@ from posthog.models.identity_provider_config import ConfigScope, IdentityProvide
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupAttemptIPThrottle,
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupResendInviteThrottle,
+)
+from posthog.tasks.workos_radar import report_attempt_success
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
-from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt, radar_client_id_for_signup
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from products.security.backend.facade.api import (
@@ -93,11 +115,13 @@ def _save_session_with_recovery(session: SessionBase) -> None:
         session.create()
 
 
-def verify_email_or_login(request: Request, user: User) -> None:
+def verify_email_or_login(request: Request, user: User) -> bool:
+    """Send a verification code, or log the user in when none is needed. Returns whether a code went out."""
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         email_verification_code_verifier.send_code(user)
-    else:
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return True
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return False
 
 
 def requested_next_url(request) -> str | None:
@@ -107,6 +131,38 @@ def requested_next_url(request) -> str | None:
     """
     next_url = request.data.get("next_url") if request and request.data else None
     return next_url if next_url and is_relative_url(next_url) else None
+
+
+def next_url_unless_other_project(next_url: str | None, user: User | None) -> str | None:
+    """`next_url`, or None when it names a project the user cannot open.
+
+    A link to someone else's project would land a new user on the access denied screen
+    instead of their own project. Pass `user=None` when the person has no organization yet.
+    """
+    if not next_url:
+        return next_url
+    path_parts = urlparse(next_url).path.strip("/").split("/")
+    if len(path_parts) < 2 or path_parts[0] != "project":
+        return next_url
+    project_ref = path_parts[1]
+    if not (project_ref.isdigit() or project_ref.startswith("phc_")):
+        return next_url
+    if user is None:
+        return None
+    teams = (
+        Team.objects.filter(pk=int(project_ref))
+        if project_ref.isdigit()
+        else Team.objects.filter(api_token=project_ref)
+    )
+    team_id = teams.values_list("pk", flat=True).first()
+    if team_id is None:
+        return None
+    can_open = authorization.check(
+        resource=Resource(type=ResourceType.PROJECT, id=str(team_id)),
+        action=AuthorizationAction.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
+    return next_url if can_open else None
 
 
 def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
@@ -131,6 +187,8 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
 
 
 class SignupSerializer(serializers.Serializer):
+    _inbox_provider: InboxProvider | None = None
+
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
@@ -153,6 +211,11 @@ class SignupSerializer(serializers.Serializer):
     )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    radar_signals_id = BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this signup.",
+    )
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -244,7 +307,7 @@ class SignupSerializer(serializers.Serializer):
 
     def is_email_auto_verified(self):
         if self.is_social_signup:
-            return True
+            return self.context["social_backend"] not in IDP_SSO_BACKENDS
         domain = self.validated_data.get("email", "").split("@")[-1].lower()
         return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
@@ -264,15 +327,17 @@ class SignupSerializer(serializers.Serializer):
             _save_session_with_recovery(request.session)
             passkey_credential = None
 
+        radar_attempt = None
         if not self.is_social_signup:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
-            evaluate_auth_attempt(
+            radar_attempt = evaluate_auth_attempt(
                 request=request._request,
                 email=validated_data["email"],
                 action=RadarAction.SIGNUP,
                 auth_method=auth_method,
                 turnstile_token=validated_data.get("turnstile_token", ""),
                 challenge_nonce=validated_data.get("challenge_nonce", ""),
+                signals_id=validated_data.get("radar_signals_id", ""),
             )
 
         try:
@@ -294,6 +359,7 @@ class SignupSerializer(serializers.Serializer):
 
         validated_data.pop("turnstile_token", None)
         validated_data.pop("challenge_nonce", None)
+        validated_data.pop("radar_signals_id", None)
 
         default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
         organization_name = validated_data.pop("organization_name", default_org_name)
@@ -362,9 +428,10 @@ class SignupSerializer(serializers.Serializer):
             _save_session_with_recovery(request.session)
 
         user = self._user
+        report_attempt_success(radar_attempt)
         oauth_connection = read_pending_oauth_connection(request)
         if oauth_connection is not None:
-            apply_connector_signup_onboarding_skip(user, self._organization)
+            apply_pending_connection_onboarding_skip(user, self._organization, oauth_connection)
 
         report_user_signed_up(
             user,
@@ -392,7 +459,10 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        verify_email_or_login(request, user)
+        if not (self.is_social_signup and self.context["social_backend"] in IDP_SSO_BACKENDS):
+            inbox_lookup = InboxProviderLookup.start(user.email)
+            if verify_email_or_login(request, user):
+                self._inbox_provider = inbox_lookup.result()
 
         return user
 
@@ -424,9 +494,10 @@ class SignupSerializer(serializers.Serializer):
         return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
     def to_representation(self, instance) -> dict:
-        next_url = requested_next_url(self.context.get("request"))
+        next_url = next_url_unless_other_project(requested_next_url(self.context.get("request")), instance)
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
+        data["inbox_provider"] = self._inbox_provider
         return data
 
 
@@ -492,10 +563,10 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # actually accept — preserving the pre-PR security property that only the
             # mailbox owner can consume the invite.
             pending_invite = {"organization_name": invite.organization.name}
-        return response.Response(
-            {"email_exists": False, "pending_invite": pending_invite},
-            status=status.HTTP_200_OK,
-        )
+        body: dict[str, Any] = {"email_exists": False, "pending_invite": pending_invite}
+        if radar_client_id := radar_client_id_for_signup():
+            body["radar_client_id"] = radar_client_id
+        return response.Response(body, status=status.HTTP_200_OK)
 
 
 class SignupResendInviteSerializer(serializers.Serializer):
@@ -531,7 +602,29 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
-    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
+    throttle_classes = [] if settings.E2E_TESTING else [SignupAttemptIPThrottle, SignupIPThrottle]
+
+    account_created = False
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # DRF builds new instances per call, and only the ones that checked this request know its reserved slot
+        if not hasattr(self, "_throttles"):
+            self._throttles = super().get_throttles()
+        return self._throttles
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        try:
+            super().perform_create(serializer)
+        finally:
+            # The account commits before the verification email goes out, so a later failure still counts.
+            self.account_created = getattr(serializer, "_user", None) is not None
+
+    def handle_exception(self, exc: Exception) -> response.Response:
+        if not self.account_created:
+            for throttle in self.get_throttles():
+                if isinstance(throttle, SignupIPThrottle):
+                    throttle.release()
+        return super().handle_exception(exc)
 
 
 class InviteSignupSerializer(serializers.Serializer):
@@ -542,6 +635,11 @@ class InviteSignupSerializer(serializers.Serializer):
     )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    radar_signals_id = BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this signup.",
+    )
 
     def validate_password(self, value):
         password_validation.validate_password(value)
@@ -613,19 +711,22 @@ class InviteSignupSerializer(serializers.Serializer):
         except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
+        radar_attempt = None
         if not user and invite.target_email:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
-            evaluate_auth_attempt(
+            radar_attempt = evaluate_auth_attempt(
                 request=request._request,
                 email=invite.target_email,
                 action=RadarAction.SIGNUP,
                 auth_method=auth_method,
                 turnstile_token=validated_data.get("turnstile_token", ""),
                 challenge_nonce=validated_data.get("challenge_nonce", ""),
+                signals_id=validated_data.get("radar_signals_id", ""),
             )
 
         validated_data.pop("turnstile_token", None)
         validated_data.pop("challenge_nonce", None)
+        validated_data.pop("radar_signals_id", None)
 
         # Only check SSO enforcement if we're not already logged in
         if (
@@ -751,10 +852,11 @@ class InviteSignupSerializer(serializers.Serializer):
                 user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
+            report_attempt_success(radar_attempt)
             oauth_connection = read_pending_oauth_connection(request)
             # A delegated invitee is the teammate asked to run onboarding, so they keep it.
             if oauth_connection is not None and not is_delegation:
-                apply_connector_signup_onboarding_skip(user, invite.organization)
+                apply_pending_connection_onboarding_skip(user, invite.organization, oauth_connection)
 
             verify_email_or_login(self.context["request"], user)
 
@@ -789,6 +891,13 @@ class InviteSignupViewset(generics.CreateAPIView):
     serializer_class = InviteSignupSerializer
     permission_classes = (permissions.AllowAny,)
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        # The GET only loads the invite page, so page loads do not spend the signup attempts.
+        if self.request.method == "POST" and not settings.E2E_TESTING:
+            throttles.append(SignupAttemptIPThrottle())
+        return throttles
+
     def get(self, request, *args, **kwargs):
         """
         Pre-validates an invite code.
@@ -813,14 +922,16 @@ class InviteSignupViewset(generics.CreateAPIView):
             request_path=f"/signup/{invite_id}",
         )
 
-        return response.Response(
-            {
-                "id": str(invite.id),
-                "target_email": invite.target_email,
-                "first_name": invite.first_name,
-                "organization_name": invite.organization.name,
-            }
-        )
+        body: dict[str, Any] = {
+            "id": str(invite.id),
+            "target_email": invite.target_email,
+            "first_name": invite.first_name,
+            "organization_name": invite.organization.name,
+        }
+        # A signed-in user joins without a signup, and Radar checks only a signup
+        if user is None and (radar_client_id := radar_client_id_for_signup()):
+            body["radar_client_id"] = radar_client_id
+        return response.Response(body)
 
 
 # Social Signup
@@ -864,7 +975,23 @@ class SocialSignupSerializer(serializers.Serializer):
                 "Inactive social login session. Go to /login and log in before continuing."
             )
 
-        email = request.session.get("email")
+        from social_django.models import Partial
+
+        partial = Partial.objects.filter(token=request.session.get("partial_pipeline_token")).first()
+        email = partial.data.get("kwargs", {}).get("details", {}).get("email") if partial else None
+        if (
+            partial is None
+            or not email
+            or partial.backend != request.session["backend"]
+            or email != request.session.get("email")
+            or (
+                partial.backend in IDP_SSO_BACKENDS
+                and not idp_authentication_is_fresh(partial.data.get("kwargs", {}).get("idp_authenticated_at"))
+            )
+            or (partial.backend in IDP_SSO_BACKENDS and not is_email_available(with_absolute_urls=True))
+        ):
+            raise serializers.ValidationError("Please log in again to verify your email.")
+
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
         referral_source = validated_data.get("referral_source", "")
@@ -883,12 +1010,14 @@ class SocialSignupSerializer(serializers.Serializer):
                 "referral_source_ai_prompt": referral_source_ai_prompt,
                 "referral_source_influencer": referral_source_influencer,
             },
-            context={"request": request},
+            context={"request": request, "social_backend": partial.backend},
         )
         serializer.is_social_signup = True
 
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        partial.data["kwargs"]["user"] = user.pk
+        partial.save(update_fields=["data"])
         logger.info(
             f"social_create_user_signup",
             full_name_len=len(first_name),
@@ -896,7 +1025,9 @@ class SocialSignupSerializer(serializers.Serializer):
             user=user.id,
         )
 
-        return {"continue_url": reverse("social:complete", args=[request.session["backend"]])}
+        if partial.backend in IDP_SSO_BACKENDS:
+            request.session[IDP_SIGNUP_CONTINUATION_SESSION_KEY] = partial.token
+        return {"continue_url": reverse("social:complete", args=[partial.backend])}
 
     def to_representation(self, instance: Any) -> Any:
         return self.instance
@@ -1029,16 +1160,35 @@ def process_social_invite_signup(
         invite.validate(user=None, email=email)
 
         try:
-            _user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
+            _user = strategy.create_user(
+                email=email,
+                first_name=full_name,
+                password=None,
+                is_email_verified=backend.name not in IDP_SSO_BACKENDS,
+            )
             invite.use(_user, prevalidated=True)
         except Exception as e:
             capture_exception(e)
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-            raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+            raise AuthFailed(backend, message)
 
         if is_delegation:
             strategy.session_set("next", DELEGATED_ONBOARDING_NEXT)
         return _user
+
+
+def _pending_domain_invite(email: str, domain: OrganizationDomain) -> Optional[OrganizationInvite]:
+    # An email can hold more than one pending invite in an organization, so accept
+    # the one with the highest level.
+    return (
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            organization_id=domain.organization_id,
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
+        .order_by("-level", "-created_at")
+        .first()
+    )
 
 
 def process_social_domain_jit_provisioning_signup(
@@ -1071,17 +1221,7 @@ def process_social_domain_jit_provisioning_signup(
                 _refuse_blocked_sso_join(strategy, backend, email, user)
             if not user:
                 try:
-                    # An email can hold more than one pending invite in an organization, so accept
-                    # the one with the highest level.
-                    invite = (
-                        OrganizationInvite.objects.filter(
-                            target_email__iexact=email,
-                            organization=domain_instance.organization,
-                            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
-                        )
-                        .order_by("-level", "-created_at")
-                        .first()
-                    )
+                    invite = _pending_domain_invite(email, domain_instance)
                     if invite is None:
                         raise OrganizationInvite.DoesNotExist()
                     invite.validate(user=None, email=email)
@@ -1090,14 +1230,17 @@ def process_social_domain_jit_provisioning_signup(
 
                     try:
                         user = strategy.create_user(
-                            email=email, first_name=full_name, password=None, is_email_verified=True
+                            email=email,
+                            first_name=full_name,
+                            password=None,
+                            is_email_verified=backend.name not in IDP_SSO_BACKENDS,
                         )
                         assert isinstance(user, User)  # type hinting
                         invite.use(user, prevalidated=True)
                     except Exception as e:
                         capture_exception(e)
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-                        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+                        raise AuthFailed(backend, message)
 
                     if is_delegation:
                         strategy.session_set("next", DELEGATED_ONBOARDING_NEXT)
@@ -1108,7 +1251,7 @@ def process_social_domain_jit_provisioning_signup(
                         email=email,
                         password=None,
                         first_name=full_name,
-                        is_email_verified=True,
+                        is_email_verified=backend.name not in IDP_SSO_BACKENDS,
                     )
                     logger.info(
                         f"process_social_domain_jit_provisioning_join_complete",
@@ -1133,14 +1276,32 @@ def process_social_domain_jit_provisioning_signup(
     return user
 
 
-def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
-    """Organization an invite grants access to, or None for legacy team-invite surrogates / missing invites."""
+def _resolve_invite_organization(invite_id: str, *, include_legacy: bool = False) -> Optional[Organization]:
+    """Resolve both organization invitations and legacy team signup tokens before the mailbox gate."""
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
     except (OrganizationInvite.DoesNotExist, ValidationError):
-        return None
+        if not include_legacy:
+            return None
+        try:
+            return TeamInviteSurrogate(invite_id).organization
+        except Team.DoesNotExist:
+            return None
     return invite.organization
+
+
+def clear_unverified_local_credentials(user: User) -> bool:
+    """Clear credentials an unverified account never trusted, once the asserted address is proven."""
+    if user.is_email_verified:
+        return False
+    logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
+    user.set_unusable_password()
+    WebauthnCredential.objects.filter(user=user).delete()
+    user.passkeys_enabled_for_2fa = False
+    user.is_email_verified = True
+    user.save()
+    return True
 
 
 @partial
@@ -1157,6 +1318,28 @@ def social_create_user(
     invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
+    if backend.name in IDP_SSO_BACKENDS:
+        try:
+            validate_email(email or "")
+        except ValidationError:
+            raise AuthFailed(backend, "The identity provider did not assert a valid email address.")
+        if backend.name == "oidc":
+            # Keep only the subject so paused logins cannot persist provider credentials.
+            kwargs["current_partial"].data["kwargs"]["response"] = {"sub": kwargs.get("response", {}).get("sub")}
+        if isinstance(started_at := getattr(backend, "authentication_started_at", None), int):
+            from posthog.api.authentication import _identity_provider_identity
+
+            identity = _identity_provider_identity(backend, details, kwargs.get("response"))
+            if identity is None:
+                raise AuthFailed(backend, "Invalid identity provider authentication.")
+            identity_key = idp_identity_key(identity.provider, identity.issuer, identity.subject)
+            kwargs["idp_authenticated_identity"] = identity_key
+            kwargs["current_partial"].data["kwargs"]["idp_authenticated_identity"] = identity_key
+            kwargs["idp_authenticated_at"] = started_at
+            kwargs["current_partial"].data["kwargs"]["idp_authenticated_at"] = started_at
+            if backend.name == "saml":
+                kwargs["saml_browser_verified"] = getattr(backend, "browser_verified", False) is True
+                kwargs["current_partial"].data["kwargs"]["saml_browser_verified"] = kwargs["saml_browser_verified"]
     full_name = (
         details.get("fullname")
         or f"{details.get('first_name') or ''} {details.get('last_name') or ''}".strip()
@@ -1175,7 +1358,9 @@ def social_create_user(
         logger.warning("social_create_user_blocked_domain_enforcement", user_id=user.pk)
         return redirect("/login?error_code=verified_domain_required")
 
-    invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
+    invite_organization = (
+        _resolve_invite_organization(invite_id, include_legacy=backend.name in IDP_SSO_BACKENDS) if invite_id else None
+    )
     enforcement_email = user.email if user else email
     if (
         invite_organization is not None
@@ -1188,33 +1373,7 @@ def social_create_user(
         )
         return redirect("/login?error_code=verified_domain_required")
 
-    if user:
-        # If the user is already authenticated, we're looking for outstanding invites for them
-        # on the organization domain or if JIT provisioning is enabled, we'll provision them.
-        logger.info(f"social_create_user_is_not_new")
-
-        if not user.is_email_verified:
-            # Email isn't verified yet — anyone could have set these local credentials.
-            # Wipe them before linking the SSO identity.
-            logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
-            user.set_unusable_password()
-            WebauthnCredential.objects.filter(user=user).delete()
-            user.passkeys_enabled_for_2fa = False
-            user.is_email_verified = True
-            user.save()
-
-        if invite_id:
-            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user, backend=backend)
-        else:
-            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user, backend=backend)
-
-        return {"is_new": False}
-
-    strategy.session_set("user_name", full_name)
-    strategy.session_set("backend", backend.name)
-    from_invite = False
-
-    if not email or not full_name:
+    if user is None and (not email or not full_name):
         missing_attr = "email" if not email else "name"
         posthoganalytics.tag("email", email)
         posthoganalytics.tag("name", full_name)
@@ -1223,6 +1382,49 @@ def social_create_user(
             code="required",
         )
 
+    if backend.name in IDP_SSO_BACKENDS:
+        from posthog.api.authentication import social_require_idp_email_verification
+
+        if user is None:
+            jit_domain = OrganizationDomain.objects.get_verified_for_email_address(email)
+            if not invite_id and jit_domain is not None and jit_domain.jit_provisioning_enabled:
+                pending_invite = _pending_domain_invite(email, jit_domain)
+                if pending_invite is not None:
+                    invite_id = str(pending_invite.pk)
+                    strategy.session_set("invite_id", invite_id)
+            if invite_organization is not None or (jit_domain is not None and jit_domain.jit_provisioning_enabled):
+                _refuse_blocked_sso_join(strategy, backend, email, None)
+                user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=False)
+                kwargs["idp_new_user_id"] = user.pk
+                kwargs["current_partial"].data["kwargs"]["idp_new_user_id"] = user.pk
+        if user is not None:
+            kwargs["current_partial"].data["kwargs"]["user"] = user.pk
+            verification = social_require_idp_email_verification(
+                strategy=strategy, backend=backend, user=user, details=details, **kwargs
+            )
+            if verification is not None:
+                return verification
+
+    if user and kwargs.get("idp_new_user_id") != user.pk:
+        # If the user is already authenticated, we're looking for outstanding invites for them
+        # on the organization domain or if JIT provisioning is enabled, we'll provision them.
+        logger.info(f"social_create_user_is_not_new")
+
+        if backend.name not in IDP_SSO_BACKENDS:
+            # A SAML or OIDC login clears these only once the emailed code proves the address.
+            clear_unverified_local_credentials(user)
+
+        if invite_id:
+            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user, backend=backend)
+        else:
+            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user, backend=backend)
+
+        return {"is_new": False, "user": user}
+
+    strategy.session_set("user_name", full_name)
+    strategy.session_set("backend", backend.name)
+    from_invite = False
+
     # If we get here then it's a new user. We'll check for outstanding invites for them
     # on the organization domain or if JIT provisioning is enabled, we'll provision them.
     # And fallback to a form where they can create an organization.
@@ -1230,13 +1432,13 @@ def social_create_user(
 
     if invite_id:
         from_invite = True
-        user = process_social_invite_signup(strategy, invite_id, email, full_name, backend=backend)
+        user = process_social_invite_signup(strategy, invite_id, email, full_name, user=user, backend=backend)
         if user is None:
             return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?
-        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name, backend=backend)
+        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name, user=user, backend=backend)
         logger.info(
             f"social_create_user_jit_user",
             full_name_len=len(full_name),
@@ -1263,7 +1465,8 @@ def social_create_user(
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
             organization_name = strategy.session_get("organization_name")
-            next_url = strategy.session_get("next")
+            # The person creates a new organization next, so no existing project is theirs to open
+            next_url = next_url_unless_other_project(strategy.session_get("next"), None)
 
             query_params = {
                 "organization_name": organization_name or "",
@@ -1284,7 +1487,7 @@ def social_create_user(
     # A delegated invitee is the teammate asked to run onboarding, so they keep it.
     is_delegated_invitee = strategy.session_get("next") == DELEGATED_ONBOARDING_NEXT
     if oauth_connection is not None and user.organization is not None and not is_delegated_invitee:
-        apply_connector_signup_onboarding_skip(user, user.organization)
+        apply_pending_connection_onboarding_skip(user, user.organization, oauth_connection)
 
     report_user_signed_up(
         user,

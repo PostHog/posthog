@@ -13,7 +13,7 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { HOGQLX_TAGS_NO_ATTRIBUTES, parseHogQLX } from '~/queries/nodes/HogQLX/render'
-import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { AnyResponseType, VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -23,7 +23,7 @@ import { getContrastingTextClass } from '../colorUtils'
 import { conditionalFormattingColor } from '../conditionalFormatting'
 import { TableDataCell, TableRow, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
-
+import { TableCellValue } from './TableCellValue'
 interface TableProps {
     query: VisualizationNode
     uniqueKey: string | number | undefined
@@ -65,6 +65,12 @@ function getDisplayedColumnTitle(
 
 function isDateColumn(type: ColumnScalar | undefined): boolean {
     return type === 'DATE' || type === 'DATETIME'
+}
+
+function getColumnFormat(response: AnyResponseType | null, sourceColumnName: string): string | null | undefined {
+    return response && 'column_formats' in response
+        ? response.column_formats?.[response.columns.indexOf(sourceColumnName)]
+        : undefined
 }
 
 // Numbers sort numerically, dates chronologically by epoch, everything else by a
@@ -356,7 +362,8 @@ export const Table = (props: TableProps): JSX.Element => {
                 sourceColumnName,
                 sourceColumnType,
                 cell.value,
-                isDarkModeOn
+                isDarkModeOn,
+                props.context?.dataTableCaptureQueryTelemetry !== false
             )
         }
 
@@ -478,10 +485,13 @@ export const Table = (props: TableProps): JSX.Element => {
                     )
                 }
 
-                return (
+                const sourceColumnName = cell.sourceColumnName ?? column.name
+                const columnFormat = getColumnFormat(response, sourceColumnName)
+
+                const content = (
                     <div className="truncate" title={getCellTitle(cell)}>
                         {renderColumn(
-                            cell.sourceColumnName ?? column.name,
+                            sourceColumnName,
                             cell.formattedValue,
                             tableResults[isTransposed ? index - 1 : data.rowIndex],
                             recordIndex,
@@ -489,9 +499,21 @@ export const Table = (props: TableProps): JSX.Element => {
                             {
                                 kind: NodeKind.DataTableNode,
                                 source: props.query.source,
-                            }
+                            },
+                            undefined,
+                            { dataTableRenderPlainText: props.context?.dataTableRenderPlainText },
+                            columnFormat
                         )}
                     </div>
+                )
+                const sourceColumn = isTransposed ? sourceTabularColumns[data.rowIndex].column : column
+                const rawValue = tableResults[isTransposed ? index - 1 : data.rowIndex][sourceColumn.dataIndex]
+                return typeof rawValue === 'string' || (rawValue !== null && typeof rawValue === 'object') ? (
+                    <TableCellValue title={sourceColumnName} value={rawValue}>
+                        {content}
+                    </TableCellValue>
+                ) : (
+                    content
                 )
             },
             style: (_, data) => {
@@ -525,12 +547,13 @@ export const Table = (props: TableProps): JSX.Element => {
                 </LemonBanner>
             )}
             <LemonTable
-                className="DataVisualizationTable"
+                className={cn('DataVisualizationTable', !props.embedded && '[&>.ScrollableShadows]:max-h-[70vh]')}
+                stickyHeader
                 rowKey="rowIndex"
                 dataSource={tableRows}
                 columns={tableColumns}
                 pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
-                loading={responseLoading}
+                loading={responseLoading && !props.context?.externalLoadingIndicator}
                 useURLForSorting={false}
                 onSort={(newSorting) => {
                     if (newSorting) {
@@ -563,7 +586,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 footer={tableRows.length > 0 ? <LoadNext query={props.query} /> : null}
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
-                allowContentScroll={!!props.embedded}
+                allowContentScroll
                 virtualized={virtualized}
                 virtualizedColumnWidth={virtualizeColumns ? 192 : undefined}
                 tableLayout={virtualized ? 'fixed' : 'auto'}

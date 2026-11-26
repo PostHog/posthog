@@ -289,7 +289,7 @@ class OrganizationMemberViewSet(
             ).first()
             if requesting_membership is None:
                 queryset = queryset.filter(user_id=cast(User, self.request.user).id)
-            elif requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            elif requesting_membership.effective_level < OrganizationMembership.Level.ADMIN:
                 # Restricted members only see themselves and members of their projects
                 visible_membership_ids = get_project_scoped_visible_membership_ids(organization, requesting_membership)
                 if visible_membership_ids is not None:
@@ -314,7 +314,7 @@ class OrganizationMemberViewSet(
                     levels = [int(level) for level in params["levels"].split(",") if level]
                 except ValueError:
                     raise serializers.ValidationError({"levels": "Must be a comma-separated list of integers."})
-                queryset = queryset.filter(level__in=levels)
+                queryset = queryset.with_effective_level().filter(resolved_level__in=levels)
 
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])

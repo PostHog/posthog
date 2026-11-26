@@ -1,11 +1,15 @@
 import re
+from collections.abc import Iterable
 from typing import Any
+from urllib.parse import unquote
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import QuerySet
 
 import requests
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import (
@@ -20,15 +24,74 @@ from posthog.models.integration import (
 )
 
 from products.error_tracking.backend.logic import get_issue_permalink_by_fingerprint
-from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
+from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+)
 
 _EXTERNAL_ISSUE_INTEGRATIONS = IntegrationManager.kinds(
     IntegrationKind.GITHUB, IntegrationKind.GITLAB, IntegrationKind.LINEAR, IntegrationKind.JIRA
 )
 
 
+# A cap on the issues one external ticket can link at once.
+_MAX_POSTHOG_ISSUE_REFERENCES = 20
+
+
 class ErrorTrackingExternalReferenceValidationError(Exception):
     pass
+
+
+@frozen
+class PostHogIssueReference:
+    team_id: int
+    issue_id: UUID | None = None
+    fingerprint: str | None = None
+
+
+def extract_posthog_issue_references(
+    text: str, *, site_urls: Iterable[str] | None = None
+) -> list[PostHogIssueReference]:
+    """The issues linked at the allowed PostHog origins, in order and without repeats."""
+    origins = "|".join(re.escape(url.rstrip("/")) for url in (site_urls or (settings.SITE_URL,)))
+    pattern = re.compile(
+        rf"(?<![\w:/.-])(?:{origins})/project/(?P<team_id>[1-9][0-9]{{0,18}})/error[_-]tracking/"
+        rf"(?:fingerprint/(?P<fingerprint>[^/?#\s<>\]\)]+)|"
+        rf"(?P<issue_id>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
+        rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}))"
+    )
+
+    references: list[PostHogIssueReference] = []
+    seen: set[PostHogIssueReference] = set()
+    for match in pattern.finditer(text):
+        team_id = int(match.group("team_id"))
+        if team_id > 2**63 - 1:
+            continue
+        issue_id = match.group("issue_id")
+        reference = PostHogIssueReference(
+            team_id=team_id,
+            issue_id=UUID(issue_id) if issue_id else None,
+            fingerprint=unquote(match.group("fingerprint")) if match.group("fingerprint") else None,
+        )
+        if reference in seen:
+            continue
+        seen.add(reference)
+        references.append(reference)
+        if len(references) == _MAX_POSTHOG_ISSUE_REFERENCES:
+            break
+    return references
+
+
+def resolve_referenced_issue(
+    team_id: int, *, issue_id: UUID | None, fingerprint: str | None
+) -> ErrorTrackingIssue | None:
+    if issue_id is not None:
+        return ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id).first()
+    if fingerprint is None:
+        return None
+    fingerprint_row = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint).first()
+    return fingerprint_row.issue if fingerprint_row is not None else None
 
 
 EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS = {
@@ -190,7 +253,7 @@ def _clean_existing_external_context(integration: IntegrationRecord, external_co
 
 
 def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
-    return ErrorTrackingExternalReference.objects.select_related("integration").filter(issue__team_id=team_id)
+    return ErrorTrackingExternalReference.objects.filter(issue__team_id=team_id)
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> ErrorTrackingExternalReference | None:
@@ -238,11 +301,14 @@ def create_external_reference(
     integration_id: int,
     config: dict[str, Any] | None = None,
     external_context: dict[str, Any] | None = None,
+    attach_back_link: bool = True,
 ) -> tuple[ErrorTrackingExternalReference, bool]:
     """Link an error tracking issue to an external provider issue.
 
     Pass ``config`` to create a brand-new provider issue, or ``external_context`` to link an
     existing one that the user picked. Exactly one of the two must be supplied.
+    Pass ``attach_back_link=False`` to link an existing Linear issue without adding the PostHog
+    attachment to it, for an issue that already links to PostHog.
     Returns the reference and whether it was newly created (idempotent re-links return False).
     """
     if (config is None) == (external_context is None):
@@ -275,7 +341,7 @@ def create_external_reference(
                 existing.external_context = updated_context
                 existing.save(update_fields=["external_context"])
             return existing, False
-        if integration.kind == IntegrationKind.LINEAR:
+        if integration.kind == IntegrationKind.LINEAR and attach_back_link:
             # Linked issues get the same PostHog back-link attachment as created ones.
             attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
             LinearIntegration(integration).create_attachment(stored_context["id"], attachment_url)
@@ -362,23 +428,29 @@ def search_external_issues(
     raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
 
-def build_external_issue_url(reference: ErrorTrackingExternalReference) -> str:
-    return external_issue_url(reference.integration, reference.external_context)
+def get_reference_integrations(
+    team_id: int, references: Iterable[ErrorTrackingExternalReference]
+) -> dict[int, IntegrationRecord]:
+    return IntegrationManager.any.get_many(team_id, {reference.integration_id for reference in references})
 
 
-def external_issue_id(reference: ErrorTrackingExternalReference) -> str:
+def build_external_issue_url(reference: ErrorTrackingExternalReference, integration: IntegrationRecord) -> str:
+    return external_issue_url(integration, reference.external_context)
+
+
+def external_issue_id(reference: ErrorTrackingExternalReference, integration: IntegrationRecord) -> str:
     external_context = reference.external_context or {}
     id_field = {
         IntegrationKind.GITHUB.value: "number",
         IntegrationKind.GITLAB.value: "issue_id",
         IntegrationKind.LINEAR.value: "id",
         IntegrationKind.JIRA.value: "key",
-    }.get(reference.integration.kind)
+    }.get(integration.kind)
     value = external_context.get(id_field) if id_field else reference.external_id
     if value is None:
         return ""
     external_id = str(value)
-    if reference.integration.kind in {
+    if integration.kind in {
         IntegrationKind.GITHUB,
         IntegrationKind.GITLAB,
     } and not external_id.startswith("#"):

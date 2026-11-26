@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataDestina
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     CONFIG_FAILURES,
     DestinationConnectionCheckError,
+    check_motherduck_destination,
     check_postgres_destination,
 )
 
@@ -130,9 +131,11 @@ _CREDENTIAL_STEP_COUNT: dict[str, int] = {
 
 def has_connection_test(destination_type: str) -> bool:
     """Whether creating a destination of this type tests its connection first."""
-    return destination_type in (ExternalDataDestination.Type.POSTGRES, ExternalDataDestination.Type.S3) or (
-        destination_type in _TEST_TYPES
-    )
+    return destination_type in (
+        ExternalDataDestination.Type.POSTGRES,
+        ExternalDataDestination.Type.S3,
+        ExternalDataDestination.Type.MOTHERDUCK,
+    ) or (destination_type in _TEST_TYPES)
 
 
 def connection_test_type(destination_type: str, integration: IntegrationRecord) -> str | None:
@@ -193,13 +196,36 @@ _POSTGRES_STEP = DestinationTestStep(
 )
 
 
+_MOTHERDUCK_STEP = DestinationTestStep(
+    name="Connect to MotherDuck",
+    description="Connect to the database and check that the access token can create tables in the schema.",
+    result=None,
+)
+
+
 def run_postgres_connection_test(integration: IntegrationRecord, config: Mapping[str, Any] | None) -> ConnectionTestRun:
     """Run the Postgres check as a single step, so it reports like the other connection tests."""
+    return _run_single_step_check(_POSTGRES_STEP, check_postgres_destination, integration, config)
+
+
+def run_motherduck_connection_test(
+    integration: IntegrationRecord, config: Mapping[str, Any] | None
+) -> ConnectionTestRun:
+    """Run the MotherDuck check as a single step, so it reports like the other connection tests."""
+    return _run_single_step_check(_MOTHERDUCK_STEP, check_motherduck_destination, integration, config)
+
+
+def _run_single_step_check(
+    template: DestinationTestStep,
+    check: Callable[[IntegrationRecord, dict[str, Any] | None], None],
+    integration: IntegrationRecord,
+    config: Mapping[str, Any] | None,
+) -> ConnectionTestRun:
     try:
-        check_postgres_destination(integration, dict(config) if isinstance(config, Mapping) else None)
+        check(integration, dict(config) if isinstance(config, Mapping) else None)
     except DestinationConnectionCheckError as error:
         step = replace(
-            _POSTGRES_STEP,
+            template,
             result=DestinationTestStepResult(
                 status=DestinationConnectionTestStepStatus.FAILED.value, message=str(error)
             ),
@@ -212,7 +238,7 @@ def run_postgres_connection_test(integration: IntegrationRecord, config: Mapping
         return ConnectionTestRun(steps=(step,), failure=failure)
 
     step = replace(
-        _POSTGRES_STEP,
+        template,
         result=DestinationTestStepResult(status=DestinationConnectionTestStepStatus.PASSED.value, message=None),
     )
     return ConnectionTestRun(steps=(step,), failure=None)

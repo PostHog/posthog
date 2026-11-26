@@ -19,7 +19,7 @@ from products.signals.backend.activity_summary.queue import is_team_enrolled_for
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 DEFAULT_VERSIONS_LIMIT = 5
-_SKIPPED_REBUILD_STATUSES = frozenset({UserActivitySummary.Status.SKIPPED, UserActivitySummary.Status.EMPTY_PROFILE})
+SKIPPED_REBUILD_STATUSES = frozenset({UserActivitySummary.Status.SKIPPED, UserActivitySummary.Status.EMPTY_PROFILE})
 
 
 class ActivitySummaryStatus(models.TextChoices):
@@ -124,7 +124,7 @@ def get_summary(team: Team, user_id: int) -> ActivitySummaryView | None:
     row = UserActivitySummary.objects.for_team(team.id).filter(user_id=user_id).first()
     if row is None or (view := ready_view(row, config)) is None:
         return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
-    if view.stale and row.status in _SKIPPED_REBUILD_STATUSES:
+    if view.stale and row.status in SKIPPED_REBUILD_STATUSES:
         return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
     return view
 

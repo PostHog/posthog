@@ -11,6 +11,7 @@ import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallReques
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'lib/integrations/utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,7 +19,9 @@ import { urls } from 'scenes/urls'
 
 import type { GitHubAvailableInstallationApi } from 'products/integrations/frontend/generated/api.schemas'
 
+import { accountLabel, sourceLabel } from './githubInstallationLabels'
 import { Integration, useIntegrations } from './Integration'
+import { QuillGithubIntegration } from './QuillGithubIntegration'
 
 export function GithubIntegration({
     next,
@@ -72,6 +75,7 @@ export function GithubIntegration({
         useActions(eventUsageLogic)
     const { hasPendingInstallRequests } = useValues(githubInstallRequestsLogic)
     const githubIntegrations = useIntegrations('github')
+    const quillSurface = useQuillSurface()
 
     // integrationsLogic is a singleton mounted from dozens of unrelated surfaces, so this fetch
     // hangs off the GitHub setup UI instead of the shared integrations load. Polling is likewise
@@ -98,6 +102,15 @@ export function GithubIntegration({
     const pickerOpen =
         visibleDiscoveryId !== null && visibleDiscoveryId === githubAvailableInstallationsResponse?.discovery_id
     const installRequestInProgress = hasPendingInstallRequests
+    const lookingForInstallations =
+        !isConnected && !githubAvailableInstallationsResponse && githubAvailableInstallationsResponseLoading
+    const personalDiscoveryFailed =
+        !isConnected &&
+        !githubAvailableInstallationsResponseLoading &&
+        (githubDiscoveryFailed || githubAvailableInstallationsResponse?.personal_discovery_status === 'unavailable')
+    const hideConnect = installRequestInProgress || (isConnected && !showManageButton)
+    const showPersonalHelp =
+        showPersonalConnectionHelp && !isConnected && installations.length === 0 && githubPersonalConnected === false
 
     // A discovery response is reported only after its suggestions render.
     const offeredInstallationIds =
@@ -126,6 +139,71 @@ export function GithubIntegration({
         }
     }
 
+    const finishConnecting = (): void => {
+        reportConnect('install_approved_banner')
+        onAuthorize?.(authorizationUrl)
+    }
+
+    const setPickerVisible = (visible: boolean): void =>
+        setVisibleDiscoveryId(visible ? (githubAvailableInstallationsResponse?.discovery_id ?? null) : null)
+
+    const linkInstallation = (installationId?: string): void => {
+        // Reusing an existing install never leaves PostHog, so it's a
+        // connect that skips GitHub entirely — worth separating from the
+        // clicks that redirect out. Falls back to `connectSurface` like
+        // every other button here, instead of a fixed literal, so the
+        // surface still says where the click happened.
+        reportConnect(connectSurface === 'settings' ? 'settings_link_existing' : undefined)
+        reportGithubInstallationSelected(
+            connectSurface ?? 'integration_landing_page',
+            githubAvailableInstallationsResponse?.discovery_id,
+            installationId,
+            Math.max(0, Date.now() - Date.parse(githubAvailableInstallationsResponse?.discovered_at ?? ''))
+        )
+        linkExistingGithubInstallation(installationId)
+    }
+
+    const connect = (): void => {
+        reportConnect()
+        onAuthorize?.(authorizationUrl)
+    }
+
+    const connectOrManage = (): void => {
+        reportConnect(isConnected ? 'settings_manage' : undefined)
+        onAuthorize?.(authorizationUrl)
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillGithubIntegration
+                centered={centered}
+                integrationSuffix={integrationSuffix}
+                authorizationUrl={onAuthorize ? undefined : authorizationUrl}
+                authorizing={authorizing}
+                emphasizeConnect={emphasizeConnect}
+                connectText={connectText}
+                connectDescription={connectDescription}
+                isConnected={isConnected}
+                canLinkExisting={canLinkExisting}
+                installations={installations}
+                personalGithubLogin={githubAvailableInstallationsResponse?.personal_github_login}
+                linkingInstallation={linkedGithubInstallationLoading}
+                projectName={currentTeam?.name}
+                lookingForInstallations={lookingForInstallations}
+                personalDiscoveryFailed={personalDiscoveryFailed}
+                hideConnect={hideConnect}
+                showManageHint={isConnected && showManageButton}
+                showPersonalHelp={showPersonalHelp}
+                onFinishConnecting={finishConnecting}
+                onPickerVisibilityChange={setPickerVisible}
+                onLinkInstallation={linkInstallation}
+                onRetryDiscovery={loadGithubAvailableInstallations}
+                onConnect={connect}
+                onConnectOrManage={connectOrManage}
+            />
+        )
+    }
+
     return (
         <Integration kind="github" centered={centered} integrationSuffix={integrationSuffix}>
             {/* w-full because Integration drops its children into a bare flex row, which would
@@ -134,10 +212,7 @@ export function GithubIntegration({
                 <GitHubInstallRequestsBanner
                     finishConnectingUrl={onAuthorize ? undefined : authorizationUrl}
                     connecting={authorizing}
-                    onFinishConnecting={() => {
-                        reportConnect('install_approved_banner')
-                        onAuthorize?.(authorizationUrl)
-                    }}
+                    onFinishConnecting={finishConnecting}
                     variant={emphasizeConnect ? 'onboarding' : 'default'}
                 />
                 {/* An install GitHub already has is the exception, not a second way to connect, so it
@@ -180,34 +255,12 @@ export function GithubIntegration({
                                 )}
                             </span>
                             <GitHubInstallationLink
-                                onVisibilityChange={(visible) =>
-                                    setVisibleDiscoveryId(
-                                        visible ? (githubAvailableInstallationsResponse?.discovery_id ?? null) : null
-                                    )
-                                }
+                                onVisibilityChange={setPickerVisible}
                                 personalGithubLogin={githubAvailableInstallationsResponse?.personal_github_login}
                                 installations={installations}
                                 loading={linkedGithubInstallationLoading}
                                 emphasizeInstallation={emphasizeConnect}
-                                onLink={(installationId) => {
-                                    // Reusing an existing install never leaves PostHog, so it's a
-                                    // connect that skips GitHub entirely — worth separating from the
-                                    // clicks that redirect out. Falls back to `connectSurface` like
-                                    // every other button here, instead of a fixed literal, so the
-                                    // surface still says where the click happened.
-                                    reportConnect(connectSurface === 'settings' ? 'settings_link_existing' : undefined)
-                                    reportGithubInstallationSelected(
-                                        connectSurface ?? 'integration_landing_page',
-                                        githubAvailableInstallationsResponse?.discovery_id,
-                                        installationId,
-                                        Math.max(
-                                            0,
-                                            Date.now() -
-                                                Date.parse(githubAvailableInstallationsResponse?.discovered_at ?? '')
-                                        )
-                                    )
-                                    linkExistingGithubInstallation(installationId)
-                                }}
+                                onLink={linkInstallation}
                                 projectName={currentTeam?.name}
                             />
                         </div>
@@ -218,28 +271,22 @@ export function GithubIntegration({
                         )}
                     </LemonBanner>
                 )}
-                {!isConnected &&
-                    !githubAvailableInstallationsResponse &&
-                    githubAvailableInstallationsResponseLoading && (
-                        <span role="status" className="sr-only">
-                            Looking for existing GitHub installations…
-                        </span>
-                    )}
-                {!isConnected &&
-                    !githubAvailableInstallationsResponseLoading &&
-                    (githubDiscoveryFailed ||
-                        githubAvailableInstallationsResponse?.personal_discovery_status === 'unavailable') && (
-                        <LemonBanner type="warning">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span>Couldn't check your personal GitHub connection.</span>
-                                <LemonButton size="small" onClick={loadGithubAvailableInstallations}>
-                                    Retry
-                                </LemonButton>
-                            </div>
-                        </LemonBanner>
-                    )}
-                {installRequestInProgress || (isConnected && !showManageButton) ? null : emphasizeConnect &&
-                  !isConnected ? (
+                {lookingForInstallations && (
+                    <span role="status" className="sr-only">
+                        Looking for existing GitHub installations…
+                    </span>
+                )}
+                {personalDiscoveryFailed && (
+                    <LemonBanner type="warning">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span>Couldn't check your personal GitHub connection.</span>
+                            <LemonButton size="small" onClick={loadGithubAvailableInstallations}>
+                                Retry
+                            </LemonButton>
+                        </div>
+                    </LemonBanner>
+                )}
+                {hideConnect ? null : emphasizeConnect && !isConnected ? (
                     <div className={cn('flex w-full flex-col gap-4', centered ? 'items-center' : 'items-start')}>
                         <div className={cn('flex flex-wrap gap-2', centered && 'justify-center')}>
                             <LemonButton
@@ -248,10 +295,7 @@ export function GithubIntegration({
                                 disableClientSideRouting
                                 to={onAuthorize ? undefined : authorizationUrl}
                                 loading={authorizing}
-                                onClick={() => {
-                                    reportConnect()
-                                    onAuthorize?.(authorizationUrl)
-                                }}
+                                onClick={connect}
                             >
                                 {canLinkExisting ? 'Connect a different organization or repository' : connectText}
                             </LemonButton>
@@ -278,10 +322,7 @@ export function GithubIntegration({
                             disableClientSideRouting
                             to={onAuthorize ? undefined : authorizationUrl}
                             loading={authorizing}
-                            onClick={() => {
-                                reportConnect(isConnected ? 'settings_manage' : undefined)
-                                onAuthorize?.(authorizationUrl)
-                            }}
+                            onClick={connectOrManage}
                         >
                             {isConnected ? 'Manage on GitHub' : connectText}
                         </LemonButton>
@@ -292,25 +333,16 @@ export function GithubIntegration({
                         Add the PostHog app to another GitHub account, or change which repositories it can see.
                     </p>
                 )}
-                {showPersonalConnectionHelp &&
-                    !isConnected &&
-                    installations.length === 0 &&
-                    githubPersonalConnected === false && (
-                        <p className={cn('text-secondary text-xs mb-0', centered && 'text-center')}>
-                            Already installed the PostHog GitHub App but don't see it here? Connect your GitHub account
-                            under <Link to={urls.settings('user-personal-integrations')}>Personal integrations</Link> so
-                            PostHog can find it.
-                        </p>
-                    )}
+                {showPersonalHelp && (
+                    <p className={cn('text-secondary text-xs mb-0', centered && 'text-center')}>
+                        Already installed the PostHog GitHub App but don't see it here? Connect your GitHub account
+                        under <Link to={urls.settings('user-personal-integrations')}>Personal integrations</Link> so
+                        PostHog can find it.
+                    </p>
+                )}
             </div>
         </Integration>
     )
-}
-
-// The GitHub account name is what a person recognizes, so it carries the label wherever we have
-// it. The id is a fallback for an installation whose account metadata never arrived.
-function accountLabel(installation: GitHubAvailableInstallationApi): string {
-    return installation.account_name || `installation ${installation.installation_id}`
 }
 
 function countInstallations(installations: GitHubAvailableInstallationApi[]): IntegrationLinkExistingCounts {
@@ -320,14 +352,6 @@ function countInstallations(installations: GitHubAvailableInstallationApi[]): In
         orphan: installations.filter((installation) => installation.source_team_id === null).length,
         unnamed: installations.filter((installation) => !installation.account_name).length,
     }
-}
-
-// Where an entry came from decides whether an unfamiliar account reads as a teammate's work or as a
-// stranger in your settings, so every entry says its source.
-function sourceLabel(installation: GitHubAvailableInstallationApi, personalGithubLogin?: string | null): string {
-    return installation.source_team_id !== null
-        ? `Connected to ${installation.source_team_name ?? `project ${installation.source_team_id}`}`
-        : `Found through your GitHub connection${personalGithubLogin ? ` as ${personalGithubLogin}` : ''}`
 }
 
 export function GitHubInstallationLink({

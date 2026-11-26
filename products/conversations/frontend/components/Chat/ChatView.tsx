@@ -4,7 +4,7 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+import type { AiFeedbackReasonEnumApi, TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 
 import type {
     AITriageSource,
@@ -16,6 +16,7 @@ import type {
     TicketStatus,
 } from '../../types'
 import type { SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
+import type { SupportEditorProps } from '../Editor'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
 
@@ -82,7 +83,12 @@ export interface ChatViewProps {
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
-    onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    onSubmitAiReplyFeedback?: (
+        messageId: string,
+        rating: AiReplyFeedbackRating,
+        feedbackText?: string,
+        reasons?: AiFeedbackReasonEnumApi[]
+    ) => void
     currentUserId?: number | null
     /** False when the caller lacks ticket editor access (e.g. viewer-only). */
     canEditTicket?: boolean
@@ -98,6 +104,8 @@ export interface ChatViewProps {
     macroPicker?: React.ReactNode
     enableMacros?: boolean
     onInsertMacro?: (macro: TicketMacroApi) => void
+    /** Stores a file of any type for the reply. Leave unset to hide the attach button. */
+    onAttachFile?: SupportEditorProps['onAttachFile']
     aiSources?: AITriageSource[]
     aiDraftApplying?: boolean
     onApplyAiDraft?: (message: ChatMessage) => void
@@ -153,6 +161,7 @@ export function ChatView({
     composerInsertContent,
     macroPicker,
     enableMacros,
+    onAttachFile,
     onInsertMacro,
     aiSources,
     aiDraftApplying,
@@ -222,6 +231,7 @@ export function ChatView({
                     composerInsertContent={composerInsertContent}
                     macroPicker={macroPicker}
                     enableMacros={enableMacros}
+                    onAttachFile={onAttachFile}
                     onInsertMacro={onInsertMacro}
                 />
             </div>

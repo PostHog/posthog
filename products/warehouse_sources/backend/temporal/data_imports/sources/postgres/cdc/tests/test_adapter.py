@@ -1,8 +1,10 @@
 import uuid
+import socket
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import psycopg
 import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -13,9 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     PostgresCDCAdapter,
     _slot_setup_error_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    ClientDeadlineExceededError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
 
 _ADAPTER = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter"
 _POSTGRES = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+_CLIENT_DEADLINE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline"
 
 
 def _source(**cdc_overrides):
@@ -204,6 +211,13 @@ class TestSlotSetupErrorMessage:
     def test_non_permission_error_keeps_raw_message_only(self) -> None:
         error = _slot_setup_error_message(RuntimeError("connection reset"))
         assert error == "Failed to create replication slot: connection reset"
+
+    def test_undefined_table_points_at_renamed_or_dropped_table(self) -> None:
+        # ALTER PUBLICATION ADD TABLE raises this when the table no longer exists on the
+        # source database, e.g. it was renamed or dropped after PostHog last synced the schema.
+        error = _slot_setup_error_message(psycopg.errors.UndefinedTable('relation "public.orders" does not exist'))
+        assert 'relation "public.orders" does not exist' in error
+        assert "doesn't exist on your database" in error
 
 
 class TestRecreateStream:
@@ -443,6 +457,30 @@ class TestGetLag:
         mock_lag.assert_called_once_with(conn, "slot")
         assert lag == (None if lag_bytes is None else CDCLag(behind_bytes=lag_bytes, retention_cap_mb=cap_mb))
 
+    @patch(f"{_ADAPTER}.get_max_slot_wal_keep_size_mb", return_value=None)
+    def test_a_lag_query_the_server_never_answers_ends_at_the_deadline(self, _cap) -> None:
+        client_end, server_end = socket.socketpair()
+        client_end.settimeout(5)
+        conn = MagicMock()
+        conn.fileno.return_value = client_end.fileno()
+
+        def stalled_query(_conn, _slot):
+            # Returns only once the deadline shuts the socket down, as a blocked libpq read does.
+            client_end.recv(1)
+            raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+        try:
+            with (
+                patch(f"{_ADAPTER}.LAG_CHECK_CLIENT_DEADLINE_SECONDS", 0.01),
+                patch(f"{_CLIENT_DEADLINE}.CANCEL_GRACE_SECONDS", 0.01),
+                patch(f"{_ADAPTER}.get_slot_lag_bytes", side_effect=stalled_query),
+                pytest.raises(ClientDeadlineExceededError),
+            ):
+                PostgresCDCAdapter().get_lag(conn, _source(cdc_enabled=True, cdc_slot_name="slot"))
+        finally:
+            client_end.close()
+            server_end.close()
+
 
 class TestValidatePrerequisites:
     @patch(
@@ -462,6 +500,24 @@ class TestValidatePrerequisites:
         assert mock_validate.call_args.kwargs["slot_name"] is None
         assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.prerequisite_validator.validate_cdc_prerequisites",
+        return_value=[],
+    )
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_resolves_the_default_publication_for_posthog_managed_mode(self, _conn, mock_validate) -> None:
+        source = _source()
+
+        PostgresCDCAdapter().validate_prerequisites(
+            source,
+            management_mode="posthog",
+            tables=[],
+            schema="public",
+            setup={"cdc_slot_name": "", "cdc_publication_name": None},
+        )
+
+        assert mock_validate.call_args.kwargs["publication_name"] == f"posthog_pub_{source.id.hex[:12]}"
+
 
 class TestIsConnectionError:
     # A connect-time timeout to an unreachable source DB is the failure `cdc_status` reports as a
@@ -472,6 +528,7 @@ class TestIsConnectionError:
             ("operational", psycopg.OperationalError("connection refused"), True),
             ("ssh_tunnel", BaseSSHTunnelForwarderError("could not open tunnel"), True),
             ("host_policy", HostNotAllowedError("resolves to a private address"), True),
+            ("ssl_required", SSLRequiredError("SSL/TLS connection is required"), True),
             ("programming_bug", ValueError("unexpected status shape"), False),
         ]
     )

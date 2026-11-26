@@ -1,9 +1,14 @@
 import uuid
 import datetime as dt
+import dataclasses
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
+import psycopg
 import temporalio.worker
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -11,7 +16,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.delete_teams.activities import delete_team_records_activity
+from posthog.temporal.delete_teams.activities import STATEMENT_TIMEOUT_TERMINAL_ATTEMPT, delete_team_records_activity
 from posthog.temporal.delete_teams.types import (
     DeleteOrganizationWorkflowInputs,
     DeleteProjectDataWorkflowInputs,
@@ -23,14 +28,25 @@ from posthog.temporal.delete_teams.types import (
     TeamDataActivityInputs,
 )
 from posthog.temporal.delete_teams.workflows import (
+    TASK_UPLOAD_URLS_EXPIRY,
     DeleteOrganizationWorkflow,
     DeleteProjectDataWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
     DeleteTeamsDataWorkflow,
 )
 
+from products.tasks.backend.facade.api import TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS
+
 pytestmark = pytest.mark.asyncio
 
-WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizationWorkflow]
+WORKFLOWS = [
+    DeleteTeamsDataWorkflow,
+    DeleteProjectDataWorkflow,
+    DeleteOrganizationWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
+]
+
+TEST_EXECUTION_TIMEOUT = dt.timedelta(hours=6)
 
 CORE_ACTIVITY_ORDER = [
     "queue_recording_deletions_activity",
@@ -39,10 +55,13 @@ CORE_ACTIVITY_ORDER = [
     "delete_groups_activity",
     "delete_team_persons_activity",
     "delete_event_properties_activity",
+    "delete_ui_customization_activity",
     "delete_batch_exports_activity",
     "delete_data_modeling_schedules_activity",
+    "delete_task_session_storage_activity",
     "delete_team_records_activity",
     "enqueue_clickhouse_deletion_activity",
+    "delete_task_storage_activity",
 ]
 
 
@@ -75,6 +94,10 @@ def _recording_activities(
     async def delete_organization_record_activity(inputs: OrganizationRecordInputs) -> None:
         calls.append("delete_organization_record_activity")
 
+    @activity.defn(name="delete_organization_task_storage_activity")
+    async def delete_organization_task_storage_activity(inputs: OrganizationRecordInputs) -> None:
+        calls.append("delete_organization_task_storage_activity")
+
     @activity.defn(name="send_project_deleted_email_activity")
     async def send_project_deleted_email_activity(inputs: ProjectEmailInputs) -> None:
         calls.append("send_project_deleted_email_activity")
@@ -89,6 +112,7 @@ def _recording_activities(
         check_project_pending_deletion_activity,
         delete_project_record_activity,
         delete_organization_record_activity,
+        delete_organization_task_storage_activity,
         send_project_deleted_email_activity,
         send_organization_deleted_email_activity,
     ]
@@ -110,6 +134,7 @@ async def _run(workflow, inputs, calls: list[str], project_pending: bool = True)
                 inputs,
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                execution_timeout=TEST_EXECUTION_TIMEOUT,
             )
 
 
@@ -119,10 +144,79 @@ async def test_core_workflow_runs_every_phase_in_order():
     assert calls == CORE_ACTIVITY_ORDER
 
 
+async def test_core_workflow_leaves_a_storage_resweep_running_after_it_completes():
+    calls: list[str] = []
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=WORKFLOWS,
+            activities=_recording_activities(calls),
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            workflow_id = str(uuid.uuid4())
+            handle = await env.client.start_workflow(
+                DeleteTeamsDataWorkflow.run,
+                DeleteTeamsDataWorkflowInputs(team_ids=[1], user_id=7),
+                id=workflow_id,
+                task_queue=task_queue,
+                execution_timeout=TEST_EXECUTION_TIMEOUT,
+            )
+            await handle.result()
+            resweep = await env.client.get_workflow_handle(
+                f"{workflow_id}-{handle.result_run_id}-task-storage-after-uploads-expire"
+            ).describe()
+
+    assert resweep.workflow_type == "delete-task-storage-after-uploads-expire"
+
+
+async def test_storage_resweep_deletes_team_storage_after_waiting():
+    calls: list[str] = []
+    await _run(DeleteTaskStorageAfterUploadsExpireWorkflow.run, TeamDataActivityInputs(team_ids=[1], user_id=7), calls)
+    assert calls == ["delete_task_storage_activity"]
+
+
+def test_the_storage_resweep_waits_out_every_task_upload_url():
+    assert TASK_UPLOAD_URLS_EXPIRY.total_seconds() > TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS
+
+
 async def test_core_workflow_noop_for_empty_team_ids():
     calls: list[str] = []
     await _run(DeleteTeamsDataWorkflow.run, DeleteTeamsDataWorkflowInputs(team_ids=[], user_id=7), calls)
     assert calls == []
+
+
+async def test_core_workflow_replays_history_without_customization_cleanup():
+    calls: list[str] = []
+    task_queue = str(uuid.uuid4())
+    patched = temporalio.workflow.patched
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        with patch(
+            "temporalio.workflow.patched",
+            side_effect=lambda name: False if name == "delete-ui-customization" else patched(name),
+        ):
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=WORKFLOWS,
+                activities=_recording_activities(calls),
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    DeleteTeamsDataWorkflow.run,
+                    DeleteTeamsDataWorkflowInputs(team_ids=[1], user_id=7),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=dt.timedelta(minutes=2),
+                )
+                await handle.result()
+                history = await handle.fetch_history()
+
+    assert calls == [name for name in CORE_ACTIVITY_ORDER if name != "delete_ui_customization_activity"]
+    await temporalio.worker.Replayer(
+        workflows=WORKFLOWS, workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner()
+    ).replay_workflow(history)
 
 
 async def test_project_workflow_deletes_record_then_emails():
@@ -177,8 +271,9 @@ async def test_organization_workflow_deletes_record_then_emails():
     )
     assert calls == [
         "deprovision_managed_warehouse_activity",
-        *CORE_ACTIVITY_ORDER,
+        *(name for name in CORE_ACTIVITY_ORDER if name != "delete_task_session_storage_activity"),
         "delete_organization_record_activity",
+        "delete_organization_task_storage_activity",
         "send_organization_deleted_email_activity",
     ]
 
@@ -190,12 +285,16 @@ def _core_activities_with(target_name: str, target_fn) -> list:
         if name == target_name:
             continue
 
-        @activity.defn(name=name)
-        async def _noop(inputs: TeamDataActivityInputs) -> None:
-            pass
-
-        activities.append(_noop)
+        activities.append(_noop_team_activity(name))
     return activities
+
+
+def _noop_team_activity(name: str):
+    @activity.defn(name=name)
+    async def _noop(inputs: TeamDataActivityInputs) -> None:
+        pass
+
+    return _noop
 
 
 async def _run_core_with(activities: list) -> None:
@@ -213,10 +312,12 @@ async def _run_core_with(activities: list) -> None:
                 DeleteTeamsDataWorkflowInputs(team_ids=[1], user_id=7),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                execution_timeout=TEST_EXECUTION_TIMEOUT,
             )
 
 
-async def test_protected_error_fails_fast_without_retry():
+@pytest.mark.parametrize("activity_name", ["delete_misc_small_tables_activity", "delete_ui_customization_activity"])
+async def test_protected_error_fails_fast_without_retry(activity_name: str):
     from django.db.models.deletion import ProtectedError
 
     attempts: list[str] = []
@@ -225,14 +326,18 @@ async def test_protected_error_fails_fast_without_retry():
         attempts.append("attempt")
         raise ProtectedError("blocked by a PROTECT foreign key", set())
 
-    activities = _core_activities_with("delete_misc_small_tables_activity", raises_protected)
+    activities = _core_activities_with(activity_name, raises_protected)
     with pytest.raises(WorkflowFailureError):
         await _run_core_with(activities)
 
     assert len(attempts) == 1  # non-retryable: the workflow fails on the first attempt
 
 
-async def test_transient_error_is_retried():
+@pytest.mark.parametrize(
+    "activity_name",
+    ["delete_misc_small_tables_activity", "delete_ui_customization_activity", "delete_task_storage_activity"],
+)
+async def test_transient_error_is_retried(activity_name: str):
     attempts: list[str] = []
 
     async def fails_once(inputs: TeamDataActivityInputs) -> None:
@@ -240,7 +345,7 @@ async def test_transient_error_is_retried():
         if len(attempts) == 1:
             raise RuntimeError("transient database hiccup")
 
-    activities = _core_activities_with("delete_misc_small_tables_activity", fails_once)
+    activities = _core_activities_with(activity_name, fails_once)
     await _run_core_with(activities)  # completes despite the first failure
 
     assert len(attempts) == 2  # retried once, then succeeded
@@ -323,17 +428,64 @@ async def test_recursion_error_fails_fast_without_retry():
     assert len(attempts) == 1
 
 
-async def test_delete_team_records_activity_converts_recursion_error():
-    # The real activity turns a RecursionError from the cascade into a small, non-retryable
-    # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.
-    def raise_recursion(team_ids: list[int]) -> None:
-        raise RecursionError("maximum recursion depth exceeded")
+def _database_error(cause: Exception) -> OperationalError:
+    error = OperationalError(str(cause))
+    error.__cause__ = cause
+    return error
 
-    with patch("posthog.models.team.util.delete_team_records", raise_recursion):
+
+def _activity_environment(attempt: int) -> ActivityEnvironment:
+    environment = ActivityEnvironment()
+    environment.info = dataclasses.replace(environment.info, attempt=attempt)
+    return environment
+
+
+@pytest.mark.parametrize(
+    "error,attempt,error_type",
+    [
+        (RecursionError("maximum recursion depth exceeded"), 1, "RecursionError"),
+        (
+            _database_error(psycopg.errors.QueryCanceled("canceling statement due to statement timeout")),
+            STATEMENT_TIMEOUT_TERMINAL_ATTEMPT,
+            "StatementTimeout",
+        ),
+    ],
+)
+async def test_delete_team_records_activity_fails_a_futile_retry_terminally(
+    error: Exception, attempt: int, error_type: str
+):
+    # The real activity turns an error that every retry repeats into a small, non-retryable
+    # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.
+    def raise_error(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
+        raise error
+
+    with patch("posthog.models.team.util.delete_team_records", raise_error):
         with pytest.raises(ApplicationError) as exc_info:
-            await ActivityEnvironment().run(
+            await _activity_environment(attempt).run(
                 delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)
             )
 
-    assert exc_info.value.type == "RecursionError"
+    assert exc_info.value.type == error_type
     assert exc_info.value.non_retryable
+
+
+@pytest.mark.parametrize(
+    "cause,attempt",
+    [
+        (
+            psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"),
+            STATEMENT_TIMEOUT_TERMINAL_ATTEMPT,
+        ),
+        (psycopg.errors.QueryCanceled("canceling statement due to user request"), STATEMENT_TIMEOUT_TERMINAL_ATTEMPT),
+        (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), 1),
+    ],
+)
+async def test_delete_team_records_activity_retries_an_error_that_a_retry_can_pass(cause: Exception, attempt: int):
+    def raise_error(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
+        raise _database_error(cause)
+
+    with patch("posthog.models.team.util.delete_team_records", raise_error):
+        with pytest.raises(OperationalError):
+            await _activity_environment(attempt).run(
+                delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)
+            )

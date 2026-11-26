@@ -1,3 +1,4 @@
+import re
 import datetime
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -17,7 +18,7 @@ from posthog.hogql.errors import NotImplementedError, ResolutionError
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
-    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery
+    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery, Type
     from posthog.hogql.base import ConstantType
     from posthog.hogql.context import HogQLContext
 
@@ -91,10 +92,27 @@ class FloatDatabaseField(DatabaseField):
 
 
 class DecimalDatabaseField(DatabaseField):
+    scale: Optional[int] = None
+
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import DecimalType
 
         return DecimalType(nullable=self.is_nullable())
+
+
+_CLICKHOUSE_DECIMAL_TYPE = re.compile(
+    r"(?:Nullable\()?Decimal(?P<bits>32|64|128|256)?\(\s*(?P<first>\d+)\s*(?:,\s*(?P<second>\d+)\s*)?\)\)?",
+    re.IGNORECASE,
+)
+
+
+def clickhouse_decimal_scale(clickhouse_type: str) -> int | None:
+    match = _CLICKHOUSE_DECIMAL_TYPE.fullmatch(clickhouse_type.strip())
+    if match is None:
+        return None
+    if match["bits"] is not None:
+        return None if match["second"] is not None else int(match["first"])
+    return int(match["second"] or 0)
 
 
 class StringDatabaseField(DatabaseField):
@@ -247,6 +265,8 @@ class Table(FieldOrTable):
     # When True, queries reading this table don't send HogQL's default
     # `max_bytes_before_external_group_by=0`, so the ClickHouse user profile's spill thresholds apply.
     inherit_profile_spill: bool = False
+    # When True, a persons join from this table applies personIdPushdown when the modifier is unset.
+    person_id_pushdown_default: bool = False
     workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
@@ -294,6 +314,16 @@ class Table(FieldOrTable):
             else:
                 raise ResolutionError(f"Unknown field type {type(field_).__name__} for asterisk")
         return asterisk
+
+
+class EventsRetentionTable(Table):
+    """A table of events or of rows derived from events, which the team's events retention applies to.
+
+    The ClickHouse printer floors every scan of a subclass at `events_retention_field > now() - retention`, so
+    derived rows cannot outlive the events they came from.
+    """
+
+    events_retention_field: str
 
 
 _CI_INDEX_CACHE_KEY = "_case_insensitive_index_cache"
@@ -533,20 +563,45 @@ class LazyTable(Table):
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
+    def held_join_conjuncts(self, join: "JoinExpr") -> list[Any]:
+        """The conjuncts of the join's constraint that this table holds an unresolved copy of."""
+        return []
 
-@dataclass
+    def take_join_filter(self, join: "JoinExpr") -> None:
+        """Removes the resolved predicates that this table already carries from the join's constraint."""
+        return None
+
+
+@dataclass(frozen=False)
 class LazyTableToAdd:
     lazy_table: LazyTable
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    # The names in `fields_accessed` whose column holds what `toJSONString` of the chain returns, so that the outer
+    # read does not serialize it again. Lazy table resolution adds them only for `EventsWithFlagCallsTable`.
+    json_text_fields: set[str] = field(default_factory=set)
 
 
-@dataclass
+@dataclass(frozen=True)
+class UnexpandedScan:
+    """The FROM entry of a lazy table before lazy table resolution replaced it with a subquery.
+
+    A join that hangs off the table copies the query's filters into a subquery that reads the table again, and this
+    holds what that subquery needs. `types` are the table types that the query's fields name for the scan.
+    """
+
+    join: "JoinExpr"
+    types: tuple["Type", ...]
+
+
+@dataclass(frozen=False)
 class LazyJoinToAdd:
     from_table: str
     to_table: str
     lazy_join: LazyJoin
     lazy_join_type: "LazyJoinType"
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    # Set when the table that the join starts from is a lazy table whose scan the join can read again.
+    from_scan: Optional[UnexpandedScan] = None
 
 
 class VirtualTable(Table):
@@ -566,6 +621,11 @@ class FunctionCallTable(Table):
     requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
+
+
+class CTETable(Table):
+    def get_asterisk(self):
+        return {key: field_ for key, field_ in self.fields.items() if isinstance(field_, DatabaseField)}
 
 
 class DANGEROUS_NoTeamIdCheckTable(Table):

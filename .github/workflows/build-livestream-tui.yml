@@ -29,6 +29,9 @@ jobs:
             - name: Checkout repository
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
               uses: actions/checkout@v6.0.2
+              with:
+                  sparse-checkout: livestream
+                  sparse-checkout-cone-mode: false
 
             - name: Set up Go
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag

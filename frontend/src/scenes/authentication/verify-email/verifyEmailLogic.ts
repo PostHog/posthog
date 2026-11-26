@@ -37,6 +37,12 @@ const resolvePostVerifyDefault = (values: {
     return hasCompletedSomething ? urls.default() : urls.onboarding()
 }
 
+const redirectToLogin = (message: string): void => {
+    const nextUrl = getRelativeNextPath(router.values.searchParams.next, location)
+    lemonToast.success(message)
+    router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+}
+
 // A verify success without a session (2FA, blocked member, SSO-enforced domain) routes to
 // login with a matching toast. Otherwise the user goes straight into the app.
 const redirectAfterVerification = (
@@ -52,8 +58,7 @@ const redirectAfterVerification = (
             ? 'Email verified! Log in with SSO to continue.'
             : null
     if (loginMessage) {
-        lemonToast.success(loginMessage)
-        router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+        redirectToLogin(loginMessage)
         return
     }
     // this url is validated in getRelativeNextPath as either being relative or on the same origin
@@ -66,11 +71,11 @@ export interface VerificationResultType {
     uuid?: string
 }
 
-// Pinned: the deep-link login views send these exact values as the `reason` search param
-// (ee/partners/stripe/api/provisioning/constants.py, ee/api/agentic_provisioning/constants.py).
-export type VerifyEmailReason = 'stripe_deep_link' | 'partner_deep_link'
+// Pinned: the deep-link and Vercel SSO login views send these exact values as the `reason` search param
+// (ee/partners/stripe/api/provisioning/constants.py, ee/api/agentic_provisioning/constants.py, ee/vercel/integration.py).
+export type VerifyEmailReason = 'stripe_deep_link' | 'partner_deep_link' | 'vercel_sso'
 
-const VERIFY_EMAIL_REASONS: VerifyEmailReason[] = ['stripe_deep_link', 'partner_deep_link']
+const VERIFY_EMAIL_REASONS: VerifyEmailReason[] = ['stripe_deep_link', 'partner_deep_link', 'vercel_sso']
 
 const parseVerifyEmailReason = (value: unknown): VerifyEmailReason | null =>
     VERIFY_EMAIL_REASONS.find((reason) => reason === value) ?? null
@@ -219,6 +224,12 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         actions.setView('pending')
                         return true
                     } catch (e: any) {
+                        // Old link emails reach this page for accounts that are already verified, and
+                        // the backend won't send them a code, so login is the only way forward.
+                        if (e.code === 'already_verified') {
+                            redirectToLogin('Your email is already verified. Log in to continue.')
+                            return false
+                        }
                         if (e.code === 'throttled') {
                             lemonToast.error('You have requested a new code too many times. Please try again later.')
                             return false

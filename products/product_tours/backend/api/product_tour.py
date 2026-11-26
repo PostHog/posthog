@@ -1,9 +1,7 @@
 import uuid
-import logging
 import itertools
 from typing import Any, cast
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpResponse, JsonResponse
@@ -11,21 +9,19 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from nanoid import generate
 from opentelemetry import trace
-from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.utils import get_token
-from posthog.cloud_utils import is_cloud
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
-from posthog.exceptions import generate_exception_response
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -35,7 +31,6 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
 
@@ -45,14 +40,10 @@ from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSe
 from products.feature_flags.backend.facade.api import create_flag, set_flag_active, update_flag
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
-from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
-logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-
-TOUR_GENERATION_MODEL = "claude-haiku-4-5"
 
 DRAFTABLE_FIELDS = frozenset(
     {"name", "description", "content", "auto_launch", "targeting_flag_filters", "linked_flag_id"}
@@ -745,20 +736,12 @@ class DraftStatusResponseSerializer(serializers.Serializer):
     has_draft = serializers.BooleanField()
 
 
-class GenerateRequestSerializer(serializers.Serializer):
-    title = serializers.CharField(required=False, default="", allow_blank=True)
-    goal = serializers.CharField(required=False, default="", allow_blank=True)
-    steps = serializers.ListField(child=serializers.DictField(), required=False, default=list)
-
-
-class GenerateStepResponseSerializer(serializers.Serializer):
-    step_id = serializers.CharField()
-    title = serializers.CharField()
-    description = serializers.CharField()
-
-
-class GenerateResponseSerializer(serializers.Serializer):
-    steps = GenerateStepResponseSerializer(many=True)
+class ProductToursRemoved(APIException):
+    status_code = status.HTTP_410_GONE
+    default_detail = (
+        "Product tours is no longer available. You can't create or edit tours, and existing tours no longer display."
+    )
+    default_code = "product_tours_removed"
 
 
 @extend_schema_view(
@@ -793,9 +776,12 @@ class ProductTourViewSet(
         "draft",
         "publish_draft",
         "discard_draft",
-        "generate",
     ]
     queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        raise ProductToursRemoved()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method in ("POST", "PATCH"):
@@ -889,72 +875,6 @@ class ProductTourViewSet(
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(status=204)
-
-    @extend_schema(
-        request=GenerateRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=GenerateResponseSerializer),
-        },
-    )
-    @action(detail=True, methods=["POST"])
-    def generate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Generate tour step content using AI."""
-
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
-        if not environment_is_allowed or not has_gemini_api_key:
-            raise exceptions.ValidationError("Product Tour AI generation is only supported in PostHog Cloud.")
-
-        if not self.team.organization.is_ai_data_processing_approved:
-            return Response(
-                {"error": "AI data processing must be approved for Product Tour AI generation."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        tour_id = kwargs["pk"]
-        tour = self.get_object()
-        # The viewset queryset includes archived tours, which generation never served.
-        if tour.archived:
-            raise exceptions.NotFound()
-
-        user = cast(User, self.request.user)
-
-        title = request.data.get("title", "")
-        existing_steps = request.data.get("steps", [])
-        goal = request.data.get("goal", "")
-
-        try:
-            result: ContentGenerationResult = generate_with_gemini(
-                tour_id, title, goal, existing_steps, self.team_id, distinct_id=str(user.distinct_id)
-            )
-
-            report_user_action(
-                self.request.user,
-                ProductTourEventName.AI_CONTENT_GENERATED,
-                tour.get_analytics_metadata(),
-                team=self.team,
-                request=request,
-            )
-
-            id_map = result.index_to_step_id
-            return Response(
-                {
-                    "steps": [
-                        {**step.model_dump(), "step_id": id_map[step.step_id]}
-                        for step in result.tour_content.steps
-                        if step.step_id in id_map
-                    ]
-                }
-            )
-
-        except exceptions.ValidationError:
-            raise
-        except Exception:
-            logger.exception("Error generating tour content")
-            return Response(
-                {"error": "An internal error occurred while generating tour content."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
     def _get_or_init_draft(self, instance: ProductTour) -> dict[str, Any]:
         """Return existing draft or initialize one from live fields."""
@@ -1060,112 +980,9 @@ class ProductTourViewSet(
         )
 
 
-class ProductTourAPISerializer(serializers.ModelSerializer):
-    """
-    Serializer for the exposed /api/product_tours endpoint, to be used in posthog-js.
-    Only exposes fields needed by the SDK, no sensitive data.
-    """
-
-    tour_type = serializers.SerializerMethodField()
-    internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
-    linked_flag_key = serializers.SerializerMethodField()
-    steps = serializers.SerializerMethodField()
-    conditions = serializers.SerializerMethodField()
-    appearance = serializers.SerializerMethodField()
-    display_frequency = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ProductTour
-        fields = [
-            "id",
-            "name",
-            "tour_type",
-            "internal_targeting_flag_key",
-            "linked_flag_key",
-            "steps",
-            "conditions",
-            "appearance",
-            "display_frequency",
-            "auto_launch",
-            "start_date",
-            "end_date",
-        ]
-        read_only_fields = fields
-
-    def get_tour_type(self, tour: ProductTour) -> str:
-        if not tour.content:
-            return "tour"
-
-        tour_type = tour.content.get("type", "tour")
-        if tour_type == "announcement":
-            steps = tour.content.get("steps", [])
-            if len(steps) > 0:
-                return "banner" if steps[0].get("type") == "banner" else "announcement"
-
-        return tour_type
-
-    def get_linked_flag_key(self, tour: ProductTour) -> str | None:
-        return tour.linked_flag.key if tour.linked_flag else None
-
-    def get_steps(self, tour: ProductTour) -> list:
-        steps = tour.content.get("steps", []) if tour.content else []
-        return [normalize_step(s) for s in steps]
-
-    def get_conditions(self, tour: ProductTour) -> dict | None:
-        return tour.content.get("conditions") if tour.content else None
-
-    def get_appearance(self, tour: ProductTour) -> dict | None:
-        return tour.content.get("appearance") if tour.content else None
-
-    def get_display_frequency(self, tour: ProductTour) -> str | None:
-        return tour.content.get("displayFrequency") if tour.content else None
-
-
-def get_product_tours_response(team: Team) -> dict:
-    """Get active product tours for a team."""
-    tours = ProductTourAPISerializer(
-        # nosemgrep: environment-model-scoped-by-project -- the project route stores tours on the primary environment, so every environment's SDK reads the project's tours
-        ProductTour.objects.filter(
-            team__project_id=team.project_id,
-            archived=False,
-            start_date__isnull=False,
-        ).select_related("internal_targeting_flag", "linked_flag"),
-        many=True,
-    ).data
-
-    return {"product_tours": tours}
-
-
 @csrf_exempt
 def product_tours(request):
-    token = get_token(None, request)
-
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
 
-    if not token:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "product_tours",
-                "Project token not provided. You can find your project token in your PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    team = Team.objects.get_team_from_cache_or_token(token)
-    if team is None:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "product_tours",
-                "Project token invalid. You can find your project token in your PostHog project settings.",
-                type="authentication_error",
-                code="invalid_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    return cors_response(request, JsonResponse(get_product_tours_response(team)))
+    return cors_response(request, JsonResponse({"product_tours": []}))

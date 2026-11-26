@@ -1,91 +1,49 @@
 import { getCloudTaskGatewayUrl } from "@posthog/agent-contracts";
 
-export type GatewayProduct =
-  | "posthog_code"
-  | "background_agents"
-  | "signals"
-  | "slack_app"
-  | "workflows"
-  | "posthog_ai"
-  | "conversations"
-  | "account_audit"
-  | "onboarding"
-  | "review_hog";
+export const GATEWAY_PRODUCTS = [
+  "posthog_code",
+  "background_agents",
+  "signals",
+  "slack_app",
+  "workflows",
+  "posthog_ai",
+  "conversations",
+  "account_audit",
+  "autoresearch",
+  "onboarding",
+  "review_hog",
+] as const;
 
-export function resolveGatewayProduct({
-  isInternal,
-  originProduct,
-}: {
-  isInternal?: boolean;
-  originProduct?: string | null;
-} = {}): GatewayProduct {
-  // Every signals origin belongs here: their tokens are minted under the Signals OAuth
-  // application, and no other product authorizes it — an unmapped origin falls through to
-  // posthog_code and the gateway rejects the token.
-  const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
-    loop: "posthog_code",
-    metrics_import: "posthog_ai",
-    onboarding: "onboarding",
-    account_audit: "account_audit",
-    posthog_ai: "posthog_ai",
-    review_hog: "review_hog",
-    scout_suggestions: "signals",
-    signal_report: "signals",
-    signals_chat: "signals",
-    signals_scout: "signals",
-    slack: "slack_app",
-    support_reply: "conversations",
-    workflow: "workflows",
-  };
+export type GatewayProduct = (typeof GATEWAY_PRODUCTS)[number];
 
-  if (originProduct && originProduct in originProductToGatewayProductMap) {
-    const mapped = originProductToGatewayProductMap[originProduct];
-    // Stored rows may carry a caller-set review_hog origin predating its
-    // reservation; only the server-stamped `internal` flag admits the mintable product.
-    if (
-      (mapped === "review_hog" || originProduct === "account_audit") &&
-      !isInternal
-    ) {
-      return "posthog_code";
-    }
-    return mapped;
-  }
-  if (isInternal) {
-    return "background_agents";
-  }
-  return "posthog_code";
+export function fallbackGatewayProduct(isInternal = false): GatewayProduct {
+  return isInternal ? "background_agents" : "posthog_code";
 }
 
 // The legacy gateway accepts sandbox OAuth under background_agents; review_hog
-// is API-key-only there, and account_audit has no legacy product config.
+// is API-key-only there, and account_audit and autoresearch have no legacy
+// product config.
 const LEGACY_PRODUCT_OVERRIDES: Partial<
   Record<GatewayProduct, GatewayProduct>
 > = {
   review_hog: "background_agents",
   account_audit: "background_agents",
+  autoresearch: "background_agents",
 };
 
 function legacyProduct(product: GatewayProduct): GatewayProduct {
   return LEGACY_PRODUCT_OVERRIDES[product] ?? product;
 }
 
-function getGatewayBaseUrl(posthogHost: string): string {
-  return getCloudTaskGatewayUrl(posthogHost).replace(/\/posthog_code$/, "");
-}
-
-export function getLlmGatewayUrl(
-  posthogHost: string,
-  product: GatewayProduct = "posthog_code",
-): string {
-  return `${getGatewayBaseUrl(posthogHost)}/${legacyProduct(product)}`;
+export function getAiGatewayUrl(posthogHost: string): string {
+  return getCloudTaskGatewayUrl(posthogHost);
 }
 
 /**
- * Resolve the gateway URL for a request, preferring an explicit
- * `LLM_GATEWAY_URL` override over the region-aware default. The override is
- * treated as a *base* URL — the product slug is always appended so the gateway
- * can route to the correct product config. Without this, a bare-host override
- * (e.g. `https://gateway.dev.posthog.dev`) lost the product suffix and every
+ * Resolve the gateway URL for a request. The Python gateway is reachable only
+ * through an explicit `LLM_GATEWAY_URL`, treated as a *base* URL — the product
+ * slug is always appended so the gateway can route to the correct product
+ * config. Without this, a bare-host override lost the product suffix and every
  * request fell into the catch-all `llm_gateway` product which OAuth tokens
  * cannot use (403).
  */
@@ -100,13 +58,15 @@ export function resolveLlmGatewayUrl(
     // slug would 404. A trailing `/v1` is stripped because callers re-append
     // it: the Anthropic SDK adds `/v1/messages`, and the OpenAI base URL is
     // derived by appending `/v1`.
-    const base = (envUrl ?? getGatewayBaseUrl(posthogHost)).replace(/\/+$/, "");
+    const base = (envUrl ?? getAiGatewayUrl(posthogHost)).replace(/\/+$/, "");
     return base.replace(/\/v1$/, "");
   }
   if (envUrl) {
     return `${envUrl.replace(/\/$/, "")}/${legacyProduct(product)}`;
   }
-  return getLlmGatewayUrl(posthogHost, product);
+  throw new Error(
+    `No gateway for ${product}: it is not routed to the AI gateway and LLM_GATEWAY_URL is unset`,
+  );
 }
 
 /** Products routed to the Go gateway, from a comma-separated env value. */
@@ -169,13 +129,6 @@ export function resolveAiProduct({
     }
   }
   return product;
-}
-
-export function getGatewayUsageUrl(
-  posthogHost: string,
-  product: GatewayProduct = "posthog_code",
-): string {
-  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${legacyProduct(product)}`;
 }
 
 export interface GatewayTarget {

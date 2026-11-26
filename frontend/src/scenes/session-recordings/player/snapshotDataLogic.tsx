@@ -20,7 +20,7 @@ import posthog from 'posthog-js'
 import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api, { ApiError, RecordingDeletedError } from 'lib/api'
+import api, { ApiError, NotAReplayBlockError, RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -53,6 +53,7 @@ export interface snapshotDataLogicValues {
     getWindowId: (uuid: string | undefined) => number | undefined // windowIdRegistryLogic
     uuidToIndex: Record<string, number> // windowIdRegistryLogic
     allSourcesLoaded: boolean
+    blockToken: string | null
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
@@ -102,12 +103,12 @@ export interface snapshotDataLogicActions {
         errorObject?: any
     }
     loadSnapshotSourcesSuccess: (
-        snapshotSources: SessionRecordingSnapshotSource[],
+        snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[],
         payload?: {
             breakpointLength: number | undefined
         }
     ) => {
-        snapshotSources: SessionRecordingSnapshotSource[]
+        snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[]
         payload?: {
             breakpointLength: number | undefined
         }
@@ -116,7 +117,7 @@ export interface snapshotDataLogicActions {
         value: true
     }
     loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]) => {
-        sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+        sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
     }
     loadSnapshotsForSourceFailure: (
         error: string,
@@ -128,28 +129,34 @@ export interface snapshotDataLogicActions {
     loadSnapshotsForSourceSuccess: (
         snapshotsForSource:
             | {
-                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  source: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>
                   sources?: undefined
               }
             | {
                   source?: undefined
-                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+                  sources: Pick<
+                      import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                      'blob_key' | 'source'
+                  >[]
               },
         payload?: {
-            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+            sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
         }
     ) => {
         snapshotsForSource:
             | {
-                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  source: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>
                   sources?: undefined
               }
             | {
                   source?: undefined
-                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+                  sources: Pick<
+                      import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                      'blob_key' | 'source'
+                  >[]
               }
         payload?: {
-            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+            sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
         }
     }
     maybeStartPolling: () => {
@@ -161,6 +168,9 @@ export interface snapshotDataLogicActions {
     retrySnapshotLoading: () => {
         value: true
     }
+    setBlockToken: (token: string | null) => {
+        token: string | null
+    }
     setPlayerActive: (active: boolean) => {
         active: boolean
     }
@@ -171,7 +181,7 @@ export interface snapshotDataLogicActions {
         token: string | null
     }
     setSnapshots: (snapshots: RecordingSnapshot[]) => {
-        snapshots: RecordingSnapshot[]
+        snapshots: import('@posthog/replay-shared').RecordingSnapshot[]
     }
     setTargetTimestamp: (
         timestamp: number | null,
@@ -210,23 +220,15 @@ export interface snapshotDataLogicMeta {
             snapshotsForSourceLoading: boolean,
             storeVersion: number
         ) => boolean
-        snapshotsLoaded: (
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null
-        ) => boolean
+        snapshotsLoaded: (snapshotSources: SessionRecordingSnapshotSource[] | null) => boolean
         isLoadingSnapshots: (
             loadingSources: Pick<
-                import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                SessionRecordingSnapshotSource,
                 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'
             >[]
         ) => boolean
-        allSourcesLoaded: (
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null,
-            storeVersion: number
-        ) => boolean
-        storeVersion: (
-            storeUpdateCount: number,
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null
-        ) => number
+        allSourcesLoaded: (snapshotSources: SessionRecordingSnapshotSource[] | null, storeVersion: number) => boolean
+        storeVersion: (storeUpdateCount: number, snapshotSources: SessionRecordingSnapshotSource[] | null) => number
         snapshotStore: (storeVersion: number) => SnapshotStore
         sourceLoadingStates: (storeVersion: number) => SourceLoadingState[]
         recordingDeletedError: (
@@ -247,6 +249,75 @@ export type snapshotDataLogicType = MakeLogicType<
     SnapshotLogicProps,
     snapshotDataLogicMeta
 >
+
+// A fixed set of causes, so the fallback event groups by why the direct read failed.
+function directBlockFallbackReason(e: unknown): string {
+    if (e instanceof ApiError) {
+        return 'http_error'
+    }
+    if (e instanceof NotAReplayBlockError) {
+        return 'not_a_block'
+    }
+    if (e instanceof DOMException && e.name === 'AbortError') {
+        return 'timeout'
+    }
+    // fetch rejects with a TypeError when the request never got a response.
+    if (e instanceof TypeError) {
+        return 'network'
+    }
+    return 'unknown'
+}
+
+// The block token goes only to this app's own block route, never to a host taken from the listing.
+function isReplayBlockRouteUrl(url: string): boolean {
+    try {
+        const parsed = new URL(url, window.location.origin)
+        return parsed.origin === window.location.origin && parsed.pathname.startsWith('/replay-blocks/')
+    } catch {
+        return false
+    }
+}
+
+// Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
+// block. Returns null to use the snapshots endpoint instead, which serves every recording.
+async function loadBlocksDirectly(
+    sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[],
+    listedSources: SessionRecordingSnapshotSource[] | null,
+    token: string | null,
+    direct: { unauthorizedCount: number },
+    onTokenExpired: () => void
+): Promise<Uint8Array | null> {
+    const urlsByKey = new Map((listedSources ?? []).map((s) => [s.blob_key, s.url]))
+    const urls = sources.map((s) => urlsByKey.get(s.blob_key))
+    // A second 401 after a fresh token means the token can never work here, so stop paying for a failed batch.
+    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url || !isReplayBlockRouteUrl(url))) {
+        return null
+    }
+    try {
+        // nosemgrep: prefer-codegen-api-namespaced-replay -- fetches recording-api block urls, not a Django endpoint
+        const blocks = await api.recordings.getBlocksDirectly(urls as string[], token)
+        direct.unauthorizedCount = 0
+        return blocks
+    } catch (e) {
+        // The snapshots endpoint reads the same blocks, so falling back would get round the rate limit.
+        if (e instanceof RecordingDeletedError || (e instanceof ApiError && e.status === 429)) {
+            throw e
+        }
+        const status = e instanceof ApiError ? e.status : undefined
+        if (status === 401) {
+            direct.unauthorizedCount += 1
+            // Listing the sources again gets a new token for the next batch.
+            onTokenExpired()
+        }
+        // Without this, a broken rollout looks healthy while every batch pays for a failed download.
+        posthog.capture('replay direct block fetch fell back', {
+            status: status ?? null,
+            reason: directBlockFallbackReason(e),
+            block_count: urls.length,
+        })
+        return null
+    }
+}
 
 // Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
@@ -287,12 +358,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // dispatch after any mutation to cache.store — it lives outside Kea's reactivity and needs explicit invalidation
         storeUpdated: true,
         setReplayProxyToken: (token: string | null) => ({ token }),
+        setBlockToken: (token: string | null) => ({ token }),
     }),
     reducers(() => ({
         replayProxyToken: [
             null as string | null,
             {
                 setReplayProxyToken: (_, { token }) => token,
+            },
+        ],
+        blockToken: [
+            null as string | null,
+            {
+                setBlockToken: (_, { token }) => token,
             },
         ],
         storeUpdateCount: [
@@ -376,6 +454,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }
                     // Each listing mints a new token, so polling the sources keeps the proxy token fresh.
                     actions.setReplayProxyToken(response.replay_proxy_token ?? null)
+                    actions.setBlockToken(response.block_token ?? null)
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
 
                     if (anyBlobV2) {
@@ -418,11 +497,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const response = await api.recordings.getSnapshots(
-                        props.sessionRecordingId,
-                        { decompress: false, ...params },
-                        headers
-                    )
+                    const response =
+                        (await loadBlocksDirectly(
+                            sources,
+                            values.snapshotSources,
+                            values.blockToken,
+                            (cache.directBlocks ??= { unauthorizedCount: 0 }),
+                            () => actions.loadSnapshotSources()
+                        )) ??
+                        // nosemgrep: prefer-codegen-api-namespaced-replay -- binary length-prefixed body the generated client does not decode
+                        (await api.recordings.getSnapshots(
+                            props.sessionRecordingId,
+                            { decompress: false, ...params },
+                            headers
+                        ))
 
                     breakpoint()
 

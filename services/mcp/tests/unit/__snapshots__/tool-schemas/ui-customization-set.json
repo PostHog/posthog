@@ -1,0 +1,413 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+        "context": {
+            "description": "The UI surface to customize. Each supported context defines its layout schema and defaults.",
+            "enum": ["analytics_sidebar"],
+            "type": "string"
+        },
+        "layout": {
+            "additionalProperties": false,
+            "description": "The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep.",
+            "properties": {
+                "sections": {
+                    "description": "Use at most 30 items across all sections, including at most 4 metrics. Each built-in list counts as one item. Section IDs must be unique. Each list source can appear only once in the layout.",
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "icon": {
+                                "anyOf": [
+                                    {
+                                        "enum": [
+                                            "list",
+                                            "person",
+                                            "people",
+                                            "box",
+                                            "bell",
+                                            "notification",
+                                            "posthog",
+                                            "chart",
+                                            "dashboard",
+                                            "notebook",
+                                            "sql",
+                                            "star",
+                                            "rocket",
+                                            "target",
+                                            "trending",
+                                            "globe",
+                                            "sparkle",
+                                            "bolt",
+                                            "flag",
+                                            "warning"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Icon before the heading."
+                            },
+                            "id": {
+                                "description": "Stable ID in lowercase kebab case, unique in the layout. The section's open or closed state is kept by this ID, so keep the ID of an existing section when you move or rename it.",
+                                "maxLength": 32,
+                                "minLength": 1,
+                                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                "type": "string"
+                            },
+                            "items": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "additionalProperties": false,
+                                            "description": "A link to an Analytics page or a project object. Object links require a label. A page link shows the page's own label and icon unless you set them.",
+                                            "properties": {
+                                                "icon": {
+                                                    "anyOf": [
+                                                        {
+                                                            "enum": [
+                                                                "list",
+                                                                "person",
+                                                                "people",
+                                                                "box",
+                                                                "bell",
+                                                                "notification",
+                                                                "posthog",
+                                                                "chart",
+                                                                "dashboard",
+                                                                "notebook",
+                                                                "sql",
+                                                                "star",
+                                                                "rocket",
+                                                                "target",
+                                                                "trending",
+                                                                "globe",
+                                                                "sparkle",
+                                                                "bolt",
+                                                                "flag",
+                                                                "warning"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "label": {
+                                                    "anyOf": [
+                                                        {
+                                                            "maxLength": 60,
+                                                            "minLength": 1,
+                                                            "pattern": "^[^\\x00]*$",
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "to": {
+                                                    "anyOf": [
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "description": "A PostHog page. It has its own label and icon.",
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "const": "page",
+                                                                    "type": "string"
+                                                                },
+                                                                "page": {
+                                                                    "enum": [
+                                                                        "analytics_all",
+                                                                        "analytics_mine",
+                                                                        "collections",
+                                                                        "dashboards",
+                                                                        "alerts",
+                                                                        "subscriptions",
+                                                                        "product_analytics",
+                                                                        "web_analytics",
+                                                                        "sql_editor",
+                                                                        "new_insight"
+                                                                    ],
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "page"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "const": "insight",
+                                                                    "type": "string"
+                                                                },
+                                                                "short_id": {
+                                                                    "description": "The insight's short ID, as in /insights/<short_id>.",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "short_id"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "id": {
+                                                                    "description": "The dashboard's numeric ID.",
+                                                                    "minimum": 1,
+                                                                    "type": "number"
+                                                                },
+                                                                "kind": {
+                                                                    "const": "dashboard",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "id"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "const": "notebook",
+                                                                    "type": "string"
+                                                                },
+                                                                "short_id": {
+                                                                    "description": "The notebook's short ID, as in /notebooks/<short_id>.",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "short_id"],
+                                                            "type": "object"
+                                                        }
+                                                    ],
+                                                    "description": "What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project."
+                                                },
+                                                "type": {
+                                                    "const": "link",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["type", "to"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "additionalProperties": false,
+                                            "description": "A button that opens an Analytics page or a project object.",
+                                            "properties": {
+                                                "icon": {
+                                                    "anyOf": [
+                                                        {
+                                                            "enum": [
+                                                                "list",
+                                                                "person",
+                                                                "people",
+                                                                "box",
+                                                                "bell",
+                                                                "notification",
+                                                                "posthog",
+                                                                "chart",
+                                                                "dashboard",
+                                                                "notebook",
+                                                                "sql",
+                                                                "star",
+                                                                "rocket",
+                                                                "target",
+                                                                "trending",
+                                                                "globe",
+                                                                "sparkle",
+                                                                "bolt",
+                                                                "flag",
+                                                                "warning"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "label": {
+                                                    "maxLength": 60,
+                                                    "minLength": 1,
+                                                    "pattern": "^[^\\x00]*$",
+                                                    "type": "string"
+                                                },
+                                                "to": {
+                                                    "anyOf": [
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "description": "A PostHog page. It has its own label and icon.",
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "const": "page",
+                                                                    "type": "string"
+                                                                },
+                                                                "page": {
+                                                                    "enum": [
+                                                                        "analytics_all",
+                                                                        "analytics_mine",
+                                                                        "collections",
+                                                                        "dashboards",
+                                                                        "alerts",
+                                                                        "subscriptions",
+                                                                        "product_analytics",
+                                                                        "web_analytics",
+                                                                        "sql_editor",
+                                                                        "new_insight"
+                                                                    ],
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "page"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "const": "insight",
+                                                                    "type": "string"
+                                                                },
+                                                                "short_id": {
+                                                                    "description": "The insight's short ID, as in /insights/<short_id>.",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "short_id"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "id": {
+                                                                    "description": "The dashboard's numeric ID.",
+                                                                    "minimum": 1,
+                                                                    "type": "number"
+                                                                },
+                                                                "kind": {
+                                                                    "const": "dashboard",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "id"],
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "const": "notebook",
+                                                                    "type": "string"
+                                                                },
+                                                                "short_id": {
+                                                                    "description": "The notebook's short ID, as in /notebooks/<short_id>.",
+                                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["kind", "short_id"],
+                                                            "type": "object"
+                                                        }
+                                                    ],
+                                                    "description": "What the item opens. Only pages, and insights, dashboards and notebooks that exist in this project."
+                                                },
+                                                "type": {
+                                                    "const": "button",
+                                                    "type": "string"
+                                                },
+                                                "variant": {
+                                                    "default": "outline",
+                                                    "enum": ["default", "primary", "outline"],
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["type", "to", "label"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "additionalProperties": false,
+                                            "description": "The latest value of a trends insight, with a sparkline of its first series. Opens the insight.",
+                                            "properties": {
+                                                "insight": {
+                                                    "description": "Short ID of a trends insight, one whose query source kind is TrendsQuery. Link to other insights.",
+                                                    "pattern": "^[A-Za-z0-9]{1,12}$",
+                                                    "type": "string"
+                                                },
+                                                "label": {
+                                                    "description": "Short name of the number, such as Signups.",
+                                                    "maxLength": 60,
+                                                    "minLength": 1,
+                                                    "pattern": "^[^\\x00]*$",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "const": "metric",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["type", "insight", "label"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "additionalProperties": false,
+                                            "description": "A list of pinned, recent, or built-in Analytics items.",
+                                            "properties": {
+                                                "source": {
+                                                    "enum": ["pinned", "recents", "by_posthog"],
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "const": "list",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["type", "source"],
+                                            "type": "object"
+                                        }
+                                    ]
+                                },
+                                "maxItems": 12,
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "title": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 60,
+                                        "minLength": 1,
+                                        "pattern": "^[^\\x00]*$",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Heading of the section. A section with a heading can be closed. A section without one shows its items in its place in the layout, with no heading."
+                            }
+                        },
+                        "required": ["id", "items"],
+                        "type": "object"
+                    },
+                    "maxItems": 10,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "version": {
+                    "default": 1,
+                    "type": "number"
+                }
+            },
+            "required": ["sections"],
+            "type": "object"
+        }
+    },
+    "required": ["context", "layout"],
+    "type": "object"
+}

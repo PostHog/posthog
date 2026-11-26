@@ -65,6 +65,8 @@ def test_model_comparison_preserves_settings_and_partial_results(
             "exec",
             "--trials",
             "3",
+            "--team-setup-concurrency",
+            "2",
             "--max-sandboxes",
             "2",
             "--case-timeout",
@@ -87,6 +89,7 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert child.provider == options.provider
         assert child.skill_delivery == options.skill_delivery
         assert child.trials == options.trials
+        assert child.team_setup_concurrency == options.team_setup_concurrency == 2
         assert child.max_sandboxes == options.max_sandboxes
         assert child.per_case_timeout_seconds == options.per_case_timeout_seconds
         assert child.infrastructure_retries == options.infrastructure_retries
@@ -202,6 +205,53 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert saved["runs"][1]["report"] is not None
 
 
+def test_comparison_arms_forward_their_own_tier_and_effort(tmp_path: Path) -> None:
+    options = parse_args(
+        [
+            "example/suite",
+            "--comparison-dir",
+            str(tmp_path / "comparison"),
+            "--reasoning-effort",
+            "medium",
+            "--compare-model",
+            "claude:claude-example",
+            "--compare-model",
+            "codex:gpt-example",
+            "--compare-model",
+            "codex:gpt-example,service_tier=flex,reasoning_effort=low",
+        ]
+    )
+    comparison = ModelComparison(options)
+    children = [
+        parse_args(comparison._command(target, tmp_path / "report.json", check=False)[3:])
+        for target in options.comparison_models
+    ]
+
+    assert [(child.agent_model, child.service_tier, child.reasoning_effort) for child in children] == [
+        ("claude-example", None, "medium"),
+        ("gpt-example", None, "medium"),
+        ("gpt-example", "flex", "low"),
+    ]
+    flex_run = comparison.runs[2].model_copy(
+        update={
+            "exit_code": 0,
+            "report": RunReport(
+                runtime="codex",
+                model="gpt-example",
+                reasoning_effort="low",
+                service_tier=None,
+                provider="docker",
+                trials=1,
+                suite_ids=[],
+                suite_kinds=["sandboxed"],
+                exit_code=0,
+                duration_seconds=1,
+            ),
+        }
+    )
+    assert comparison._validate_run(flex_run) == "Run report does not match the requested arm or exit status."
+
+
 @pytest.mark.parametrize("interrupt", [None, "keyboard", "sigterm"])
 def test_comparison_streams_child_output_and_waits_for_interrupt_cleanup(
     interrupt: str | None,
@@ -290,6 +340,8 @@ async def test_run_report_preserves_zero_skipped_scores_and_scorer_errors(
     reporter.write_run_report(options, suites, exit_code=1, duration_seconds=3)
     assert options.results_file is not None
     report = RunReport.model_validate_json(options.results_file.read_text())
+    assert report.team_setup_concurrency == options.team_setup_concurrency
+    assert report.max_sandboxes == options.max_sandboxes
     experiment = report.experiments["example"]
     assert experiment.cases == {"selected": 1}
     assert experiment.errors == 1

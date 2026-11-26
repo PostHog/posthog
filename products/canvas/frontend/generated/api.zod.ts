@@ -142,6 +142,8 @@ export const CanvasesConnectorsCallBody = /* @__PURE__ */ zod
  * changes for viewers. Promote the version with `promote` to make it live.
  * The response reports how the draft's declared capabilities widen the
  * current head's, so growth in access can be reviewed before it ships.
+ * Only the canvas creator can stage a draft that adds capabilities, because
+ * a draft preview runs with the draft's capabilities.
  * No version guard applies: a draft conflicts with nothing.
  */
 export const canvasesDraftCreateBodyProjectOneAssetsContentMax = 2796204

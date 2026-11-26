@@ -432,8 +432,13 @@ class TestUrlValidation:
             ("http://0x7f.0.0.1/", True, "Dotted hex encoding of 127.0.0.1"),
         ],
     )
-    def test_encoded_ip_addresses_blocked(self, url, expected_blocked, description):
+    def test_encoded_ip_addresses_blocked(self, monkeypatch, url, expected_blocked, description):
         """Encoded IP addresses (decimal, hex) should be blocked via DNS resolution."""
+
+        def unresolvable(host: str):
+            return set()
+
+        monkeypatch.setattr(uv, "resolve_host_ips", unresolvable)
         assert uv.should_block_url(url) is expected_blocked, description
 
     @pytest.mark.parametrize(
@@ -575,30 +580,43 @@ class TestUrlValidation:
         assert uv.is_microsoft_teams_webhook_url(url) is False
 
 
-class TestOOBDomainDetection:
+class TestOOBDomainGuard:
     @pytest.fixture
     def seen(self, monkeypatch):
         events: list[tuple[str, dict]] = []
         monkeypatch.setattr(uv.logger, "info", lambda event, **fields: events.append((event, fields)))
         return events
 
-    def test_logs_a_listed_host_and_still_allows_it(self, monkeypatch, seen):
+    def test_refuses_a_listed_host_and_logs_it(self, monkeypatch, seen):
         monkeypatch.setattr(uv, "is_cloud", lambda: True)
 
-        assert uv._blocked_host_name("abc.oast.live") is None
+        blocked = uv._blocked_host_name("abc.oast.live")
 
+        assert blocked is not None
+        assert blocked.pattern == "oast.live"
         assert [event for event, _ in seen] == ["security.oob_domain_seen"]
         assert seen[0][1]["domain"] == "oast.live"
         assert seen[0][1]["guard"] == "url_validation"
 
-    def test_does_not_log_an_unlisted_host(self, monkeypatch, seen):
+    def test_refuses_a_listed_host_before_it_resolves(self, monkeypatch):
+        # The names resolve to ordinary public IPs, so a refusal that waited for the answer
+        # would have already made the lookup that confirms the path to the collaborator.
+        monkeypatch.setattr(uv, "is_cloud", lambda: True)
+        monkeypatch.setattr(uv, "resolve_host_ips", lambda host: pytest.fail("resolved a listed host"))
+
+        allowed, reason = uv.is_url_allowed("https://abc.oast.live/x")
+
+        assert allowed is False
+        assert reason == "Domain not allowed"
+
+    def test_allows_an_unlisted_host(self, monkeypatch, seen):
         monkeypatch.setattr(uv, "is_cloud", lambda: True)
 
         assert uv._blocked_host_name("notoast.me") is None
 
         assert seen == []
 
-    def test_does_not_log_off_cloud(self, monkeypatch, seen):
+    def test_allows_a_listed_host_off_cloud(self, monkeypatch, seen):
         monkeypatch.setattr(uv, "is_cloud", lambda: False)
 
         assert uv._blocked_host_name("abc.oast.live") is None

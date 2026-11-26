@@ -75,6 +75,8 @@ const installFetchMock = (): void => {
     )
 }
 describe('experimentsTabLogic', () => {
+    // A new variant starts scoped to the page it was created on, which is the test page here.
+    const currentPageConditions = { url: 'http://localhost/project/997', urlMatchType: 'icontains' }
     let theExperimentsTabLogic: ReturnType<typeof experimentsTabLogic.build>
     let theExperimentsLogic: ReturnType<typeof experimentsLogic.build>
     let theToolbarLogic: ReturnType<typeof toolbarLogic.build>
@@ -90,13 +92,13 @@ describe('experimentsTabLogic', () => {
                 '/api/projects/:team/web_experiments/': () => web_experiments,
             },
             post: {
-                '/api/projects/@current/web_experiments/': () => ({
+                '/api/projects/1/web_experiments/': () => ({
                     id: 3,
                     name: 'New Web Experiment',
                 }),
             },
             patch: {
-                '/api/projects/@current/web_experiments/1': () => ({
+                '/api/projects/1/web_experiments/1': () => ({
                     id: 3,
                     name: 'Updated web experiment',
                 }),
@@ -104,7 +106,12 @@ describe('experimentsTabLogic', () => {
         })
         initKeaTests()
 
-        theToolbarConfigLogic = toolbarConfigLogic.build({ apiURL: 'http://localhost', accessToken: 'test-token' })
+        theToolbarConfigLogic = toolbarConfigLogic.build({
+            apiURL: 'http://localhost',
+            accessToken: 'test-token',
+            teamId: 2,
+            projectId: 1,
+        })
         theToolbarConfigLogic.mount()
 
         theToolbarLogic = toolbarLogic()
@@ -180,6 +187,7 @@ describe('experimentsTabLogic', () => {
                             test: {
                                 is_new: true,
                                 transforms: [{}],
+                                conditions: currentPageConditions,
                                 rollout_percentage: 50,
                             },
                         },
@@ -206,7 +214,7 @@ describe('experimentsTabLogic', () => {
                                 transforms: [{}],
                                 rollout_percentage: 50,
                                 is_new: true,
-                                conditions: null,
+                                conditions: currentPageConditions,
                             },
                         },
                         original_html_state: {},
@@ -254,6 +262,7 @@ describe('experimentsTabLogic', () => {
                             test: {
                                 is_new: true,
                                 transforms: [{}],
+                                conditions: currentPageConditions,
                                 rollout_percentage: 50,
                             },
                         },

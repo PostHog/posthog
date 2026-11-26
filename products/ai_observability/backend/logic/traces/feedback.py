@@ -1,11 +1,13 @@
 import json
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 
 from posthog.dataclasses import frozen
 
 from .node_ids import NodeIdResolver, NodeIds
-from .trace_queries import FEEDBACK_EVENT, METRIC_EVENT, NODE_EVENT_NAMES, FeedbackEventRow
+from .trace_expression_queries import NODE_EVENT_NAMES
+from .trace_queries import FEEDBACK_EVENT, METRIC_EVENT, FeedbackEventRow
 
 
 def present_value(raw_json: str) -> str | None:
@@ -38,6 +40,34 @@ class FeedbackText:
     text: str
     node_id: str
     timestamp: datetime
+
+
+@frozen
+class StepFeedback:
+    node_id: str
+    scores: tuple[Score, ...]
+    response_count: int
+
+    @property
+    def total(self) -> int:
+        return len(self.scores) + self.response_count
+
+
+def roll_up_by_step(scores: Sequence[Score], response_node_ids: Iterable[str]) -> tuple[StepFeedback, ...]:
+    scores_by_node: defaultdict[str, list[Score]] = defaultdict(list)
+    for score in scores:
+        scores_by_node[score.node_id].append(score)
+    responses_by_node: defaultdict[str, int] = defaultdict(int)
+    for node_id in response_node_ids:
+        responses_by_node[node_id] += 1
+    return tuple(
+        StepFeedback(
+            node_id=node_id,
+            scores=tuple(scores_by_node.get(node_id, ())),
+            response_count=responses_by_node.get(node_id, 0),
+        )
+        for node_id in sorted(scores_by_node.keys() | responses_by_node.keys())
+    )
 
 
 class TraceFeedback:

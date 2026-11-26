@@ -66,6 +66,8 @@ export {
   formatGatewayModelName,
   formatModelId,
   type GatewayModel,
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
@@ -85,6 +87,8 @@ export {
   normalizeGatewayModelsResponse,
   PAID_PLAN_REQUIRED_REASON,
   pickAllowedModel,
+  TASK_MODELS_FETCH_TIMEOUT_MS,
+  taskModelsUrl,
 } from "./cloud-task-models";
 export {
   type CustomCloud,
@@ -288,6 +292,14 @@ export {
   type UserShellExecuteParams,
   type UserShellExecuteResult,
 } from "./session-events";
+export type { ReportRunVariant } from "./signal-report-state";
+export {
+  canResolveReport,
+  hasOpenImplementationPr,
+  isTerminalReport,
+  REPORT_STATUS_BEHAVIOR,
+  resolveReportRunVariant,
+} from "./signal-report-state";
 export type {
   ExportedSkill,
   SkillFileEntry,

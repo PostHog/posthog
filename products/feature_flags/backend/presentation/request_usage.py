@@ -69,7 +69,7 @@ class FeatureFlagRequestUsageItemSerializer(DataclassSerializer):
             "sdk": {"help_text": "SDK family parsed from the request user agent."},
             "request_count": {"help_text": "Number of billable requests in this bucket."},
             "billing_units": {
-                "help_text": "Estimated billing units. Local evaluation requests count as 10 units each."
+                "help_text": "Estimated billing units. Local evaluation requests count as 10 units each, except 304 Not Modified responses, which count as 1."
             },
         }
 

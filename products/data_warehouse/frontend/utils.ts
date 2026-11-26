@@ -244,7 +244,5 @@ export const cleanSourceId = (id: string): string => id.replace('self-managed-',
 /**
  * Checks if a template represents a managed data warehouse source.
  * Managed sources (Stripe, Postgres, etc.) have access control.
- * Self-managed sources (S3, GCS, Azure, R2) do not have access control.
  */
-export const isManagedSourceTemplate = (template: HogFunctionTemplateType): boolean =>
-    template.type === 'source' && !isSelfManagedSourceId(template.id)
+export const isManagedSourceTemplate = (template: HogFunctionTemplateType): boolean => template.type === 'source'

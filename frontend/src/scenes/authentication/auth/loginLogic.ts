@@ -10,6 +10,8 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
+import { isSocialProviderHeldBack } from 'lib/components/SocialLoginButton/socialProviderRollout'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -17,6 +19,8 @@ import { isWebKitBrowser } from 'lib/utils/dom'
 import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
+import { type InboxProvider, parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import {
     clearPendingVerificationEmail,
     normalizeVerificationCode,
@@ -66,6 +70,8 @@ export interface PrecheckResponseType {
      * rest of the page session.
      */
     precheckFailed?: boolean
+    // WorkOS client ID for the Radar browser script. Present while Radar checks password logins.
+    radar_client_id?: string
 }
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
@@ -79,6 +85,45 @@ function precheckFallback(email: string): PrecheckResponseType {
         email,
         precheckFailed: true,
     }
+}
+
+// Matches the backend's CodeBasedVerificationResendThrottle (1/minute), which also counts the first send
+export const CODE_RESEND_COOLDOWN_MS = 60_000
+
+interface LoginChallenge {
+    nonce: string
+    siteKey: string
+}
+
+interface SolvedLoginChallenge {
+    nonce: string
+    token: string
+}
+
+async function loginRequestBody(
+    login: LoginForm,
+    precheckResponse: PrecheckResponseType,
+    solvedChallenge: SolvedLoginChallenge | null
+): Promise<Record<string, string>> {
+    return {
+        ...login,
+        ...(await radarSignalsFields(precheckResponse.radar_client_id)),
+        ...(solvedChallenge ? { turnstile_token: solvedChallenge.token, challenge_nonce: solvedChallenge.nonce } : {}),
+    }
+}
+
+function challengeRequiredBy(error: unknown): LoginChallenge | null {
+    const { code, data } = error as ApiError
+    const nonce = data?.extra?.challenge_nonce
+    const siteKey = data?.extra?.turnstile_site_key
+    return code === 'challenge_required' && nonce && siteKey ? { nonce, siteKey } : null
+}
+
+function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
+    if (detail) {
+        return detail
+    }
+    return code === 'too_soon' ? 'Please wait before requesting another email' : 'Failed to resend email'
 }
 
 export interface LoginForm {
@@ -103,12 +148,16 @@ export interface loginLogicValues {
     autoRedirectAttemptedForEmail: string | null
     autoRedirectingToProvider: SSOProvider | null
     availableLoginMethods: LoginMethod[]
+    codeResendAttempted: boolean
+    codeResendAvailableAt: number | null
+    codeSentAt: number | null
     codeVerification: CodeVerificationForm
     codeVerificationAllErrors: Record<string, any>
     codeVerificationChanged: boolean
     codeVerificationEmail: string | null
     codeVerificationErrors: DeepPartialMap<CodeVerificationForm, ValidationErrorType>
     codeVerificationHasErrors: boolean
+    codeVerificationInboxProvider: InboxProvider | null
     codeVerificationManualErrors: Record<string, any>
     codeVerificationRequired: boolean
     codeVerificationTouched: boolean
@@ -119,6 +168,7 @@ export interface loginLogicValues {
         detail: string
     } | null
     hasNoConfiguredLoginMethod: boolean
+    instanceSocialProviders: SSOProvider[]
     isCodeVerificationSubmitting: boolean
     isCodeVerificationValid: boolean
     isLoginSubmitting: boolean
@@ -126,12 +176,14 @@ export interface loginLogicValues {
     isPasswordLoginUnavailable: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
+    loginChallenge: LoginChallenge | null
     loginChanged: boolean
     loginErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     loginHasErrors: boolean
     loginManualErrors: Record<string, any>
     loginTouched: boolean
     loginTouches: Record<string, boolean>
+    loginTurnstileToken: string | null
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     passkeyPromptedForEmail: string | null
     precheckResponse: PrecheckResponseType
@@ -142,8 +194,11 @@ export interface loginLogicValues {
     } | null
     resendResponseLoading: boolean
     restrictToProviders: SSOProvider[] | null
+    setPasswordLinkSentTo: string | null
+    setPasswordLinkSentToLoading: boolean
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
+    solvedLoginChallenge: SolvedLoginChallenge | null
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -157,6 +212,9 @@ export interface loginLogicActions {
     }
     exitCodeVerification: () => {
         value: true
+    }
+    markCodeResent: () => {
+        sentAt: number
     }
     markPasskeyPrompted: (email: string) => {
         email: string
@@ -212,11 +270,34 @@ export interface loginLogicActions {
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
     }
+    resetLoginChallenge: () => {
+        value: true
+    }
+    sendSetPasswordLink: (email: string) => string
+    sendSetPasswordLinkFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    sendSetPasswordLinkSuccess: (
+        setPasswordLinkSentTo: string,
+        payload?: string
+    ) => {
+        setPasswordLinkSentTo: string
+        payload?: string
+    }
     setCodeVerificationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
-    setCodeVerificationRequired: (email: string) => {
+    setCodeVerificationRequired: (
+        email: string,
+        inboxProvider: InboxProvider | null
+    ) => {
         email: string
+        inboxProvider: InboxProvider | null
+        sentAt: number
     }
     setCodeVerificationValue: (
         key: FieldName,
@@ -235,8 +316,18 @@ export interface loginLogicActions {
         code: string
         detail: string
     }
+    setLoginChallenge: (
+        nonce: string,
+        siteKey: string
+    ) => {
+        nonce: string
+        siteKey: string
+    }
     setLoginManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
+    }
+    setLoginTurnstileToken: (token: string) => {
+        token: string
     }
     setLoginValue: (
         key: FieldName,
@@ -298,7 +389,12 @@ export interface loginLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType) => boolean
+        solvedLoginChallenge: (
+            loginChallenge: LoginChallenge | null,
+            loginTurnstileToken: string | null
+        ) => SolvedLoginChallenge | null
+        codeResendAvailableAt: (codeSentAt: number | null) => number | null
+        isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
         hasNoConfiguredLoginMethod: (
             precheckResponse: PrecheckResponseType,
@@ -309,6 +405,7 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
+        instanceSocialProviders: (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet) => SSOProvider[]
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -333,12 +430,35 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
-        setCodeVerificationRequired: (email: string) => ({ email }),
+        setCodeVerificationRequired: (email: string, inboxProvider: InboxProvider | null) => ({
+            email,
+            inboxProvider,
+            sentAt: Date.now(),
+        }),
+        markCodeResent: () => ({ sentAt: Date.now() }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
         markPasskeyPrompted: (email: string) => ({ email }),
+        setLoginChallenge: (nonce: string, siteKey: string) => ({ nonce, siteKey }),
+        setLoginTurnstileToken: (token: string) => ({ token }),
+        resetLoginChallenge: true,
     }),
     reducers({
+        loginChallenge: [
+            null as LoginChallenge | null,
+            {
+                setLoginChallenge: (_, challenge) => challenge,
+                resetLoginChallenge: () => null,
+            },
+        ],
+        loginTurnstileToken: [
+            null as string | null,
+            {
+                setLoginTurnstileToken: (_, { token }) => token,
+                setLoginChallenge: () => null,
+                resetLoginChallenge: () => null,
+            },
+        ],
         // This is separate from the login form, so that the form can be submitted even if a general error is present
         generalError: [
             null as { code: string; detail: string } | null,
@@ -365,6 +485,37 @@ export const loginLogic = kea<loginLogicType>([
                 exitCodeVerification: () => null,
             },
         ],
+        codeVerificationInboxProvider: [
+            null as InboxProvider | null,
+            {
+                setCodeVerificationRequired: (_, { inboxProvider }) => inboxProvider,
+                exitCodeVerification: () => null,
+            },
+        ],
+        codeResendAttempted: [
+            false,
+            {
+                resendCodeBasedVerification: () => true,
+                setCodeVerificationRequired: () => false,
+                exitCodeVerification: () => false,
+            },
+        ],
+        codeSentAt: [
+            null as number | null,
+            {
+                setCodeVerificationRequired: (_, { sentAt }) => sentAt,
+                markCodeResent: (_, { sentAt }) => sentAt,
+                exitCodeVerification: () => null,
+            },
+        ],
+        // Extends the loader's reducer below, so one login's "Code sent" cannot show on the next
+        resendResponse: [
+            null as { success: boolean; message: string } | null,
+            {
+                setCodeVerificationRequired: () => null,
+                exitCodeVerification: () => null,
+            },
+        ],
         // The provider we're currently bouncing the user to, so the form can say so out loud. The
         // manual button stays rendered, so a blocked or slow redirect still leaves them a way in.
         autoRedirectingToProvider: [
@@ -387,7 +538,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ actions, values, cache }) => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
@@ -444,6 +595,23 @@ export const loginLogic = kea<loginLogicType>([
                 },
             },
         ],
+        setPasswordLinkSentTo: [
+            null as string | null,
+            {
+                sendSetPasswordLink: async (email: string, breakpoint) => {
+                    breakpoint()
+                    try {
+                        // A reset link on an account without a password sets its first password.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                        await api.create('api/reset/', { email })
+                        return email
+                    } catch (e) {
+                        lemonToast.error("Couldn't send the email. Wait a minute, then try again.")
+                        throw e
+                    }
+                },
+            },
+        ],
         resendResponse: [
             null as { success: boolean; message: string } | null,
             {
@@ -452,14 +620,16 @@ export const loginLogic = kea<loginLogicType>([
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create<any>('api/login/code-based-verification/resend')
+                        actions.clearGeneralError()
+                        actions.markCodeResent()
                         lemonToast.success('Verification email resent')
                         return response
                     } catch (e) {
                         const { code, detail } = e as Record<string, any>
-                        if (code === 'too_soon') {
-                            lemonToast.error(detail || 'Please wait before requesting another email')
+                        if (code === 'login_code_email_undeliverable') {
+                            actions.setGeneralError(code, detail)
                         } else {
-                            lemonToast.error(detail || 'Failed to resend email')
+                            lemonToast.error(resendFailureMessage(code, detail))
                         }
                         return null
                     }
@@ -467,14 +637,120 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     })),
+    forms(({ actions, values }) => ({
+        login: {
+            defaults: { email: '', password: '' } as LoginForm,
+            errors: ({ email, password }) => ({
+                email: !email ? 'Please enter your email to continue' : undefined,
+                password: !password ? 'Please enter your password to continue' : undefined,
+            }),
+            submit: async ({ email, password }, breakpoint) => {
+                breakpoint()
+                // Clear any previous passkey errors when submitting with password
+                actions.clearGeneralError()
+                try {
+                    const body = await loginRequestBody(
+                        { email, password },
+                        values.precheckResponse,
+                        values.solvedLoginChallenge
+                    )
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                    return await api.create<any>('api/login', body)
+                } catch (e) {
+                    const challenge = challengeRequiredBy(e)
+                    if (challenge) {
+                        actions.setLoginChallenge(challenge.nonce, challenge.siteKey)
+                        throw e
+                    }
+                    // The server used the nonce up, so the next submit gets a new verdict
+                    actions.resetLoginChallenge()
+                    const { code, detail } = e as Record<string, any>
+                    if (code === '2fa_required') {
+                        const next: string | undefined = router.values.searchParams.next
+                        const searchParams: Record<string, any> = next ? { next } : {}
+                        if (next && next.startsWith('/reset_2fa')) {
+                            // Reset the cached validation state so it re-validates after redirect
+                            twoFactorResetLogic.actions.resetState()
+                            router.actions.push(next, searchParams)
+                        } else {
+                            router.actions.push(urls.login2FA(), searchParams)
+                        }
+                        throw e
+                    }
+                    const inboxProvider = parseInboxProvider((e as ApiError).data?.extra?.inbox_provider)
+                    if (code === 'verify_email_pending' && typeof detail === 'string') {
+                        // detail carries the user uuid; the verification page has the code entry form
+                        lemonToast.info('Verify your email to continue. We just sent you a new code.')
+                        // The verify page has no session in this state, so store the address for its copy.
+                        // detail carries the user uuid, which keys the stored value.
+                        setPendingVerificationEmail(detail, email, inboxProvider)
+                        const next: string | undefined = router.values.searchParams.next
+                        router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
+                        throw e
+                    }
+                    if (code === 'code_based_verification_required') {
+                        const emailAddress = detail?.email || email
+                        actions.setCodeVerificationRequired(emailAddress, inboxProvider)
+                        throw e
+                    }
+                    // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a
+                    // dropped connection) leaves code/detail null, so the user gets the generic catch-all
+                    // message below. Capture the underlying status/message so these aren't untraceable.
+                    if (!code && !detail) {
+                        posthog.captureException(e, {
+                            extra: { status: (e as ApiError)?.status, message: (e as ApiError)?.message },
+                        })
+                    }
+                    actions.setGeneralError(code, detail)
+                    throw e
+                }
+            },
+        },
+        codeVerification: {
+            // No kea validator here: the submit button carries a disabledReason for an incomplete
+            // code, like the signup verify screen, so the only inline error is a server rejection
+            defaults: { code: '' } as CodeVerificationForm,
+            submit: async ({ code }, breakpoint) => {
+                breakpoint()
+                actions.clearGeneralError()
+                try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                    return await api.create<any>('api/login/code-based-verification', {
+                        code: normalizeVerificationCode(code),
+                    })
+                } catch (e) {
+                    const { detail } = e as Record<string, any>
+                    const message = typeof detail === 'string' ? detail : 'This code is invalid or has expired.'
+                    // Shown under the code input, like the signup verify screen, not in the banner
+                    actions.setCodeVerificationManualErrors({ code: message })
+                    throw e
+                }
+            },
+        },
+    })),
     selectors(() => ({
+        solvedLoginChallenge: [
+            (s) => [s.loginChallenge, s.loginTurnstileToken],
+            (loginChallenge: LoginChallenge | null, loginTurnstileToken: string | null): SolvedLoginChallenge | null =>
+                loginChallenge && loginTurnstileToken
+                    ? { nonce: loginChallenge.nonce, token: loginTurnstileToken }
+                    : null,
+        ],
+        codeResendAvailableAt: [
+            (s) => [s.codeSentAt],
+            (codeSentAt: number | null): number | null =>
+                codeSentAt === null ? null : codeSentAt + CODE_RESEND_COOLDOWN_MS,
+        ],
         // True only when we know this account exists and has no usable password, so every variant
         // hides the password field for the same reason. The explicit `=== false` matters: an older
         // server or a failed precheck omits the field, and those must keep the password box.
         // (Variants still decide for themselves whether to hide it while precheck is in flight.)
+        // The precheck must also be for the email now in the field. Otherwise the result for an
+        // earlier or autofilled address hides the password of the account the person corrected to.
         isPasswordLoginUnavailable: [
-            (s) => [s.precheckResponse],
-            (precheckResponse: PrecheckResponseType): boolean => precheckResponse.password_login_available === false,
+            (s) => [s.precheckResponse, s.login],
+            (precheckResponse: PrecheckResponseType, login: LoginForm): boolean =>
+                precheckResponse.password_login_available === false && precheckResponse.email === login.email,
         ],
         // Every way this specific account can get in. Empty until precheck resolves, and empty when
         // SSO is enforced (that path takes over the whole form).
@@ -503,7 +779,7 @@ export const loginLogic = kea<loginLogicType>([
                 return methods
             },
         ],
-        // A passwordless account with nothing else linked. They can only get back in via a reset.
+        // A passwordless account with nothing else linked.
         hasNoConfiguredLoginMethod: [
             (s) => [s.precheckResponse, s.isPasswordLoginUnavailable, s.availableLoginMethods],
             (
@@ -516,97 +792,49 @@ export const loginLogic = kea<loginLogicType>([
                 !precheckResponse.sso_enforcement && isPasswordLoginUnavailable && availableLoginMethods.length === 0,
         ],
         // Allowlist for the social button row: only narrow it once we know the account is passwordless
-        // and which providers it has. `null` means "show everything the instance offers", as before.
+        // and has linked providers. `null` means "show everything the instance offers". A passwordless
+        // account with no linked provider also gets every provider, because the social login pipeline
+        // links an existing account by verified email on its first sign-in.
         restrictToProviders: [
             (s) => [s.precheckResponse, s.isPasswordLoginUnavailable],
             (precheckResponse: PrecheckResponseType, isPasswordLoginUnavailable: boolean): SSOProvider[] | null =>
-                isPasswordLoginUnavailable ? (precheckResponse.social_providers ?? []) : null,
+                isPasswordLoginUnavailable && precheckResponse.social_providers?.length
+                    ? precheckResponse.social_providers
+                    : null,
+        ],
+        instanceSocialProviders: [
+            (s) => [s.preflight, s.featureFlags],
+            (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet): SSOProvider[] => {
+                const order = Object.keys(SSO_PROVIDER_NAMES)
+                return (
+                    (Object.entries(preflight?.available_social_auth_providers ?? {}) as [SSOProvider, boolean][])
+                        // SAML and OIDC are domain-configured and never render as a social button.
+                        .filter(([provider, available]) => available && provider !== 'saml' && provider !== 'oidc')
+                        .filter(([provider]) => !isSocialProviderHeldBack(provider, featureFlags))
+                        .map(([provider]) => provider)
+                        .sort((a, b) => order.indexOf(a) - order.indexOf(b))
+                )
+            },
         ],
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
         ],
     })),
-    forms(({ actions, values }) => ({
-        login: {
-            defaults: { email: '', password: '' } as LoginForm,
-            errors: ({ email, password }) => ({
-                email: !email ? 'Please enter your email to continue' : undefined,
-                password: !password ? 'Please enter your password to continue' : undefined,
-            }),
-            submit: async ({ email, password }, breakpoint) => {
-                breakpoint()
-                // Clear any previous passkey errors when submitting with password
-                actions.clearGeneralError()
-                try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', { email, password })
-                } catch (e) {
-                    const { code, detail } = e as Record<string, any>
-                    if (code === '2fa_required') {
-                        const next: string | undefined = router.values.searchParams.next
-                        const searchParams: Record<string, any> = next ? { next } : {}
-                        if (next && next.startsWith('/reset_2fa')) {
-                            // Reset the cached validation state so it re-validates after redirect
-                            twoFactorResetLogic.actions.resetState()
-                            router.actions.push(next, searchParams)
-                        } else {
-                            router.actions.push(urls.login2FA(), searchParams)
-                        }
-                        throw e
-                    }
-                    if (code === 'verify_email_pending' && typeof detail === 'string') {
-                        // detail carries the user uuid; the verification page has the code entry form
-                        lemonToast.info('Verify your email to continue. We just sent you a new code.')
-                        // The verify page has no session in this state, so store the address for its copy.
-                        // detail carries the user uuid, which keys the stored value.
-                        setPendingVerificationEmail(detail, email)
-                        const next: string | undefined = router.values.searchParams.next
-                        router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
-                        throw e
-                    }
-                    if (code === 'code_based_verification_required') {
-                        const emailAddress = detail?.email || email
-                        actions.setCodeVerificationRequired(emailAddress)
-                        throw e
-                    }
-                    // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a
-                    // dropped connection) leaves code/detail null, so the user gets the generic catch-all
-                    // message below. Capture the underlying status/message so these aren't untraceable.
-                    if (!code && !detail) {
-                        posthog.captureException(e, {
-                            extra: { status: (e as ApiError)?.status, message: (e as ApiError)?.message },
-                        })
-                    }
-                    actions.setGeneralError(code, detail)
-                    throw e
-                }
-            },
-        },
-        codeVerification: {
-            // No kea validator here: the submit button carries a disabledReason for an incomplete
-            // code, like the signup verify screen, so the only inline error is a server rejection
-            defaults: { code: '' } as CodeVerificationForm,
-            submit: async ({ code }, breakpoint) => {
-                breakpoint()
-                actions.clearGeneralError()
-                try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login/code-based-verification', {
-                        code: normalizeVerificationCode(code),
-                        email: values.login.email,
-                    })
-                } catch (e) {
-                    const { detail } = e as Record<string, any>
-                    const message = typeof detail === 'string' ? detail : 'This code is invalid or has expired.'
-                    // Shown under the code input, like the signup verify screen, not in the banner
-                    actions.setCodeVerificationManualErrors({ code: message })
-                    throw e
-                }
-            },
-        },
-    })),
     listeners(({ values, actions }) => ({
+        // The password login and a passkey prompt can't both finish: the login drops the passkey
+        // challenge. So close any open prompt, and don't auto-open one for this email after it.
+        submitLoginRequest: async ({ login }) => {
+            actions.markPasskeyPrompted(login.email)
+            // Dynamic import to avoid circular dependency
+            const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
+            passkeyLogic.findMounted()?.actions.cancelPasskeyLogin()
+        },
+        setLoginTurnstileToken: ({ token }) => {
+            if (token && values.loginChallenge) {
+                actions.submitLogin()
+            }
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -625,6 +853,8 @@ export const loginLogic = kea<loginLogicType>([
             if (name !== 'email') {
                 return
             }
+            // The server ties a challenge to the address that got it
+            actions.resetLoginChallenge()
             await breakpoint(PRECHECK_IDLE_DELAY_MS)
             const { email } = values.login
             if (isEmail(email, { requireTLD: true })) {
@@ -640,6 +870,7 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
+            startRadarSignalsFor(precheckResponse.radar_client_id)
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (
@@ -649,13 +880,14 @@ export const loginLogic = kea<loginLogicType>([
                 !isWebKitBrowser()
             ) {
                 const promptEmail = precheckResponse.email ?? ''
-                if (values.passkeyPromptedForEmail === promptEmail) {
-                    return
-                }
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
+                // Check after the import: a password login submitted during it also marks the email
+                if (values.passkeyPromptedForEmail === promptEmail) {
+                    return
+                }
                 // Mark only after the last breakpoint. A newer run that starts during the import cancels
                 // this one, so the email must still be unmarked when the newer run checks it.
                 actions.markPasskeyPrompted(promptEmail)
@@ -686,7 +918,13 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, message }) => {
+        '/login': (_, { error_code, error_detail, message, code_verification_pending, email }) => {
+            if (code_verification_pending) {
+                // The IdP round trip returns here with a code already emailed; continue that login.
+                actions.setCodeVerificationRequired(typeof email === 'string' ? email : '', null)
+                return
+            }
+
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})

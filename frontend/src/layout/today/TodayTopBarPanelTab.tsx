@@ -1,34 +1,54 @@
 import { useActions, useValues } from 'kea'
 import { ComponentType, useState } from 'react'
 
-import { IconPulse, IconSparkles } from '@posthog/icons'
-import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconChat, IconPulse, IconSparkles, IconSupport } from '@posthog/icons'
+import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+
+import { pluralize } from 'lib/utils/strings'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
 import { SidePanelTab } from '~/types'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
-// The top bar's own icons where the side panel's would read wrong at this size.
+// The top bar's own icons where the side panel's would read wrong at this size. Support also stays static because the
+// side panel's icon reads the ticket logic for its unread count, and this bar renders on every page without live tickets.
+// Discussion's side panel icon draws its count as a Lemon badge, so the bar says the count in the tooltip instead.
 const TODAY_TAB_ICONS: Partial<Record<SidePanelTab, ComponentType>> = {
     [SidePanelTab.Max]: IconSparkles,
+    [SidePanelTab.Support]: IconSupport,
     [SidePanelTab.Activity]: IconPulse,
+    [SidePanelTab.Discussion]: IconChat,
 }
+
+const PRESSED_CLASS = 'aria-pressed:bg-[var(--fill-selected)] aria-pressed:text-foreground'
+// PostHog AI is the bar's main way in, so it names itself. The other tabs stay icons.
+const AI_TAB_BUTTON = { variant: 'outline', size: 'default', className: PRESSED_CLASS } as const
+const ICON_TAB_BUTTON = {
+    variant: 'default',
+    size: 'icon',
+    className: cn(PRESSED_CLASS, 'text-muted-foreground hover:text-foreground'),
+} as const
 
 export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element {
     const { activeTab, docked, floatingOpen, launcherHintVisible } = useValues(todayContextPanelLogic)
     const { togglePanelTab, hideLauncherHint } = useActions(todayContextPanelLogic)
     const { unreadCount } = useValues(sidePanelNotificationsLogic)
+    const { commentCount } = useValues(sidePanelDiscussionLogic)
     // Controlled, so PostHog AI's tooltip can also point here after the user dismisses the floating button.
     const [hovered, setHovered] = useState(false)
-    const launcherHint = tab === SidePanelTab.Max && launcherHintVisible
+    const isAi = tab === SidePanelTab.Max
+    const launcherHint = isAi && launcherHintVisible
 
     const { label: tabLabel } = SIDE_PANEL_TABS[tab]
     const Icon = TODAY_TAB_ICONS[tab] ?? SIDE_PANEL_TABS[tab].Icon
     const pressed = (docked || floatingOpen) && activeTab === tab
     const label = pressed ? `Close ${tabLabel}` : tabLabel
     const unread = tab === SidePanelTab.Activity ? unreadCount : 0
+    const comments = tab === SidePanelTab.Discussion ? commentCount : 0
+    const countLabel = unread > 0 ? `${unread} unread` : comments > 0 ? pluralize(comments, 'comment') : null
 
     return (
         // The unread dot sits beside the button, so it never shifts the button's centered icon.
@@ -47,10 +67,9 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
                     delay={0}
                     render={
                         <Button
-                            size="icon"
-                            aria-label={unread > 0 ? `${label}, ${unread} unread` : label}
+                            {...(isAi ? AI_TAB_BUTTON : ICON_TAB_BUTTON)}
+                            aria-label={countLabel ? `${label}, ${countLabel}` : label}
                             aria-pressed={pressed}
-                            className="text-muted-foreground hover:text-foreground aria-pressed:bg-[var(--fill-selected)] aria-pressed:text-foreground"
                             onClick={() => togglePanelTab(tab)}
                             // pinned: the PostHog AI button keeps the side panel button's data-attr
                             data-attr={
@@ -60,6 +79,7 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
                     }
                 >
                     <Icon />
+                    {isAi && tabLabel}
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="end">
                     {launcherHint ? (
@@ -67,8 +87,8 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
                     ) : (
                         <>
                             {label}
-                            {unread > 0 && <span className="opacity-70">{unread} unread</span>}
-                            {tab === SidePanelTab.Max && <Kbd>]</Kbd>}
+                            {countLabel && <span className="opacity-70">{countLabel}</span>}
+                            {isAi && <Kbd>]</Kbd>}
                         </>
                     )}
                 </TooltipContent>

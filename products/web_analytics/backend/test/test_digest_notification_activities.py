@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from posthoganalytics.contexts import get_tags
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.models import OrganizationMembership, Team, User
@@ -109,7 +110,13 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         assert "utm_source=web_analytics_digest" in data.source_url
 
     def test_test_arm_records_exposure_and_captures_sent_event(self):
+        def evaluate_flag(*args, **kwargs):
+            assert get_tags()["$update_person_last_seen_at"] is False
+            return "test"
+
+        self.mock_get_flag.side_effect = evaluate_flag
         _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
+        assert "$update_person_last_seen_at" not in get_tags()
 
         self.mock_get_flag.assert_called_once()
         flag_kwargs = self.mock_get_flag.call_args.kwargs
@@ -122,6 +129,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         assert capture_kwargs["distinct_id"] == str(self.user.distinct_id)
         assert capture_kwargs["properties"]["variant"] == "test"
         assert capture_kwargs["properties"]["team_id"] == self.team.id
+        assert capture_kwargs["properties"]["$update_person_last_seen_at"] is False
 
     def test_control_arm_records_exposure_but_sends_no_notification(self):
         self.mock_get_flag.return_value = "control"

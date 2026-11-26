@@ -24,7 +24,7 @@ from posthog.clickhouse.preaggregation.marketing_conversions_sql import TRUNCATE
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
 from posthog.clickhouse.query_tagging import get_query_tag_value, tags_context
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.errors import MarketingPrecomputeNotReady
@@ -294,7 +294,7 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
             self.addCleanup(sync_execute, TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL())
             self.addCleanup(sync_execute, TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL())
         if action_goal:
-            action = Action.objects.create(team=self.team, name="Purchases", steps_json=[{"event": "purchase"}])
+            action = create_action(team=self.team, name="Purchases", steps_json=[{"event": "purchase"}])
             config = self.team.marketing_analytics_config
             config.conversion_goals[0].update(kind="ActionsNode", id=action.id)
             config.conversion_goals[0].pop("event")

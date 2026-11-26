@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..logic import detail_dashboard, group_types
 from ..logic.property_definitions import create_property_definition
 from ..logic.related_actors_query import RelatedActorsQuery
 from . import contracts
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from posthog.hogql_queries.serialized_actors import SerializedActor
     from posthog.models import Team
     from posthog.models.property import GroupTypeIndex
+    from posthog.models.user import User
 
 
 def get_related_actors(
@@ -33,4 +35,44 @@ def upsert_group_property_definition(input: contracts.GroupPropertyDefinitionInp
         group_type_index=input.group_type_index,
         property_name=input.property_name,
         property_value=input.property_value,
+    )
+
+
+def list_group_types(project_id: int) -> list[contracts.GroupType]:
+    """Raises GroupTypesUnavailable when personhog does not answer."""
+    return group_types.read_group_types(project_id)
+
+
+def get_group_type(project_id: int, index: int) -> contracts.GroupType:
+    """Raises GroupTypeNotFound for an index the project does not use, and GroupTypesUnavailable."""
+    return group_types.read_group_type(project_id, index)
+
+
+def group_type_changes(current: contracts.GroupType, edit: contracts.GroupTypeEdit) -> list[str]:
+    return group_types.changed_fields(current, edit)
+
+
+def group_type_fingerprint(group_type: contracts.GroupType) -> str:
+    """A hash of the editable fields, for update_group_type to check that nothing changed since staff read them."""
+    return group_types.fingerprint(group_type)
+
+
+def update_group_type(project_id: int, index: int, edit: contracts.GroupTypeEdit, baseline: str) -> contracts.GroupType:
+    """Saves the fields that differ from what is stored and returns the group type as it was before.
+
+    Raises GroupTypeChanged when the stored group type no longer matches the baseline fingerprint, else like
+    get_group_type.
+    """
+    return group_types.update_group_type(project_id, index, edit, baseline)
+
+
+def create_group_type_detail_dashboard(
+    team: Team, user: User, *, group_type: str, name_singular: str | None, name_plural: str | None
+) -> int:
+    """Creates the template dashboard behind the Overview page of a group type and returns its id.
+
+    The caller links the dashboard to the group type.
+    """
+    return detail_dashboard.create_group_type_detail_dashboard(
+        team=team, user=user, group_type=group_type, name_singular=name_singular, name_plural=name_plural
     )

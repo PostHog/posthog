@@ -4,6 +4,24 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Buffer, Distr
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 
+# Write path of earlier generations. A stack that ran part of the old migration chain can still have
+# these objects. None of them stores data, so they are dropped. The data tables of those generations
+# (sharded_query_log_archive, query_log_archive_v2) stay, and the operator decides when to drop them.
+# The cloud clusters do not run this cleanup: posthog-cloud-infra owns their archive objects, and the
+# v3 objects take over some of these names there.
+LEGACY_QUERY_LOG_ARCHIVE_VIEWS = (
+    "query_log_archive_mv",
+    "sharded_query_log_archive_mv",
+    "dist_query_log_archive_mv",
+    "ops_query_log_archive_mv",
+    "daily_aggregated_query_log_archive",
+)
+LEGACY_QUERY_LOG_ARCHIVE_WRITE_TABLES = (
+    "writable_query_log_archive",
+    "writable_sharded_query_log_archive",
+    "query_log_archive_buffer",
+)
+
 
 # ============================================================================
 # v3 generation: one row per query chain
@@ -59,6 +77,7 @@ _V3_PROFILE_EVENTS = (
 # T64 suits the counters, whose values sit far below the UInt64 range.
 _V3_T64 = "CODEC(T64, Default)"
 _V3_TTL_3_MONTHS = "TTL toDateTime(initial_query_start_time) + toIntervalMonth(3)"
+_V3_TTL_1_MONTH = "TTL toDateTime(initial_query_start_time) + toIntervalMonth(1)"
 
 
 def _v3_max(inner_type: str) -> str:
@@ -168,6 +187,11 @@ _V3_PHYSICAL_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("lc_plan_fingerprint", _v3_max("String"), ""),
     ("lc_estimated_rows", _v3_max("Int64"), ""),
     ("lc_estimated_bytes", _v3_max("Int64"), ""),
+    # The initial query's log_comment without its timings and query keys (lc_query keeps query). A
+    # log_comment that is not a JSON object is stored as {}. Read a new log_comment key from this column
+    # instead of adding an lc_* column, unless the key must be kept for longer than the TTL. Keep the
+    # column and its MV expression the same as in posthog-cloud-infra, which manages the cloud clusters.
+    ("log_comment", _v3_max("String"), _V3_TTL_1_MONTH),
 )
 
 # Read-time aliases that keep the column names of the earlier generations, so existing readers of
@@ -238,13 +262,13 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     )
 
 
-def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL():
+def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(num_layers: int = 16):
     """Buffer on OPS in front of the v3 data table."""
     return _v3_plain_table_sql(
         QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE,
         Buffer(
             destination_table=SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
-            num_layers=16,
+            num_layers=num_layers,
             min_time=10,
             max_time=60,
             min_rows=10_000,
@@ -400,7 +424,12 @@ SELECT
     lc.dagster.job_name AS lc_dagster__job_name,
     lc.dagster.run_id AS lc_dagster__run_id,
     lc.dagster.tags.owner AS lc_dagster__owner,
-    {log_comment_trailing_fields}
+    {log_comment_trailing_fields},
+    if(
+        ql.is_initial_query AND notEmpty(ql.log_comment),
+        concat('{{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.1 NOT IN ('timings', 'query'), JSONExtractKeysAndValuesRaw(ql.log_comment))), ','), '}}'),
+        ''
+    ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 """.format(

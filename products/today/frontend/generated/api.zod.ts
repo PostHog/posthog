@@ -66,3 +66,18 @@ export const TodayPulsePinsUpdateBody = /* @__PURE__ */ zod.object({
             'Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries.'
         ),
 })
+
+/**
+ * Replaces the numbers the person hid from the key numbers. Suggestions skip them, so the next highlights request computes other numbers in their places. Repeated keys are dropped and only the last 50 are kept. 404 when the person does not have the new navigation.
+ * @summary Set the numbers the person hid
+ */
+export const todayPulsePinsHiddenUpdateBodyKeysItemMax = 200
+
+export const todayPulsePinsHiddenUpdateBodyKeysMax = 50
+
+export const TodayPulsePinsHiddenUpdateBody = /* @__PURE__ */ zod.object({
+    keys: zod
+        .array(zod.string().max(todayPulsePinsHiddenUpdateBodyKeysItemMax))
+        .max(todayPulsePinsHiddenUpdateBodyKeysMax)
+        .describe('Keys of every number to hide, oldest first. Replaces the hidden numbers. At most 50 keys.'),
+})

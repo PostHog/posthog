@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 import dataclasses
+from enum import StrEnum
 from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -15,13 +19,19 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
+from posthog.event_usage import get_event_source, report_user_action
 from posthog.models.user import User
 
+from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
 from products.warehouse_sources.backend.facade.source_management import known_source_key
-from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import (
+    SourceTypeField,
+    resolve_known_source_key,
+)
 
-from . import base, helpers
+from . import base
+from .setup_errors import SourceSetupErrorCode, setup_error_response
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -53,11 +63,21 @@ class SourceCredentialCreateSerializer(serializers.Serializer):
             "(host, port, password, API key, …). Checked against a live connection before being stored."
         ),
     )
+    migration_item_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "The migration item whose prefilled settings the connect page showed. Every prefilled setting must "
+            "keep its value, or the request is rejected before PostHog connects anywhere."
+        ),
+    )
 
 
 class SourceCredentialSerializer(serializers.Serializer):
     credential_id = serializers.UUIDField(
-        help_text="Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source."
+        help_text=(
+            "Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to "
+            "create a source, or of a source update to reconnect an existing source."
+        )
     )
     source_type = serializers.CharField(help_text="The source type the stored credentials are for.")
     created_at = serializers.DateTimeField(help_text="When the credentials were stored.")
@@ -83,16 +103,12 @@ def _unresolved_secret_ref_response(payload: Any) -> Response | None:
     offenders = _find_unresolved_secret_refs(payload)
     if not offenders:
         return None
-    return Response(
-        status=status.HTTP_400_BAD_REQUEST,
-        data={
-            "message": (
-                f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
-                "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
-                "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
-                "the resulting credential_id instead)."
-            )
-        },
+    return setup_error_response(
+        SourceSetupErrorCode.UNRESOLVED_SECRET_REF,
+        f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
+        "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
+        "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
+        "the resulting credential_id instead).",
     )
 
 
@@ -130,6 +146,67 @@ class DatabaseSchemaRequestSerializer(serializers.Serializer):
     )
 
 
+class SourceUpdatePayloadSerializer(serializers.Serializer):
+    credential_id = serializers.UUIDField(
+        help_text=(
+            "Id of a stored credential to reconnect this source with. The user enters new connection details on the "
+            "page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. "
+            "Only the user who stored the credential can use it, and it must be for this source's source_type and "
+            "not expired. Its values replace the source's connection details, then the connection is checked. An SSH "
+            "tunnel or connection host that the user did not enter on the page is not kept. The stored credential is "
+            "deleted when the update succeeds."
+        ),
+    )
+
+
+class StoredCredentialProblem(StrEnum):
+    NOT_FOUND = "not_found"
+    EXPIRED = "expired"
+    SOURCE_TYPE_MISMATCH = "source_type_mismatch"
+
+
+class StoredCredentialUnavailableError(Exception):
+    def __init__(
+        self, message: str, *, problem: StoredCredentialProblem, stored_source_type: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.problem = problem
+        # Set when the credential exists but is for another source type.
+        self.stored_source_type = stored_source_type
+
+
+def find_stored_credential(
+    *, team_id: int, user: User, credential_id: Any, source_type: str
+) -> PendingSourceCredential:
+    """Return the unexpired stored credential that `user` stored in the team for `source_type`.
+
+    Only the user who stored a credential can use it. Ids are listable within a team, so without the
+    owner check any member could put a teammate's stored secrets into a source they control.
+    Raises `StoredCredentialUnavailableError`, whose `problem` tells the caller which check failed.
+    """
+    try:
+        credential = PendingSourceCredential.objects.for_team(team_id).get(id=credential_id, created_by=user)
+    except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+        raise StoredCredentialUnavailableError(
+            f"Stored credential '{credential_id}' not found or expired. "
+            "List your valid stored credentials with data-warehouse-stored-credentials-list.",
+            problem=StoredCredentialProblem.NOT_FOUND,
+        )
+    if credential.expires_at <= timezone.now():
+        raise StoredCredentialUnavailableError(
+            f"Stored credential '{credential_id}' not found or expired. Ask the user to fill in a new connect link "
+            "from data-warehouse-source-connect-link.",
+            problem=StoredCredentialProblem.EXPIRED,
+        )
+    if credential.source_type != source_type:
+        raise StoredCredentialUnavailableError(
+            f"Stored credential '{credential_id}' is for '{credential.source_type}', not '{source_type}'.",
+            problem=StoredCredentialProblem.SOURCE_TYPE_MISMATCH,
+            stored_source_type=credential.source_type,
+        )
+    return credential
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
     payload: dict = dataclasses.field(repr=False)
@@ -162,13 +239,27 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             if isinstance(value, str):
                 payload[key] = value.strip()
 
+        migration_item_id = serializer.validated_data.get("migration_item_id")
+        if migration_item_id is not None:
+            # Checked before the live connection test, which sends the secret to the payload's host.
+            changed = migrations.prefill_mismatches(self.team_id, migration_item_id, payload)
+            if changed is None:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST, data={"message": "This migration item doesn't exist."}
+                )
+            if changed:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            f"These settings no longer match the migration: {', '.join(changed)}. "
+                            "Reload this link to see the current ones, or set up a new source instead."
+                        )
+                    },
+                )
+
         source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
 
         error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None:
@@ -218,11 +309,9 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
         they expire. Newest first, so after a user confirms they've finished the connect page, the
         first entry for the source type is the one to pass to `setup`.
         """
-        queryset = (
-            PendingSourceCredential.objects.for_team(self.team_id)
-            .filter(created_by=cast(User, request.user), expires_at__gt=timezone.now())
-            .order_by("-created_at")
-        )
+        user = cast(User, request.user)
+        unexpired = PendingSourceCredential.objects.for_team(self.team_id).filter(expires_at__gt=timezone.now())
+        queryset = unexpired.filter(created_by=user).order_by("-created_at")
         source_type = request.query_params.get("source_type")
         if source_type:
             queryset = queryset.filter(source_type=source_type)
@@ -236,7 +325,42 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             }
             for credential in queryset
         ]
+        self._report_stored_credentials_listed(request, user, unexpired, source_type, len(data))
         return Response(status=status.HTTP_200_OK, data=SourceCredentialSerializer(data, many=True).data)
+
+    def _report_stored_credentials_listed(
+        self,
+        request: Request,
+        user: User,
+        unexpired: QuerySet[PendingSourceCredential],
+        source_type: str | None,
+        credential_count: int,
+    ) -> None:
+        # An agent that finds no credential cannot tell a skipped page from one filled under another
+        # kind spelling or by another user, so the event records both near misses. Kinds and counts only.
+        other_source_types: list[str] = []
+        other_user_credential_count = 0
+        if source_type:
+            other_source_types = sorted(
+                set(
+                    unexpired.filter(created_by=user)
+                    .exclude(source_type=source_type)
+                    .values_list("source_type", flat=True)
+                )
+            )
+            other_user_credential_count = unexpired.filter(source_type=source_type).exclude(created_by=user).count()
+        report_user_action(
+            user,
+            "data warehouse stored credentials listed",
+            {
+                "source_type": source_type or None,
+                "credential_count": credential_count,
+                "other_source_types": other_source_types,
+                "other_user_credential_count": other_user_credential_count,
+            },
+            team=self.team,
+            request=request,
+        )
 
     @extend_schema(
         parameters=[
@@ -246,7 +370,17 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 location=OpenApiParameter.QUERY,
                 required=True,
                 description="The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').",
-            )
+            ),
+            OpenApiParameter(
+                name="migration_item_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional warehouse migration item. The connect page then shows the item's non-secret settings "
+                    "from the vendor, so the user only enters the secret."
+                ),
+            ),
         ],
         responses=SourceConnectLinkSerializer,
     )
@@ -257,7 +391,8 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
         The link opens a minimal connect page rendering the source's full connection form — OAuth options
         included — with no table selection and no source creation. The user authenticates in their browser,
         secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
-        credential id to data-warehouse-source-setup.
+        credential id to data-warehouse-source-setup. To reconnect an existing source, the agent passes the
+        id in the payload of a source update instead.
         """
         source_type = request.query_params.get("source_type")
         if not source_type:
@@ -266,12 +401,13 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 data={"message": "Missing required parameter: source_type"},
             )
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
+        source_type = str(source_type_model)
 
         source = base.SourceRegistry.get_source(source_type_model)
         oauth_field = _find_top_level_oauth_field(source.get_source_config.model_dump())
@@ -279,18 +415,49 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             f"connect their {source_type} account" if oauth_field else f"enter their {source_type} connection details"
         )
 
+        # utm_source names the surface that made the link, so the connect page can attribute its funnel to it.
+        connect_url = (
+            f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
+            f"&utm_source={get_event_source(request).value}"
+        )
+        create_step = 'call data-warehouse-source-setup with {"credential_id": <id>} in the payload'
+        reconnect_step = (
+            " To reconnect or rotate the credentials of an existing source instead, call "
+            'external-data-sources-partial-update with {"payload": {"credential_id": <id>}}.'
+        )
+        migration_item_id = request.query_params.get("migration_item_id")
+        if migration_item_id and not migrations.is_migration_import_enabled(
+            self.team, getattr(request.user, "distinct_id", None)
+        ):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Importing from Fivetran is not available to this project."},
+            )
+        if migration_item_id:
+            try:
+                item = migrations.find_migration_item(self.team_id, uuid.UUID(migration_item_id))
+            except ValueError:
+                item = None
+            if item is None:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Unknown migration_item_id '{migration_item_id}'"},
+                )
+            connect_url += f"&migration_id={item.migration_id}&migration_item_id={item.id}"
+            # The apply tool creates the source with the planned tables, prefix and schedule.
+            create_step = f'call warehouse-migration-item-apply with {{"item_id": "{item.id}", "credential_id": <id>}}'
+            reconnect_step = ""
+
         data = {
             "source_type": source_type,
             "auth_method": "oauth" if oauth_field else "credentials",
-            "connect_url": (
-                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
-            ),
+            "connect_url": connect_url,
             "instructions": (
                 f"Share this link with the user. They {action_phrase} directly in PostHog — never ask them to "
                 "paste credentials or tokens into the chat. The page only stores the connection details; it does "
                 "not create the source. Once the user confirms they're done, find the stored credential id via "
-                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and call "
-                'data-warehouse-source-setup with {"credential_id": <id>} in the payload. Stored credentials are '
+                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and "
+                f"{create_step}.{reconnect_step} Stored credentials are "
                 "single-use, expire after 24 hours, and are only visible to and consumable by the PostHog user "
                 "who entered them — so the page must be filled by the same user this session authenticates as."
             ),

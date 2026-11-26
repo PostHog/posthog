@@ -159,6 +159,8 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="dev",
         icon_domain="firetiger.com",
+        # As of November 2026, the MCP host does not resolve in DNS, so no install can reach the server.
+        disabled=True,
     ),
     CatalogEntry(
         name="GitLab",
@@ -315,20 +317,35 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         name="Slack",
         url="https://mcp.slack.com/mcp",
-        description="Search public Slack channels and read messages and user profiles.",
+        description="Search Slack channels, direct messages, and group messages, and read messages, user profiles, and canvases you can access.",
         auth_type="oauth",
         category="productivity",
         icon_domain="slack.com",
         docs_url="https://docs.slack.dev/ai/slack-mcp-server/",
         oauth_credentials_source="slack_app",
-        disabled=True,
-        # Private-channel, DM, email, and write scopes require separate security approval.
+        # Email and write scopes require separate security approval. Every scope here must be declared in the
+        # production Slack app manifest, because Slack refuses an authorize request for an undeclared scope. With the
+        # slack-app-slack-mcp flag on, a Slack account link requests exactly this list. Its token connects the server
+        # only while it holds nothing outside this list and every scope here except the three private search scopes,
+        # which the manifest marks user_optional. Slack's MCP server offers `slack_search_public_and_private` only
+        # when the token holds the private search scopes, and reads private channels, DMs, and group DMs only with the
+        # matching history scopes.
         oauth_scope_allowlist=(
             "channels:read",
             "channels:history",
             "search:read.public",
             "users:read",
             "search:read.users",
+            "canvases:read",
+            "search:read.private",
+            "search:read.im",
+            "search:read.mpim",
+            "groups:history",
+            "groups:read",
+            "im:history",
+            "im:read",
+            "mpim:history",
+            "mpim:read",
         ),
     ),
     CatalogEntry(

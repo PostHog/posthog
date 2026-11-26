@@ -97,6 +97,48 @@ def _ok_page() -> MagicMock:
     return response
 
 
+def _real_response(status_code: int, reason: str) -> requests.Response:
+    # A real Response, not a MagicMock, so `raise_for_status` behaves exactly as it does in
+    # production rather than whatever a mock is told to do.
+    response = requests.models.Response()
+    response.status_code = status_code
+    response.reason = reason
+    response.url = "https://example.invalid/graphql"
+    return response
+
+
+@patch("tenacity.nap.time.sleep")
+def test_request_retries_408_then_succeeds(_mock_sleep):
+    # Shopify's edge timed out waiting on the request rather than refusing it; the import should
+    # reissue it like a 5xx, not fail outright.
+    sess = MagicMock()
+    sess.post.side_effect = [_real_response(408, "Request Timeout"), _ok_page()]
+
+    batches = list(
+        _make_paginated_shopify_request(
+            "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS], MagicMock()
+        )
+    )
+
+    assert batches == [[{"id": "1"}]]
+    assert sess.post.call_count == 2
+
+
+@patch("tenacity.nap.time.sleep")
+def test_request_reraises_retryable_after_persistent_408(_mock_sleep):
+    sess = MagicMock()
+    sess.post.return_value = _real_response(408, "Request Timeout")
+
+    with pytest.raises(ShopifyRetryableError):
+        list(
+            _make_paginated_shopify_request(
+                "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS], MagicMock()
+            )
+        )
+
+    assert sess.post.call_count == 5
+
+
 @patch("tenacity.nap.time.sleep")
 def test_request_retries_connection_broken_mid_stream_then_succeeds(_mock_sleep):
     # A connection dropped mid-response surfaces from `post` as ChunkedEncodingError; it's

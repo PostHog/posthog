@@ -31,6 +31,10 @@ class GongEndpointConfig:
     # Sibling keys of `metaData` to keep as nested columns on the flattened row. Must line up with
     # what `extensive_content_selector` requests, or the columns arrive permanently null.
     extensive_row_keys: tuple[str, ...] = ()
+    # Column to store an enrichment block under, for blocks whose key clashes with a `metaData`
+    # field — the `media` URLs block would otherwise overwrite the `media` type string. Keys not
+    # listed keep their own name.
+    extensive_row_columns: dict[str, str] = field(default_factory=dict)
     # `POST /v2/calls/transcript` answers with `callId` and `transcript` and nothing else. Endpoints
     # that set this are driven off the `/v2/calls` list for the same window instead: each page of
     # calls supplies the `callIds` filter for one transcript request, and the call's `started`
@@ -42,6 +46,14 @@ class GongEndpointConfig:
     date_filter_keys: Optional[tuple[str, str]] = None
     # Filter fields sent with every request alongside the date bounds.
     extra_filter: dict[str, Any] = field(default_factory=dict)
+    # Top-level body fields sent with every request of a `/v2/stats/...` POST endpoint, outside `filter`.
+    extra_body: dict[str, Any] = field(default_factory=dict)
+    # Sets of query parameters to request each date window with, one after another, for endpoints that
+    # answer for one value of a required parameter at a time. Each row gets the parameters it was asked with.
+    query_variants: tuple[dict[str, str], ...] = ()
+    # Column that receives a hash of the row's `row_id_fields`, for rows that carry no id of their own.
+    row_id_column: Optional[str] = None
+    row_id_fields: tuple[str, ...] = ()
     # Days per request window. Stats endpoints aggregate over the whole window, so a one-day window
     # gives one row per user per day. None keeps the 90-day cap that `/v2/calls` enforces.
     window_days: Optional[int] = None
@@ -56,6 +68,8 @@ class GongEndpointConfig:
     # Field of each parent row that is sent as the `fan_out_param` query parameter.
     fan_out_parent_field: str = "id"
     fan_out_param: Optional[str] = None
+    # Whether `fan_out_param` fills a `{placeholder}` in `path` instead of being sent as a query parameter.
+    fan_out_in_path: bool = False
     # Parent field that must be truthy for the parent to drive a request, e.g. `active` on users.
     fan_out_parent_filter: Optional[str] = None
     # Column that receives the parent field on each row, for rows that do not name their parent.
@@ -75,6 +89,9 @@ class GongEndpointConfig:
     # Rows-per-chunk override for endpoints whose rows are whole documents. None keeps the
     # pipeline's default.
     chunk_size: Optional[int] = None
+    # Whether rows arrive in ascending order of the incremental field across the whole run. False for
+    # endpoints whose windows hold rows for many users or log types, each in its own order.
+    rows_in_order: bool = True
     # Whether one-shot source setup and new-schema auto-sync enable this endpoint without the
     # administrator picking it. False for endpoints carrying content sensitive enough that syncing
     # it into the warehouse should be a deliberate choice.
@@ -168,6 +185,30 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
             },
         ],
     ),
+    # Download URLs for each call's audio and video recording, from `/v2/calls/extensive` with the
+    # `media` block of the selector requested. Gong signs these URLs for 8 hours only, so the table
+    # is full refresh only: an incremental sync would fetch each call once and keep its URL long
+    # after it stopped working, while a full refresh rewrites every URL each run. Kept as its own
+    # default-off table because the URLs open the recording to anyone who reads them, and because
+    # asking for media needs the `api:calls:read:media-url` scope: a key without it must not break
+    # `calls_extensive`.
+    "calls_media": GongEndpointConfig(
+        name="calls_media",
+        path="/v2/calls/extensive",
+        response_key="calls",
+        primary_key="id",
+        partition_key="started",
+        uses_date_window=True,
+        uses_extensive=True,
+        capture_http_samples=False,
+        should_sync_default=False,
+        extensive_content_selector={
+            "context": "None",
+            "exposedFields": {"media": True},
+        },
+        extensive_row_keys=("media",),
+        extensive_row_columns={"media": "mediaUrls"},
+    ),
     # Transcript text for the same calls, from `POST /v2/calls/transcript`, which returns only
     # `callId` and `transcript`. Each row is stamped with the `started` of the call it belongs to,
     # read from the `/v2/calls` page that drove the request — without it a transcript carries no
@@ -203,6 +244,23 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         response_key="users",
         primary_key="id",
         partition_key="created",
+    ),
+    # Every change to each user's recording, import and active settings, oldest first, requested one
+    # user at a time with no time filter. Default-off because each sync spends one request per user
+    # against Gong's daily API limit.
+    # Requires the `api:users:read` scope.
+    "user_settings_history": GongEndpointConfig(
+        name="user_settings_history",
+        path="/v2/users/{id}/settings-history",
+        response_key="userSettingsHistory",
+        primary_key=("userId", "setting", "time"),
+        partition_key="time",
+        fan_out_parent="users",
+        fan_out_param="id",
+        fan_out_in_path=True,
+        fan_out_column="userId",
+        not_found_is_empty=True,
+        should_sync_default=False,
     ),
     "scorecards": GongEndpointConfig(
         name="scorecards",
@@ -297,6 +355,32 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
             },
         ],
     ),
+    # Per-user counts of the same activities as `daily_activity`, aggregated by Gong for each day.
+    # Gong returns one record per user with the days nested inside, and only for users with activity.
+    # Requires the `api:stats:user-actions` scope.
+    "aggregate_activity": GongEndpointConfig(
+        name="aggregate_activity",
+        path="/v2/stats/activity/aggregate-by-period",
+        response_key="usersAggregateActivity",
+        nested_rows_key="userAggregateActivity",
+        primary_key=("userId", "fromDate"),
+        partition_key="fromDate",
+        supports_incremental=True,
+        uses_date_window=True,
+        date_filter_keys=("fromDate", "toDate"),
+        extra_body={"aggregationPeriod": "DAY"},
+        rows_in_order=False,
+        # A day's counts can still change after the day ends, as Gong finishes processing its calls.
+        default_incremental_lookback_seconds=7 * 24 * 60 * 60,
+        incremental_fields=[
+            {
+                "label": "fromDate",
+                "type": IncrementalFieldType.DateTime,
+                "field": "fromDate",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
     # The call outcome values (e.g. "Connected", "No Answer") defined for the company.
     # Requires the `api:call-outcomes:read` scope.
     "call_outcomes": GongEndpointConfig(
@@ -343,6 +427,46 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         fan_out_param="flowOwnerEmail",
         fan_out_parent_filter="active",
         dedupe_fan_out_rows=True,
+    ),
+    # Gong's audit logs: sign-ins, user activity, call plays, and access to externally shared calls.
+    # `/v2/logs` answers for one log type per request, so each date window is read once per type.
+    # Entries have no id, so each row gets a hash of the fields that identify it. Default-off because
+    # the entries name users and carry access details that the sample scrubbers can't recognise.
+    # Requires the `api:logs:read` scope.
+    "logs": GongEndpointConfig(
+        name="logs",
+        path="/v2/logs",
+        response_key="logEntries",
+        primary_key="id",
+        partition_key="eventTime",
+        supports_incremental=True,
+        uses_date_window=True,
+        query_variants=tuple(
+            {"logType": log_type}
+            for log_type in (
+                "AccessLog",
+                "UserActivityLog",
+                "UserCallPlay",
+                "ExternallySharedCallAccess",
+                "ExternallySharedCallPlay",
+            )
+        ),
+        row_id_column="id",
+        row_id_fields=("logType", "eventTime", "userId", "impersonatorUserId", "logRecord"),
+        rows_in_order=False,
+        capture_http_samples=False,
+        should_sync_default=False,
+        # The watermark is the newest entry of any log type, and the types are read one after another,
+        # so an entry of a type read earlier can land below it. Re-read the last day.
+        default_incremental_lookback_seconds=24 * 60 * 60,
+        incremental_fields=[
+            {
+                "label": "eventTime",
+                "type": IncrementalFieldType.DateTime,
+                "field": "eventTime",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
     ),
     "workspaces": GongEndpointConfig(
         name="workspaces",

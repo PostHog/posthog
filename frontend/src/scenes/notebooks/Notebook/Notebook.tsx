@@ -15,6 +15,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
 import { NotebookChangesNotice } from 'products/notebooks/frontend/NotebookChangesNotice'
+import { NotebookPrintControls } from 'products/notebooks/frontend/NotebookPrintControls'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { getMarkdownNotebookMarkdown } from './markdownNotebookV2'
@@ -70,7 +71,15 @@ export function Notebook({
         isLocalOnly,
         shouldBeEditable,
     } = useValues(logic)
-    const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
+    const {
+        duplicateNotebook,
+        loadNotebook,
+        notebookEditorMounted,
+        notebookEditorUnmounted,
+        setEditable,
+        setLocalContent,
+        setContainerSize,
+    } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
     useAttachedContext(
         notebook && !isShared
@@ -101,6 +110,11 @@ export function Notebook({
     // A retained notebook is present on the first render. Rendering it read-only and then switching every block
     // to editable rewrites `contenteditable` across the whole document, so the content waits for this value.
     const [editableApplied, setEditableApplied] = useState(shouldBeEditable === editable)
+    useLayoutEffect(() => {
+        notebookEditorMounted()
+        return () => notebookEditorUnmounted()
+    }, [notebookEditorMounted, notebookEditorUnmounted])
+
     useLayoutEffect(() => {
         setEditable(editable)
         setEditableApplied(true)
@@ -147,7 +161,9 @@ export function Notebook({
                         className
                     )}
                     ref={ref}
+                    data-notebook-short-id={shortId}
                 >
+                    <NotebookPrintControls shortId={shortId} />
                     {isTemplate && (
                         <LemonBanner
                             type="info"

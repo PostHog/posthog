@@ -42,7 +42,11 @@ jobs:
                   go-version-file: clickhouse-udfs/util/go.mod
                   cache: false
             - name: Build and test
-              run: ./scripts/build.sh
+              run: |
+                  docker compose -f docker-compose.yml pull &
+                  pull_pid=$!
+                  ./scripts/build.sh
+                  wait "$pull_pid"
             - name: Verify checked binaries
               run: git diff --exit-code -- ../../posthog/user_scripts
             - name: Smoke benchmarks

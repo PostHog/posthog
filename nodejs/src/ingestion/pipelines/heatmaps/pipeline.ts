@@ -18,7 +18,6 @@ import {
     createApplyCookielessProcessingStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
-    createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
@@ -45,6 +44,7 @@ export interface HeatmapsPipelineConfig {
     promiseScheduler: PromiseScheduler
     topHog: TopHogRegistry
     teamsPrefetchEnabled: boolean
+    concurrentBatches: number
 }
 
 interface HeatmapsPipelineInput {
@@ -55,9 +55,11 @@ interface HeatmapsPipelineContext {
     message: Message
 }
 
-export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TContext extends HeatmapsPipelineContext>(
-    config: HeatmapsPipelineConfig
-) {
+export function createHeatmapsPipeline<
+    TInput extends HeatmapsPipelineInput,
+    TContext extends HeatmapsPipelineContext,
+    CFeed extends object = Record<never, never>,
+>(config: HeatmapsPipelineConfig) {
     const {
         outputs,
         teamManager,
@@ -67,6 +69,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
         promiseScheduler,
         topHog,
         teamsPrefetchEnabled,
+        concurrentBatches,
     } = config
 
     return (
@@ -74,7 +77,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
             teamManager,
             outputs,
             promiseScheduler,
-            concurrentBatches: 1,
+            concurrentBatches,
             topHog,
         })
             .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
@@ -84,11 +87,13 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
             .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
-            .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateEventMetadataStep())
             .pipe(createValidateEventPropertiesStep())
             .pipe(createApplyEventFiltersStep(eventFilterManager))
             .pipe(createDropOldEventsStep())
+            // From here on the event stores cookieless session state and produces its heatmap rows,
+            // and a redelivery would repeat both.
+            .timeoutBarrier()
             // Cookieless events arrive with a sentinel distinct id; rewrite it to the
             // deterministic server-side hash (and derive the session) before extraction,
             // which keys heatmaps on distinct id and session id.
@@ -101,6 +106,6 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
             .pipe(createExtractHeatmapDataStep(outputs))
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
-            .build()
+            .build<CFeed>()
     )
 }

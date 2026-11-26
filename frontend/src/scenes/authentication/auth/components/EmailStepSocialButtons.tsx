@@ -6,6 +6,7 @@ import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod
 
 import { authLogic } from '../authLogic'
 import { PrecheckResponseType, loginLogic } from '../loginLogic'
+import { SetPasswordEmailButton } from './SetPasswordEmailButton'
 
 // A new person here signs in through the IdP. SAML normally replaces this row, but an account
 // without a password still needs to see whatever methods it does have.
@@ -23,7 +24,8 @@ function hidesLoginRow(
 
 export function EmailStepSocialButtons(): JSX.Element | null {
     const { entry, step, accountExists } = useValues(authLogic)
-    const { precheckResponse, isPasswordLoginUnavailable, restrictToProviders } = useValues(loginLogic)
+    const { precheckResponse, isPasswordLoginUnavailable, restrictToProviders, hasNoConfiguredLoginMethod } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const lastLoginMethod = useLastLoginMethod()
 
@@ -46,6 +48,11 @@ export function EmailStepSocialButtons(): JSX.Element | null {
                 // Once we know the account's methods, only offer a passkey if it actually has
                 // one — otherwise this is the same dead button we're removing.
                 showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                extraButton={
+                    hasNoConfiguredLoginMethod && preflight?.email_service_available ? (
+                        <SetPasswordEmailButton />
+                    ) : undefined
+                }
             />
         )
     }

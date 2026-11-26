@@ -1,6 +1,8 @@
 import datetime as dt
 from uuid import UUID
 
+from django.db.models import Q
+
 from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
@@ -13,7 +15,11 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.temporal.constants import DEEP_SPEND_WINDOW_DAYS
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.read_meter_types import MeterScannerReadsResult, parse_bucket_hour
+from products.replay_vision.backend.temporal.read_meter_types import (
+    MeterScannerReadsResult,
+    current_sweep_throttle_factor,
+    parse_bucket_hour,
+)
 
 # Re-scan the last two full hours plus the current partial one. Buckets overwrite per hour key, so
 # the overlap with the previous run never double-counts, and a late-flushing query_log entry still
@@ -78,13 +84,18 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
     # Wider than the sweep's: the deep pass is priced on its average over this window, so a bucket
     # pruned at 25h would let a stretched pass age out of its own measurement.
     deep_prune_cutoff = now - dt.timedelta(days=DEEP_SPEND_WINDOW_DAYS)
+    # Throttled scanners that read nothing lately are included too, so their stored factor decays.
     scanners = list(
-        ReplayScanner.objects.filter(pk__in=by_scanner.keys()).only(
-            "id", "sweep_read_bytes_by_hour", "deep_read_bytes_by_hour", "fast_read_bytes_by_hour"
+        ReplayScanner.objects.filter(Q(pk__in=by_scanner.keys()) | Q(sweep_throttle_factor__gt=1)).only(
+            "id",
+            "sweep_read_bytes_by_hour",
+            "deep_read_bytes_by_hour",
+            "fast_read_bytes_by_hour",
+            "sweep_throttle_factor",
         )
     )
     for scanner in scanners:
-        metered = by_scanner[str(scanner.id)]
+        metered = by_scanner.get(str(scanner.id), {})
         scanner.sweep_read_bytes_by_hour = _merged_buckets(
             scanner.sweep_read_bytes_by_hour, {h: total for h, (total, _, _) in metered.items()}, prune_cutoff
         )
@@ -98,10 +109,13 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
         scanner.fast_read_bytes_by_hour = _merged_buckets(
             scanner.fast_read_bytes_by_hour, {h: fast for h, (_, _, fast) in metered.items()}, prune_cutoff
         )
+        scanner.sweep_throttle_factor = current_sweep_throttle_factor(
+            scanner.fast_read_bytes_by_hour, scanner.sweep_read_bytes_by_hour, None, now
+        )
     # One statement per batch rather than per scanner: this runs hourly over every active scanner.
     ReplayScanner.objects.bulk_update(
         scanners,
-        ["sweep_read_bytes_by_hour", "deep_read_bytes_by_hour", "fast_read_bytes_by_hour"],
+        ["sweep_read_bytes_by_hour", "deep_read_bytes_by_hour", "fast_read_bytes_by_hour", "sweep_throttle_factor"],
         batch_size=500,
     )
 

@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 
 import pytest
 from posthog.test.base import BaseTest
@@ -51,6 +52,19 @@ class TestCacheKey(HyperCacheTestBase):
         """Test that cache key is formatted correctly"""
         key = self.hypercache.get_cache_key(123)
         assert key == "cache/teams/123/test_namespace/test_value"
+
+
+class TestComputeEtag(HyperCacheTestBase):
+    def test_compute_etag_is_the_etag_a_write_stores(self):
+        hc = HyperCache(namespace="etag_ns", value="etag_value", load_fn=lambda team: {}, enable_etag=True)
+        data = {"b": [1, 2], "a": {"y": 1, "x": None}}
+
+        hc.set_cache_value(self.team_id, data)
+        try:
+            assert hc.compute_etag(data) == hc.get_etag(self.team_id)
+        finally:
+            hc.clear_cache(self.team_id)
+        assert hc.compute_etag({"a": {"x": None, "y": 1}, "b": [1, 2]}) == hc.compute_etag(data)
 
 
 class TestHyperCache(HyperCacheTestBase):
@@ -154,6 +168,40 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
 
         assert result is None
         assert source == "db"
+
+    @parameterized.expand(
+        [
+            ("redis_hit", ["redis"], {"key": "value", "nested": {"data": "test"}}, "redis", None),
+            ("s3_hit", ["s3"], {"key": "value", "nested": {"data": "test"}}, "s3", None),
+            ("cached_as_missing", None, None, "redis", None),
+            ("miss", [], None, None, None),
+            (
+                "redis_down_reads_s3",
+                ["s3"],
+                {"key": "value", "nested": {"data": "test"}},
+                "s3",
+                redis.exceptions.ConnectionError("redis down"),
+            ),
+        ]
+    )
+    def test_peek_from_cache_reads_the_tiers_without_loading_or_writing(
+        self, _name, filled_tiers, expected_data, expected_source, redis_error
+    ):
+        if filled_tiers is None:
+            self.hypercache.set_cache_value(self.team_id, HyperCacheStoreMissing())
+        else:
+            self.hypercache.set_cache_value(self.team_id, self.sample_data)
+            self.hypercache.clear_cache(self.team_id, kinds=[k for k in ("redis", "s3") if k not in filled_tiers])
+        load_fn = Mock(return_value={"default": "data"})
+        hypercache = HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn)
+        redis_before = cache.get(hypercache.get_cache_key(self.team_id))
+
+        with patch.object(hypercache.cache_client, "get", side_effect=redis_error) if redis_error else nullcontext():
+            result, source = hypercache.peek_from_cache_with_source(self.team_id)
+
+        assert (result, source) == (expected_data, expected_source)
+        load_fn.assert_not_called()
+        assert cache.get(hypercache.get_cache_key(self.team_id)) == redis_before
 
 
 class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):

@@ -24,6 +24,7 @@ from posthog.temporal.common.client import sync_connect
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import get_posthog_ai_access_decision
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WATCHED_REFRESH_INTERVAL_SECONDS,
     TaskRunRedisStream,
@@ -128,6 +129,11 @@ def handle_sandbox_message(
                 lambda: _sandbox_stream(conv_data, run_id, start_id, conversation_id, content, team_id=team.id)
             )
 
+        try:
+            tasks_facade.check_wake_by_task_id(task_run.task_id, source="posthog_ai_follow_up")
+        except tasks_facade.TaskDoneError as error:
+            raise exceptions.ValidationError(str(error))
+
         # Signal the Temporal workflow to send the follow-up message
         try:
             client = sync_connect()
@@ -151,7 +157,7 @@ def handle_sandbox_message(
                 team=team,
                 title=content[:80],
                 description=content,
-                origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+                profile=get_task_profile("user"),
                 user_id=user.pk,
                 repository="posthog/posthog",
                 create_pr=False,

@@ -1,90 +1,51 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from '@posthog/quill'
+import { IconEllipsis } from '@posthog/icons'
+import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
-import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
-import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
-import { urls } from 'scenes/urls'
-
-import { todayMenuLinkItem } from './todayMenuLinkItem'
-import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
-import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
+import { TODAY_RAIL_WIDTH, TodayRailPane, todayShellLogic } from './todayShellLogic'
 
-/**
- * The rail's "More" menu. The help menu shortcut opens it too.
- * Its `data-attr`s are pinned: they match the classic help menu, so autocapture data stays continuous.
- */
-export function TodayMoreMenu(): JSX.Element {
-    const { isHelpMenuOpen } = useValues(helpMenuLogic)
-    const { setHelpMenuOpen } = useActions(helpMenuLogic)
-    const { statusPageUrl } = useValues(posthogStatusLogic)
-    const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
-        useValues(todayRailStatusLogic)
+/** The rail panes that do not fit, as the rail's own tiles so a pane looks and behaves alike wherever it sits. */
+export function TodayMoreMenu({
+    overflowPanes,
+    renderTile,
+}: {
+    overflowPanes: TodayRailPane[]
+    renderTile: (pane: TodayRailPane) => JSX.Element
+}): JSX.Element | null {
+    const { activePane } = useValues(todayShellLogic)
+    const [open, setOpen] = useState(false)
+
+    if (overflowPanes.length === 0) {
+        return null
+    }
 
     return (
-        <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
-            <DropdownMenuTrigger
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger
                 render={
                     <TodayRailTile
                         label="More"
-                        icon={
-                            statusSeverity === 'ok' ? (
-                                <IconEllipsis />
-                            ) : (
-                                <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
-                            )
-                        }
-                        active={isHelpMenuOpen}
+                        icon={<IconEllipsis />}
+                        active={open || overflowPanes.includes(activePane)}
+                        // pinned: autocapture `data-attr` kept from when this menu was the help menu.
                         dataAttr="help-menu-button"
-                        severity={moreSeverity}
-                        aria-label={moreLabel}
                     />
                 }
             />
-            <DropdownMenuContent side="right" align="end" className="w-56">
-                <DropdownMenuItem
-                    render={todayMenuLinkItem(statusPageUrl, { external: true })}
-                    description={
-                        statusText && <span className={SEVERITY_TEXT_CLASS[statusSeverity]}>{statusText}</span>
-                    }
-                    data-attr="more-menu-status-button"
+            <PopoverContent side="right" align="end" className="w-auto p-0 py-3">
+                <div
+                    className="flex flex-col items-center gap-3"
+                    // The rail's width, so each tile takes the size it has on the rail.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: TODAY_RAIL_WIDTH }}
+                    onClickCapture={() => setOpen(false)}
                 >
-                    Status page
-                    <IconExternal data-icon="inline-end" className="ms-auto" />
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    render={todayMenuLinkItem(urls.health())}
-                    description={
-                        healthText && (
-                            <span className={SEVERITY_TEXT_CLASS[healthSeverity === 'ok' ? 'none' : healthSeverity]}>
-                                {healthText}
-                            </span>
-                        )
-                    }
-                    data-attr="more-menu-health-button"
-                >
-                    Health
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    render={todayMenuLinkItem('https://posthog.com/changelog', { external: true })}
-                    data-attr="more-menu-changelog-button"
-                >
-                    Changelog
-                    <IconExternal data-icon="inline-end" className="ms-auto" />
-                </DropdownMenuItem>
-                <DropdownMenuItem render={todayMenuLinkItem(urls.exports())} data-attr="more-menu-exports-button">
-                    Exports
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+                    {overflowPanes.map(renderTile)}
+                </div>
+            </PopoverContent>
+        </Popover>
     )
 }

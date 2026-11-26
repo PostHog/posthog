@@ -27,7 +27,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
-from rest_framework.relations import ManyRelatedField
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
@@ -41,9 +41,10 @@ from posthog.api.cohort import (
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, TaggedItem, User
+from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import mute_selected_signals
@@ -58,12 +59,15 @@ from posthog.test.persons import (
 )
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.api import experiment_flag_ids
 from products.experiments.backend.facade.testing import create_experiment, update_experiment
 from products.feature_flags.backend.api.feature_flag import (
@@ -85,6 +89,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.person_sampling import SPILL_GROUP_BY_AFTER_BYTES
 from products.feature_flags.backend.realtime_targeting import REALTIME_COHORT_FLAG_TARGETING_FLAG
 from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
 from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
@@ -758,10 +763,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -842,9 +849,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("false", False),
         ]
     )
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_boolean_early_exit_accepted(self, _name, value, mock_feature_enabled):
-        mock_feature_enabled.return_value = True
+    def test_boolean_early_exit_accepted(self, _name, value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -860,59 +865,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key=f"early-exit-{_name}", team=self.team)
         self.assertEqual(flag.filters["early_exit"], value)
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_rejected_without_feature_flag(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Early exit gated",
-                "key": "early-exit-gated",
-                "filters": {
-                    "early_exit": True,
-                    "groups": [{"rollout_percentage": 100}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("early_exit is not available", response.json()["detail"])
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_false_accepted_without_feature_flag(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Early exit off",
-                "key": "early-exit-off",
-                "filters": {
-                    "early_exit": False,
-                    "groups": [{"rollout_percentage": 100}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_unchanged_truthy_allowed_when_flag_disabled(self, mock_feature_enabled):
-        # A flag created while the feature was enabled keeps working if access is later revoked,
-        # as long as the PATCH doesn't newly turn early_exit on.
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="early-exit-existing",
-            filters={"early_exit": True, "groups": [{"rollout_percentage": 100}]},
-        )
-        mock_feature_enabled.return_value = False
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            data={"filters": {"early_exit": True, "groups": [{"rollout_percentage": 50}]}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_null_early_exit_accepted(self):
         response = self.client.post(
@@ -1109,10 +1061,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [50],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -1168,10 +1122,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [None],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -1404,22 +1360,37 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "feature-with-analytics-dashboards")
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
+    @parameterized.expand([("another_teams_dashboard",), ("soft_deleted_dashboard",), ("unknown_id",)])
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
-        other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
-        other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
+    def test_create_feature_flag_rejects_dashboard_the_team_cannot_link(self, case: str, mock_report_user_action):
+        if case == "unknown_id":
+            dashboard_id = 9_999_999
+        else:
+            other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
+            dashboard_id = Dashboard.objects.create(
+                team=other_team if case == "another_teams_dashboard" else self.team,
+                name="unusable dashboard",
+                created_by=self.user,
+                deleted=case == "soft_deleted_dashboard",
+            ).pk
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "key": "flag-with-other-dashboard",
-                "analytics_dashboards": [other_dashboard.pk],
+                "key": "flag-with-unusable-dashboard",
+                "analytics_dashboards": [dashboard_id],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "analytics_dashboards")
-        self.assertIn("does not exist", response.json()["detail"])
+        self.assertEqual(
+            {key: response.json()[key] for key in ("attr", "code", "detail")},
+            {
+                "attr": "analytics_dashboards",
+                "code": "does_not_exist",
+                "detail": f'Invalid pk "{dashboard_id}" - object does not exist.',
+            },
+        )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
@@ -1446,17 +1417,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["attr"], "analytics_dashboards")
         self.assertIn("does not exist", response.json()["detail"])
 
-    def test_serializer_without_team_context_returns_empty_dashboard_queryset(self):
-        """When team_id is missing from context, analytics_dashboards should allow nothing (fail safe)."""
-        Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+    def test_serializer_without_team_context_rejects_every_dashboard(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+        analytics_field = FeatureFlagSerializer(context={}).fields["analytics_dashboards"]
 
-        # Instantiate serializer WITHOUT team_id in context
-        serializer = FeatureFlagSerializer(context={})
-        fields = serializer.get_fields()
+        with self.assertRaises(ValidationError) as error:
+            analytics_field.run_validation([dashboard.pk])
 
-        # The queryset should be empty (fail safe to prevent IDOR)
-        analytics_field = cast(ManyRelatedField, fields["analytics_dashboards"])
-        self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
+        self.assertEqual(error.exception.get_codes(), ["does_not_exist"])
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):
@@ -1567,11 +1535,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": True,
                 "variants_count": 3,
                 "has_filters": False,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [None],
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
@@ -1871,10 +1841,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag updated",
             {
+                "feature_flag_id": flag_id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
@@ -2313,49 +2285,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
-    @parameterized.expand(
-        [
-            ("legacy_verifiers_on", True),
-            # With the verifiers off, only the mirror row the rotation minted authenticates the token.
-            ("legacy_verifiers_off", False),
-        ]
-    )
-    def test_remote_config_with_project_secret_api_key(self, _name, accept_team_secret_tokens):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="my-remote-config-flag",
-            name="Remote Config Flag",
-            active=True,
-            filters={
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                "payloads": {"true": '{"test": true}'},
-            },
-            is_remote_configuration=True,
-        )
-        self.client.logout()
-        with self.settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), '{"test": true}')
-
-    def test_get_remote_config_with_secret_api_token_of_second_environment(self):
+    def test_get_remote_config_with_secret_api_key_of_second_environment(self):
         environment = Team.objects.create(organization=self.organization, project=self.team.project)
-        environment.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        env_token, _ = _make_feature_flag_psak(environment, label="env2")
         self._create_remote_config_flag()
         self.client.logout()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config?token={environment.api_token}",
-            headers={"authorization": f"Bearer {environment.secret_api_token}"},
+            headers={"authorization": f"Bearer {env_token}"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2464,7 +2402,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_remote_config_returns_response_even_if_shadow_raises(self):
         # The throwaway Rust shadow (phase 2) must never break the live endpoint, even if it raises.
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="shadow")
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
@@ -2483,7 +2421,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ) as shadow:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                headers={"authorization": f"Bearer {secret_token}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -2534,7 +2472,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     # which must replicate both.
     @parameterized.expand(
         [
-            ("project_secret_key", False),
             ("personal_api_key", True),
             ("psak", False),
         ]
@@ -2549,13 +2486,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             PersonalAPIKey.objects.create(
                 label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
             )
-        elif _name == "psak":
-            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
         else:
-            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-            secret_token = self.team.secret_api_token
-            assert secret_token is not None
-            auth_token = secret_token
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
 
         self.client.logout()
         response = self.client.get(
@@ -2565,11 +2497,79 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
 
+    @parameterized.expand([("plaintext", False), ("encrypted", True)])
+    def test_remote_config_returns_no_payload_for_disabled_flag(self, _name: str, encrypted: bool):
+        plaintext = '{"cap": 200}'
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="disabled-remote-config-flag",
+            active=False,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {
+                    "true": flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+                    if encrypted
+                    else plaintext
+                },
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=encrypted,
+        )
+        auth_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token))
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/disabled-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertEqual(response.content, b"null")
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", True, "198.51.100.7", status.HTTP_403_FORBIDDEN),
+            ("personal_api_key_allowed", True, "203.0.113.7", status.HTTP_200_OK),
+            ("psak", False, "198.51.100.7", status.HTTP_200_OK),
+            ("session", False, "198.51.100.7", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_remote_config_ip_restrictions(self, _name: str, should_decrypt: bool, ip: str, expected_status: int):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        cache.clear()
+        plaintext = '{"secret": "value"}'
+        token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        self._create_encrypted_flag(stored_payload=token)
+
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+        elif _name == "session":
+            auth_token = None
+        else:
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"} if auth_token else {},
+            REMOTE_ADDR=ip,
+        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
+
     @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(
         self, _name: str, has_encrypted_payloads: bool
     ):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="bucket")
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
@@ -2592,7 +2592,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(3):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                    headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                    headers={"authorization": f"Bearer {secret_token}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2603,7 +2603,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     def test_remote_config_does_not_count_when_flag_is_not_remote_config(self):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="notrc")
         FeatureFlag.objects.create(
             team=self.team,
             key="not-a-remote-config-flag",
@@ -2619,7 +2619,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/not-a-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
@@ -2650,13 +2650,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
         # Create two teams with different secret keys
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="thisteam")
         other_team = Team.objects.create(
             organization=self.organization,
             api_token="phc_other_team_token",
             name="Other Team",
         )
-        other_team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        _make_feature_flag_psak(other_team, label="otherteam")
 
         # Create a flag in the other team
         FeatureFlag.objects.create(
@@ -2681,7 +2681,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Try to access other team's flag using this team's secret key + other team's project_api_key in body
         response = self.client.get(
             f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
 
         # Should be forbidden due to team mismatch
@@ -3258,10 +3258,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag updated",
             {
+                "feature_flag_id": flag_id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
@@ -4552,6 +4554,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert {flag["key"] for flag in response.json()["results"]} == expected_keys
         assert response.json()["count"] == len(expected_keys)
 
+    def test_list_ids_returns_exactly_the_requested_flags(self):
+        listed = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="listed-flag")
+        archived = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        deleted = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrequested-flag")
+
+        ids = ",".join(str(flag.id) for flag in (listed, archived, deleted))
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ids={ids}&search=nothing")
+
+        assert response.status_code == 200, response.json()
+        assert {flag["key"] for flag in response.json()["results"]} == {"listed-flag", "archived-flag"}
+
+    def test_list_ids_rejects_more_than_the_limit(self):
+        ids = ",".join(str(flag_id) for flag_id in range(1, 202))
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ids={ids}")
+
+        assert response.status_code == 400
+
     def test_list_excluded_tags_filtering(self):
         for key, tags in [
             ("deprecated-flag", ["deprecated"]),
@@ -4672,7 +4694,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         create_flag_targeting_a_new_cohort(0)
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4680,7 +4702,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             create_flag_targeting_a_new_cohort(i)
 
         # Query count should stay constant regardless of flag and cohort count (no N+1)
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4704,7 +4726,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -4743,7 +4765,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Capture query count with 5 flags
-        with self.assertNumQueries(FuzzyInt(17, 21)):
+        with self.assertNumQueries(FuzzyInt(15, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 5)
@@ -4767,7 +4789,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Query count should remain similar (not scale linearly with flag count)
-        with self.assertNumQueries(FuzzyInt(17, 20)):
+        with self.assertNumQueries(FuzzyInt(15, 18)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 30)
@@ -5909,8 +5931,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 status.HTTP_400_BAD_REQUEST,
                 "has an event-based condition",
             ),
+            (
+                "realtime_off",
+                CohortType.REALTIME,
+                True,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "Realtime is off for cohort",
+            ),
         ]
     )
+    # The env list is the one source of access where the rollout flag still decides.
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     @patch("products.feature_flags.backend.realtime_targeting.feature_enabled_or_false")
     @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_behavioral_cohort_flag_validation(
@@ -5957,6 +5989,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         }
         if cohort_type is not None:
             cohort_kwargs["cohort_type"] = cohort_type
+        if cohort_type == CohortType.REALTIME and _name != "realtime_off":
+            cohort_kwargs["realtime_enabled_at"] = datetime.now(tz=UTC)
         if is_backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
             cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)
@@ -6647,7 +6681,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             created_by=self.user,
             key="purple_button",
-            filters={"multivariate": {"variants": [{"foo": "bar"}]}},
+            filters={"multivariate": {"variants": [{"key": "purple", "rollout_percentage": 100}]}},
         )
 
         filtered_flags_list_boolean = self.client.get(f"/api/projects/@current/feature_flags?type=boolean")
@@ -7680,7 +7714,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # experiment_set should include both experiments
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
-        assert response.json()["experiment_set"] == [experiment_id, experiment2_id]
+        assert sorted(response.json()["experiment_set"]) == sorted([experiment_id, experiment2_id])
 
         # Delete the active experiments
         update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
@@ -9550,16 +9584,23 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
-    def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
+    def test_persons_seen_so_far_pins_v1_and_bounds_memory(self):
         team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
         for i in range(3):
             _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
 
+        def assert_memory_bounded(query: str) -> None:
+            query_settings = query.rsplit("SETTINGS", 1)[-1]
+            assert "optimize_aggregation_in_order=1" in query_settings
+            assert f"max_bytes_before_external_group_by={SPILL_GROUP_BY_AFTER_BYTES}" in query_settings
+            assert "timeout_overflow_mode='throw'" in query_settings
+
         with self.capture_select_queries() as queries:
-            assert team.count_persons_seen_so_far() == 3
+            assert get_user_blast_radius(team, {"properties": []}).total == 3
 
         assert queries
         for query in queries:
+            assert_memory_bounded(query)
             # A truncated start of the v2 dedup semi-join, on purpose. The expression continues
             # with a subquery, so a balanced paren would build a string that never occurs and
             # the assertion would always pass.
@@ -9576,7 +9617,11 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (result.affected, result.total) == (1, 3)
         assert create_for_spy.call_count == 1
-        denominator_queries = [query for query in queries if "count(DISTINCT" not in query]
+        person_count_queries = [query for query in queries if "argMax(person.is_deleted" in query]
+        assert len(person_count_queries) == 2
+        for query in person_count_queries:
+            assert_memory_bounded(query)
+        denominator_queries = [query for query in person_count_queries if "count(DISTINCT" not in query]
         assert denominator_queries
         for query in denominator_queries:
             assert "in(tuple(person.id, person.version)" not in query
@@ -9621,17 +9666,65 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
             )
 
-    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
+    @parameterized.expand(
+        [
+            (
+                "event_property",
+                [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}], "isn't supported in release conditions"),
+            (
+                "nested_hogql_expression",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]},
+                "isn't supported in release conditions",
+            ),
+            (
+                "unknown_type",
+                [{"key": "x", "type": "bogus", "value": "y", "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "hogql_expression_with_values_key",
+                [{"key": "1 = 1", "type": "hogql", "values": []}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "legacy_dict_shaped_like_a_person_property",
+                {"key": "email", "type": "person", "value": "a"},
+                "isn't supported in release conditions",
+            ),
+            ("missing_type", [{"key": "x", "value": "y"}], "needs a type"),
+            ("list_type", [{"key": "x", "type": ["person"], "value": "y"}], "needs a type"),
+            ("non_dict_item", ["not-a-property"], "needs a type"),
+            (
+                "nested_hogql_expression_with_values_key",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql", "values": []}]},
+                "is not a valid PropertyOperatorType",
+            ),
+        ]
+    )
+    def test_user_blast_radius_endpoint_rejects_unsupported_property_types(self, _name, properties, detail_fragment):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
-                }
-            },
+            {"condition": {"properties": properties}},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertIn(detail_fragment, response.json()["detail"])
+
+    def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
+        for i in range(3):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        self.team.test_account_filters = [{"key": "1 = 0", "type": "hogql"}]
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": {"properties": [], "filter_test_accounts": True}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 3, "total": 3}.items(), response.json().items())
 
     @parameterized.expand(
         [
@@ -14482,25 +14575,6 @@ class TestFeatureFlagLimits(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
 
-    def test_product_tour_creation_blocked_when_at_flag_limit(self):
-        """Product tour creation with auto_launch should fail when team is at the flag limit."""
-        self._create_flag("flag-1")
-        self._create_flag("flag-2")
-
-        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/product_tours",
-                {
-                    "name": "Test Product Tour",
-                    "auto_launch": True,
-                    "content": {"steps": []},
-                },
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Maximum of 2 feature flags allowed per team" in str(response.json())
-
     @parameterized.expand(
         [
             ("override_raises_the_limit", 3, status.HTTP_201_CREATED, None),
@@ -15548,6 +15622,205 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         # Should only include 'email' since that's referenced in the flag, not 'name' or 'age'
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
+
+    @parameterized.expand(
+        [
+            ("restricted_member", False, False, 0),
+            ("restricted_member_at_timestamp", False, True, 0),
+            ("member_with_read_access", True, False, 0),
+            ("group_restriction_on_other_group_type", False, False, 1),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_applies_property_access_control(
+        self, _name, can_read, at_timestamp, restricted_group_type_index, mock_get_flags, mock_build_props
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        restricted_definitions = [
+            PropertyDefinition.objects.create(
+                team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+            ),
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name="industry",
+                property_type="String",
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=restricted_group_type_index,
+            ),
+        ]
+        for definition in restricted_definitions:
+            create_property_access_control(
+                team_id=self.team.pk,
+                property_definition_id=definition.id,
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+            if can_read:
+                create_property_access_control(
+                    team_id=self.team.pk,
+                    property_definition_id=definition.id,
+                    access_level=PropertyAccessLevel.READ.value,
+                    organization_member_id=self.organization_membership.id,
+                )
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@example.com"},
+                            {"key": "plan", "type": "person", "value": "pro"},
+                            {"key": "industry", "type": "group", "group_type_index": 0, "value": "retail"},
+                        ]
+                    },
+                    {
+                        "aggregation_group_type_index": 0,
+                        "properties": [{"key": "industry", "type": "group", "value": "retail"}],
+                    },
+                ]
+            },
+        )
+        properties = {"email": "test@example.com", "plan": "pro"}
+        conditions_values = [
+            [*(("person", key, value) for key, value in properties.items()), ("group", "industry", "retail")],
+            [("group", "industry", "retail")],
+        ]
+        create_person(team=self.team, distinct_ids=["test-user"], properties=properties)
+        mock_build_props.return_value = properties
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {},
+                    "conditions": [
+                        {
+                            "index": index,
+                            "matched": index == 0,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [
+                                {
+                                    "key": key,
+                                    "operator": "exact",
+                                    "value": value,
+                                    "type": prop_type,
+                                    "actual_value": value,
+                                    "matched": True,
+                                    "explanation": f"Property '{key}' matched",
+                                }
+                                for prop_type, key, value in condition_values
+                            ],
+                        }
+                        for index, condition_values in enumerate(conditions_values)
+                    ],
+                }
+            }
+        }
+
+        body: dict[str, Any] = {"distinct_id": "test-user", "groups": {"organization": "acme"}}
+        if at_timestamp:
+            body["timestamp"] = datetime.now(UTC).isoformat()
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(mock_get_flags.call_args.kwargs["person_properties"], properties)
+        self.assertEqual((data["result"], data["reason"], data["condition_index"]), (True, "condition_match", 0))
+        visible = properties if can_read else {"plan": "pro"}
+        self.assertEqual(data["person_properties"], visible)
+        group_visible = can_read or restricted_group_type_index != 0
+        self.assertEqual(
+            {prop["key"]: prop["actual_value"] for prop in data["conditions"][0]["properties"]},
+            {
+                "email": "test@example.com" if can_read else None,
+                "plan": "pro",
+                "industry": "retail" if group_visible else None,
+            },
+        )
+        self.assertEqual(
+            [prop["actual_value"] for prop in data["conditions"][1]["properties"]],
+            ["retail" if group_visible else None],
+        )
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_applies_nested_property_rule(self, mock_get_flags):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="profile.tax_id", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk, property_definition_id=definition.id, access_level=PropertyAccessLevel.NONE.value
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "profile", "type": "person", "value": "x", "operator": "icontains"}]}
+                ]
+            },
+        )
+        create_person(
+            team=self.team, distinct_ids=["test-user"], properties={"profile": {"tax_id": "T-1", "plan": "pro"}}
+        )
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {},
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [
+                                {
+                                    "key": "profile",
+                                    "operator": "icontains",
+                                    "value": "x",
+                                    "type": "person",
+                                    "actual_value": {"tax_id": "T-1", "plan": "pro"},
+                                    "matched": True,
+                                    "explanation": "Property 'profile' matched",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["person_properties"], {"profile": {"plan": "pro"}})
+        self.assertIsNone(data["conditions"][0]["properties"][0]["actual_value"])
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")

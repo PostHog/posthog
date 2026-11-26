@@ -23,8 +23,20 @@ from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
+from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
+
 if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
+
+
+class PersonAccount(TypedDict):
+    id: str
+    name: str
+
+
+class PersonAccounts(TypedDict):
+    person_id: str
+    accounts: list[PersonAccount]
 
 
 class AccountPersonsPropertyAccessError(Exception):
@@ -60,6 +72,18 @@ class AccountPersonsPage:
     offset: int
     has_more: bool
     next_offset: int | None
+
+
+@frozen
+class AccountAutomation:
+    workflow_id: str
+    workflow_name: str
+    invocation_id: str
+    status: str
+    triggered_at: datetime
+    last_completed_step_at: datetime | None
+    expected_resume_at: datetime | None
+    last_completed_step_name: str | None = None
 
 
 class InvalidCustomPropertyOptions(ValueError):
@@ -132,8 +156,40 @@ class AccountDetailTabsConfig:
 
 
 @dataclass(frozen=True)
+class PinnedAccountPropertiesRole:
+    id: UUID
+    name: str
+
+
+PinnedAccountPropertiesSourceKindValue = Literal["personal", "role", "project"]
+
+
+@dataclass(frozen=True)
+class PinnedAccountPropertiesSource:
+    kind: PinnedAccountPropertiesSourceKindValue = "personal"
+    roles: list[PinnedAccountPropertiesRole] = field(default_factory=list)
+
+
+DefaultPinnedAccountPropertiesSourceKindValue = Literal["project", "role"]
+
+
+@dataclass(frozen=True)
+class DefaultPinnedAccountPropertiesSource:
+    kind: DefaultPinnedAccountPropertiesSourceKindValue
+    role: PinnedAccountPropertiesRole | None = None
+
+
+@dataclass(frozen=True)
+class AvailableDefaultPinnedAccountProperties:
+    source: DefaultPinnedAccountPropertiesSource
+    pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+    pinned_properties_source: PinnedAccountPropertiesSource = field(default_factory=PinnedAccountPropertiesSource)
+    available_default_pinned_properties: list[AvailableDefaultPinnedAccountProperties] = field(default_factory=list)
     task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
     account_detail_tabs: AccountDetailTabsConfig = field(default_factory=AccountDetailTabsConfig)
 
@@ -1196,6 +1252,7 @@ class CustomPropertySourceView:
     key_column: str = ""
     column_property_map: dict | None = None
     column_descriptions: dict | None = None
+    missing_row_behavior: str = WarehousePersonPropertyMissingRowBehavior.KEEP.value
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
@@ -1239,6 +1296,7 @@ class CustomPropertySyncRunView:
     changed: int = 0
     existing: int = 0
     produced: int = 0
+    removed: int = 0
     skipped_missing_person: int = 0
     error: str | None = None
     created_at: datetime | None = None
@@ -1261,6 +1319,7 @@ class AccountNotebookView:
     created_by: UserBasicInfo | None = None
     last_modified_at: datetime | None = None
     last_modified_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1276,6 +1335,7 @@ class AccountNoteView:
     account_id: UUID
     account_name: str
     created_by: UserBasicInfo | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 # --- Presentation wave: input contracts for the CRUD write paths ---
@@ -1336,6 +1396,14 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+    tags: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class UpdateAccountNotebookInput:
+    """Validated body for a partial update of an account notebook. ``None`` leaves the tags untouched."""
+
+    tags: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -1348,6 +1416,17 @@ class CustomPropertyValue:
     value: float | bool | str | datetime | None
     created_at: datetime
     created_by_id: int | None
+
+
+@dataclass(frozen=True)
+class CustomPropertyValueHistoryEntry:
+    """One value an account held for a custom property, and when it held it."""
+
+    value: float | bool | str | datetime | None
+    set_at: datetime
+    set_by_id: int | None
+    replaced_at: datetime | None
+    is_current: bool
 
 
 class ExternalAccountCustomPropertiesError(Enum):
@@ -1472,6 +1551,10 @@ class CustomerTaskArchived(Exception):
     pass
 
 
+class CustomerTaskTagLimitExceeded(Exception):
+    pass
+
+
 class CustomerTaskAccessDenied(Exception):
     pass
 
@@ -1511,6 +1594,7 @@ class CustomerTaskView:
     updated_at: datetime
     can_edit: bool
     can_restore: bool
+    tags: list[str]
 
 
 @stdlib_dataclass(frozen=True)
@@ -1541,6 +1625,7 @@ class CustomerTaskListFilters:
     due_before: datetime | None = None
     has_due_at: bool | None = None
     ordering: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1551,6 +1636,7 @@ class CreateCustomerTaskInput:
     assigned_to_id: int | None = None
     due_at: datetime | None = None
     status: str = "open"
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1567,6 +1653,9 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+    tags: tuple[str, ...] = ()
+    tags_provided: bool = False
+    tags_mode: str = "set"
 
 
 @dataclass(frozen=True)

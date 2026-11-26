@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { EventDefinitionType } from '~/types'
+import { EventDefinition, EventDefinitionType } from '~/types'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
@@ -117,7 +117,15 @@ describe('eventDefinitionsTableLogic', () => {
                             200,
                             {
                                 results: [
-                                    { ...mockEvent, properties: { ...mockEvent.properties, $browser: 'Chrome' } },
+                                    {
+                                        ...mockEvent,
+                                        properties: {
+                                            ...mockEvent.properties,
+                                            $browser: 'Chrome',
+                                            prop1: { plan: 'scale', seats: [1, 2] },
+                                            purchase_value: 'x'.repeat(300),
+                                        },
+                                    },
                                 ],
                                 next: null,
                             },
@@ -282,6 +290,36 @@ describe('eventDefinitionsTableLogic', () => {
                 })
             expect(api.get).toHaveBeenCalledTimes(2)
         })
+
+        it('bulk verify clears hidden and a scheduled delete, like the server', async () => {
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            const key = logic.values.eventDefinitions.current as string
+            const [verifiedRow, unverifiedRow] = logic.values.eventDefinitions.results
+            const scheduled = { hidden: true, scheduled_deletion_at: '2026-03-31T14:00:00Z' }
+            logic.cache.apiCache[key] = {
+                ...logic.cache.apiCache[key],
+                results: logic.cache.apiCache[key].results.map((d: EventDefinition) =>
+                    d.id === verifiedRow.id || d.id === unverifiedRow.id ? { ...d, ...scheduled } : d
+                ),
+            }
+            logic.cache.bulkVerifiedCacheKey = key
+
+            logic.actions.applyBulkVerifiedUpdates([
+                { id: verifiedRow.id, verified: true },
+                { id: unverifiedRow.id, verified: false },
+            ])
+
+            const results = logic.values.eventDefinitions.results
+            expect(results.find((d) => d.id === verifiedRow.id)).toMatchObject({
+                verified: true,
+                hidden: false,
+                scheduled_deletion_at: null,
+            })
+            // Unverifying leaves the event hidden, so its delete stays scheduled
+            expect(results.find((d) => d.id === unverifiedRow.id)).toMatchObject({ verified: false, ...scheduled })
+        })
     })
 
     describe('property definitions', () => {
@@ -364,14 +402,14 @@ describe('eventDefinitionsTableLogic', () => {
                         [eventDefinition.id]: partial({
                             count: 5,
                             previous: null,
-                            results: mockEventPropertyDefinitions.slice(0, 5).map((prop) =>
-                                prop.name === '$browser'
-                                    ? {
-                                          ...prop,
-                                          example: 'Chrome',
-                                      }
-                                    : prop
-                            ),
+                            results: mockEventPropertyDefinitions.slice(0, 5).map((prop) => {
+                                const examples: Record<string, string> = {
+                                    $browser: '"Chrome"',
+                                    prop1: '{"plan":"scale","seats":[1,2]}',
+                                    purchase_value: `"${'x'.repeat(198)}...`,
+                                }
+                                return prop.name in examples ? { ...prop, example: examples[prop.name] } : prop
+                            }),
                             next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
                         }),
                     }),

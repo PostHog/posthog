@@ -15,9 +15,8 @@ import logging
 import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
-from typing import Any, Final, Generic, TypeVar
+from typing import Any, Final, TypeVar
 
-from django.db import models
 from django.db.models import BooleanField, Case, Count, F, Max, Prefetch, Q, QuerySet, Value, When
 from django.utils import timezone
 
@@ -41,6 +40,30 @@ from posthog.models.team.production_event_activation import MOBILE_SIDE_LIBS, SE
 from posthog.models.team.team import Team
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
+from products.experiments.backend.facade.contracts import (
+    CandidateMetric,
+    ExperimentOutcome,
+    ExperimentSetupContext,
+    FunnelBaselineStats,
+    LibActivity,
+    LibReach,
+    MeanCountBaselineStats,
+    PreviousExperiment,
+    PreviousExperiments,
+    PreviousExperimentsSummary,
+    PreviousExperimentState,
+    SdkLibCategory,
+    SdkLibProfile,
+    SdkProfile,
+    SetupContextInputs,
+    SetupContextSection,
+    SetupContextSectionData,
+    SetupContextSectionStatus,
+    SharedMetrics,
+    SharedMetricUsage,
+    TargetSurface,
+    TeamDefaults,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -65,40 +88,22 @@ from products.experiments.backend.metric_utils import (
     filter_metric_group_ids_by_event,
     resolve_action_events,
 )
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+    get_experiment_rule,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.variant_distribution import is_evenly_distributed
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
-EXPERIMENT_SETUP_CONTEXT_FLAG: Final = "experiment-setup-context"
-
-
-class SetupContextSectionStatus(models.TextChoices):
-    OK = "ok"
-    SKIPPED = "skipped"
-    TIMED_OUT = "timed_out"
-    ERROR = "error"
-
-
-class SdkLibCategory(models.TextChoices):
-    WEB = "web"
-    MOBILE = "mobile"
-    SERVER = "server"
-    OTHER = "other"
-
-
-class PreviousExperimentState(models.TextChoices):
-    """Every value `Experiment.status_label` can return, which is what this section reports."""
-
-    DRAFT = "draft"
-    RUNNING = "running"
-    PAUSED = "paused"
-    EXPOSURE_FROZEN = "exposure_frozen"
-    STOPPED = "stopped"
-
+SectionData = TypeVar("SectionData", bound=SetupContextSectionData)
 
 WEB_LIB: Final = "web"
 # The borrowed sets are short because their own heuristic can afford a false negative. Here a lib
@@ -128,15 +133,7 @@ SDK_PROFILE_WINDOW_DAYS: Final = 7
 SDK_ANY_EVENT_WINDOW_DAYS: Final = 1
 TARGET_WINDOW_DAYS: Final = 14
 SDK_PROFILE_MAX_LIBS: Final = 10
-# The event properties that the SDK profile's queries read. Keep it in step with `_compute_sdk_profile` and
-# `_libs_on_any_event`: `build_project_setup_facts` skips the profile for a reader denied one of them.
-SDK_PROFILE_PROPERTIES: Final[frozenset[str]] = frozenset(
-    {"$feature_flag", "$feature_flag_response", "$lib", "locally_evaluated", "$device_id", "$is_identified"}
-)
 TARGET_SURFACE_MAX_LIBS: Final = 5
-DEFAULT_LIST_LIMIT: Final = 10
-MAX_LIST_LIMIT: Final = 25
-MAX_PROPERTY_FILTERS: Final = 10
 
 # A retention result counts the units that did the start event, and ratio samples are not
 # exposures either, so a stored sample count is the analyzed population only for these types.
@@ -169,283 +166,8 @@ def classify_lib(lib: str | None) -> SdkLibCategory:
     return SdkLibCategory.OTHER
 
 
-@frozen
-class SetupContextInputs:
-    target_event: str | None = None
-    target_url_contains: str | None = None
-    # Tuples so the frozen dataclass carries no shared mutable default.
-    target_properties: tuple[dict[str, Any], ...] = ()
-    metric_event: str | None = None
-    metric_properties: tuple[dict[str, Any], ...] = ()
-    previous_experiments_limit: int = DEFAULT_LIST_LIMIT
-    shared_metrics_limit: int = DEFAULT_LIST_LIMIT
-
-    def __post_init__(self) -> None:
-        if self.target_url_contains and self.target_event != "$pageview":
-            raise ValueError("target_url_contains needs target_event to be $pageview")
-        if self.target_properties and not self.target_event:
-            raise ValueError("target_properties needs target_event")
-        if self.metric_properties and not self.metric_event:
-            raise ValueError("metric_properties needs metric_event")
-        for filters in (self.target_properties, self.metric_properties):
-            if len(filters) > MAX_PROPERTY_FILTERS:
-                raise ValueError(f"pass at most {MAX_PROPERTY_FILTERS} property filters")
-        # The same event on both sides makes every person who reached the surface a converter, so
-        # the baseline would always be 1.0 and tell the caller nothing.
-        if self.metric_event and self.metric_event == self.target_event:
-            raise ValueError("metric_event must differ from target_event")
-        for limit in (self.previous_experiments_limit, self.shared_metrics_limit):
-            if not 1 <= limit <= MAX_LIST_LIMIT:
-                raise ValueError(f"list limits must be between 1 and {MAX_LIST_LIMIT}")
-
-
-@frozen
-class SetupContextSection(Generic[T]):
-    status: SetupContextSectionStatus
-    data: T | None = None
-
-
-@frozen
-class TeamDefaults:
-    stats_method: str | None
-    confidence_level: float | None
-    minimum_detectable_effect: int | None
-    product_default_minimum_detectable_effect: int
-    product_default_stats_method: str
-    product_default_confidence_level: float
-    only_count_matured_users: bool
-    cuped_enabled: bool
-    sequential_testing_enabled: bool
-    flags_persistence_default: bool
-    test_account_filter_count: int
-    new_experiments_filter_test_accounts: bool
-    default_exposure_event: str
-
-
-@frozen
-class SdkLibProfile:
-    lib: str | None
-    category: SdkLibCategory
-    calls: int
-    distinct_ids: int
-    device_id_share: float
-    # None when no call from this SDK carried the property at all, so a 0 is never mistaken for a
-    # fact. Derived from what the rows carry rather than from the SDK's name, because the name
-    # lists are incomplete and each SDK decides for itself what it sends.
-    locally_evaluated_share: float | None
-    anonymous_share: float | None
-
-
-@frozen
-class LibActivity:
-    lib: str | None
-    category: SdkLibCategory
-    events: int
-    distinct_ids: int
-
-
-@frozen
-class SdkProfile:
-    window_days: int
-    source_event: str
-    computed_at: datetime
-    libs: list[SdkLibProfile]
-    libs_truncated: bool
-    flags_seen: int
-    flags_evaluated_on_server_and_web: int
-    evaluated_on_server_and_web: bool
-    libs_on_any_event: list[LibActivity] | None
-    libs_on_any_event_truncated: bool
-
-
-@frozen
-class LibReach:
-    lib: str | None
-    category: SdkLibCategory
-    unique_persons: int
-    anonymous_share: float | None
-    device_id_share: float
-
-
-@frozen
-class TargetSurface:
-    window_days: int
-    source_event: str
-    target_url_contains: str | None
-    target_properties: list[dict[str, Any]]
-    computed_at: datetime
-    test_accounts_filtered: bool
-    unique_persons: int
-    exposures_per_day_estimate: float
-    libs: list[LibReach]
-    libs_truncated: bool
-    anonymous_share: float | None
-    device_id_share: float | None
-
-
-@frozen
-class FunnelBaselineStats:
-    number_of_samples: int
-    # The calculator's input contract requires `sum` on every baseline, so the funnel carries it too.
-    sum: float
-    step_counts: list[float]
-
-
-@frozen
-class MeanCountBaselineStats:
-    number_of_samples: int
-    sum: float
-    sum_squares: float
-
-
-@frozen
-class CandidateMetric:
-    window_days: int
-    source_event: str
-    metric_properties: list[dict[str, Any]]
-    target_event: str | None
-    computed_at: datetime
-    test_accounts_filtered: bool
-    persons_reached: int | None = None
-    persons_converted: int | None = None
-    conversion_rate: float | None = None
-    funnel_baseline_stats: FunnelBaselineStats | None = None
-    mean_count_baseline_stats: MeanCountBaselineStats | None = None
-    note: str | None = None
-    event_volume: int | None = None
-    unique_persons: int | None = None
-
-
-@frozen
-class ExperimentOutcome:
-    metric_type: str
-    # None when the stored result carries no sample counts at all, which must not read as a zero:
-    # "the experiment analyzed nobody" is the signal this section exists to surface.
-    metric_samples: int | None
-    analyzed_exposures: int | None
-    control_baseline_value: float | None
-    any_variant_significant: bool
-    result_completed_at: datetime | None
-    result_data_through: datetime | None
-
-
-@frozen
-class PreviousExperiment:
-    id: int
-    name: str
-    state: PreviousExperimentState
-    created_at: datetime
-    start_date: datetime | None
-    end_date: datetime | None
-    conclusion: str | None
-    feature_flag_key: str
-    variant_count: int
-    split_even: bool | None
-    serving_single_variant: str | None
-    rollout_percentage: float | None
-    multiple_variant_handling: str
-    multiple_variant_handling_set: bool
-    ensure_experience_continuity: bool
-    bucketing_identifier: str
-    evaluation_runtime: str
-    group_aggregation: bool
-    custom_exposure_event: str | None
-    custom_exposure_action_id: int | None
-    exposure_property_filters: list[dict[str, Any]]
-    activation_event: str | None
-    activation_action_id: int | None
-    filter_test_accounts: bool
-    primary_metric_count: int
-    secondary_metric_count: int
-    shared_metric_count: int
-    primary_metric_types: list[str]
-    primary_metric_events: list[str]
-    primary_metric_action_ids: list[int]
-    minimum_detectable_effect: float | None
-    stats_method: str
-    has_holdout: bool
-    outcome: ExperimentOutcome | None
-
-
-@frozen
-class PreviousExperimentsSummary:
-    total: int
-    launched: int
-    launched_without_results: int
-    launched_with_unknown_analyzed_exposures: int
-    launched_with_zero_analyzed_exposures: int
-    launched_with_under_100_analyzed_exposures: int
-    using_device_id_bucketing: int
-    using_persistence: int
-    using_custom_exposure: int
-    using_exposure_property_filters: int
-    using_activation: int
-    using_uneven_split: int
-    serving_single_variant: int
-
-
-@frozen
-class PreviousExperiments:
-    experiments: list[PreviousExperiment]
-    summary: PreviousExperimentsSummary
-
-
-@frozen
-class SharedMetricUsage:
-    id: int
-    name: str
-    metric_type: str | None
-    events: list[str]
-    action_ids: list[int]
-    used_as_primary: int
-    used_as_secondary: int
-    last_used_at: datetime | None
-    matches_metric_event: bool | None
-    metric_event_roles: list[str] | None
-
-
-@frozen
-class SharedMetrics:
-    metric_event: str | None
-    metric_event_match_truncated: bool
-    metrics: list[SharedMetricUsage]
-
-
-@frozen
-class ExperimentSetupContext:
-    team_defaults: SetupContextSection[TeamDefaults]
-    sdk_profile: SetupContextSection[SdkProfile]
-    target_surface: SetupContextSection[TargetSurface]
-    candidate_metric: SetupContextSection[CandidateMetric]
-    previous_experiments: SetupContextSection[PreviousExperiments]
-    shared_metrics: SetupContextSection[SharedMetrics]
-
-
 # A skipped section never runs a provider, so the observer never hears about it.
 SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
-
-
-@frozen
-class ProjectSetupFacts:
-    """The sections of the setup context that describe the project as it is, without a planned experiment."""
-
-    team_defaults: SetupContextSection[TeamDefaults]
-    sdk_profile: SetupContextSection[SdkProfile]
-
-
-def build_project_setup_facts(
-    team: Team, *, can_query_events: bool, denied_event_properties: frozenset[str]
-) -> ProjectSetupFacts:
-    """The team's experiment defaults and its SDK profile. The SDK profile queries events across the project without
-    the reader and is cached for every reader, so it is skipped for a reader who may not query events or is denied a
-    property it reads."""
-    may_read_sdk_profile = can_query_events and not (denied_event_properties & SDK_PROFILE_PROPERTIES)
-    return ProjectSetupFacts(
-        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
-        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team))
-        if may_read_sdk_profile
-        else SetupContextSection(status=SetupContextSectionStatus.SKIPPED),
-    )
 
 
 def build_setup_context(
@@ -500,8 +222,8 @@ def build_setup_context(
 
 
 def _run_section(
-    name: str, team: Team, provider: Callable[[], T], on_section: SectionObserver | None = None
-) -> SetupContextSection[T]:
+    name: str, team: Team, provider: Callable[[], SectionData], on_section: SectionObserver | None = None
+) -> SetupContextSection[SectionData]:
     started = time.monotonic()
     section = _read_section(name, team, provider)
     if on_section is not None:
@@ -509,7 +231,7 @@ def _run_section(
     return section
 
 
-def _read_section(name: str, team: Team, provider: Callable[[], T]) -> SetupContextSection[T]:
+def _read_section(name: str, team: Team, provider: Callable[[], SectionData]) -> SetupContextSection[SectionData]:
     try:
         return SetupContextSection(status=SetupContextSectionStatus.OK, data=provider())
     except _CLICKHOUSE_TOO_EXPENSIVE:
@@ -537,7 +259,7 @@ def get_team_defaults(team: Team) -> TeamDefaults:
         flags_persistence_default=bool(team.flags_persistence_default),
         test_account_filter_count=len(test_account_filters),
         new_experiments_filter_test_accounts=bool(apply_exposure_criteria_defaults(None)["filterTestAccounts"]),
-        default_exposure_event=resolve_default_exposure_event(team, timezone.now()),
+        default_exposure_event=resolve_default_exposure_event(timezone.now()),
     )
 
 
@@ -1077,6 +799,9 @@ def _outcome_metric(experiment: Experiment, team_config: TeamExperimentsConfig) 
     that a funnel or a mean wins over a retention or a ratio: only their sample counts are the
     analyzed population, which is the fact the outcome exists to carry.
     """
+    # A warehouse-native result goes only to a reader who can read its connection, and this section has no reader.
+    if warehouse_native_exposure_config(experiment.exposure_criteria) is not None:
+        return None
     candidates = [
         OutcomeMetric(
             calculation_config=calculation_config, metric_type=str(calculation_config.definition["metric_type"])
@@ -1266,9 +991,23 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
     for experiment in rows:
         flag = experiment.feature_flag
         flag_filters = flag.filters or {}
-        variant_rollouts = [variant.get("rollout_percentage") or 0 for variant in flag.variants]
-        serving_single_variant = _serving_single_variant(flag.variants, launched=experiment.start_date is not None)
-        groups = flag_filters.get("groups") or []
+        if experiment.is_rule_linked:
+            # The rule holds what a v1 flag keeps flag-wide. A rule that cannot be read lists no split.
+            try:
+                rule = get_experiment_rule(experiment)
+            except (ExperimentRuleError, ConfigFormatError):
+                rule = None
+            flag_variants = rule.variants if rule is not None else []
+            rollout_percentage = rule.rollout_percentage if rule is not None else None
+            group_aggregation = rule is not None and rule.assign_variant_by is not None
+        else:
+            flag_variants = flag.variants
+            groups = flag_filters.get("groups") or []
+            # A release group without a rollout percentage serves everyone who matches it.
+            rollout_percentage = _group_rollout(groups[0]) if groups else None
+            group_aggregation = flag_filters.get("aggregation_group_type_index") is not None
+        variant_rollouts = [variant.get("rollout_percentage") or 0 for variant in flag_variants]
+        serving_single_variant = _serving_single_variant(flag_variants, launched=experiment.start_date is not None)
         exposure_criteria = experiment.exposure_criteria if isinstance(experiment.exposure_criteria, dict) else {}
         custom_exposure = _custom_exposure(experiment, exposure_criteria)
         links = _saved_metric_links(experiment)
@@ -1297,14 +1036,13 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
                     else is_evenly_distributed(variant_rollouts)
                 ),
                 serving_single_variant=serving_single_variant,
-                # A release group without a rollout percentage serves everyone who matches it.
-                rollout_percentage=(_group_rollout(groups[0]) if groups else None),
+                rollout_percentage=rollout_percentage,
                 multiple_variant_handling=_multiple_variant_handling(exposure_criteria),
                 multiple_variant_handling_set=bool(exposure_criteria.get("multiple_variant_handling")),
                 ensure_experience_continuity=bool(flag.ensure_experience_continuity),
                 bucketing_identifier=flag.bucketing_identifier or "distinct_id",
                 evaluation_runtime=flag.evaluation_runtime or "all",
-                group_aggregation=flag_filters.get("aggregation_group_type_index") is not None,
+                group_aggregation=group_aggregation,
                 custom_exposure_event=custom_exposure.event,
                 custom_exposure_action_id=custom_exposure.action_id,
                 exposure_property_filters=custom_exposure.property_filters,
@@ -1355,6 +1093,7 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
 # from the event is not the same precedent as a funnel that converts on it.
 _METRIC_EVENT_ROLES_BY_TYPE: Final[dict[str, tuple[tuple[str, str], ...]]] = {
     "mean": (("source", "mean_source"),),
+    "quantile": (("source", "quantile_source"),),
     "ratio": (("numerator", "ratio_numerator"), ("denominator", "ratio_denominator")),
     "retention": (("start_event", "retention_start"), ("completion_event", "retention_completion")),
 }

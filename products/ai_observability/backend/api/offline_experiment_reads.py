@@ -21,12 +21,6 @@ from posthog.permissions import get_authenticator_scopes
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
-from products.ai_observability.backend.api.offline_experiment_access import (
-    OfflineEvaluationReadBurstThrottle,
-    OfflineEvaluationReadSustainedThrottle,
-    OfflineEvaluationReadTeamBurstThrottle,
-    OfflineEvaluationReadTeamSustainedThrottle,
-)
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_read_serializers import (
     OfflineExperimentPageSerializer,
@@ -49,6 +43,12 @@ from products.ai_observability.backend.api.query import EmptyQuerySerializer
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
 from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineResultCellQuery
+from products.ai_observability.backend.presentation.throttles import (
+    OfflineEvaluationReadBurstThrottle,
+    OfflineEvaluationReadSustainedThrottle,
+    OfflineEvaluationReadTeamBurstThrottle,
+    OfflineEvaluationReadTeamSustainedThrottle,
+)
 
 OFFLINE_READ_ERRORS = Counter(
     "aio_offline_read_errors_total", "Rejected offline evaluation reads", labelnames=["outcome"]
@@ -115,7 +115,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         if query is not None and (query.scorer_definition_id or query.scorer_version_ids) and not can_read_scores:
             raise InsufficientScope(["llm_analytics:read"], detail="Scorer filters require llm_analytics:read.")
         return OfflineEvaluationReadService(
-            team_id=self.team_id, user_access_control=self.user_access_control, can_read_scores=can_read_scores
+            team_id=self.team_id, user_access_control=self.reference_access_control, can_read_scores=can_read_scores
         )
 
     def _path_id(self, name: str = "pk") -> UUID:
@@ -259,6 +259,8 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
 
 
 class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
+    psak_allowed_actions = ["history"]
+
     @validated_request(
         query_serializer=OfflineScorerHistoryQuerySerializer,
         operation_id="ai_observability_offline_scorers_history_list",

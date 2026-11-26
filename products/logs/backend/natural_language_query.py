@@ -53,7 +53,7 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 logger = structlog.get_logger(__name__)
 
 AI_PRODUCT = "logs_natural_language_search"
-PROPOSAL_MODEL = "gpt-4.1-mini"
+PROPOSAL_MODEL = "gpt-6-luna"
 PROPOSAL_TIMEOUT_SECONDS = 15
 # Five candidates with a few filters each fit well inside this. A cut-off reply fails validation.
 PROPOSAL_MAX_COMPLETION_TOKENS = 4096
@@ -230,10 +230,7 @@ def propose_candidates(
 ) -> list[_ProposedCandidate]:
     if resolve_ai_gateway_config() is None:
         raise NaturalLanguageQueryUnavailable("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
-    # The product name only routes the Python-gateway fallback, which the check above rules out.
-    client = build_openai_client(
-        "django", ai_product=AI_PRODUCT, properties={"team_id": str(team.pk)}, distinct_id=distinct_id
-    )
+    client = build_openai_client(ai_product=AI_PRODUCT, properties={"team_id": str(team.pk)}, distinct_id=distinct_id)
     user_content = json.dumps(
         {
             "now_utc": timezone.now().astimezone(ZoneInfo("UTC")).isoformat(timespec="seconds"),
@@ -249,7 +246,7 @@ def propose_candidates(
     try:
         response = client.chat.completions.create(
             model=PROPOSAL_MODEL,
-            temperature=0.2,
+            reasoning_effort="low",
             timeout=PROPOSAL_TIMEOUT_SECONDS,
             max_completion_tokens=PROPOSAL_MAX_COMPLETION_TOKENS,
             user=distinct_id,

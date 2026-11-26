@@ -69,6 +69,15 @@ const addOrUpdateEntity = <TContext extends EntityWithIdAndType>(state: TContext
 const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], id: string | number): TContext[] =>
     state.filter((item) => item.id !== id)
 
+const PICKER_GROUP_CONTEXT_TYPES: Partial<Record<TaxonomicFilterGroupType, MaxContextType>> = {
+    [TaxonomicFilterGroupType.Events]: MaxContextType.EVENT,
+    [TaxonomicFilterGroupType.Actions]: MaxContextType.ACTION,
+    [TaxonomicFilterGroupType.Insights]: MaxContextType.INSIGHT,
+    [TaxonomicFilterGroupType.Dashboards]: MaxContextType.DASHBOARD,
+    [TaxonomicFilterGroupType.Notebooks]: MaxContextType.NOTEBOOK,
+    [TaxonomicFilterGroupType.ErrorTrackingIssues]: MaxContextType.ERROR_TRACKING_ISSUE,
+}
+
 // A throw while building scene context blanks out ALL of PostHog AI's auto-collected context
 // (e.g. PostHog AI reporting it has no dashboard and falling back to search). The selector that
 // catches it runs on every read, so dedupe by message to avoid spamming when it keeps
@@ -156,7 +165,7 @@ export interface maxContextLogicActions {
     addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => {
         data: {
             id: string
-            name?: string | null | undefined
+            name?: string | null
         }
     }
     addOrUpdateContextEvaluation: (data: {
@@ -167,11 +176,11 @@ export interface maxContextLogicActions {
         name?: string | null
     }) => {
         data: {
-            description?: string | null | undefined
+            description?: string | null
             evaluation_type: EvaluationRuntime
-            hog_source?: string | null | undefined
+            hog_source?: string | null
             id: string
-            name?: string | null | undefined
+            name?: string | null
         }
     }
     addOrUpdateContextEvent: (data: EventDefinition) => {
@@ -189,7 +198,7 @@ export interface maxContextLogicActions {
     addOrUpdateContextNotebook: (data: { short_id: string; title?: string | null }) => {
         data: {
             short_id: string
-            title?: string | null | undefined
+            title?: string | null
         }
     }
     handleTaxonomicFilterChange: (
@@ -434,8 +443,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
     }),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, values }) => ({
         openContextPicker: () => {
+            posthog.capture('max context picker opened', {
+                has_page_context: values.contextOptions.length > 0,
+            })
             dashboardsModel.mount()
             dashboardsModel.actions.loadDashboardsIfNeeded()
         },
@@ -573,6 +585,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
             groupType: TaxonomicFilterGroupType
             item: TaxonomicItem
         }) => {
+            posthog.capture('max context added', {
+                group_type: groupType,
+                context_type:
+                    groupType === TaxonomicFilterGroupType.MaxAIContext
+                        ? (item as MaxContextTaxonomicFilterOption).type
+                        : PICKER_GROUP_CONTEXT_TYPES[groupType],
+                from_page_tab: groupType === TaxonomicFilterGroupType.MaxAIContext,
+            })
             try {
                 if (groupType === TaxonomicFilterGroupType.Events) {
                     actions.addOrUpdateContextEvent(item as EventDefinition)

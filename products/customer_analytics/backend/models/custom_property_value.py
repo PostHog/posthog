@@ -1,5 +1,6 @@
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
+from django.db.models.functions import Left
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UUIDModel
@@ -7,6 +8,19 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel
 # Partial-unique "one active value per (team, account, definition)" constraint. Shared so the write
 # service can tell this (retriable) race apart from other integrity errors by name.
 ACTIVE_VALUE_CONSTRAINT_NAME = "unique_active_custom_property_value"
+
+SORT_VALUE_STR_PREFIX_LENGTH = 256
+
+
+def _active_sort_index(value_field: str, name: str, *, sort_expression: Left | None = None) -> models.Index:
+    return models.Index(
+        F("team"),
+        F("definition"),
+        sort_expression or F(value_field),
+        F("account"),
+        condition=Q(is_deleted=False, **{f"{value_field}__isnull": False}),
+        name=name,
+    )
 
 
 class CustomPropertyValue(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
@@ -37,6 +51,14 @@ class CustomPropertyValue(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
                 condition=Q(is_deleted=False),
                 name="cpv_active_team_definition_idx",
             ),
+            _active_sort_index(
+                "value_str",
+                "cpv_active_sort_str_idx",
+                sort_expression=Left("value_str", SORT_VALUE_STR_PREFIX_LENGTH),
+            ),
+            _active_sort_index("value_bool", "cpv_active_sort_bool_idx"),
+            _active_sort_index("value_num", "cpv_active_sort_num_idx"),
+            _active_sort_index("value_datetime", "cpv_active_sort_datetime_idx"),
         ]
         constraints = [
             models.UniqueConstraint(

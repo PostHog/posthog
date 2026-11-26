@@ -2,18 +2,28 @@ import { describe, expect, test } from 'bun:test'
 
 import { HogError } from '@/core/errors'
 import type { Secrets } from '@/core/runtime'
+import { parseHost } from '@/posthog/host'
+import { parseProjectId } from '@/posthog/ids'
+import { parseOAuthAccessToken, parseOAuthRefreshToken, parsePersonalApiKey } from '@/posthog/tokens'
 import { fakeRuntime, type FakeRuntime } from '@/testing'
 
 import { FileStore } from './file'
+import { itemName } from './item-name'
 import { KeychainStore } from './keychain'
 import { MemoryStore } from './memory'
 import type { CredentialStore, StoredSecret } from './types'
 
-const EU = 'https://eu.posthog.com'
-const US = 'https://us.posthog.com'
+const PROJECT = parseProjectId('42')
+const EU = itemName(parseHost('https://eu.posthog.com'), PROJECT)
+const US = itemName(parseHost('https://us.posthog.com'), PROJECT)
 
 function secret(apiKey: string): StoredSecret {
-    return { apiKey }
+    return { apiKey: parsePersonalApiKey(apiKey) }
+}
+
+const US_OAUTH: StoredSecret = {
+    accessToken: parseOAuthAccessToken('pha_access'),
+    refreshToken: parseOAuthRefreshToken('phr_refresh'),
 }
 
 // A keychain that answers after `delayMs` of fake time, or never, or fails the way Bun reports a
@@ -44,23 +54,24 @@ describe('credential stores', () => {
         ['file', (): CredentialStore => new FileStore(fakeRuntime())],
         ['keychain', (): CredentialStore => new KeychainStore(fakeRuntime())],
     ])('%s', (_kind, makeStore) => {
-        test('keeps one secret per host, overwrites it and removes it', async () => {
+        test('keeps one secret per login, overwrites it and removes it', async () => {
             const store = makeStore()
 
             expect(await store.read(EU)).toBeUndefined()
             expect(await store.remove(EU)).toBe(false)
 
             await store.write(EU, secret('phx_first'))
-            await store.write(US, secret('phx_us'))
-            await store.write(`${EU}/`, secret('phx_second'))
+            await store.write(US, US_OAUTH)
+            // The same origin written another way names the same login.
+            await store.write(itemName(parseHost('https://EU.posthog.com:443/'), PROJECT), secret('phx_second'))
 
             expect(await store.read(EU)).toEqual(secret('phx_second'))
-            expect(await store.read(US)).toEqual(secret('phx_us'))
+            expect(await store.read(US)).toEqual(US_OAUTH)
 
             expect(await store.remove(EU)).toBe(true)
 
             expect(await store.read(EU)).toBeUndefined()
-            expect(await store.read(US)).toEqual(secret('phx_us'))
+            expect(await store.read(US)).toEqual(US_OAUTH)
         })
     })
 
@@ -88,7 +99,7 @@ describe('credential stores', () => {
         const start = runtime.now()
 
         const outcome = await new KeychainStore(runtime).read(EU).then(
-            (stored) => stored?.apiKey,
+            (stored) => (stored && 'apiKey' in stored ? stored.apiKey : stored),
             (error: unknown) => (error instanceof HogError ? error.code : error)
         )
 

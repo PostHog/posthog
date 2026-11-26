@@ -142,10 +142,13 @@ def forward_pending_user_message(run_id: str) -> None:
                 refresh_agent_instructions_state(task_run, actor_user, reason="warm_activation")
 
         from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+            claim_task_run_sandbox_sessions,
             measure_task_run_cpu_attribution,
         )
 
         cpu_attribution = measure_task_run_cpu_attribution(run_id, task_run.team_id)
+        if state.get("await_user_message"):
+            claim_task_run_sandbox_sessions(run_id, task_run.team_id, cpu_attribution)
         result = send_user_message(
             task_run,
             pending_message,
@@ -344,9 +347,9 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
 
 
 def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
-    from posthog.storage import object_storage
+    from products.tasks.backend.storage import read_run_log
 
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = read_run_log(task_run.log)
 
     if not log_content.strip():
         return None
@@ -435,9 +438,9 @@ def _extract_text_from_update(update: dict[str, Any]) -> str | None:
 
 
 def _has_recent_question_tool_failure(task_run: Any) -> bool:
-    from posthog.storage import object_storage
+    from products.tasks.backend.storage import read_run_log
 
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = read_run_log(task_run.log)
 
     if not log_content.strip():
         return False

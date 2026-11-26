@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -409,12 +410,54 @@ class TestCheckCompiler:
                 "",
                 {"query": "select 1 from orders where {filters}"},
             ),
+            (
+                "custom_sql_alias_shadows_its_own_column",
+                CheckType.CUSTOM_SQL,
+                "",
+                {"query": "select max(created_at) as created_at from orders having max(created_at) < now()"},
+            ),
+            (
+                "custom_sql_alias_shadows_its_own_column_in_a_subquery",
+                CheckType.CUSTOM_SQL,
+                "",
+                {
+                    "query": "select * from (select max(created_at) as created_at from orders "
+                    "having max(created_at) < now())"
+                },
+            ),
             ("freshness_without_threshold", CheckType.FRESHNESS, "created_at", {}),
         ]
     )
     def test_invalid_config_is_rejected(self, _name, check_type, column_name, config) -> None:
         with pytest.raises(CheckConfigError):
             _compile(check_type, column_name, config)
+
+    def test_custom_sql_parser_crash_is_reported_and_rejected_without_details(self) -> None:
+        parser_error = RuntimeError("Unexpected parser failure with private query contents")
+
+        with (
+            patch("products.data_quality.backend.logic.types.custom_sql.parse_select", side_effect=parser_error),
+            patch("products.data_quality.backend.logic.types.custom_sql.capture_exception") as capture,
+        ):
+            with pytest.raises(CheckConfigError, match=r"^Could not parse the custom query\.$"):
+                _compile(CheckType.CUSTOM_SQL, "", {"query": "select 1 from orders"})
+
+        capture.assert_called_once_with(parser_error)
+
+    @parameterized.expand(
+        [
+            ("renamed_column", "select created_at as created_at from orders"),
+            ("property_named_like_its_alias", "select toString(properties.order_id) as order_id from orders"),
+            ("alias_only_used_in_its_own_expression", "select max(created_at) as created_at from orders"),
+            (
+                "outer_query_reads_the_subquery_alias",
+                "select * from (select max(created_at) as created_at from orders) where created_at < now()",
+            ),
+            ("lambda_parameter_named_like_its_alias", "select arrayMap(x -> x, [1]) as x from orders"),
+        ]
+    )
+    def test_custom_sql_alias_that_hides_no_column_compiles(self, _name, query) -> None:
+        _compile(CheckType.CUSTOM_SQL, "", {"query": query})
 
     def test_relationships_to_an_unresolvable_subject_is_rejected(self) -> None:
         missing = SubjectRef(SubjectType.TABLE, CUSTOMERS.subject_uuid, "", "", exists=False)

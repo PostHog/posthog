@@ -25,10 +25,14 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
-from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
+from products.slack_app.backend.facade.api import (
+    slack_artifact_delivery_state_updates,
+    slack_shared_channel_allows_replies,
+)
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.facade.profiles import SourceKind, TaskRunOptions, TaskSource
 from products.tasks.backend.logic.services.ai_run_defaults import resolve_ai_run_selection
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
@@ -46,6 +50,8 @@ from products.tasks.backend.logic.services.workflow_task_skills import (
 from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.model_catalog import CLAUDE
 from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.task_profiles import WORKFLOW
+from products.tasks.backend.task_sources import idempotency_key_q, source_q
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
 from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget
@@ -279,6 +285,10 @@ def create_workflow_task(
         # inherits config_snapshot without re-rendering the prompt, so this is the only record.
         config_snapshot["skills"] = [{"name": skill.name, "version": skill.version} for skill in skills]
 
+    # Outside the transaction below: the shared-channel check can evaluate a feature flag remotely,
+    # and holding the advisory locks across it would stall every workflow fire for the team.
+    slack_integration = _slack_integration_that_may_speak(team.id, slack_context)
+
     extra_run_state: dict[str, Any] = {
         "config_snapshot": config_snapshot,
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
@@ -331,7 +341,9 @@ def create_workflow_task(
                 raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
             in_flight = TaskRun.objects.filter(
-                task__team_id=team.id, task__hog_flow_id=hog_flow_id, status__in=ACTIVE_RUN_STATUSES
+                source_q(SourceKind.HOG_FLOW, [hog_flow_id], via="task__"),
+                task__team_id=team.id,
+                status__in=ACTIVE_RUN_STATUSES,
             ).count()
             if in_flight >= max_parallel_tasks:
                 observe_workflow_task_create(reason="limit_reached")
@@ -339,7 +351,7 @@ def create_workflow_task(
 
             # Resolved under the thread lock so the live-run check inside it holds for the
             # rest of the transaction.
-            slack_binding = _resolve_slack_binding(team.id, slack_context)
+            slack_binding = _resolve_slack_binding(slack_integration, team.id, slack_context)
             thread_context = slack_binding.thread_context if slack_binding is not None else None
             if slack_binding is not None:
                 extra_run_state.update(slack_artifact_delivery_state_updates(slack_binding.integration))
@@ -380,21 +392,23 @@ def create_workflow_task(
                 team=team,
                 title=(title or "").strip() or prompt[:255],
                 description=prompt,
-                origin_product=Task.OriginProduct.WORKFLOW,
+                profile=WORKFLOW,
+                source=TaskSource(kind=SourceKind.HOG_FLOW, id=str(hog_flow_id)),
                 user_id=owner_id,
                 channel=channel,
                 repositories=repositories,
+                options=TaskRunOptions(
+                    adapter=run_selection.runtime_adapter,
+                    model=run_selection.model,
+                    reasoning_effort=reasoning_effort,
+                    output_schema=output_schema,
+                    mcp_scopes=posthog_mcp_scopes,
+                ),
                 mode="background",
                 # A task with no repository has nothing to open a PR from.
                 create_pr=bool(repositories),
-                posthog_mcp_scopes=posthog_mcp_scopes,
-                hog_flow_id=hog_flow_id,
                 origin_key=origin_key,
-                output_schema=output_schema,
                 extra_run_state=extra_run_state,
-                runtime_adapter=run_selection.runtime_adapter,
-                model=run_selection.model,
-                reasoning_effort=reasoning_effort,
                 slack_thread_context=thread_context,
                 interaction_origin=interaction_origin,
                 # The run mounts MCP servers as the workflow agent, like a scout does. No
@@ -402,7 +416,6 @@ def create_workflow_task(
                 # its runs reach only the connections members shared with the whole project,
                 # never the creator's personal ones, and the selection means the same thing
                 # no matter who saved it.
-                mcp_builtin_agent_key="workflow",
                 mcp_credential_owner_id=None,
                 mcp_gateway_server_ids=gateway_server_ids,
             )
@@ -496,10 +509,10 @@ def _find_replayed_task(
 ) -> contracts.WorkflowTaskDTO | None:
     if origin_key is None:
         return None
-    existing = Task.objects.filter(team_id=team_id, origin_key=origin_key).first()
+    existing = Task.objects.filter(idempotency_key_q(origin_key), team_id=team_id).first()
     if existing is None:
         return None
-    if existing.hog_flow_id != hog_flow_id:
+    if existing.hog_flow_source_id != hog_flow_id:
         raise WorkflowTaskOriginKeyConflict(origin_key)
     return _task_dto(existing, created=False)
 
@@ -516,7 +529,9 @@ def _daily_task_counts(team_id: int, hog_flow_id: uuid.UUID) -> _DailyTaskCounts
     """One function so the unlocked pre-check and the authoritative locked recheck run
     the identical query and can't drift apart."""
     since = django_timezone.now() - timedelta(hours=24)
-    workflow_count = Task.objects.filter(team_id=team_id, hog_flow_id=hog_flow_id, created_at__gte=since).count()
+    workflow_count = Task.objects.filter(
+        source_q(SourceKind.HOG_FLOW, [hog_flow_id]), team_id=team_id, created_at__gte=since
+    ).count()
     team_count = Task.objects.filter(
         team_id=team_id, origin_product=Task.OriginProduct.WORKFLOW, created_at__gte=since
     ).count()
@@ -627,7 +642,9 @@ class _SlackBinding:
     thread_context: SlackThreadContext
 
 
-def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> _SlackBinding | None:
+def _slack_integration_that_may_speak(
+    team_id: int, ctx: contracts.WorkflowTaskSlackContext | None
+) -> IntegrationRecord | None:
     """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
     if ctx is None:
         return None
@@ -644,6 +661,14 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
         return None
     if not _may_speak_in_channel(integration, ctx):
         return None
+    return integration
+
+
+def _resolve_slack_binding(
+    integration: IntegrationRecord | None, team_id: int, ctx: contracts.WorkflowTaskSlackContext | None
+) -> _SlackBinding | None:
+    if integration is None or ctx is None:
+        return None
     if _thread_has_a_live_run(integration, ctx):
         # No binding at all, rather than a binding that only loses the mapping race. The
         # thread context also drives the run's own status posts, so a task that kept it
@@ -658,6 +683,7 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
     return _SlackBinding(
         integration=integration,
         thread_context=SlackThreadContext(
+            team_id=team_id,
             integration_id=integration.id,
             channel=ctx.channel,
             thread_ts=ctx.thread_ts,
@@ -673,7 +699,8 @@ def _may_speak_in_channel(integration: IntegrationRecord, ctx: contracts.Workflo
     """Whether the task is allowed to reply in this channel at all.
 
     An externally shared channel has members from another Slack workspace, so PostHog stays
-    silent there until someone in it approves. Mentions already refuse on the same rule; a
+    silent there until someone in it approves, and while the workspace turned shared channels
+    off. Mentions already refuse on the same rule; a
     task binding the thread is the same disclosure, so it answers to the same approval.
 
     The flag comes from Slack's own event envelope, carried through the trigger event and
@@ -682,7 +709,7 @@ def _may_speak_in_channel(integration: IntegrationRecord, ctx: contracts.Workflo
     """
     if not ctx.is_ext_shared_channel:
         return True
-    if slack_channel_is_approved(integration.integration_id or "", ctx.channel):
+    if slack_shared_channel_allows_replies(integration, ctx.channel):
         return True
     logger.info(
         "workflow_task_slack_channel_not_approved",

@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from typing import Any, Optional
 
+import requests
+
 from products.warehouse_sources.sources.asaas.settings import (
     ENDPOINT_PARAMS,
     ENDPOINT_PATHS,
@@ -16,6 +18,7 @@ from products.warehouse_sources.sources.sdk import (
     OffsetPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
+    capture_exception,
     frozen,
     make_tracked_session,
     rename_parent_fields,
@@ -26,6 +29,34 @@ from products.warehouse_sources.sources.sdk import (
 SANDBOX_BASE_URL = "https://api-sandbox.asaas.com"
 PRODUCTION_BASE_URL = "https://api.asaas.com"
 API_PATH = "/v3"
+
+PRODUCTION_KEY_PREFIX = "$aact_prod_"
+SANDBOX_KEY_PREFIX = "$aact_hmlg_"
+
+INVALID_KEY_ERROR = (
+    "Your Asaas API key is invalid, expired or disabled. Create a new key in Asaas under Integrações > API, "
+    "then reconnect."
+)
+KEY_FORMAT_ERROR = (
+    "Your Asaas API key isn't in the right format. Copy the full key, including the leading $aact_ and "
+    "with no extra spaces, then reconnect."
+)
+KEY_IN_PRODUCTION_ERROR = (
+    "Your Asaas API key is a production key, but you chose Sandbox. Change the environment to Production, "
+    "then reconnect."
+)
+KEY_IN_SANDBOX_ERROR = (
+    "Your Asaas API key is a sandbox key, but you chose Production. Change the environment to Sandbox, then reconnect."
+)
+WRONG_ENVIRONMENT_ERROR = (
+    "Your Asaas API key belongs to the other environment. Change the environment to the one you created "
+    "the key in, then reconnect."
+)
+FORBIDDEN_ERROR = (
+    "Asaas refused your API key. Check that the key can read your account's data and that any IP allow list "
+    "includes PostHog's IP addresses."
+)
+UNAVAILABLE_ERROR = "PostHog couldn't reach Asaas to check your API key. Wait a few minutes, then try again."
 
 # Asaas caps list endpoints at 100 rows/page (offset/limit + hasMore/totalCount envelope).
 PAGE_SIZE = 100
@@ -172,11 +203,48 @@ def asaas_source(
     )
 
 
-def validate_credentials(api_key: str, environment: str) -> bool:
-    # allow_redirects=False: a redirect would forward the access_token header off
-    # the validated Asaas host.
-    res = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
-        f"{base_url(environment)}{API_PATH}/customers?limit=1",
-        headers={"access_token": api_key},
-    )
-    return res.status_code == 200
+def key_environment(api_key: str) -> str | None:
+    """The environment an Asaas API key belongs to, from its prefix. Older keys carry no prefix."""
+    if api_key.startswith(PRODUCTION_KEY_PREFIX):
+        return "production"
+    if api_key.startswith(SANDBOX_KEY_PREFIX):
+        return "sandbox"
+    return None
+
+
+def _error_code(response: requests.Response) -> str | None:
+    try:
+        errors = response.json().get("errors")
+        return errors[0].get("code") if errors else None
+    except (ValueError, AttributeError, IndexError, TypeError):
+        return None
+
+
+def validate_credentials(api_key: str, environment: str) -> tuple[bool, str | None]:
+    key_env = key_environment(api_key)
+    if key_env is not None and key_env != environment:
+        return False, KEY_IN_PRODUCTION_ERROR if key_env == "production" else KEY_IN_SANDBOX_ERROR
+
+    try:
+        # allow_redirects=False: a redirect would forward the access_token header off
+        # the validated Asaas host.
+        res = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
+            f"{base_url(environment)}{API_PATH}/customers?limit=1",
+            headers={"access_token": api_key},
+        )
+    except requests.RequestException as e:
+        capture_exception(e)
+        return False, UNAVAILABLE_ERROR
+
+    if res.status_code == 200:
+        return True, None
+    if res.status_code == 401:
+        code = _error_code(res)
+        if code == "invalid_environment":
+            return False, WRONG_ENVIRONMENT_ERROR
+        if code == "invalid_access_token_format":
+            return False, KEY_FORMAT_ERROR
+        return False, INVALID_KEY_ERROR
+    if res.status_code == 403:
+        return False, FORBIDDEN_ERROR
+    return False, UNAVAILABLE_ERROR

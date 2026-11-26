@@ -31,6 +31,7 @@ from products.business_knowledge.backend.sandbox import (
     format_always_on_context,
     parse_sandbox_log,
 )
+from products.tasks.backend.facade.temporal import mcp_exclude_tools_for_task
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 
 WORKFLOW = "products.tasks.backend.temporal.client.execute_task_processing_workflow"
@@ -242,6 +243,7 @@ class TestSandboxAPI(APIBaseTest):
             "user:read",
             "project:read",
         ]
+        assert "mcp_exclude_tools" not in run.state
         assert {
             DOCS_SEARCH_TOOL,
             "user-get",
@@ -250,7 +252,7 @@ class TestSandboxAPI(APIBaseTest):
             "mcp-connection-tools-list",
             "tasks-runs-session-logs-retrieve",
             "tasks-artifacts-list",
-        } <= set(run.state["mcp_exclude_tools"])
+        } <= set(mcp_exclude_tools_for_task(task, run.state))
         assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == []
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["runtime_adapter"] == "claude"

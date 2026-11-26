@@ -1,21 +1,26 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { inflateRawSync, zstdDecompressSync } from 'node:zlib'
+import { z } from 'zod'
 
 import { HogError } from '@/core/errors'
 import type { RuntimeFetch } from '@/core/runtime'
 
 import { SymbolDataType } from './container'
-import { decodeUtf8 } from './json'
-import { crc32 } from './native/zip'
 import { ApiFailure, type SymbolSetClient } from './upload'
 
-const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
+export const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
 // Uploads are at most 100 MB compressed. These caps stop a crafted symbol set from inflating
 // until the process runs out of memory.
 const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024
 const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000
+
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+// posthog-symbol-data reads text payloads with `String::from_utf8`, which rejects invalid UTF-8
+// and keeps a byte order mark.
+const decodeUtf8 = (bytes: Uint8Array): string => strictUtf8.decode(bytes)
 
 export type ExtractedKind = 'sourcemap' | 'hermes' | 'proguard' | 'elf' | 'dsym'
 
@@ -181,7 +186,7 @@ function readZip(zip: Buffer): ZipEntry[] {
         } catch (error) {
             throw unreadable(`${name} doesn't decompress: ${(error as Error).message}`)
         }
-        if (data.length !== size || crc32(data) !== crc) {
+        if (data.length !== size || Bun.hash.crc32(data) !== crc) {
             throw unreadable(`${name} doesn't match its recorded size and checksum`)
         }
         entries.push({ name, data })
@@ -326,8 +331,13 @@ const UUID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$
 
 export const isSymbolSetId = (text: string): boolean => UUID.test(text)
 
+const SymbolSetPage = z
+    .looseObject({ results: z.array(z.looseObject({ id: z.string().optional() })).optional() })
+    .optional()
+const SymbolSetDownload = z.object({ url: z.string() })
+
 // Turns the answers people can act on into errors with a next step. Others keep their message.
-async function lookup(request: () => Promise<unknown>, notFound?: string): Promise<unknown> {
+async function lookup<T>(request: () => Promise<T>, notFound?: string): Promise<T> {
     try {
         return await request()
     } catch (error) {
@@ -346,11 +356,9 @@ async function lookup(request: () => Promise<unknown>, notFound?: string): Promi
 }
 
 export async function resolveRef(client: SymbolSetClient, reference: string): Promise<string> {
-    const found = (await lookup(() =>
-        client.api('GET', `error_tracking/symbol_sets/?ref=${encodeComponent(reference)}&limit=1`)
-    )) as {
-        results?: { id?: string }[]
-    }
+    const found = await lookup(() =>
+        client.api('GET', `error_tracking/symbol_sets/?ref=${encodeComponent(reference)}&limit=1`, SymbolSetPage)
+    )
     const id = found?.results?.[0]?.id
     if (!id) {
         throw new HogError(
@@ -370,10 +378,10 @@ export async function downloadSymbolSet(
     if (!isSymbolSetId(id)) {
         throw new HogError('invalid_symbol_set_id', `${id} isn't a symbol set ID.`, 'Symbol set IDs are UUIDs.')
     }
-    const { url } = (await lookup(
-        () => client.api('GET', `error_tracking/symbol_sets/${id}/download/`),
+    const { url } = await lookup(
+        () => client.api('GET', `error_tracking/symbol_sets/${id}/download/`, SymbolSetDownload),
         `No symbol set has the ID ${id}.`
-    )) as { url: string }
+    )
     try {
         const response = await fetcher(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS, skipRateLimit: true })
         if (!response.ok) {

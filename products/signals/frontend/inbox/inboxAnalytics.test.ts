@@ -58,6 +58,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)?.inbox_client).toBe('cloud')
     })
@@ -73,6 +77,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)).toMatchObject({
             tab: 'pulls',
@@ -97,6 +105,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: ['error_tracking'],
             priorityFilter: ['P0'],
             scope: 'entire-project',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         const props = lastCapture(INBOX_EVENTS.VIEWED)
         expect(props).toMatchObject({
@@ -219,6 +231,8 @@ describe('inboxAnalytics', () => {
                 listSize: 1,
                 section: 'needs-decision',
                 rankerId: 'priority',
+                personalTier: null,
+                personalReasonShown: false,
             })
             captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
             return [
@@ -293,7 +307,7 @@ describe('inboxAnalytics', () => {
         expect(JSON.stringify(props)).not.toContain('Something broke')
     })
 
-    it('records how the query moved without shipping what was typed into the search box', () => {
+    it('records how the query moved without shipping the search text or the tags', () => {
         captureInboxQueryChanged({
             change: 'search',
             tab: 'reports',
@@ -302,6 +316,7 @@ describe('inboxAnalytics', () => {
             sortDirection: 'desc',
             sourceProductFilter: ['error_tracking'],
             scoutFilter: [],
+            tagFilter: ['acme-billing'],
             priorityFilter: ['P0'],
             stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
@@ -317,6 +332,7 @@ describe('inboxAnalytics', () => {
             source_product_filter: ['error_tracking'],
             has_search: true,
             search_length: 'acme checkout crash'.length,
+            tag_filter_count: 1,
         })
         expect(JSON.stringify(props)).not.toContain('acme')
     })
@@ -359,11 +375,11 @@ describe('inboxAnalytics', () => {
 
     it('sends an unload close instantly so the dwell time leaves before the page does', () => {
         captureInboxReportClosed(
-            { report: makeReport(), timeSpentMs: 4200, closeMethod: 'page_unload' },
+            { report: makeReport(), timeSpentMs: 4200, activeTimeMs: 3100, closeMethod: 'page_unload' },
             { send_instantly: true }
         )
         const call = (posthog.capture as jest.Mock).mock.calls.find(([name]) => name === INBOX_EVENTS.REPORT_CLOSED)
-        expect(call?.[1]).toMatchObject({ close_method: 'page_unload', time_spent_ms: 4200 })
+        expect(call?.[1]).toMatchObject({ close_method: 'page_unload', time_spent_ms: 4200, active_time_ms: 3100 })
         expect(call?.[2]).toEqual({ send_instantly: true })
     })
 

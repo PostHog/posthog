@@ -11,6 +11,7 @@ import { getCustomIcon } from './customIconRegistry'
 import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
 import {
     DATA_SOURCE_SHORTCUT_TYPE,
+    calculateMovePath,
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     isFileSystemEntryTypeEnabled,
@@ -197,6 +198,36 @@ describe('project tree utils', () => {
             expect(joinPath(['a\\n\\t', 'b'])).toEqual('a\\\\n\\\\t/b')
             expect(joinPath(['a'])).toEqual('a')
             expect(joinPath([])).toEqual('')
+        })
+    })
+
+    describe('calculateMovePath', () => {
+        const folder: FileSystemEntry = { id: 'f', path: 'Revenue', type: 'folder' }
+
+        it.each([
+            ['into another folder', folder, 'Finance', { newPath: 'Finance/Revenue', isValidMove: true }],
+            [
+                'into a sibling whose name starts the same',
+                folder,
+                'Revenue archive',
+                { newPath: 'Revenue archive/Revenue', isValidMove: true },
+            ],
+            [
+                'into its current parent',
+                { ...folder, path: 'Finance/Revenue' },
+                'Finance',
+                { newPath: 'Finance/Revenue', isValidMove: false },
+            ],
+            ['into itself', folder, 'Revenue', { newPath: 'Revenue/Revenue', isValidMove: false }],
+            ['into its own subfolder', folder, 'Revenue/Q3', { newPath: 'Revenue/Q3/Revenue', isValidMove: false }],
+            [
+                'a file into a folder of the same name',
+                { ...folder, type: 'insight' },
+                'Revenue',
+                { newPath: 'Revenue/Revenue', isValidMove: true },
+            ],
+        ])('moves %s', (_, item, destination, expected) => {
+            expect(calculateMovePath(item, destination)).toEqual(expected)
         })
     })
 

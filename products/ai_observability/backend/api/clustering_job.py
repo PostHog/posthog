@@ -15,10 +15,12 @@ from posthog.permissions import AccessControlPermission
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
 
+from ..facade.api import validate_clustering_filters
+from ..logic.clustering.constants import MAX_JOBS_PER_TEAM
+from ..models.clustering_config import ClusteringConfig
 from ..models.clustering_job import ClusteringJob
 from .metrics import llma_track_latency
 
-MAX_JOBS_PER_TEAM = 10
 _COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
 
 
@@ -71,6 +73,7 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
         handled defensively in the sampling activity itself.
         """
         team = self.context["get_team"]()
+        validate_clustering_filters(team.id, self.context["request"].user, value)
         referenced_ids: list[int] = []
         for f in value:
             if f.get("type") not in _COHORT_FILTER_TYPES:
@@ -121,6 +124,8 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def create(self, request: Request, *args, **kwargs) -> Response:
         try:
             with transaction.atomic():
+                ClusteringConfig.objects.get_or_create(team_id=self.team_id)
+                ClusteringConfig.objects.select_for_update().get(team_id=self.team_id)
                 existing_count = ClusteringJob.objects.filter(team_id=self.team_id).select_for_update().count()
                 if existing_count >= MAX_JOBS_PER_TEAM:
                     return Response(
@@ -139,16 +144,13 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         # Disable the migration-created default job for the same level.
         # Creating a custom job signals the default catch-all is too noisy.
-        disabled_count = (
-            ClusteringJob.objects.filter(
-                team_id=self.team_id,
-                analysis_level=instance.analysis_level,
-                name__startswith="Default - ",
-                enabled=True,
-            )
-            .exclude(id=instance.id)
-            .update(enabled=False)
-        )
+        defaults = ClusteringJob.objects.filter(
+            team_id=self.team_id,
+            analysis_level=instance.analysis_level,
+            name__startswith="Default - ",
+            enabled=True,
+        ).exclude(id=instance.id)
+        disabled_count = defaults.update(enabled=False)
 
         report_user_action(
             self.request.user,

@@ -7,6 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PatchedEnvironmentMappingUpdateApi {
+    /** ID of the PostHog project that receives the Vercel production environment. */
+    production?: number
+    /** ID of the PostHog project for the Vercel preview environment. Defaults to the production project. */
+    preview?: number
+    /** ID of the PostHog project for the Vercel development environment. Defaults to the production project. */
+    development?: number
+}
+
 /**
  * * `vercel` - Vercel
  */
@@ -72,20 +81,6 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-/**
- * Serializer for organization-level integrations.
- */
-export interface PatchedOrganizationIntegrationApi {
-    readonly id?: string
-    readonly kind?: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id?: string | null
-    readonly config?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly created_by?: UserBasicApi
 }
 
 /**
@@ -234,6 +229,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `customerio-webhook` - Customerio Webhook
  * * `databricks` - Databricks
  * * `email` - Email
+ * * `email_sandbox` - Email Sandbox
  * * `firebase` - Firebase
  * * `github` - Github
  * * `gitlab` - Gitlab
@@ -253,6 +249,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
  * * `meta-ads` - Meta Ads
+ * * `motherduck` - Motherduck
  * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
@@ -288,6 +285,7 @@ export const IntegrationKindEnumApi = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
@@ -307,6 +305,7 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Motherduck: 'motherduck',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -347,6 +346,7 @@ export interface IntegrationConfigCreateApi {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -366,6 +366,7 @@ export interface IntegrationConfigCreateApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -453,40 +454,52 @@ export interface SlackChannelsResponseApi {
 }
 
 /**
- * Standard Integration serializer.
+ * * `ses` - Amazon SES
+ * * `maildev` - Maildev (local development only)
  */
-export interface PatchedIntegrationConfigApi {
-    readonly id?: number
-    /**
-     * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
-     * @maxLength 32
-     */
-    kind?: string
-    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+export type NativeEmailProviderEnumApi = (typeof NativeEmailProviderEnumApi)[keyof typeof NativeEmailProviderEnumApi]
+
+export const NativeEmailProviderEnumApi = {
+    Ses: 'ses',
+    Maildev: 'maildev',
+} as const
+
+/**
+ * * `auto` - Domain Connect
+ * * `manual` - Manual DNS records
+ */
+export type EmailDomainSetupMethodEnumApi =
+    (typeof EmailDomainSetupMethodEnumApi)[keyof typeof EmailDomainSetupMethodEnumApi]
+
+export const EmailDomainSetupMethodEnumApi = {
+    Auto: 'auto',
+    Manual: 'manual',
+} as const
+
+export interface NativeEmailIntegrationApi {
+    /** Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating. */
+    email: string
+    /** Sender display name recipients see in their inbox, for example `Acme`. */
+    name: string
+    /** Sending provider. Always `ses`. `maildev` is only accepted in local development.
      *
-     * * `oauth` - OAuth
-     * * `token` - Token
-     * * `credentials` - Credentials */
-    readonly auth_type?: IntegrationAuthTypeEnumApi
-    config?: unknown
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-    /** Slack only: whether reconnecting can request the files:write scope. */
-    readonly files_write_requestable?: boolean
-    /**
-     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
-     * @nullable
-     */
-    readonly installation_shared?: boolean | null
-    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
-    readonly installation_status?: InstallationStatusEnumApi | null
-    /**
-     * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
-     * @nullable
-     */
-    readonly needs_webhook_reconnect?: boolean | null
+     * * `ses` - Amazon SES
+     * * `maildev` - Maildev (local development only) */
+    provider: NativeEmailProviderEnumApi
+    /** Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records. */
+    mail_from_subdomain?: string
+    /** Reply-to address for emails from this sender when the email step sets none. Blank clears it. */
+    reply_to?: string
+    /** How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. Reported on the verification event.
+     *
+     * * `auto` - Domain Connect
+     * * `manual` - Manual DNS records */
+    setup_method?: EmailDomainSetupMethodEnumApi
+}
+
+export interface PatchedEmailSenderUpdateRequestApi {
+    /** The full sender config. Only `name`, `mail_from_subdomain` and `reply_to` change; `email` must stay the same. */
+    config?: NativeEmailIntegrationApi
 }
 
 /**
@@ -559,6 +572,7 @@ export interface EmailDomainStatusStepApi {
  * * `mail_from_mx` - MAIL FROM MX
  * * `mail_from_spf` - MAIL FROM SPF
  * * `dmarc` - DMARC
+ * * `organization` - Organization ownership
  */
 export type EmailDomainSetupRecordKindEnumApi =
     (typeof EmailDomainSetupRecordKindEnumApi)[keyof typeof EmailDomainSetupRecordKindEnumApi]
@@ -570,6 +584,7 @@ export const EmailDomainSetupRecordKindEnumApi = {
     MailFromMx: 'mail_from_mx',
     MailFromSpf: 'mail_from_spf',
     Dmarc: 'dmarc',
+    Organization: 'organization',
 } as const
 
 /**
@@ -601,14 +616,15 @@ export const EmailDomainSetupRecordStatusEnumApi = {
 } as const
 
 export interface EmailDomainStatusRecordApi {
-    /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+    /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail, organization proves this organization owns a domain another organization also added.
      *
      * * `verification` - Domain ownership
      * * `dkim` - DKIM signing
      * * `spf` - SPF
      * * `mail_from_mx` - MAIL FROM MX
      * * `mail_from_spf` - MAIL FROM SPF
-     * * `dmarc` - DMARC */
+     * * `dmarc` - DMARC
+     * * `organization` - Organization ownership */
     kind: EmailDomainSetupRecordKindEnumApi
     /** Full DNS name to create the record at, including the domain. */
     hostname: string
@@ -828,6 +844,32 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
+export interface GitLabProjectApi {
+    /** GitLab numeric project ID. */
+    id: number
+    /** Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository. */
+    path_with_namespace: string
+    /** Project page on GitLab. */
+    web_url: string
+    /**
+     * Default branch of the project. Null for a project without commits.
+     * @nullable
+     */
+    default_branch: string | null
+}
+
+export interface GitLabProjectsResponseApi {
+    /** The connected project, when the token has the Developer role or higher on it. Empty when it does not, or when it does not match the search. */
+    projects: GitLabProjectApi[]
+    /** Token scopes that coding tasks need and the token does not have. Empty when the token has them, or when GitLab does not report the token's scopes. */
+    missing_scopes: string[]
+    /**
+     * Date when the token expires. Null when it does not expire or GitLab does not report it.
+     * @nullable
+     */
+    token_expires_at: string | null
+}
+
 export interface JiraProjectApi {
     /** Jira project ID. */
     id: string
@@ -856,12 +898,12 @@ export interface LinearTeamsResponseApi {
 
 export interface PushTokenSubscriptionApi {
     /**
-     * The person's distinct ID in this project.
+     * The person's distinct ID in this project: the ID your app passes to `identify`.
      * @maxLength 200
      */
     distinct_id: string
     /**
-     * The APNs device token or FCM registration token of one device.
+     * The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.
      * @maxLength 4096
      */
     device_token: string
@@ -870,12 +912,59 @@ export interface PushTokenSubscriptionApi {
 export interface PushTokenImportRequestApi {
     /** Up to 1000 devices to register on this push channel. List a person once per device. */
     subscriptions: PushTokenSubscriptionApi[]
+    /** Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing. */
+    dry_run?: boolean
+    /**
+     * A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.
+     * @nullable
+     */
+    import_id?: string | null
+    /** Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push. */
+    create_missing_persons?: boolean
+}
+
+/**
+ * * `unknown_person` - No person has this distinct ID
+ * * `token_mismatch` - The token does not fit this channel
+ * * `not_stored` - The device was not stored
+ * * `person_processing_disabled` - Person processing is off for this person
+ */
+export type PushTokenImportFailureReasonEnumApi =
+    (typeof PushTokenImportFailureReasonEnumApi)[keyof typeof PushTokenImportFailureReasonEnumApi]
+
+export const PushTokenImportFailureReasonEnumApi = {
+    UnknownPerson: 'unknown_person',
+    TokenMismatch: 'token_mismatch',
+    NotStored: 'not_stored',
+    PersonProcessingDisabled: 'person_processing_disabled',
+} as const
+
+export interface PushTokenImportFailureApi {
+    /** Position of the row in the request's `subscriptions`, from 0. */
+    index: number
+    /** The distinct ID of the row. */
+    distinct_id: string
+    /** The last 6 characters of the row's device token, to find the row. */
+    device_token_suffix: string
+    /** Why the device was not stored. `unknown_person`: no person has this distinct ID, so check the ID or set `create_missing_persons`. `token_mismatch`: the token is the wrong kind for this channel, for example an Expo token, or an APNs token on a Firebase channel. `not_stored` and `person_processing_disabled`: ingestion did not store the device.
+     *
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person */
+    reason: PushTokenImportFailureReasonEnumApi
+    /** A sentence a person can act on. */
+    detail: string
 }
 
 export interface PushTokenImportResponseApi {
-    /** Number of devices stored on their person. */
+    /** Number of devices stored on their person. On a dry run, the number that would be stored. */
     imported: number
-    /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+    /** True when nothing was stored. */
+    dry_run: boolean
+    /** One entry per device that was not stored. */
+    failed: PushTokenImportFailureApi[]
+    /** Distinct IDs with at least one device that was not stored. Prefer `failed`, which says why. */
     failed_distinct_ids: string[]
 }
 
@@ -911,6 +1000,51 @@ export interface SlackUsersResponseApi {
     lastRefreshedAt?: string | null
     /** Whether more members match the current search beyond this page. */
     has_more?: boolean
+}
+
+/**
+ * * `email` - Email sending domain
+ * * `proxy` - Reverse proxy domain
+ */
+export type DomainConnectContextKindEnumApi =
+    (typeof DomainConnectContextKindEnumApi)[keyof typeof DomainConnectContextKindEnumApi]
+
+export const DomainConnectContextKindEnumApi = {
+    Email: 'email',
+    Proxy: 'proxy',
+} as const
+
+export interface DomainConnectApplyUrlRequestApi {
+    /** `email` to configure an email sending domain, `proxy` for a reverse proxy domain.
+     *
+     * * `email` - Email sending domain
+     * * `proxy` - Reverse proxy domain */
+    context: DomainConnectContextKindEnumApi
+    /**
+     * ID of the email integration (sender). Required when `context` is `email`.
+     * @nullable
+     */
+    integration_id?: number | null
+    /**
+     * ID of the reverse proxy record. Required when `context` is `proxy`.
+     * @nullable
+     */
+    proxy_record_id?: string | null
+    /**
+     * Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.
+     * @nullable
+     */
+    redirect_uri?: string | null
+    /**
+     * Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS.
+     * @nullable
+     */
+    provider_endpoint?: string | null
+}
+
+export interface DomainConnectApplyUrlResponseApi {
+    /** Signed Domain Connect URL. A person opens it, signs in at their DNS host and approves the records. The records do not change until they approve. */
+    url: string
 }
 
 export interface EmailDomainConnectProviderApi {
@@ -1070,6 +1204,7 @@ export interface IntegrationAccessRequestApi {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -1089,6 +1224,7 @@ export interface IntegrationAccessRequestApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1180,6 +1316,8 @@ export interface PostHogConnectionTargetApi {
     region: string
     /** Base URL requests through this connection are sent to. */
     base_url: string
+    /** API scopes the user granted to this connection, e.g. `insight:read`. Empty when they are not known. */
+    granted_scopes: string[]
 }
 
 export interface PostHogConnectionTargetErrorApi {
@@ -1236,6 +1374,7 @@ export type IntegrationsListParams = {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -1255,6 +1394,7 @@ export type IntegrationsListParams = {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1301,6 +1441,7 @@ export const IntegrationsListKind = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
@@ -1320,6 +1461,7 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Motherduck: 'motherduck',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -1459,6 +1601,13 @@ export type IntegrationsGithubTeamsRetrieveParams = {
 export type IntegrationsGitlabMembersRetrieveParams = {
     /**
      * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
+}
+
+export type IntegrationsGitlabProjectsRetrieveParams = {
+    /**
+     * Optional search on the project name or path. Leave blank to list the most recently active projects.
      */
     search?: string
 }

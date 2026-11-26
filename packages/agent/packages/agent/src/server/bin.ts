@@ -80,6 +80,10 @@ const envSchema = z.object({
     .transform((value) => value === "true")
     .optional(),
   POSTHOG_PI_CONVERSATION_FORMAT: z.enum(["acp", "pi"]).optional(),
+  POSTHOG_AGENT_LOG_LEVEL: z
+    .enum(["debug", "info", "warn", "error"])
+    .optional(),
+  POSTHOG_AGENT_LOG_FORMAT: z.enum(["text", "json"]).optional(),
   // OTLP pair for shipping run metadata to PostHog Logs; telemetry stays off
   // unless both are set. The traces URL additionally enables APM spans.
   POSTHOG_AGENT_OTEL_LOGS_URL: z.url().optional(),
@@ -325,6 +329,8 @@ program
       eventIngestKeepStreamOpen:
         env.POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN,
       piConversationFormat: env.POSTHOG_PI_CONVERSATION_FORMAT,
+      logLevel: env.POSTHOG_AGENT_LOG_LEVEL,
+      logFormat: env.POSTHOG_AGENT_LOG_FORMAT,
       otelLogsUrl: env.POSTHOG_AGENT_OTEL_LOGS_URL,
       otelLogsToken: env.POSTHOG_AGENT_OTEL_LOGS_TOKEN,
       otelTracesUrl: env.POSTHOG_AGENT_OTEL_TRACES_URL,

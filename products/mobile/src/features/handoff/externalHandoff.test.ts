@@ -58,7 +58,7 @@ test.each(['ios', 'android'] as const)(
     'dispatches the Claude mobile composer on %s with the full prompt',
     async (os) => {
         Platform.OS = os
-        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true)
+        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
         await openExternalHandoff('claude', REPORT)
         const url = new URL(open.mock.calls[0]?.[0] ?? '')
         expect(`${url.protocol}//${url.host}${url.pathname}`).toBe('claude://code/new')
@@ -69,7 +69,7 @@ test.each(['ios', 'android'] as const)(
 
 test.each(['ios', 'android'] as const)('opens the ChatGPT HTTPS prompt route on %s', async (os) => {
     Platform.OS = os
-    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
     await openExternalHandoff('codex', REPORT)
     expect(open).toHaveBeenCalledTimes(1)
     expect(open).toHaveBeenCalledWith(

@@ -8,6 +8,8 @@ export interface FilterDefinition {
     backendField: 'type' | 'user' | 'path' | 'name'
     /** Whether a value that matches no suggestion is still a valid filter. */
     freeTextValues: boolean
+    /** A value the input's hint shows. `is:` has none, because the hint cycles through every type instead. */
+    example?: string
 }
 
 export const FILTER_DEFINITIONS: FilterDefinition[] = [
@@ -24,6 +26,7 @@ export const FILTER_DEFINITIONS: FilterDefinition[] = [
         description: 'Who created it',
         backendField: 'user',
         freeTextValues: true,
+        example: 'me',
     },
     {
         key: 'in',
@@ -31,6 +34,7 @@ export const FILTER_DEFINITIONS: FilterDefinition[] = [
         description: 'Folder it lives in',
         backendField: 'path',
         freeTextValues: true,
+        example: '"Team Growth"',
     },
     {
         key: 'name',
@@ -38,6 +42,7 @@ export const FILTER_DEFINITIONS: FilterDefinition[] = [
         description: 'Name only, not description',
         backendField: 'name',
         freeTextValues: true,
+        example: 'revenue',
     },
 ]
 
@@ -48,6 +53,8 @@ export interface ValueOption {
     label: string
     /** Extra words a person can type to reach this option, matched by prefix. */
     aliases?: string[]
+    /** How a person types this value, such as `feature-flag` for `feature_flag`. */
+    typedValue?: string
     /** Icon type for the row, such as a file system type. */
     iconType?: string
 }
@@ -416,22 +423,53 @@ const BACKEND_FILTER_FIELDS = new Set(['path', 'name', 'user', 'author', 'type',
 
 // Reads `backendSearch` like the file system search does, so the list searches the words Cmd+K matched.
 // List pages match one phrase, which cannot exclude, so excluded words and filters other than `name:` stay out.
-export function listSearchText({ backendSearch }: ResolvedQuery): string {
-    const words: string[] = []
+interface SearchTerms {
+    words: string[]
+    freeWords: string[]
+    name: string | null
+    excludes: boolean
+}
+
+function searchTerms(backendSearch: string): SearchTerms {
+    const terms: SearchTerms = { words: [], freeWords: [], name: null, excludes: false }
     for (const raw of tokenizeSearch(backendSearch)) {
         if (raw.startsWith('-') || raw.startsWith('!')) {
+            terms.excludes ||= raw.length > 1
             continue
         }
         const token = stripQuotes(raw)
         const colonIndex = token.indexOf(':')
         const field = colonIndex === -1 ? null : token.slice(0, colonIndex).toLowerCase()
         if (field === 'name') {
-            words.push(stripQuotes(token.slice(colonIndex + 1).trim()))
+            terms.name = stripQuotes(token.slice(colonIndex + 1).trim())
+            terms.words.push(terms.name)
         } else if (field === null || !BACKEND_FILTER_FIELDS.has(field)) {
-            words.push(token)
+            terms.words.push(token)
+            terms.freeWords.push(token)
         }
     }
-    return words.filter(Boolean).join(' ')
+    return terms
+}
+
+export function listSearchText({ backendSearch }: Pick<ResolvedQuery, 'backendSearch'>): string {
+    return searchTerms(backendSearch).words.filter(Boolean).join(' ')
+}
+
+export interface TypeSearchTerms {
+    text: string
+    name: string | null
+    freeText: string
+    excludes: boolean
+}
+
+export function typeSearchTerms({ backendSearch }: Pick<ResolvedQuery, 'backendSearch'>): TypeSearchTerms {
+    const { words, freeWords, name, excludes } = searchTerms(backendSearch)
+    return {
+        text: words.filter(Boolean).join(' '),
+        name: name || null,
+        freeText: freeWords.filter(Boolean).join(' '),
+        excludes,
+    }
 }
 
 /** The raw query as a person would type it, chips included. Used when copying the input. */

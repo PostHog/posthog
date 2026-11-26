@@ -59,10 +59,10 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog-mcp
-                  # Publishes only from the default branch — assume the role and touch ECR only there;
+                  # Publishes only from the default branch of the repo with CD_DEPLOY_ENABLED — assume the role and touch ECR only there;
                   # labeled PRs still build (push=false) without assuming it.
-                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
-                  push-to-ecr: ${{ github.ref == 'refs/heads/master' }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  push-to-ecr: ${{ github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -93,12 +93,43 @@ jobs:
     deploy:
         name: Trigger MCP deployment
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
+        # Sized past TIMEOUT_SECONDS of the Django wait below.
+        timeout-minutes: 345
         needs: build
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
-        permissions: {}
+        # No concurrency group: Charts drops a dispatch whose commit timestamp is not newer than the
+        # deployed one, so an older image that finishes its wait later does not replace a newer one.
+        permissions:
+            contents: read
+            deployments: read
 
         steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/deploy
+                  sparse-checkout-cone-mode: false
+
+            # The MCP server calls Django endpoints and checks Django scopes, so an image that ships
+            # before Django has them hides tools or fails calls. master is linear, so a Django build
+            # that contains the commit of the image has every Django change that the image needs.
+            # The token below is minted after this wait, because an App token expires after an hour.
+            # Break glass, for an MCP fix while the Django deploy is blocked: set the repository
+            # variable MCP_DEPLOY_SKIP_DJANGO_WAIT to true and re-run the failed deploy job.
+            - name: Wait for the Django deploy that the image needs
+              if: vars.MCP_DEPLOY_SKIP_DJANGO_WAIT != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  # Deploys run in the repository with CD_DEPLOY_ENABLED, which can be the private
+                  # mirror, but the Charts deploy writes the Django records to PostHog/posthog. An
+                  # embargoed commit that is not in PostHog/posthog fails this wait, so it needs the
+                  # break glass above.
+                  REPOSITORY: PostHog/posthog
+                  COMMIT_SHA: ${{ github.sha }}
+                  # A Django deploy that is blocked longer than this needs a person anyway.
+                  TIMEOUT_SECONDS: '19800'
+              run: .github/scripts/deploy/wait-for-backend-deploy.sh
+
             - name: Get deployer token
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1

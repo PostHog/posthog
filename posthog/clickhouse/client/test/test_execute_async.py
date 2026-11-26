@@ -10,6 +10,7 @@ from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
@@ -30,8 +31,9 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, QueryRanConcurrently
+from posthog.logging.exceptions import add_otel_exception_attributes
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -130,6 +132,28 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.successful())
         self.assertEqual(execute.call_count, failures + 1)
         self.assertEqual([call.kwargs["countdown"] for call in retry.call_args_list], [error.wait] * failures)
+
+    def test_process_query_task_ignores_tags_from_a_newer_release(self):
+        from posthog.tasks.tasks import process_query_task
+
+        with (
+            patch("posthog.clickhouse.client.execute_process_query") as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            result = process_query_task.apply(
+                args=(
+                    self.team_id,
+                    None,
+                    self.query_id,
+                    build_query("SELECT 1"),
+                    {"tag_from_a_newer_release": "x", "dashboard_id": 7},
+                    False,
+                ),
+                throw=False,
+            )
+
+        self.assertTrue(result.successful())
+        execute.assert_called_once()
 
     @parameterized.expand([False, True])
     def test_process_query_task_respects_team_concurrency_limit(self, keyword_args):
@@ -276,7 +300,11 @@ class TestExecuteProcessQuery(TestCase):
         ).encode()
         mock_redis_client.return_value = mock_redis
 
-        mock_process_query_dict.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
+        def process_query(**kwargs: Any) -> list[float | str]:
+            kwargs["query_status"].labels = ["executed"]
+            return [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
+
+        mock_process_query_dict.side_effect = process_query
 
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
@@ -290,6 +318,7 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+        self.assertEqual(args_loaded["labels"], ["executed"])
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
@@ -315,16 +344,18 @@ class TestExecuteProcessQuery(TestCase):
 
     @parameterized.expand(
         [
-            ("user_safe_ch_error", ExposedCHQueryError("NOT_AN_AGGREGATE"), False),
-            ("user_safe_hogql_error", ExposedHogQLError("bad query"), False),
-            ("server_error", ValueError("something broke"), True),
+            ("user_safe_ch_error", ExposedCHQueryError("NOT_AN_AGGREGATE"), False, False),
+            ("user_safe_hogql_error", ExposedHogQLError("bad query"), False, False),
+            ("server_error", ValueError("something broke"), True, False),
+            ("filtered_server_error", ValueError("synthetic-filter-secret"), False, True),
+            ("filtered_user_safe_error", ExposedHogQLError("synthetic-filter-secret"), False, True),
         ]
     )
     @patch("posthog.clickhouse.client.execute_async.capture_exception")
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
     def test_execute_process_query_only_captures_non_user_safe_errors(
-        self, _name, error, should_capture, mock_process_query_dict, mock_redis_client, mock_capture_exception
+        self, _name, error, should_capture, filtered, mock_process_query_dict, mock_redis_client, mock_capture_exception
     ):
         mock_redis = MagicMock()
         mock_redis.get.return_value = json.dumps(
@@ -333,9 +364,24 @@ class TestExecuteProcessQuery(TestCase):
         mock_redis_client.return_value = mock_redis
         mock_process_query_dict.side_effect = error
 
-        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+        if filtered:
+            self.query_json = {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT count() FROM events WHERE {filters}",
+                    "filters": {"properties": [{"key": "api_token", "value": ["synthetic-filter-secret"]}]},
+                },
+            }
+        with capture_logs(processors=[add_otel_exception_attributes]) as logs:
+            execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         self.assertEqual(mock_capture_exception.called, should_capture)
+        self.assertNotIn("synthetic-filter-secret", json.dumps(logs))
+        if filtered:
+            failure = next(log for log in logs if log["event"] == "Error processing query async")
+            self.assertEqual(failure["error_type"], type(error).__name__)
+            self.assertEqual(failure["query_id"], self.query_id)
 
     @parameterized.expand(
         [
@@ -439,6 +485,23 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
 
+    def test_enqueued_query_tags_carry_the_traceparent(self):
+        from posthog.clickhouse.query_tagging import tags_context
+
+        with (
+            patch("posthog.tasks.tasks.process_query_task.si") as signature,
+            patch("posthog.clickhouse.client.execute_async.add_task_to_on_commit"),
+            tags_context(
+                client_query_id="dashboard-v2-batch-1",
+                traceparent="00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+            ),
+        ):
+            client.enqueue_process_query_task(self.team, self.user.id, build_query("SELECT 1"))
+
+        sent_tags = signature.call_args.args[4]
+        self.assertEqual(sent_tags["client_query_id"], "dashboard-v2-batch-1")
+        self.assertEqual(sent_tags["traceparent"], "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+
     def test_async_query_posthog_ai_limit(self):
         query = build_query("SELECT arrayJoin(range(1, 100001))")
         query_id = client.enqueue_process_query_task(
@@ -508,7 +571,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             (
                 "unknown_server_fault",
                 InternalCHQueryError("DB::Exception: stored-secret", code=999_999),
-                "unknown_exception",
+                "clickhouse_999999",
             ),
             (
                 "python_error",
@@ -542,7 +605,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 True,
                 InternalCHQueryError("Unknown column", code=47),
                 "unknown_identifier",
-                "Code: 47.\nUnknown column",
+                None,
                 True,
             ),
             (
@@ -551,6 +614,14 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 ExposedCHQueryError("Expected an integer argument", code=43),
                 "illegal_type_of_argument",
                 "Expected an integer argument",
+                False,
+            ),
+            (
+                "changed_storage_file",
+                False,
+                CHQueryErrorS3FileChangedDuringRead("A file changed. Retry the query.", code=117),
+                "s3_file_changed_during_read",
+                "A file changed. Retry the query.",
                 False,
             ),
             (

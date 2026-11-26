@@ -113,6 +113,10 @@ class GitHubRateLimitedError(ProcessTaskTransientError):
         )
 
 
+class GitHubTokenRetryError(ProcessTaskTransientError, NonReportableError):
+    pass
+
+
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 
@@ -130,17 +134,33 @@ class SandboxProvisionError(ProcessTaskTransientError):
 
 class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
     def __init__(self, context: dict[str, Any], reason: str = "posthog_code_billing_limit_exceeded"):
-        from products.tasks.backend.logic.services.compute_quota import ORGANIZATION_DEACTIVATED_DENIAL_CODE
+        from products.tasks.backend.logic.services.compute_quota import (
+            AI_CREDITS_DENIAL_CODE,
+            ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+        )
 
         self.reason = reason
-        message = (
-            "Your organization has been deactivated."
-            if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE
-            else "Your organization reached its PostHog Desktop usage limit."
-        )
+        if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE:
+            message = "Your organization has been deactivated."
+        elif reason == AI_CREDITS_DENIAL_CODE:
+            message = "Your organization reached its PostHog AI usage limit."
+        else:
+            message = "Your organization reached its PostHog Desktop usage limit."
         super().__init__(
             message,
             {**context, "reason": reason},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
+
+
+class ActiveSessionCapError(ProcessTaskError):
+    def __init__(self, context: dict[str, Any], scope: str, message: str):
+        self.scope = scope
+        super().__init__(
+            message,
+            {**context, "scope": scope},
             None,
             capture=False,
             non_retryable=True,
@@ -161,6 +181,19 @@ class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
 
     pass
+
+
+class ResumeSnapshotCredentialScrubError(ProcessTaskError):
+    """The restored filesystem could not be made safe to reuse."""
+
+    def __init__(self, run_id: str, sandbox_id: str):
+        super().__init__(
+            "Failed to clear credentials from restored sandbox snapshot",
+            {"run_id": run_id, "sandbox_id": sandbox_id},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
 
 
 class SandboxControlPlaneError(SandboxExecutionError):
@@ -233,18 +266,6 @@ class SandboxCleanupError(ProcessTaskTransientError):
     pass
 
 
-class SnapshotNotFoundError(ProcessTaskTransientError):
-    """Snapshot does not exist."""
-
-    pass
-
-
-class SnapshotNotReadyError(ProcessTaskTransientError):
-    """Snapshot exists but is not ready for use."""
-
-    pass
-
-
 class SnapshotCreationError(ProcessTaskTransientError):
     """Failed to create snapshot."""
 
@@ -280,13 +301,6 @@ class RepositoryCloneError(ProcessTaskTransientError):
 
 
 class RepositoryAccessError(ProcessTaskFatalError, NonReportableError):
-    """GitHub refused to serve the repository with the credential the sandbox has.
-
-    The run has no token, or its token does not cover the repository. A retry reuses the same
-    credential, so it cannot succeed. This is an expected customer setup state, so it is not
-    captured to error tracking.
-    """
-
     def __init__(self, message: str, context: dict[str, Any]):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
@@ -322,17 +336,11 @@ class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
 
 
 class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
-    """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
+    """No Go token for a run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 
     def __init__(self, message: str, context: dict[str, Any]):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
-
-
-class PersonalAPIKeyError(ProcessTaskTransientError):
-    """Failed to create or inject personal API key."""
-
-    pass
 
 
 class OAuthTokenError(ProcessTaskTransientError):

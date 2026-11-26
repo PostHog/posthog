@@ -31,7 +31,7 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
     is_output_limit_error_message,
@@ -61,12 +61,10 @@ class OpenAIConfig:
     DECISION_MODELS: frozenset[str] = frozenset({"gpt-6-luna"})
 
     SUPPORTED_MODELS: list[str] = [
+        "gpt-6-luna",
         "gpt-5.4",
         "gpt-5.2",
         "gpt-5.1",
-        "gpt-5-nano",
-        "gpt-5-mini",
-        "gpt-5",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gpt-4.1",
@@ -92,15 +90,15 @@ class OpenAIConfig:
         "gpt-4.1",
         "gpt-4.1-mini",
         "gpt-4.1-nano",
-        "gpt-5-mini",
-        "gpt-5-nano",
+        "gpt-6-luna",
         "o3-mini",
         "o4-mini",
     ]
 
-    DEFAULT_MODEL: str = "gpt-5-mini"
+    DEFAULT_MODEL: str = "gpt-6-luna"
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "gpt-6-luna",
         "gpt-5.4",
         "gpt-5.2",
         "gpt-5.1",
@@ -114,7 +112,7 @@ class OpenAIConfig:
 
     @staticmethod
     def supports_reasoning_level(model: str) -> bool:
-        return model.startswith(("gpt-5", "o3", "o4")) and "chat" not in model
+        return model.startswith(("gpt-5", "gpt-6", "o3", "o4")) and "chat" not in model
 
     @staticmethod
     def reasoning_effort(model: str, level: ReasoningLevel) -> ReasoningEffort:
@@ -272,7 +270,7 @@ class OpenAIAdapter:
             error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
                 return QuotaExceededError(str(error))
-            return RateLimitError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
         if isinstance(error, openai.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
@@ -399,7 +397,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level
+                    selected_effort = OpenAIConfig.reasoning_effort(model_id, request.reasoning_level)
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(

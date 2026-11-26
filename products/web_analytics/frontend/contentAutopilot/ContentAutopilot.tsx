@@ -1,175 +1,128 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonCollapse,
-    LemonDialog,
-    LemonSelect,
-    LemonSkeleton,
-    LemonTabs,
-} from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
-import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
-import { contentAutopilotLogic } from './contentAutopilotLogic'
-import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
+import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
+import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
+import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
+import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
+import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
+import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
+import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
+import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
-import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
+import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
+import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
+import { ContentAutopilotRankings } from './ContentAutopilotRankings'
+import { ContentAutopilotSettings } from './ContentAutopilotSettings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
+import { ContentAutopilotSitePicker } from './ContentAutopilotSitePicker'
+
+const FilteredTab = ({
+    tab,
+    children,
+}: {
+    tab: Exclude<AiVisibilityFilterTab, 'prompts'>
+    children: JSX.Element
+}): JSX.Element => (
+    <div className="flex flex-col gap-4">
+        <ContentAutopilotFilterBar tab={tab} filters={AI_VISIBILITY_TAB_FILTERS[tab]} />
+        {children}
+    </div>
+)
 
 export const ContentAutopilot = (): JSX.Element => {
-    const {
-        profile,
-        activeRun,
-        siteRuns,
-        draftRows,
-        readyDraftCount,
-        latestRunErrors,
-        workspaceTab,
-        onboardingOpen,
-        siteProfiles,
-        siteProfilesLoading,
-        runsLoading,
-        proposalsLoading,
-        runMutationLoading,
-        workspaceError,
-        workspaceErrors,
-        workspaceInitialized,
-        profileDataLoaded,
-        visibleOpportunities,
-    } = useValues(contentAutopilotLogic)
-    const { beginOnboarding, cancelRun, selectProfile, loadWorkspace, setWorkspaceTab } =
-        useActions(contentAutopilotLogic)
-    const loading = siteProfilesLoading || runsLoading || proposalsLoading
-    const lastRun = siteRuns[0]
-    const confirmCancelRun = (): void => {
-        if (!activeRun) {
-            return
-        }
-        LemonDialog.open({
-            title: 'Stop drafting?',
-            description: 'PostHog stops after the draft it is writing now. Finished drafts stay available.',
-            primaryButton: {
-                children: 'Stop drafting',
-                status: 'danger',
-                onClick: () => cancelRun(activeRun.id),
-            },
-            secondaryButton: { children: 'Keep drafting' },
-        })
-    }
-
-    if (!workspaceInitialized) {
-        return <LemonSkeleton className="h-72 w-full" />
-    }
+    // Mounted here, so a prompt's own URL opens it whatever tab was last open.
+    const { promptId } = useValues(contentAutopilotPromptDetailLogic)
+    const { profile, workspaceTab, onboardingOpen, siteProfilesLoading, workspaceError } =
+        useValues(contentAutopilotLogic)
+    const { loadWorkspace, setWorkspaceTab } = useActions(contentAutopilotLogic)
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                    <h1 className="m-0">Content autopilot</h1>
-                    <p className="m-0 mt-1 text-muted max-w-3xl">
-                        Find questions AI assistants answer without citing your site, and draft the pages that fix it.
-                        Nothing is published until you download a draft and ship it yourself.
-                    </p>
-                </div>
-                {profile && !onboardingOpen ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonSelect
-                            aria-label="Site"
-                            value={profile.id}
-                            onChange={selectProfile}
-                            options={siteProfiles.map((siteProfile) => ({
-                                value: siteProfile.id,
-                                label: siteProfile.name || siteProfile.domain,
-                            }))}
-                        />
-                        <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={beginOnboarding}>
-                            Add site
-                        </LemonButton>
-                    </div>
-                ) : null}
-            </div>
-
+        <div className="flex flex-col gap-4 pb-4">
             {workspaceError ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadWorkspace, loading }}>
-                    Some content autopilot data could not be loaded. {workspaceError}
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadWorkspace, loading: siteProfilesLoading }}
+                >
+                    Some AI visibility data could not be loaded. {workspaceError}
                 </LemonBanner>
             ) : null}
 
-            {workspaceErrors.profiles && !profile ? (
-                <LemonCard hoverEffect={false} className="p-8 text-center">
-                    <h2>Sites could not be loaded</h2>
-                    <p className="text-muted">Try again before adding or changing a site.</p>
-                </LemonCard>
-            ) : onboardingOpen || !profile ? (
+            {profile && onboardingOpen ? (
                 <ContentAutopilotSetup onboarding />
-            ) : (
-                <>
-                    {!profileDataLoaded ? (
-                        <LemonSkeleton className="h-72 w-full" />
-                    ) : (
-                        <>
-                            {latestRunErrors.length > 0 ? (
-                                <LemonBanner type={lastRun?.run_status === 'failed' ? 'error' : 'warning'}>
-                                    {latestRunErrors.join(' ')}
-                                </LemonBanner>
-                            ) : null}
-
-                            <LemonTabs
-                                activeKey={workspaceTab}
-                                onChange={setWorkspaceTab}
-                                data-attr="content-autopilot-workspace-tabs"
-                                rightSlot={
-                                    activeRun ? (
-                                        <LemonButton
-                                            type="tertiary"
-                                            status="danger"
-                                            size="small"
-                                            onClick={confirmCancelRun}
-                                            loading={runMutationLoading}
-                                            data-attr="content-autopilot-stop-drafting"
-                                        >
-                                            Stop drafting
-                                        </LemonButton>
-                                    ) : null
-                                }
-                                tabs={[
-                                    {
-                                        key: 'opportunities',
-                                        label: `Opportunities (${visibleOpportunities.length})`,
-                                        content: <ContentAutopilotOpportunities />,
-                                    },
-                                    {
-                                        key: 'drafts',
-                                        label: readyDraftCount
-                                            ? `Drafts (${readyDraftCount} ready to review)`
-                                            : `Drafts (${draftRows.length})`,
-                                        content: <ContentAutopilotDrafts />,
-                                    },
-                                    {
-                                        key: 'prompts',
-                                        label: 'Prompts',
-                                        content: <ContentAutopilotPrompts />,
-                                    },
-                                ]}
-                            />
-                        </>
-                    )}
-
-                    <LemonCollapse
-                        panels={[
-                            {
-                                key: 'settings',
-                                header: `Settings for ${profile.name || profile.domain}`,
-                                content: <ContentAutopilotSetup />,
-                            },
-                        ]}
+            ) : promptId ? (
+                <ContentAutopilotPromptDetail />
+            ) : workspaceTab === 'settings' && profile ? (
+                <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
+                    <ContentAutopilotPageHeader
+                        title="Settings"
+                        backLabel="Overview"
+                        backDataAttr="content-autopilot-settings-back"
+                        onBack={() => setWorkspaceTab('overview')}
                     />
-                </>
+                    <ContentAutopilotSitePicker />
+                    <ContentAutopilotSettings />
+                </div>
+            ) : (
+                <LemonTabs<ContentAutopilotWorkspaceTab>
+                    activeKey={workspaceTab}
+                    onChange={setWorkspaceTab}
+                    data-attr="content-autopilot-workspace-tabs"
+                    rightSlot={
+                        profile ? (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconGear />}
+                                onClick={() => setWorkspaceTab('settings')}
+                                tooltip="Settings"
+                                aria-label="Settings"
+                                data-attr="content-autopilot-settings"
+                            />
+                        ) : null
+                    }
+                    tabs={[
+                        {
+                            key: 'overview',
+                            label: 'Overview',
+                            content: (
+                                <FilteredTab tab="overview">
+                                    <ContentAutopilotPromptsOverview />
+                                </FilteredTab>
+                            ),
+                        },
+                        {
+                            key: 'rankings',
+                            label: 'Rankings',
+                            content: (
+                                <FilteredTab tab="rankings">
+                                    <ContentAutopilotRankings />
+                                </FilteredTab>
+                            ),
+                        },
+                        {
+                            key: 'prompts',
+                            label: 'Prompts',
+                            content: <ContentAutopilotPrompts />,
+                        },
+                        {
+                            key: 'keywords',
+                            label: 'Keywords',
+                            content: (
+                                <FilteredTab tab="keywords">
+                                    <ContentAutopilotKeywords />
+                                </FilteredTab>
+                            ),
+                        },
+                    ]}
+                />
             )}
-            <ContentAutopilotProposalDetail />
+            <ContentAutopilotPromptAddModal />
+            <ContentAutopilotPromptSuggestModal />
+            <ContentAutopilotCitationsModal />
         </div>
     )
 }

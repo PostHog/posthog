@@ -684,6 +684,24 @@ describe('TaxonomicFilter', () => {
                 })
                 expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
             })
+
+            // On the Events tab the stand-in row fills the list, so the empty state never renders there.
+            it('does not claim the event is unavailable when the picker offers stand-ins', async () => {
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+                    offerHiddenEventStandIns: true,
+                })
+
+                await activateGroupWithResults('taxonomic-tab-person_properties')
+                await withoutDebounceDelay((user) =>
+                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                )
+
+                await waitFor(() => {
+                    expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
+                })
+                expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
+            })
         })
     })
 
@@ -795,6 +813,7 @@ describe('TaxonomicFilter', () => {
                     wasFromPinnedList: false,
                     wasFromRecents: false,
                     wasQuickFilter: false,
+                    wasHiddenEventStandIn: false,
                     hadSearchInput: false,
                     position: 1,
                 },
@@ -809,6 +828,7 @@ describe('TaxonomicFilter', () => {
                     wasFromPinnedList: false,
                     wasFromRecents: false,
                     wasQuickFilter: false,
+                    wasHiddenEventStandIn: false,
                     hadSearchInput: true,
                     position: 0,
                 },
@@ -1957,6 +1977,26 @@ describe('TaxonomicFilter', () => {
         await waitFor(() => expect(requests.length).toBeGreaterThan(0))
         expect(requests[0].get('metricName')).toBe('http_requests')
         expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
+    })
+
+    it('asks the metrics attribute endpoint to match values too', async () => {
+        const requests: URLSearchParams[] = []
+        const captureRequest = (info: MockResolverInfo): [number, unknown] => {
+            requests.push(new URL(info.request.url).searchParams)
+            return [200, { results: [], count: 0 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/metrics/attributes': captureRequest,
+                '/api/environments/:team/metrics/attributes': captureRequest,
+            },
+        })
+
+        renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.MetricAttributes], searchQuery: 'checkout' })
+
+        await waitFor(() => expect(requests.length).toBeGreaterThan(0))
+        expect(requests[0].get('search')).toBe('checkout')
+        expect(requests[0].get('search_values')).toBe('true')
     })
 
     it.each([

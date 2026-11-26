@@ -49,6 +49,10 @@ export function createProduceMetricsStep<T extends ProduceMetricsInput>(
                         ...input.kafkaHeaders,
                         ...headers,
                         'retention-days': DEFAULT_METRICS_RETENTION_DAYS.toString(),
+                        // ClickHouse counts each row toward the partition it was read from too, so the
+                        // freshness checkpoint sees a lagging partition on this topic.
+                        source_topic: input.message.topic,
+                        source_partition: input.message.partition.toString(),
                     },
                 }),
             PRODUCE_RETRY

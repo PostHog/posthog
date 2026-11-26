@@ -26,6 +26,7 @@ from products.batch_exports.backend.facade.contracts import (
     InvalidBatchExportDestinationError,
     InvalidBatchExportFilters,
     InvalidDestinationConfigError,
+    InvalidKeyError,
     UnsupportedDestinationTestError,
     UnsupportedHogQLQueryError,
 )
@@ -667,21 +668,16 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     serializer_class = BatchExportSerializer
     pagination_class = FacadeLimitOffsetPagination
     log_source = "batch_exports"
+    # batch_export is not an access-control resource, so no rule names one export.
+    records_have_object_access_rules = False
 
-    def dangerously_get_object(self) -> contracts.BatchExportConfiguration:
-        # The mixin's get_object() reads through a queryset, which this view does not have, so the
-        # export is read through the facade instead. That skips the mixin's team filter and object
-        # permission check, so both happen here: the facade filters by team, and
-        # check_object_permissions runs on the contract. `logs` reads the export through here too.
-        export_id = self.kwargs["pk"]
+    def read_object(self) -> contracts.BatchExportConfiguration:
         try:
-            batch_export = batch_exports_api.get_batch_export(
-                self.team_id, export_id, include_latest_runs=self.action == "retrieve"
+            return batch_exports_api.get_batch_export(
+                self.team_id, self.kwargs["pk"], include_latest_runs=self.action == "retrieve"
             )
         except BatchExportNotFoundError as e:
             raise NotFound(*e.args) from e
-        self.check_object_permissions(self.request, batch_export)
-        return batch_export
 
     def list(self, request: request.Request, *args: typing.Any, **kwargs: typing.Any) -> response.Response:
         return facade_page_response(
@@ -769,7 +765,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             )
         except UnsupportedDestinationTestError:
             raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
-        except InvalidDestinationConfigError as e:
+        except (InvalidDestinationConfigError, InvalidKeyError) as e:
             raise ValidationError(str(e))
         except BatchExportNotFoundError:
             raise NotFound(f"BatchExport ID '{export_id}' not found.")

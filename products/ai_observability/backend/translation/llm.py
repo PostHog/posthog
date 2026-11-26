@@ -36,7 +36,6 @@ def translate_text(text: str, target_language: str, user_distinct_id: str | None
     # 10,000 character cap more room to finish.
     distinct_id = user_distinct_id or "llma-translation"
     client = build_openai_client(
-        "llma_translation",
         ai_product="llma_translation",
         distinct_id=distinct_id,
     ).with_options(max_retries=0)
@@ -46,6 +45,7 @@ def translate_text(text: str, target_language: str, user_distinct_id: str | None
     try:
         response = client.chat.completions.create(
             model=TRANSLATION_MODEL,
+            reasoning_effort="low",
             messages=[
                 {
                     "role": "system",

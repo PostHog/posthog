@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -6,7 +7,15 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { PlatformAlertConfigurationApi } from './generated/api.schemas'
+import { userEvent } from 'storybook/test'
+
+import {
+    AlertReceiverApi,
+    AlertRouteApi,
+    AlertRouteMatchApi,
+    PlatformAlertConfigurationApi,
+} from './generated/api.schemas'
+import { routingUrl } from './routing/platformAlertRoutingFormat'
 
 const CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
@@ -14,6 +23,11 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     enabled: true,
     labels: {},
     annotations: {},
+    created_by: null,
+    last_checked_at: null,
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: ['slack', 'pagerduty'],
     source_kind: 'logs',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
@@ -55,6 +69,7 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000002',
     name: 'Daily signup volume below 10',
     enabled: false,
+    destination_types: [],
     source_kind: 'insight',
     source_config: {
         insight_id: 42,
@@ -68,8 +83,171 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     schedule_restriction: null,
     next_check_at: null,
     legacy_configuration_id: null,
+    owner: 'platform',
     alerts: [],
 }
+
+const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
+    ...CONFIGURATION,
+    id: '0192a5b0-0000-7000-8000-000000000003',
+    name: 'Errors per service above 100',
+    legacy_configuration_id: null,
+    owner: 'platform',
+    destination_types: ['slack', 'teams', 'pagerduty', 'email'],
+    labels: { team: 'checkout', severity: 'page' },
+    annotations: {
+        runbook_url: 'https://example.com/runbooks/checkout-errors',
+        summary: '{{ $labels.service_name }} logged {{ $value }} errors',
+    },
+    grouping: {
+        mode: 'by_result_labels',
+        keys: ['service_name', 'severity_text'],
+        max_instances: 3,
+        on_overflow: 'degrade_visible',
+    },
+    overflowed_groups: 3,
+    overflow_is_lower_bound: true,
+    alerts: [
+        {
+            id: '0192a5b0-0000-7000-8000-000000000301',
+            grouping_key: '{"service_name":"checkout","severity_text":"error"}',
+            state: 'firing',
+            firing_started_at: '2026-10-05T11:42:00Z',
+            last_notified_at: '2026-10-05T11:42:05Z',
+            snooze_until: null,
+            labels: { service_name: 'checkout', severity_text: 'error' },
+        },
+        {
+            id: '0192a5b0-0000-7000-8000-000000000302',
+            grouping_key: '{"service_name":"payments-api","severity_text":"error"}',
+            state: 'snoozed',
+            firing_started_at: '2026-10-05T10:15:00Z',
+            last_notified_at: '2026-10-05T10:15:04Z',
+            snooze_until: '2026-10-06T10:00:00Z',
+            labels: { service_name: 'payments-api', severity_text: 'error' },
+        },
+        {
+            id: '0192a5b0-0000-7000-8000-000000000303',
+            grouping_key: 'sha256:5f0c3e5b9a8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b',
+            state: 'not_firing',
+            firing_started_at: null,
+            last_notified_at: null,
+            snooze_until: null,
+            labels: {
+                service_name: 'recommendations-worker-with-a-very-long-service-name-from-kubernetes',
+                severity_text: 'warn',
+            },
+        },
+    ],
+}
+
+const SOURCE_KIND_OVERRIDES: Partial<PlatformAlertConfigurationApi>[] = [
+    { name: 'Stripe sync failing', source_kind: 'warehouse_source', check_interval_minutes: 120 },
+    { name: 'S3 export failing', source_kind: 'warehouse_destination', recurrence_unit: 'week' },
+    {
+        name: 'p95 latency above 500 ms',
+        source_kind: 'metrics',
+        recurrence_unit: 'month',
+        snooze_until: '2026-10-07T09:00:00Z',
+    },
+    { name: 'Checkout spans erroring', source_kind: 'traces', check_interval_minutes: 15 },
+    {
+        name: 'New issues in checkout',
+        source_kind: 'error_tracking',
+        check_interval_minutes: 60,
+        destination_types: [],
+    },
+]
+
+const SOURCE_KIND_CONFIGURATIONS: PlatformAlertConfigurationApi[] = SOURCE_KIND_OVERRIDES.map((overrides, index) => ({
+    ...CONFIGURATION,
+    id: `0192a5b0-0000-7000-8000-00000000060${index + 1}`,
+    source_config: {},
+    legacy_configuration_id: null,
+    alerts: [],
+    ...overrides,
+}))
+
+const FILLER_CONFIGURATIONS: PlatformAlertConfigurationApi[] = Array.from({ length: 47 }, (_, index) => ({
+    ...CONFIGURATION,
+    id: `0192a5b0-0000-7000-8000-${String(700 + index).padStart(12, '0')}`,
+    name: `Service ${index + 1} errors above 100`,
+    legacy_configuration_id: null,
+    alerts: [],
+}))
+
+const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
+    ...CONFIGURATION,
+    id: '0192a5b0-0000-7000-8000-000000000004',
+    owner: 'platform',
+    labels: { team: 'infra', severity: 'critical' },
+    annotations: { runbook: 'https://example.com/runbooks/api-errors' },
+}
+
+const RECEIVERS: AlertReceiverApi[] = [
+    {
+        id: '0192a5b0-0000-7000-8000-000000000401',
+        name: 'Infra incidents',
+        type: 'webhook',
+        enabled: true,
+        route_count: 2,
+        webhook_url: 'https://hooks.example.com',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000402',
+        name: 'Checkout team',
+        type: 'teams',
+        enabled: false,
+        route_count: 1,
+        webhook_url: 'https://example.webhook.office.com',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000403',
+        name: 'Infra on-call',
+        type: 'pagerduty',
+        enabled: true,
+        route_count: 0,
+        pagerduty_routing_key: '••••c3d4',
+        pagerduty_severity: 'critical',
+        pagerduty_region: 'us',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000404',
+        name: 'Platform incidents',
+        type: 'incident_io',
+        enabled: true,
+        route_count: 0,
+        incident_io_alert_source_config_id: '01GW2G3V0S59R238FAHPDS1R66',
+        incident_io_secret: '••••a9f2',
+    },
+]
+
+const ROUTES: AlertRouteApi[] = [
+    {
+        id: '0192a5b0-0000-7000-8000-000000000501',
+        receiver_id: RECEIVERS[0].id,
+        matchers: [
+            { label: 'team', value: 'infra' },
+            { label: 'severity', value: 'critical' },
+        ],
+        event_kinds: ['firing', 'resolved', 'errored', 'broken'],
+        enabled: true,
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000502',
+        receiver_id: RECEIVERS[0].id,
+        matchers: [],
+        event_kinds: ['firing', 'resolved'],
+        enabled: false,
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000503',
+        receiver_id: RECEIVERS[1].id,
+        matchers: [{ label: 'team', value: 'checkout' }],
+        event_kinds: ['firing', 'resolved', 'errored', 'broken'],
+        enabled: true,
+    },
+]
 
 const meta: Meta = {
     component: App,
@@ -77,19 +255,35 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2026-10-05',
+        mockDate: '2026-10-05T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS],
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/platform_alerts/': {
-                    count: 2,
+                    count: 3 + SOURCE_KIND_CONFIGURATIONS.length,
                     next: null,
                     previous: null,
-                    results: [CONFIGURATION, DISABLED_CONFIGURATION],
+                    results: [
+                        CONFIGURATION,
+                        DISABLED_CONFIGURATION,
+                        GROUPED_CONFIGURATION,
+                        ...SOURCE_KIND_CONFIGURATIONS,
+                    ],
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
+                [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
+                [`/api/projects/:team_id/platform_alerts/${ROUTED_CONFIGURATION.id}/`]: ROUTED_CONFIGURATION,
+                '/api/projects/:team_id/platform_alert_receivers/': RECEIVERS,
+                '/api/projects/:team_id/platform_alert_routes/': ROUTES,
+            },
+            post: {
+                [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/snooze_group/`]:
+                    GROUPED_CONFIGURATION.alerts[0],
+                '/api/projects/:team_id/platform_alert_routes/matching/': [
+                    { route: ROUTES[0], receiver: RECEIVERS[0] },
+                ] satisfies AlertRouteMatchApi[],
             },
         }),
     ],
@@ -102,6 +296,228 @@ export const List: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
 }
 
+export const ListIntervalTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        const interval = within(name.closest('tr') as HTMLElement).getByText('1d')
+        await userEvent.hover(interval)
+        await within(document.body).findByText('Every day at 09:00')
+    },
+}
+
+export const ListTypeTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText('S3 export failing')
+        const type = within(name.closest('tr') as HTMLElement).getByRole('img', { name: 'Warehouse destination' })
+        await userEvent.hover(type)
+        await within(document.body).findByText('Warehouse destination')
+    },
+}
+
+export const ListDestinationTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(CONFIGURATION.name)
+        const destination = within(name.closest('tr') as HTMLElement).getByRole('img', { name: 'PagerDuty' })
+        await userEvent.hover(destination)
+        await within(document.body).findByText('PagerDuty')
+    },
+}
+
+export const ListMuteTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(GROUPED_CONFIGURATION.name)
+        const marker = within(name.closest('tr') as HTMLElement).getByRole('img', { name: /^1\sgroup snoozed$/ })
+        await userEvent.hover(marker)
+        await within(document.body).findByText('1 group snoozed. Their notifications are on hold.')
+    },
+}
+
+export const ListGroupsExpanded: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    // A native click rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Errors per service above 100')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+        await within(canvasElement).findByText('service_name=checkout severity_text=error')
+    },
+}
+
+export const ListPaginatedGroupsExpanded: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 51,
+                    next: 'http://localhost/api/projects/1/platform_alerts/?limit=50&offset=50',
+                    previous: null,
+                    results: [CONFIGURATION, DISABLED_CONFIGURATION, GROUPED_CONFIGURATION, ...FILLER_CONFIGURATIONS],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Errors per service above 100')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+        await within(canvasElement).findByText('service_name=checkout severity_text=error')
+        await within(canvasElement).findByText('1-50 of 51 alerts')
+    },
+}
+
+// Native clicks rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
+export const ListRowMenuDisabledAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Enable alert')
+        await userEvent.hover(
+            document.body.querySelector<HTMLElement>('[data-attr="platform-alerts-row-snooze-1h"]') as HTMLElement
+        )
+        await within(document.body).findByText('Enable the alert first')
+    },
+}
+
+export const ListRowMenuSourceOwnedOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(CONFIGURATION.name)
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Disable alert')
+    },
+}
+
+export const ListRowMenuSnoozedAlertOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText('p95 latency above 500 ms')
+        name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
+        await within(document.body).findByText('Unsnooze')
+    },
+}
+
+async function openGroupRowMenu(canvasElement: HTMLElement, group: string): Promise<void> {
+    await within(canvasElement).findByText(GROUPED_CONFIGURATION.name)
+    canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+    await within(canvasElement).findByText(group)
+    canvasElement.querySelector<HTMLElement>(`[aria-label="More options for ${group}"]`)?.click()
+}
+
+export const ListGroupMenuOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await within(document.body).findByText('Snooze group for 1 week')
+    },
+}
+
+export const ListGroupMenuUnsnooze: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=payments-api severity_text=error')
+        await within(document.body).findByText('Unsnooze group')
+    },
+}
+
+export const ListGroupMenuAlertSnoozed: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 3,
+                    next: null,
+                    previous: null,
+                    results: [
+                        CONFIGURATION,
+                        DISABLED_CONFIGURATION,
+                        { ...GROUPED_CONFIGURATION, snooze_until: '2026-10-06T12:00:00Z' },
+                    ],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await userEvent.hover(await within(document.body).findByText('Snooze group for 1 hour'))
+        await within(document.body).findByText('The whole alert is snoozed')
+    },
+}
+
+export const ListGroupMenuSourceOwned: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 3,
+                    next: null,
+                    previous: null,
+                    results: [CONFIGURATION, DISABLED_CONFIGURATION, { ...GROUPED_CONFIGURATION, owner: 'source' }],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await userEvent.hover(await within(document.body).findByText('Snooze group for 1 hour'))
+        await within(document.body).findByText('Logs manages this alert, so snooze the whole alert there')
+    },
+}
+
 export const Detail: Story = {
     parameters: { pageUrl: urls.platformAlert(CONFIGURATION.id) },
+}
+
+export const DetailGrouped: Story = {
+    parameters: { pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id) },
+}
+
+export const DetailGroupedSnoozeMenuOpen: Story = {
+    parameters: { pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id) },
+    // Opens the menu of the snoozed group, so Unsnooze shows. A native click rather than userEvent:
+    // userEvent wraps the event in `act`, which throws in the production React build the visual
+    // regression runner uses.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Snoozed')
+        const triggers = canvasElement.querySelectorAll<HTMLElement>('[data-attr="platform-alert-group-snooze-menu"]')
+        Array.from(triggers)
+            .find((trigger) => trigger.textContent === 'Snoozed')
+            ?.click()
+        await within(document.body).findByText('Unsnooze')
+    },
+}
+
+export const DetailRuleMetadataModalOpen: Story = {
+    parameters: {
+        pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id),
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Labels and annotations')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alert-rule-metadata-edit"]')?.click()
+        await within(document.body).findByText('Edit labels and annotations')
+    },
+}
+
+export const Routing: Story = {
+    parameters: {
+        pageUrl: routingUrl(),
+        featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
+    },
+}
+
+export const DetailWithRouting: Story = {
+    parameters: {
+        pageUrl: urls.platformAlert(ROUTED_CONFIGURATION.id),
+        featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Infra incidents')
+    },
 }

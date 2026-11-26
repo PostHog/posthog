@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Literal
+from uuid import UUID
 
 from django.conf import settings
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts_platform.backend.facade.api import list_configurations, owned_copies_by_legacy_id
+from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.logs.backend.alert_state_machine import NotificationAction
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_source_config import filters_of
 from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
@@ -153,33 +157,74 @@ async def emit_alert_state_change_signal(team: Team, na: NotifiedAlert) -> bool:
         return False
 
 
-def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal]) -> list[NotifiedAlert]:
-    """The signal facts for alerts the platform announced, read from their logs alert rows.
+@frozen
+class _AlertFacts:
+    name: str
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    filters: dict
 
-    An alert whose logs row is gone gets no signal, the way the logs stack sends none for it.
-    """
-    alerts = {
-        str(alert.id): alert
-        for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=[s.alert_id for s in signals])
-    }
+    @classmethod
+    def of_configuration(cls, configuration: PlatformAlertConfigurationView) -> _AlertFacts:
+        condition = configuration.source_config["condition"]
+        return cls(
+            name=configuration.name,
+            threshold_count=condition["threshold_count"],
+            threshold_operator=condition["threshold_operator"],
+            window_minutes=condition["window_minutes"],
+            filters=filters_of(configuration.source_config),
+        )
+
+
+def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFacts]:
+    """What a signal says about each alert, from its platform configuration. A signal names a copy by
+    its logs row's id, and an alert the platform created without a row by the configuration's own."""
+    copies = owned_copies_by_legacy_id(
+        team_id=team_id,
+        source_kind=SourceKind.LOGS,
+        legacy_configuration_ids=[UUID(alert_id) for alert_id in alert_ids],
+    )
+    facts = {str(legacy_id): _AlertFacts.of_configuration(copy) for legacy_id, copy in copies.items()}
+    missing = [UUID(alert_id) for alert_id in alert_ids - facts.keys()]
+    if missing:
+        page = list_configurations(
+            team_id=team_id,
+            source_kinds=[SourceKind.LOGS.value],
+            limit=len(missing),
+            offset=0,
+            configuration_ids=missing,
+        )
+        facts.update(
+            {
+                str(configuration.id): _AlertFacts.of_configuration(configuration)
+                for configuration in page.configurations
+            }
+        )
+    return facts
+
+
+def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal]) -> list[NotifiedAlert]:
+    """The signal facts for alerts the platform announced. An alert the platform no longer holds gets no signal."""
+    facts_by_id = _facts_by_alert_id(team_id, {signal.alert_id for signal in signals})
     notified: list[NotifiedAlert] = []
     for signal in signals:
-        alert = alerts.get(signal.alert_id)
-        if alert is None:
+        facts = facts_by_id.get(signal.alert_id)
+        if facts is None:
             continue
         notified.append(
             NotifiedAlert(
                 alert_id=signal.alert_id,
                 team_id=team_id,
-                alert_name=alert.name,
+                alert_name=facts.name,
                 action=signal.action,
                 weight=_WEIGHT_BY_ACTION[signal.action],
-                threshold_count=alert.threshold_count,
-                threshold_operator=alert.threshold_operator,
-                window_minutes=alert.window_minutes,
+                threshold_count=facts.threshold_count,
+                threshold_operator=facts.threshold_operator,
+                window_minutes=facts.window_minutes,
                 result_count=signal.result_count,
                 consecutive_failures=signal.consecutive_failures,
-                filters=alert.filters,
+                filters=facts.filters,
                 idempotency_key=signal.idempotency_key,
                 group_labels=signal.labels,
             )

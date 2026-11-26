@@ -20,8 +20,7 @@ import { type ProductOnboardingProvider } from './types'
 /**
  * Registry of per-product onboarding providers. The flow selector iterates
  * `selectedProducts` in order and concatenates each provider's `steps(ctx)`
- * into a single flat flow. The primary product's `completeRedirectUrl()` is
- * used as the post-onboarding landing target.
+ * into a single flat flow.
  *
  * Adding a product to the onboarding system: write a provider in
  * `products/<name>/frontend/onboarding/steps.tsx`, register it here, and add

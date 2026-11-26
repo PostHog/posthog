@@ -1,11 +1,14 @@
+import re
 import time
 from contextlib import suppress
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db import OperationalError, connections
-from django.db.models import Q
+from django.db import OperationalError, connections, transaction
+from django.db.models import F, Q, QuerySet, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import structlog
@@ -17,6 +20,8 @@ from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
+from posthog.egress.github.limiter import github_installation_pace_seconds
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
@@ -29,23 +34,35 @@ from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
+from posthog.utils import UUID_REGEX
 
+from products.signals.backend import report_assignments
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.claim_takeover_notification import (
+    send_claim_takeover_notification as send_claim_takeover_notification,
+)
+from products.signals.backend.constants import REPORT_POINTER_SWEEP_IDENTITY, SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
 )
+from products.signals.backend.github_writeback_tasks import post_source_issue_links as post_source_issue_links
+from products.signals.backend.handoff_claim_tasks import reconcile_task_handoff_claims as reconcile_task_handoff_claims
 from products.signals.backend.implementation_dispatch_tasks import (
     dispatch_implementation_replacement as dispatch_implementation_replacement,
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache_for_links
+from products.signals.backend.implementation_pr_notification_tasks import (
+    deliver_implementation_pr_notifications as deliver_implementation_pr_notifications,
+)
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportArtefact,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
@@ -53,12 +70,18 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
 )
 from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
+from products.signals.backend.rated_usage_tasks import (
+    enqueue_signals_rated_usage as enqueue_signals_rated_usage,
+    report_signals_rated_usage as report_signals_rated_usage,
+)
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -66,6 +89,10 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
 from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research
+from products.signals.backend.report_note_mentions import (
+    send_report_note_mention_notifications as send_report_note_mention_notifications,
+    send_report_note_mention_slack as send_report_note_mention_slack,
+)
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
@@ -88,6 +115,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.spend_recovery import recover_incomplete_spend as recover_incomplete_spend
 from products.signals.backend.support_writeback import (
     post_pull_request_to_tickets,
     task_can_write_support_ticket_update,
@@ -100,6 +128,22 @@ from products.signals.backend.tracker_issues import (
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True)
+def emit_report_ready_event_task(team_id: int, report_id: str, known_source_products: list[str] | None = None) -> None:
+    """Produce `$signals_report_ready` off the request path. Its ClickHouse lookup must not hold the request that
+    moved the report, and a bulk state change commits its reports one at a time. No retry: a produce is not
+    idempotent, and a duplicate nudge costs a consumer more than a missed one."""
+    from products.signals.backend.receivers import _is_safety_suppressed  # noqa: PLC0415
+    from products.signals.backend.report_ready_event import emit_report_ready_event  # noqa: PLC0415
+
+    emit_report_ready_event(
+        team_id=team_id,
+        report_id=report_id,
+        is_safety_suppressed=_is_safety_suppressed,
+        known_source_products=known_source_products,
+    )
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
@@ -119,16 +163,130 @@ def refresh_report_implementation_pr_cache(
     )
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
-def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
     if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
+    try:
+        pr = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    if pr.state not in {SignalReportPullRequest.State.DRAFT, SignalReportPullRequest.State.OPEN}:
         return
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return
     signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
     post_pull_request_to_tickets(team, report_id, pr_url, signals)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, OperationalError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> None:
+    """Read a just-linked pull request from GitHub again and store any state it moved to.
+
+    A webhook that lands between the link's GitHub lookup and its commit finds no stored pull request,
+    so without this re-read the link keeps the stale state until the next webhook, which may never come.
+    """
+    try:
+        details = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    if details.state == SignalReportPullRequest.State.UNKNOWN:
+        return
+    stored = (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=details.repository, number=details.number)
+        .values_list("state", flat=True)
+        .first()
+    )
+    if stored is None or stored == details.state:
+        return
+    update_pull_request_state(
+        team_id=team_id,
+        repository=details.repository,
+        number=details.number,
+        state=details.state,
+        merged_at=details.merged_at,
+        merged_by=details.merged_by,
+    )
+
+
+def _load_repo_sync_progress(progress_key: str) -> tuple[int, list[dict]]:
+    progress = cache.get(progress_key)
+    if isinstance(progress, tuple) and len(progress) == 2:
+        return progress
+    return 1, []
+
+
+def _fetch_signals_repositories_paced(
+    github: GitHubIntegration, progress_key: str, lease_key: str, lease_token: str
+) -> list[dict]:
+    page, accumulated = _load_repo_sync_progress(progress_key)
+    while True:
+        github._wait_for_budget()
+        cache.set(lease_key, lease_token, timeout=300)
+        try:
+            repos, has_more = github.list_repositories(page=page, per_page=100, priority=Priority.BATCH)
+        except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+            if accumulated:
+                cache.set(progress_key, (page, accumulated), timeout=3600)
+            raise
+        accumulated.extend(repos)
+        if not has_more or not repos:
+            cache.delete(progress_key)
+            return accumulated
+        page += 1
+
+
+def _sync_signals_repository_cache_paced(github: GitHubIntegration, integration_id: int) -> None:
+    lease_key = f"signals:github-repo-sync-lease:{integration_id}"
+    lease_token = f"{time.monotonic_ns()}"
+    if not cache.add(lease_key, lease_token, timeout=300):
+        return
+    try:
+        if not github.repository_cache_is_stale():
+            return
+        cached_repositories = github._get_stored_repository_list()
+        accumulated = _fetch_signals_repositories_paced(
+            github, f"signals:github-repo-sync-progress:{integration_id}", lease_key, lease_token
+        )
+        github._store_repository_cache(accumulated if accumulated != cached_repositories else None, timezone.now())
+    finally:
+        if cache.get(lease_key) == lease_token:
+            cache.delete(lease_key)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(GitHubIntegrationError, OperationalError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_signals_github_repository_cache(self: Task, team_id: int, integration_id: int) -> None:
+    from posthog.integrations import IntegrationManager  # noqa: PLC0415
+
+    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
+    if integration is None:
+        return
+    github = GitHubIntegration(integration, source="signals_pr_browser", priority=Priority.BATCH)
+    try:
+        _sync_signals_repository_cache_paced(github, integration_id)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    except GitHubEgressBudgetExhausted as error:
+        delay = github_installation_pace_seconds(error.scope, priority=Priority.BATCH) if error.scope else 0
+        raise self.retry(exc=error, countdown=max(int(delay), 60))
 
 
 @shared_task(
@@ -149,6 +307,7 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
@@ -158,12 +317,12 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     reject_on_worker_lost=True,
 )
 @with_team_scope(canonical=True)
-def settle_scout_spend(team_id: int, run_id: str) -> None:
+def settle_scout_spend(self: Task, team_id: int, run_id: str) -> None:
     from products.signals.backend.spend import (
         complete_task_spend,  # noqa: PLC0415 - keeps spend accounting off the task registration import path
     )
 
-    complete_task_spend(team_id=team_id, run_id=run_id)
+    complete_task_spend(team_id=team_id, run_id=run_id, final_attempt=self.request.retries >= self.max_retries)
 
 
 @shared_task(
@@ -217,7 +376,12 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
         if not details.get("success") or details.get("merged") is not True or merged_at is None:
             raise GitHubIntegrationError("Could not verify the pull request merge time")
         update_pull_request_state(
-            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+            team_id=team_id,
+            repository=pr.repository,
+            number=pr.number,
+            state="merged",
+            merged_at=merged_at,
+            merged_by=PullRequestMerger.from_github(details.get("merged_by")),
         )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):
@@ -229,6 +393,21 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
             error=snapshot.get("error"),
         )
         return
+    # A state-change webhook writes the state its payload carried, so one handled late can store a
+    # stale state over a newer one. This read is fresh, so it repairs that on the next PR event. A merge
+    # stays with the paths that also record its merge time.
+    snapshot_state = snapshot.get("state")
+    if (
+        pr.state != SignalReportPullRequest.State.MERGED
+        and snapshot_state != pr.state
+        and snapshot_state
+        in {
+            SignalReportPullRequest.State.DRAFT,
+            SignalReportPullRequest.State.OPEN,
+            SignalReportPullRequest.State.CLOSED,
+        }
+    ):
+        update_pull_request_state(team_id=team_id, repository=pr.repository, number=pr.number, state=snapshot_state)
     raw_review_decision = snapshot.get("review_decision")
     review_decision = raw_review_decision if isinstance(raw_review_decision, str) else None
     update_pull_request_review_decision(
@@ -343,6 +522,16 @@ def sweep_monitoring_research_requests() -> None:
     emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
 
 
+@shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)
+@skip_team_scope_audit
+def sweep_stuck_research_reports() -> None:
+    from products.signals.backend.research_recovery import (
+        recover_stuck_research_reports,  # noqa: PLC0415 — keeps the temporal deps off the import path
+    )
+
+    recover_stuck_research_reports()
+
+
 @shared_task(
     name="products.signals.backend.tasks.link_report_tracker_issues",
     ignore_result=True,
@@ -356,13 +545,21 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     Both edits share this task so they run in sequence. Two tasks would race on the same body and
     keep failing each other's changed-body check.
     """
-    report_ids = (
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
+    report_ids = SignalReport.pr_target_report_ids_for_tasks(team_id, [task_id])
+    # A task with several reports attaches its PR to the reports it fixes explicitly.
+    if (parsed := GitHubIntegration.parse_pull_request_url(pr_url)) is not None:
+        report_ids.update(
+            str(report_id)
+            for report_id in SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+                task_id=task_id,
+                pull_request__repository__iexact=parsed.repository,
+                pull_request__number=parsed.number,
+            ).values_list("report_id", flat=True)
+        )
     retry_needed = False
-    for report_id in report_ids:
+    for report_id in sorted(report_ids):
         origin = write_origin_section(team_id=team_id, report_id=str(report_id), task_id=task_id, pr_url=pr_url)
         retry_needed = retry_needed or origin == BodyEditOutcome.FAILED
         linked = link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)
@@ -379,6 +576,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
                         SignalReportTrackerIssue.Status.PENDING,
                     ),
                     pr_linked_at__isnull=True,
+                    closed_at__isnull=True,
                 )
                 .exists()
             )
@@ -1324,6 +1522,8 @@ def pause_inactive_signal_scouts() -> None:
 # searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
 # so a human can still see what the fleet remembered and when it lapsed before the row is gone.
 SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
+# Some keys are rewritten on every run, so revisions are capped per key as well as by age.
+SCRATCHPAD_REVISION_RETENTION_DAYS = 14
 
 
 def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_DAYS) -> int:
@@ -1341,6 +1541,31 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
     return deleted
 
 
+def prune_scratchpad_revisions(
+    retention_days: int = SCRATCHPAD_REVISION_RETENTION_DAYS, per_key: int = SCRATCHPAD_REVISIONS_PER_KEY
+) -> int:
+    """Hard-delete scratchpad revisions older than `retention_days`, and those past the newest `per_key` of a key.
+
+    Cross-team janitor sweep, like `prune_expired_scratchpad_entries`. Returns the count deleted.
+    """
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+    revisions = SignalScratchpadRevision.objects.unscoped()
+    past_cap = (
+        revisions.annotate(
+            position=Window(
+                RowNumber(),
+                partition_by=[F("team_id"), F("key")],
+                order_by=[F("changed_at").desc(), F("id").desc()],
+            )
+        )
+        .filter(position__gt=per_key)
+        .values("id")
+    )
+    deleted, _ = revisions.filter(Q(changed_at__lt=cutoff) | Q(id__in=past_cap)).delete()
+    return deleted
+
+
 @shared_task(
     name="products.signals.backend.tasks.prune_expired_scratchpad_entries",
     ignore_result=True,
@@ -1350,29 +1575,189 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
 )
 @skip_team_scope_audit
 def prune_expired_scratchpad_entries_task() -> None:
-    """Daily janitor: hard-delete scratchpad entries long past their expiry.
+    """Daily janitor: hard-delete scratchpad entries long past their expiry, and old revisions.
 
     A scout that writes a time-boxed memory almost never comes back to `forget` it, so expired
     rows would otherwise pile up forever — expiry only hides a row from searches, it never removed
     one. Runs here rather than on the coordinator's 30-minute tick, which stays bounded.
     """
     deleted = 0
+    revisions_deleted = 0
     try:
         deleted = prune_expired_scratchpad_entries()
+        revisions_deleted = prune_scratchpad_revisions()
     except SoftTimeLimitExceeded:
         raise
-    except OperationalError as exc:
-        # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
-        logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
     except Exception as exc:
-        if is_stale_connection_read_only_error(exc):
-            # The pooled connection outlived a primary failover. Drop it so the next run reconnects to the primary.
-            connections.close_all()
-            logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
-        else:
-            capture_exception(exc)
-            logger.exception("signals_scout.scratchpad_prune_failed")
-    logger.info("signals_scout scratchpad prune finished", deleted=deleted)
+        _report_scratchpad_janitor_error(exc, event_prefix="signals_scout.scratchpad_prune")
+    logger.info("signals_scout scratchpad prune finished", deleted=deleted, revisions_deleted=revisions_deleted)
+
+
+def _report_scratchpad_janitor_error(exc: Exception, *, event_prefix: str) -> None:
+    if isinstance(exc, OperationalError):
+        # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
+        logger.warning(f"{event_prefix}_transient_db_error", error=str(exc))
+    elif is_stale_connection_read_only_error(exc):
+        # The pooled connection outlived a primary failover. Drop it so the next run reconnects to the primary.
+        connections.close_all()
+        logger.warning(f"{event_prefix}_transient_db_error", error=str(exc))
+    else:
+        capture_exception(exc)
+        logger.exception(f"{event_prefix}_failed")
+
+
+# A `report:` entry must go this long without a write before the sweep judges it. A scout that
+# rewrote its pointer recently still uses it, and a fresh pointer can name a report whose row
+# is not committed yet.
+REPORT_POINTER_MIN_AGE_DAYS = 30
+REPORT_POINTER_SWEEP_BATCH_SIZE = 500
+REPORT_POINTER_SWEEP_MAX_BATCHES = 20
+# The sweep reads at most one capped slice per day, so it continues from this cursor on the next
+# run. Without it, a store larger than the cap would scan the same head rows every day.
+REPORT_POINTER_SWEEP_CURSOR_KEY = "signals:scratchpad:report_pointer_sweep_cursor"
+_REPORT_POINTER_SWEEP_CURSOR_TTL_SECONDS = 7 * 24 * 60 * 60
+_REPORT_ID_PATTERN = re.compile(UUID_REGEX, re.IGNORECASE)
+
+
+@frozen
+class ReportPointerSweep:
+    scanned: int
+    matched: int
+    expired: int
+
+
+def single_report_id(content: str) -> str | None:
+    """The one report id a `report:` pointer names, or None when it names none or several.
+
+    Scouts often write the same id twice (in a link and in backticks), so repeats collapse first.
+    Several distinct ids make the pointer ambiguous, and the sweep must leave an ambiguous pointer alone.
+    """
+    ids = {match.lower() for match in _REPORT_ID_PATTERN.findall(content)}
+    return ids.pop() if len(ids) == 1 else None
+
+
+def _live_report_pointers(pointers: set[tuple[int, str]]) -> set[tuple[int, str]]:
+    if not pointers:
+        return set()
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; team_id__in plus the pair check below scope each id to its entry's team)
+    live = SignalReport.objects.filter(
+        team_id__in={team_id for team_id, _ in pointers},
+        id__in={report_id for _, report_id in pointers},
+    ).exclude(status=SignalReport.Status.DELETED)
+    # The pair check keeps the lookup inside the entry's own team: a report id that exists only
+    # in another team counts as missing.
+    return {(team_id, str(report_id)) for team_id, report_id in live.values_list("team_id", "id")}
+
+
+def expire_dangling_report_pointers(
+    *,
+    write: bool,
+    batch_size: int = REPORT_POINTER_SWEEP_BATCH_SIZE,
+    max_batches: int = REPORT_POINTER_SWEEP_MAX_BATCHES,
+) -> ReportPointerSweep:
+    """Expire durable `report:` scratchpad entries whose one report is missing or deleted.
+
+    Cross-team sweep over at most `max_batches * batch_size` entries, which continues from where the
+    previous run stopped. An entry qualifies only when it is older than `REPORT_POINTER_MIN_AGE_DAYS`
+    and names exactly one report id. A live, resolved, closed or suppressed report keeps its pointer,
+    because the pointer still tells the scout that the topic has history. With `write` off, the sweep
+    counts what it would expire and changes nothing.
+
+    The write sets `expires_at` through `QuerySet.update()`, so `content` and the `auto_now`
+    `updated_at` stay as they are. Search orders by `updated_at`, and a bump would move the retired
+    entries to the top. The expired entry then follows the normal path: hidden from search, readable
+    with `include_expired`, and deleted by `prune_expired_scratchpad_entries` after the grace.
+    Each expiry stores a revision under `REPORT_POINTER_SWEEP_IDENTITY`, as a `remember` would, so a
+    scout that reads the expired key sees that the sweep retired it rather than the last scout to write it.
+    """
+    now = timezone.now()
+    cutoff = now - timedelta(days=REPORT_POINTER_MIN_AGE_DAYS)
+    # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+    eligible = SignalScratchpad.objects.unscoped().filter(
+        key__startswith="report:", expires_at__isnull=True, updated_at__lt=cutoff
+    )
+    after = cache.get(REPORT_POINTER_SWEEP_CURSOR_KEY)
+    scanned = matched = expired = 0
+    for _ in range(max_batches):
+        page = eligible.order_by("id")
+        if after is not None:
+            page = page.filter(id__gt=after)
+        rows = list(page.values_list("id", "team_id", "content")[:batch_size])
+        scanned += len(rows)
+
+        pointers = {
+            entry_id: (team_id, report_id)
+            for entry_id, team_id, content in rows
+            if (report_id := single_report_id(content)) is not None
+        }
+        live = _live_report_pointers(set(pointers.values()))
+        dangling = [entry_id for entry_id, pointer in pointers.items() if pointer not in live]
+        matched += len(dangling)
+        if write and dangling:
+            # Re-applies the eligibility filter, so an entry a scout rewrote since the read keeps its pointer.
+            expired += _expire_report_pointers(eligible.filter(id__in=dangling), now=now)
+
+        if len(rows) < batch_size:
+            cache.delete(REPORT_POINTER_SWEEP_CURSOR_KEY)
+            break
+        after = str(rows[-1][0])
+        cache.set(REPORT_POINTER_SWEEP_CURSOR_KEY, after, timeout=_REPORT_POINTER_SWEEP_CURSOR_TTL_SECONDS)
+    return ReportPointerSweep(scanned=scanned, matched=matched, expired=expired)
+
+
+def _expire_report_pointers(entries: QuerySet[SignalScratchpad], *, now: datetime) -> int:
+    with transaction.atomic():
+        # The row lock re-checks the filter against a concurrent `remember`, and keeps the revision and the
+        # expiry in step: a write that lands first takes the entry out of the filter, and one that lands
+        # after waits and then stores a revision of the expired state.
+        locked = list(entries.select_for_update().only("id", "team_id", "key", "content", "expires_at").order_by("id"))
+        if not locked:
+            return 0
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        SignalScratchpadRevision.objects.unscoped().bulk_create(
+            SignalScratchpadRevision(
+                team_id=entry.team_id,
+                key=entry.key,
+                content=entry.content,
+                expires_at=entry.expires_at,
+                change=SignalScratchpadRevision.Change.OVERWRITE,
+                changed_by_identity=REPORT_POINTER_SWEEP_IDENTITY,
+            )
+            for entry in locked
+        )
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        return SignalScratchpad.objects.unscoped().filter(id__in=[entry.id for entry in locked]).update(expires_at=now)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.expire_dangling_report_pointers",
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=110,
+    time_limit=170,
+)
+@skip_team_scope_audit
+def expire_dangling_report_pointers_task() -> None:
+    """Daily sweep: retire `report:` scratchpad pointers whose report is gone.
+
+    A durable pointer is never swept by the expiry janitor, and a scout rarely `forget`s one, so a
+    pointer to a deleted report would stay in every wide scratchpad read forever.
+    """
+    write = settings.SIGNALS_EXPIRE_DANGLING_REPORT_POINTERS
+    sweep = ReportPointerSweep(scanned=0, matched=0, expired=0)
+    try:
+        sweep = expire_dangling_report_pointers(write=write)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as exc:
+        _report_scratchpad_janitor_error(exc, event_prefix="signals_scout.report_pointer_sweep")
+    logger.info(
+        "signals_scout report pointer sweep finished",
+        write_enabled=write,
+        scanned=sweep.scanned,
+        matched=sweep.matched,
+        expired=sweep.expired,
+    )
 
 
 @shared_task(

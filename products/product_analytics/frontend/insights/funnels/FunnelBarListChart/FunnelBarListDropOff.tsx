@@ -1,15 +1,18 @@
 import { IconTrendingFlatDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
+import { percentage } from 'lib/utils/numbers'
 
 import { type Noun } from '~/models/groupsModel'
 import { type FunnelStepWithConversionMetrics } from '~/types'
+
+import { FunnelBarListCount } from './FunnelBarListCount'
+import { type FunnelBarListDetail } from './useFunnelBarListDetail'
 
 export interface FunnelBarListDropOffProps {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     period?: 'current' | 'previous'
     aggregationTargetLabel: Noun
+    detail: FunnelBarListDetail
 }
 
 export function FunnelBarListDropOff({
@@ -17,17 +20,22 @@ export function FunnelBarListDropOff({
     stepIndex,
     period,
     aggregationTargetLabel,
+    detail,
 }: FunnelBarListDropOffProps): JSX.Element | null {
     if (stepIndex === 0 || period) {
         return null
     }
     return (
-        <span className="flex items-center gap-0.5 text-sm leading-4 text-secondary @max-sm:hidden">
+        <span className="flex items-center gap-0.5 text-xs text-secondary">
             <IconTrendingFlatDown className="text-danger" />
             <span>
-                {percentage(1 - step.conversionRates.fromPrevious, 1)}
-                <span className="@max-xl:hidden">{` (${humanFriendlyNumber(step.droppedOffFromPrevious)} ${pluralize(step.droppedOffFromPrevious, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)})`}</span>
-                {' dropped off'}
+                <span>{percentage(1 - step.conversionRates.fromPrevious, 1)}</span>
+                <FunnelBarListCount
+                    count={step.droppedOffFromPrevious}
+                    aggregationTargetLabel={aggregationTargetLabel}
+                    verb="dropped off"
+                    detail={detail}
+                />
             </span>
         </span>
     )

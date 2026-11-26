@@ -38,7 +38,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
 from products.product_analytics.backend.hogql_queries.trends.series_with_extras import SeriesWithExtras
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
     first_pageview_aware_properties_to_expr,
@@ -371,7 +371,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
     @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if self.query.series[0].kind == "ActionsNode":
-            action = Action.objects.get(pk=self.query.series[0].id, team__project_id=self.team.project_id)
+            action = get_action(action_id=int(self.query.series[0].id), project_id=self.team.project_id)
             return action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(
@@ -383,7 +383,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
 
         # Support for web analytics
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            action = get_action(action_id=int(self.query.conversionGoal.actionId), project_id=self.team.project_id)
             return action_to_expr(action)
         else:
             return None
@@ -419,7 +419,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            action = get_action(action_id=int(series.id), project_id=self.team.project_id)
             return action.name
 
         if isinstance(series, DataWarehouseNode):

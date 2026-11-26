@@ -7,6 +7,7 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.sources.bing_webmaster_tools import bing_webmaster_tools
 from products.warehouse_sources.sources.bing_webmaster_tools._config import BingWebmasterToolsSourceConfig
 from products.warehouse_sources.sources.bing_webmaster_tools.bing_webmaster_tools import (
     BingWebmasterToolsError,
@@ -19,6 +20,7 @@ from products.warehouse_sources.sources.bing_webmaster_tools.bing_webmaster_tool
 )
 from products.warehouse_sources.sources.bing_webmaster_tools.settings import BASE_URL
 from products.warehouse_sources.sources.bing_webmaster_tools.source import BingWebmasterToolsSource
+from products.warehouse_sources.sources.sdk import RetryableHTTPError, max_retry_after_seconds
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _SITES = [
@@ -166,6 +168,99 @@ class TestSiteSelection:
         with pytest.raises(ValueError, match=r"'https://example.com/' and 'http://example.com/'"):
             select_site_urls(sites, ["example.com"])
 
+    @pytest.mark.parametrize(
+        "sites, filter_url, expected_hint",
+        [
+            # Listed on the account but ownership is not verified yet.
+            (
+                [{"Url": "https://example.com/", "IsVerified": False}],
+                "https://example.com",
+                "Bing hasn't verified 'https://example.com/' on your account yet.",
+            ),
+            (
+                [{"Url": "https://www.example.com/", "IsVerified": False}],
+                "example.com",
+                "Bing hasn't verified 'https://www.example.com/' on your account yet.",
+            ),
+            # Verified under the other www form.
+            (
+                [{"Url": "https://example.com/", "IsVerified": True}],
+                "https://www.example.com/",
+                "For 'https://www.example.com/', your account has 'https://example.com/'.",
+            ),
+            (
+                [{"Url": "https://www.example.com/", "IsVerified": True}],
+                "example.com",
+                "For 'example.com', your account has 'https://www.example.com/'.",
+            ),
+            # Verified under the other scheme, or a mistyped one.
+            (
+                [{"Url": "http://example.com/", "IsVerified": True}],
+                "https://example.com/",
+                "For 'https://example.com/', your account has 'http://example.com/'.",
+            ),
+            (
+                [{"Url": "https://example.com/", "IsVerified": True}],
+                "htttps://example.com",
+                "For 'htttps://example.com', your account has 'https://example.com/'.",
+            ),
+            # Verified only as a path prefix on the same host.
+            (
+                [{"Url": "https://www.example.com/blog/", "IsVerified": True}],
+                "https://www.example.com/",
+                "For 'https://www.example.com/', your account has 'https://www.example.com/blog/'.",
+            ),
+            # A verified near-miss wins over an unverified one on the same host.
+            (
+                [
+                    {"Url": "https://www.example.com/", "IsVerified": False},
+                    {"Url": "https://example.com/", "IsVerified": True},
+                ],
+                "http://www.example.com",
+                "For 'http://www.example.com', your account has 'https://example.com/'.",
+            ),
+        ],
+    )
+    def test_missing_site_points_at_what_the_account_lists(self, sites, filter_url, expected_hint):
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, [filter_url])
+
+        message = str(exc_info.value)
+        assert message.startswith("These site URLs are not verified sites on the connected account")
+        assert expected_hint in message
+        assert message.endswith("clear the field to sync every verified site.")
+
+    @pytest.mark.parametrize("filter_url", ["https://other.example.net", "other.example.net", "https://"])
+    def test_missing_site_with_no_near_miss_has_no_hint(self, filter_url):
+        sites = [{"Url": "https://example.com/", "IsVerified": True}]
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, [filter_url])
+
+        message = str(exc_info.value)
+        assert "your account" not in message
+        assert f"account: {filter_url}. Enter each site exactly" in message
+
+    def test_near_miss_hint_names_at_most_three_sites(self):
+        sites = [{"Url": f"https://example.com/{path}/", "IsVerified": True} for path in "abcde"]
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, ["https://www.example.com"])
+
+        message = str(exc_info.value)
+        assert "'https://example.com/c/'" in message
+        assert "'https://example.com/d/'" not in message
+
+    def test_each_missing_site_gets_its_own_hint(self):
+        sites = [
+            {"Url": "https://example.com/", "IsVerified": True},
+            {"Url": "https://example.org/", "IsVerified": False},
+        ]
+        with pytest.raises(ValueError) as exc_info:
+            select_site_urls(sites, ["https://www.example.com", "https://example.org"])
+
+        message = str(exc_info.value)
+        assert "For 'https://www.example.com', your account has 'https://example.com/'." in message
+        assert "Bing hasn't verified 'https://example.org/' on your account yet." in message
+
 
 class TestRequest:
     def test_api_fault_message_is_surfaced(self):
@@ -173,6 +268,22 @@ class TestRequest:
 
         with pytest.raises(BingWebmasterToolsError, match="InvalidApiKey"):
             _request(session, "key", "GetUserSites")
+
+    @pytest.mark.parametrize("fault", ["ThrottleUser", "ThrottleIP"])
+    def test_throttle_fault_defers_the_retry_instead_of_resending(self, fault):
+        # Resending at once only spends more of a quota that has already run out. The retry_after
+        # must be longer than the in-process retry waits, so the request goes out once and the
+        # activity defers its next attempt by that much.
+        session = _session({"GetQueryStats": _response(400, {"ErrorCode": 0, "Message": f"ERROR!!! {fault}"})})
+
+        with pytest.raises(RetryableHTTPError) as exc_info:
+            _request(session, "key", "GetQueryStats")
+
+        assert str(exc_info.value) == f"Bing Webmaster Tools GetQueryStats failed with status 400: ERROR!!! {fault}"
+        assert isinstance(exc_info.value, BingWebmasterToolsError)
+        assert exc_info.value.retry_after is not None
+        assert exc_info.value.retry_after > max_retry_after_seconds()
+        assert session.get.call_count == 1
 
     def test_faultless_http_error_redacts_api_key(self):
         session = _session({"GetUserSites": _response(400, body=None, json_error=True)})
@@ -205,6 +316,24 @@ class TestRequest:
 
         with pytest.raises(BingWebmasterToolsError, match="unexpected response shape"):
             _request(session, "key", "GetUserSites")
+
+    def test_chunked_encoding_error_is_retried(self):
+        # A connection reset mid-download surfaces as `ChunkedEncodingError`, a sibling of
+        # `ConnectionError` (not a subclass) that the HTTP adapter's own retries never cover: the
+        # body is read lazily, after the adapter's retry loop around connecting has already
+        # returned. Without its own retry, one dropped connection fails the whole sync.
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            requests.exceptions.ChunkedEncodingError(
+                "(\"Connection broken: InvalidChunkLength(got length b'', 0 bytes read)\", ...)"
+            ),
+            _response(200, {"d": _SITES}),
+        ]
+
+        result = _request(session, "key", "GetUserSites")
+
+        assert result == _SITES
+        assert session.get.call_count == 2
 
 
 class TestGetRows:
@@ -277,7 +406,48 @@ class TestGetRows:
             ("https://example.com/a", "query", "https://example.com/")
         ]
 
-    def test_page_query_stats_skips_a_page_bing_rejects_as_invalid(self):
+    def test_page_query_stats_fans_out_only_over_the_pages_with_the_most_clicks(self):
+        # GetPageStats lists every page with traffic, and each one costs a request against the
+        # per-key quota, so only the busiest pages are fanned out.
+        page_stats = [
+            {**_QUERY_STATS[0], "Query": "https://example.com/quiet", "Clicks": 0, "Impressions": 10},
+            {**_QUERY_STATS[0], "Query": "https://example.com/steady", "Clicks": 2},
+            {**_QUERY_STATS[0], "Query": "https://example.com/seen", "Clicks": 0, "Impressions": 50},
+            {**_QUERY_STATS[0], "Query": "https://example.com/busy", "Clicks": 3},
+            {
+                **_QUERY_STATS[0],
+                "Query": "https://example.com/steady",
+                "Clicks": 2,
+                "Date": "/Date(1316761200000-0700)/",
+            },
+        ]
+        with mock.patch.object(bing_webmaster_tools, "MAX_PAGE_QUERY_STATS_PAGES", 3):
+            result = self._driver().run(
+                "page_query_stats",
+                [
+                    ScriptedResponse(json={"d": _SITES}),
+                    ScriptedResponse(json={"d": page_stats}),
+                    *[ScriptedResponse(json={"d": []}) for _ in range(3)],
+                ],
+            )
+
+        assert result.raised is None
+        assert [r.param("page") for r in result.requests[2:]] == [
+            '"https://example.com/steady"',
+            '"https://example.com/busy"',
+            '"https://example.com/seen"',
+        ]
+
+    @pytest.mark.parametrize(
+        "rejected_page_response",
+        [
+            # Bing rejects a page GetPageStats itself just listed with an ApiFault.
+            ScriptedResponse(status=400, json={"ErrorCode": 38, "Message": "ERROR!!! InvalidUrl"}),
+            # Bing can also reject a page with a non-JSON (here, empty) body instead of a fault.
+            ScriptedResponse(status=200, body=b""),
+        ],
+    )
+    def test_page_query_stats_skips_a_page_bing_rejects(self, rejected_page_response):
         # GetPageStats and GetPageQueryStats can disagree about which pages are valid: Bing can
         # reject a page GetPageStats itself just listed. That page's stats should be skipped
         # without losing the other pages' data.
@@ -290,7 +460,7 @@ class TestGetRows:
             [
                 ScriptedResponse(json={"d": _SITES}),
                 ScriptedResponse(json={"d": page_stats}),
-                ScriptedResponse(status=400, json={"ErrorCode": 38, "Message": "ERROR!!! InvalidUrl"}),
+                rejected_page_response,
                 ScriptedResponse(json={"d": _QUERY_STATS}),
             ],
         )

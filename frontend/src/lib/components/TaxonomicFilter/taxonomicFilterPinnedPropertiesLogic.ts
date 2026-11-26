@@ -5,7 +5,13 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { onFullStageTeamFieldsApplied } from 'scenes/fullStageAppContext'
 
-import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
+import {
+    META_GROUP_TYPES,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+    isHiddenEventStandIn,
+} from './types'
 
 export interface PinnedTaxonomicFilter {
     groupType: TaxonomicFilterGroupType
@@ -64,6 +70,11 @@ export function pickMinimalPinnedItem(item: unknown, fallbackValue: TaxonomicFil
             continue
         }
         picked[field] = fieldValue
+    }
+    // A pinned row is not a stand-in row, so its picks must not report `wasHiddenEventStandIn`.
+    // Other `_type` markers stay, because a pinned keyword shortcut needs `quick_filter` to apply its filter.
+    if (isHiddenEventStandIn(source)) {
+        delete picked._type
     }
     if (picked.name == null) {
         picked.name = fallbackValue

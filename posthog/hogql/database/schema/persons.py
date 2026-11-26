@@ -24,7 +24,12 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor, top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    WhereClauseExtractor,
+    is_nondeterministic_function,
+    top_level_conjuncts,
+    unwrap_table_alias_type,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -183,10 +188,11 @@ def select_from_persons_table(
         # Skip aggregate, DISTINCT, and window-function selects too: they must see every person, and
         # the executor stamps a default LIMIT on every query, so pushing it down would cap
         # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
-        # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
+        # JOIN, HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
         # rows after deduplication, so they need the full person set as well.
         can_push_to_inner = (
             node.select_from
+            and not node.select_from.next_join
             and node.select_from.type
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
@@ -267,20 +273,16 @@ def select_from_persons_table(
     return select
 
 
-# These return different values in the subquery and in the outer query.
-_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
-
-
 class _CopyableConjunctVisitor(TraversingVisitor):
-    def __init__(self, table_type: ast.Type):
+    def __init__(self, table_types: tuple[ast.Type, ...]):
         super().__init__()
-        self.table_type = table_type
+        self.table_types = table_types
         self.reads_table = False
         self.copyable = True
 
     def visit_field(self, node: ast.Field):
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
-        if isinstance(field_type, ast.FieldType) and field_type.table_type is self.table_type:
+        if isinstance(field_type, ast.FieldType) and any(field_type.table_type is t for t in self.table_types):
             self.reads_table = True
         else:
             self.copyable = False
@@ -293,7 +295,7 @@ class _CopyableConjunctVisitor(TraversingVisitor):
         self.copyable = False
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() in _NONDETERMINISTIC_FUNCTIONS:
+        if is_nondeterministic_function(node.name):
             self.copyable = False
         super().visit_call(node)
 
@@ -317,7 +319,9 @@ def _is_relative_sample(sample: Optional[ast.SampleExpr]) -> bool:
 
 
 def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQuery) -> Optional[Expr]:
-    """Build `id IN (SELECT person_id FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+    """Build `id IN (SELECT <join key> FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+
+    The join key is the join's `from_field`, so the set holds the same person ids that the join condition reads.
 
     The conjuncts are the top-level AND terms of the outer WHERE and PREWHERE that read only the left table.
     A term must read at least one left-table column, because a constant term narrows nothing.
@@ -327,12 +331,20 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     its person columns.
     Returns None unless the left table is the query's own FROM table and at least one term qualifies.
     """
-    left = node.select_from
+    # A lazy left table, such as the union of events and flag_evaluations, is already a subquery in `node`. Its recorded
+    # scan holds the FROM entry as the query wrote it.
+    scan = join_to_add.from_scan
+    left = scan.join if scan is not None else node.select_from
+    left_types: tuple[ast.Type, ...] = (
+        scan.types if scan is not None else (left.type,) if left is not None and left.type is not None else ()
+    )
     if (
         left is None
         or not isinstance(left.table, ast.Field)
         or left.table_args
-        or left.type is not join_to_add.lazy_join_type.table_type
+        or not left_types
+        or left_types[0] is not join_to_add.lazy_join_type.table_type
+        or (scan is not None and (node.select_from is None or node.select_from.alias != join_to_add.from_table))
     ):
         return None
 
@@ -342,7 +354,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         if where is None:
             continue
         for conjunct in top_level_conjuncts(where):
-            visitor = _CopyableConjunctVisitor(left.type)
+            visitor = _CopyableConjunctVisitor(left_types)
             visitor.visit(conjunct)
             if visitor.copyable and visitor.reads_table:
                 conjuncts.append(cloner.visit(conjunct))
@@ -355,7 +367,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         # The resolver turns this into GLOBAL IN. GLOBAL IN does not deduplicate the set that it ships to each shard.
         right=ast.SelectQuery(
             distinct=True,
-            select=[ast.Field(chain=[join_to_add.from_table, "person_id"])],
+            select=[ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field])],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=list(left.table.chain)),
                 alias=left.alias,
@@ -364,6 +376,13 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
             where=conjuncts[0] if len(conjuncts) == 1 else ast.And(exprs=conjuncts),
         ),
     )
+
+
+def _person_id_pushdown_applies(join_to_add: LazyJoinToAdd, context: HogQLContext) -> bool:
+    if context.modifiers.personIdPushdown is not None:
+        return context.modifiers.personIdPushdown
+    left = unwrap_table_alias_type(join_to_add.lazy_join_type.table_type)
+    return isinstance(left, (ast.TableType, ast.LazyTableType)) and left.table.person_id_pushdown_default
 
 
 def persons_join_is_inner(context: HogQLContext) -> bool:
@@ -399,7 +418,11 @@ def join_with_persons_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
-    pushdown = build_person_id_pushdown_predicate(join_to_add, node) if context.modifiers.personIdPushdown else None
+    pushdown = (
+        build_person_id_pushdown_predicate(join_to_add, node)
+        if _person_id_pushdown_applies(join_to_add, context)
+        else None
+    )
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, filter=pushdown))
 
     join_expr.join_type = "INNER JOIN" if persons_join_is_inner(context) else "LEFT JOIN"
@@ -408,7 +431,7 @@ def join_with_persons_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "person_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
             right=ast.Field(chain=[join_to_add.to_table, "id"]),
         ),
         constraint_type="ON",
@@ -441,6 +464,8 @@ class PersonsTable(LazyTable):
     description: str = "Deduplicated people in the project, with their latest properties. One row per person."
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
     filter: Optional[Expr] = None
+    filter_positions: tuple[int, ...] = ()
+    filter_source_length: int = 0
 
     @staticmethod
     def _is_promotable_expr(expr, alias: Optional[str] = None):
@@ -452,34 +477,120 @@ class PersonsTable(LazyTable):
         )
 
     @staticmethod
-    def _partition_exprs(exprs, alias: Optional[str] = None):
-        not_promotable = []
-        promotable = []
-        for expr in exprs:
-            if PersonsTable._is_promotable_expr(expr, alias):
-                # Erase "persons" from the chain before bringing inside
-                expr.left = Field(chain=["id"])
-                promotable.append(expr)
-            else:
-                not_promotable.append(expr)
+    def _is_resolved_promotable_expr(expr, alias: Optional[str] = None):
+        # The resolver wraps a lazy table's field in a hidden alias of its own name. It turns IN over a subquery into
+        # GLOBAL IN.
+        if not isinstance(expr, CompareOperation) or expr.op not in (
+            CompareOperationOp.In,
+            CompareOperationOp.GlobalIn,
+        ):
+            return False
+        left = expr.left.expr if isinstance(expr.left, ast.Alias) and expr.left.hidden else expr.left
+        return isinstance(left, Field) and left.chain == [alias or "persons", "id"]
 
-        return promotable, not_promotable
-
-    # If the join has a clause we can bring inside the subselect, create a new table that represents that
     def create_new_table_with_filter(self, join: JoinExpr) -> Self:
-        if join.constraint is not None and isinstance(join.constraint.expr, And):
-            exprs = cast(And, join.constraint.expr).exprs
-            promotable, not_promotable = PersonsTable._partition_exprs(exprs, join.alias)
-            if len(promotable) == 0:
-                return self
-            join.constraint.expr.exprs = not_promotable
-            p = self.model_copy()
-            if len(promotable) == 1:
-                p.filter = promotable[0]
-            elif len(promotable) > 1:
-                p.filter = And(exprs=promotable)
-            return p
-        return self
+        """A copy of this table whose `filter` is an unresolved copy of the join's `persons.id IN (...)` conjuncts.
+
+        The join keeps its constraint, so the resolved tree still holds the predicate. `take_join_filter` removes the
+        resolved predicate later. A conjunct that reads an unqualified persons field leaves the join here instead,
+        so the resolved tree does not hold it and the checks on the tree do not read it. `lazy_select` resolves the unresolved copy inside the persons subselect, as it
+        would resolve the written predicate, so the printed SQL does not depend on how the resolver rewrote it.
+        """
+        if join.constraint is None or not isinstance(join.constraint.expr, And):
+            return self
+        # A RIGHT or FULL join keeps the persons rows that its ON clause rejects, and a filter inside the subselect drops them.
+        if any(kind in (join.join_type or "") for kind in ("RIGHT", "FULL")):
+            return self
+        promotable = [
+            i for i, expr in enumerate(join.constraint.expr.exprs) if PersonsTable._is_promotable_expr(expr, join.alias)
+        ]
+        if not promotable:
+            return self
+        # An unqualified field resolves against the persons table alone when the predicate sits inside the subselect,
+        # and against every table of the join when it stays in the join. Moving the predicate keeps the first meaning.
+        moved_indexes = {
+            i
+            for i in promotable
+            if self._reads_unqualified_field(cast(CompareOperation, join.constraint.expr.exprs[i]).right)
+        }
+        moved: list[Expr] = []
+        for i in sorted(moved_indexes):
+            expr = cast(CompareOperation, join.constraint.expr.exprs[i])
+            expr.left = Field(chain=["id"])
+            moved.append(expr)
+        join.constraint.expr.exprs = [e for i, e in enumerate(join.constraint.expr.exprs) if i not in moved_indexes]
+        conjuncts = join.constraint.expr.exprs
+        positions = tuple(i for i, expr in enumerate(conjuncts) if PersonsTable._is_promotable_expr(expr, join.alias))
+        filter_copies: list[Expr] = [
+            CompareOperation(
+                op=CompareOperationOp.In,
+                left=Field(chain=["id"]),
+                right=clone_expr(cast(CompareOperation, conjuncts[i]).right),
+            )
+            for i in positions
+        ]
+        all_filters = [*filter_copies, *moved]
+        p = self.model_copy()
+        p.filter = all_filters[0] if len(all_filters) == 1 else And(exprs=all_filters)
+        p.filter_positions = positions
+        p.filter_source_length = len(conjuncts)
+        return p
+
+    def _reads_unqualified_field(self, expr: Expr) -> bool:
+        """Whether the expression names a persons field without a table, outside any subquery that has a scope of its own.
+
+        `properties.x` counts, because its first part is a persons field and not a table.
+        """
+        found = False
+        persons_fields = self.fields
+
+        class _Finder(TraversingVisitor):
+            def visit_select_query(self, node):
+                pass
+
+            def visit_select_set_query(self, node):
+                pass
+
+            def visit_field(self, node):
+                nonlocal found
+                if len(node.chain) == 1 or node.chain[0] in persons_fields:
+                    found = True
+
+        _Finder().visit(expr)
+        return found
+
+    def moved_filter_conjuncts(self) -> list[Expr]:
+        """The conjuncts of `filter` that left the join constraint, which no traversal of the query tree reaches."""
+        if self.filter is None:
+            return []
+        conjuncts = self.filter.exprs if isinstance(self.filter, And) else [self.filter]
+        return conjuncts[len(self.filter_positions) :]
+
+    def held_join_conjuncts(self, join: JoinExpr) -> list[Expr]:
+        if self.filter is None or join.constraint is None or not isinstance(join.constraint.expr, And):
+            return []
+        exprs = join.constraint.expr.exprs
+        if len(exprs) != self.filter_source_length:
+            return []
+        return [exprs[i] for i in self.filter_positions]
+
+    def take_join_filter(self, join: JoinExpr) -> None:
+        """Removes the resolved copy of the predicates that `filter` holds from the join's constraint.
+
+        It removes conjuncts by the positions that promotion recorded, because other conjuncts can resolve into the
+        same shape. The resolver rewrites `p.id IN COHORT n` into `p.id IN (<cohort subquery>)`, for example.
+        """
+        if self.filter is None or join.constraint is None or not isinstance(join.constraint.expr, And):
+            return
+        exprs = join.constraint.expr.exprs
+        # The resolved copy is gone when an earlier call removed it.
+        if len(exprs) == self.filter_source_length - len(self.filter_positions):
+            return
+        held = self.held_join_conjuncts(join)
+        if not held or not all(PersonsTable._is_resolved_promotable_expr(expr, join.alias) for expr in held):
+            raise ResolutionError("The persons join filter does not match the join constraint")
+        held_ids = {id(expr) for expr in held}
+        join.constraint.expr.exprs = [expr for expr in exprs if id(expr) not in held_ids]
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:
