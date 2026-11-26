@@ -57,10 +57,18 @@ export const widgetQuerySchema = z.union([
  * The time range a query runs over. Each end is an expression such as `now-7d` or `now`, or an ISO 8601 time. Keep
  * relative ends relative, because the backend then caches the result under the same key on every reload.
  */
-export const timeRangeSchema = z.strictObject({
-    from: z.string().min(1).max(MAX_TIME_END),
-    to: z.string().min(1).max(MAX_TIME_END),
-})
+/** `now-` and an amount of seconds (`s`), minutes (`m`), hours (`h`), days (`d`), weeks (`w`), months (`M`) or years (`y`). */
+export const RELATIVE_TIME = /^now-(\d+)([smhdwMy])$/
+
+const timePointSchema = z
+    .string()
+    .max(MAX_TIME_END)
+    .refine(
+        (point) => point === 'now' || RELATIVE_TIME.test(point) || !Number.isNaN(Date.parse(point)),
+        'Use now, now-<amount><s|m|h|d|w|M|y>, or an ISO 8601 time'
+    )
+
+export const timeRangeSchema = z.strictObject({ from: timePointSchema, to: timePointSchema })
 
 export const tilePlaceSchema = z.strictObject({
     x: z.int().nonnegative(),
@@ -157,6 +165,17 @@ export const linkTabSchema = z.strictObject({
 
 export const dashboardTabSchema = z.union([gridTabSchema, linkTabSchema])
 
+/**
+ * A filter a person added to the dashboard. `type` names a kind of filter the host supplies, and `config` is that
+ * kind's own settings, such as which property it filters on. The value picked is not saved: each viewer picks their own.
+ */
+export const dashboardFilterSchema = z.strictObject({
+    id: z.string().min(1),
+    type: z.string().min(1),
+    label: z.string().optional(),
+    config: z.unknown(),
+})
+
 export const ONE_GRID_TAB = 'A dashboard needs at least one tab with tiles'
 
 export const dashboardSchema = z.strictObject({
@@ -167,6 +186,9 @@ export const dashboardSchema = z.strictObject({
     user_access_level: z.enum(AccessControlLevel).optional(),
     /** The time range of every widget that does not set its own. Missing means `DEFAULT_TIME_RANGE`. */
     time: timeRangeSchema.optional(),
+    /** Whether viewers see a filter bar. Missing means no, so a dashboard shows filters only once an editor allows them. */
+    allowFilters: z.boolean().optional(),
+    filters: z.array(dashboardFilterSchema).optional(),
     tabs: z.array(dashboardTabSchema).refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
 

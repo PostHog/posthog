@@ -1,8 +1,8 @@
 """Query batch results as chart-ready frames, so a chart draws any target without knowing its language.
 
 A frame is Dash's `DataFrame` (packages/schema/src/frame.ts in PostHog/dash): a name, labels, a time field in epoch
-milliseconds, one or more value fields and meta. Each language's result has one converter here. A result whose kind has
-no frame shape (paths, events tables...) gets None, and its line keeps the raw result.
+milliseconds, one or more value fields and meta. Each language's result has one converter here, and a node kind without
+one of its own becomes a table. A result with no frame shape at all gets None, and its line says so with an error.
 
 The frame types are the cached tiles' (`facade.contracts`), which also have the string, boolean and other fields a table
 needs. The trends and metrics converters are ported from the cached tiles converters in `logic/frames.py`.
@@ -68,11 +68,14 @@ MAX_LEGEND_NAME = 1024
 MAX_PIVOT_SERIES = 1000
 MAX_PIVOT_FIELDS = 20_000
 MAX_PIVOT_LABEL_BYTES = 8 * 1024 * 1024
-# A log table repeats its stream's labels on every line. Above this many label bytes, the result stays raw.
+# A log table repeats its stream's labels on every line. Above this many label bytes, it has no frames.
 MAX_STREAM_LABEL_BYTES = 8 * 1024 * 1024
 # Each Prometheus series becomes a frame of its own, many times the size of the series in the response. Above this
-# many series, the result stays raw.
+# many series, it has no frames.
 MAX_PROMETHEUS_SERIES = 1000
+# A list of records with many distinct keys expands to rows x keys cells, so sparse records are bounded before allocation.
+MAX_RECORD_FIELDS = 1000
+MAX_RECORD_CELLS = 2_000_000
 
 
 def frames_for(
@@ -114,6 +117,10 @@ def _frames(
     kind = source.get("kind")
     if kind == "HogQLQuery":
         return hogql_frames(result, pivot=not as_table)
+    if kind == "TraceSpansAggregationQuery":
+        return span_aggregation_frames(result, as_table=as_table)
+    if kind == "TraceSpansQuery":
+        return span_list_frames(result)
     if kind == "MetricsQuery":
         return metrics_frames(result)
     if kind == "TrendsQuery":
@@ -129,7 +136,14 @@ def _frames(
         return funnels_frames(source, result, timezone)
     if kind == "RetentionQuery":
         return retention_frames(result)
-    return None
+    return table_frames(str(kind), result)
+
+
+def shape_kind(language: QueryBatchLanguage, query: Mapping[str, Any]) -> str:
+    """What a line without frames names as its unsupported shape: the node kind, or the language when there is none."""
+    source = None if language == QueryBatchLanguage.LOGQL else _source(query)
+    kind = source.get("kind") if source else None
+    return str(kind) if kind else language.value
 
 
 def _source(query: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
@@ -551,6 +565,100 @@ def _period_count(cohort: Mapping[str, Any], period: int) -> Optional[float]:
     return aggregated if aggregated is not None else value.get("count")
 
 
+# Any other runner: a table with columns, or a list of records.
+
+_WEB_COLUMN_PREFIX = "context.columns."
+
+
+def table_frames(kind: str, result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    """A runner's rows as one table frame, never pivoted: an events list or a web analytics table is not a series."""
+    rows = result.get("results")
+    if not isinstance(rows, list):
+        return None
+    if isinstance(result.get("columns"), list) and all(isinstance(row, list | tuple) for row in rows):
+        table = _web_table(result) if kind.startswith("Web") else result
+        return hogql_frames(table, pivot=False)
+    if all(isinstance(row, Mapping) for row in rows):
+        if not _records_fit(rows):
+            return None
+        return [records_frame(rows, truncated=result.get("hasMore") is True)] if rows else []
+    return None
+
+
+def _records_fit(rows: Sequence[Mapping[str, Any]]) -> bool:
+    names: set[Any] = set()
+    for row in rows:
+        names.update(row)
+        if len(names) > MAX_RECORD_FIELDS or len(names) * len(rows) > MAX_RECORD_CELLS:
+            return False
+    return True
+
+
+def _web_table(result: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Web analytics columns are named `context.columns.<name>`, and a compared number is a `[current, previous]` pair.
+    The pair becomes two number columns, `<name>` and `<name> (previous)`."""
+    columns = [str(column).removeprefix(_WEB_COLUMN_PREFIX) for column in result["columns"]]
+    rows = result["results"]
+    pairs = [
+        column != "breakdown_value" and _is_compared_pair_column(rows, index) for index, column in enumerate(columns)
+    ]
+    types = list(result.get("types") or [])
+    new_columns: list[str] = []
+    new_types: list[Any] = []
+    for index, column in enumerate(columns):
+        if pairs[index]:
+            new_columns.extend([column, f"{column} (previous)"])
+            new_types.extend(["Float64", "Float64"])
+        else:
+            new_columns.append(column)
+            new_types.append(types[index] if index < len(types) else "")
+    new_rows: list[list[Any]] = []
+    for row in rows:
+        new_row: list[Any] = []
+        for index, value in enumerate(row):
+            if index < len(pairs) and pairs[index]:
+                new_row.extend(value if value is not None else [None, None])
+            else:
+                new_row.append(value)
+        new_rows.append(new_row)
+    return {**result, "columns": new_columns, "types": new_types, "results": new_rows}
+
+
+def _is_compared_pair_column(rows: Sequence[Sequence[Any]], index: int) -> bool:
+    """A breakdown dimension can also be a number pair (a viewport is `[width, height]`), so only metric columns split,
+    and only when at least one row actually holds a pair."""
+    values = [row[index] for row in rows if index < len(row) and row[index] is not None]
+    return bool(values) and all(
+        isinstance(value, list | tuple) and len(value) == 2 and _is_number_or_none(value) for value in values
+    )
+
+
+def _is_number_or_none(values: Sequence[Any]) -> bool:
+    return all(value is None or (isinstance(value, int | float) and not isinstance(value, bool)) for value in values)
+
+
+def records_frame(rows: Sequence[Mapping[str, Any]], *, truncated: bool = False) -> Frame:
+    """A list of objects (a web overview, paths' links...) as a table: one field per key, in first-seen order."""
+    names: dict[str, None] = {}
+    for row in rows:
+        names.update(dict.fromkeys(str(key) for key in row))
+    fields: list[FrameField] = []
+    for name in names:
+        values = [row.get(name) for row in rows]
+        sample = next((value for value in values if value is not None), None)
+        field_type: FrameFieldType
+        if isinstance(sample, bool):
+            field_type = "boolean"
+        elif isinstance(sample, int | float):
+            field_type = "number"
+        elif isinstance(sample, str) or sample is None:
+            field_type = "string"
+        else:
+            field_type = "other"
+        fields.append(FrameField(name=name, type=field_type, values=values))
+    return Frame(name=None, labels={}, fields=fields, meta=FrameMeta(truncated=truncated))
+
+
 # Metrics (builder, SQL and PromQL), ported from PR #138426.
 
 
@@ -884,3 +992,126 @@ def _wall_clock_ms(days: Sequence[str], timezone: ZoneInfo) -> list[int]:
 
 def _epoch_ms(value: dt.datetime) -> int:
     return int(value.timestamp() * 1000)
+
+
+# Traces. Span durations arrive in nanoseconds and leave in milliseconds, the unit the charts' duration axis reads.
+
+_NANOS_PER_MS = 1_000_000
+# (field, row key, unit). The first is the one a bar chart draws, so an operations chart ranks by traffic.
+_SPAN_AGGREGATE_FIELDS: tuple[tuple[str, str, Optional[str]], ...] = (
+    ("count", "count", None),
+    ("error_count", "error_count", None),
+    ("error_rate", "error_rate", "%"),
+    ("avg_duration", "avg_duration_nano", "ms"),
+    ("p50_duration", "p50_duration_nano", "ms"),
+    ("p95_duration", "p95_duration_nano", "ms"),
+    ("p99_duration", "p99_duration_nano", "ms"),
+    ("sessions", "sessions", None),
+    ("users", "users", None),
+)
+
+
+def span_aggregation_frames(result: Mapping[str, Any], *, as_table: bool = False) -> Optional[list[Frame]]:
+    """A span aggregation as one series per operation, each a single point at the end of the window, so a bar chart
+    draws one bar per operation. As a table, one frame with a row per operation. The comparison window is left out.
+
+    A number the result does not carry, such as `sessions` without `includeImpact`, is left out rather than drawn as 0.
+    """
+    rows = result.get("results")
+    if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
+        return None
+    columns: list[tuple[str, Optional[str], list[Optional[float]]]] = []
+    for name, key, unit in _SPAN_AGGREGATE_FIELDS:
+        values = [_span_aggregate(row, key) for row in rows]
+        if any(value is not None for value in values):
+            columns.append((name, unit, values))
+    date_range = result.get("resolved_date_range")
+    meta = _meta(date_range if isinstance(date_range, Mapping) else None, None, previous=False)
+    services = [str(row.get("service_name") or "") for row in rows]
+    operations = [str(row.get("name") or "") for row in rows]
+    # Each series repeats its labels in its name, its labels and every number field, so long span names stay a table.
+    label_bytes = sum(
+        (len(service.encode()) + len(operation.encode())) * (len(columns) + 2)
+        for service, operation in zip(services, operations)
+    )
+    if as_table or meta.date_to is None or len(rows) > MAX_PIVOT_SERIES or label_bytes > MAX_PIVOT_LABEL_BYTES:
+        return [
+            Frame(
+                name=None,
+                labels={},
+                fields=[
+                    FrameField(name="service", type="string", values=services),
+                    FrameField(name="operation", type="string", values=operations),
+                    *(FrameField(name=name, type="number", values=values, unit=unit) for name, unit, values in columns),
+                ],
+                meta=meta,
+            )
+        ]
+    end = _epoch_ms(meta.date_to)
+    frames: list[Frame] = []
+    for index, (service, operation) in enumerate(zip(services, operations)):
+        labels = {"service": service, "operation": operation}
+        frames.append(
+            Frame(
+                name=f"{service} / {operation}" if service else operation,
+                labels=labels,
+                fields=[
+                    FrameField(name="time", type="time", values=[end]),
+                    *(
+                        FrameField(name=name, type="number", values=[values[index]], unit=unit, labels=labels)
+                        for name, unit, values in columns
+                    ),
+                ],
+                meta=meta,
+            )
+        )
+    return frames
+
+
+def _span_aggregate(row: Mapping[str, Any], key: str) -> Optional[float]:
+    if key == "error_rate":
+        count, errors = row.get("count"), row.get("error_count")
+        if not isinstance(count, int | float) or not isinstance(errors, int | float) or not count:
+            return None
+        return 100 * errors / count
+    value = row.get(key)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return None
+    return value / _NANOS_PER_MS if key.endswith("_nano") else value
+
+
+def span_list_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    """Spans as one table frame, a row per span in the runner's order."""
+    rows = result.get("results")
+    if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
+        return None
+
+    def column(key: str) -> list[Any]:
+        return [row.get(key) for row in rows]
+
+    return [
+        Frame(
+            name=None,
+            labels={},
+            fields=[
+                FrameField(name="time", type="time", values=[_time_ms(value) for value in column("timestamp")]),
+                FrameField(name="service", type="string", values=column("service_name")),
+                FrameField(name="operation", type="string", values=column("name")),
+                FrameField(
+                    name="duration",
+                    type="number",
+                    values=[
+                        value / _NANOS_PER_MS if isinstance(value, int | float) else None
+                        for value in column("duration_nano")
+                    ],
+                    unit="ms",
+                ),
+                FrameField(name="status_code", type="number", values=column("status_code")),
+                FrameField(name="kind", type="number", values=column("kind")),
+                FrameField(name="is_root_span", type="boolean", values=column("is_root_span")),
+                FrameField(name="trace_id", type="string", values=column("trace_id")),
+                FrameField(name="span_id", type="string", values=column("span_id")),
+            ],
+            meta=FrameMeta(truncated=result.get("hasMore") is True),
+        )
+    ]

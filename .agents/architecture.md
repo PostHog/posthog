@@ -70,11 +70,7 @@ Each rule is tagged with what catches a violation.
   Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, `build_async_anthropic_client`, `build_gemini_client`, or `build_ai_gateway_openai_client`.
   Those helpers read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`.
   Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call.
-- **`services/llm-gateway` is under an unofficial code freeze.** `[review]`
-  If a task asks you to change it, tell the user about the freeze in your reply.
-  A change needs a documented parity blocker for an active caller and stays limited to that caller.
-  Read [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md) before the change.
-  Read `/auditing-llm-gateway-parity` when the gateway contract changes.
-  Its Postgres role reads only allowlisted tables.
-  A new table read needs the SELECT grant in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`.
-  The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s.
+- **`services/llm-gateway`, the legacy Python gateway, takes no changes and is being removed.** `[review]`
+  It has served no inference since 2026-11-18.
+  Do not add a caller, product, model or feature to it; send the work to the Go AI gateway instead.
+  If a task asks you to change it, tell the user it is being removed and point them to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) and `/migrating-llm-gateway-callers`.

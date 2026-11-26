@@ -28,6 +28,8 @@ Each result has:
 
 When the project marks conversion goals with `use_in_recommendations` (set them with `marketing-analytics-update-conversion-goal`), campaign CPAs count those goals' PostHog conversions, attributed the same way as the Marketing analytics dashboard. Marked goals add up, and a goal that sums a value is counted by conversions. Rules that judge a search term by its conversions do not run then, because PostHog does not see search terms.
 
+`conversionSource` says which conversions the CPAs counted for this response. `kind` is `posthog` when they count the PostHog conversions of the goals in `goalNames`, and `google_ads` when they count the conversions Google Ads reports, including when marked goals fell back. Say which one when you quote a CPA, for example "CPAs from your PostHog goals: Sign ups".
+
 `dataGaps` lists data the rules could not read or replaced. Mention each gap's `message`: it says when CPAs count the primary conversion actions instead of the selected ones, when they fall back to Google Ads conversions because PostHog conversions are not ready or cannot be counted, and when some PostHog conversions match no campaign. For those, call `marketing-analytics-utm-audit` to list the unmatched `utm_campaign` values.
 
 Totals in different currencies come from different ad accounts. Never add them together.
