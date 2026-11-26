@@ -966,6 +966,7 @@ describe('load', () => {
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
         ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
+        ['leaves out the seed opt-in', [card, profile], [{ ...card, seedable: true }, profile], true],
         [
             'leaves out why the card runs unpaired',
             [card, profile],
