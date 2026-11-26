@@ -162,21 +162,37 @@ class TestGetRows:
         assert result.rows == [{"id": "m4", "alert_id": "22"}]
         assert result.urls == [ME_URL, cursor]
 
-    def test_alert_tags_injects_alert_id_without_pagination(self) -> None:
+    @parameterized.expand(
+        [
+            ("alert_tags", "tags", {"id": 46468, "name": "space"}),
+            (
+                "alert_shares",
+                "shares",
+                {"id": "11_abc", "account": {"id": "acc2"}, "blocked": False, "weight": 50},
+            ),
+        ]
+    )
+    def test_unpaginated_fan_out_injects_alert_id(self, endpoint: str, path: str, item: dict[str, Any]) -> None:
         result = self._driver().run(
-            "alert_tags",
+            endpoint,
             [
                 ScriptedResponse(json=ME_PAYLOAD),
-                ScriptedResponse(json={"alerts": [{"alert": {"id": 11}}]}),
-                # The tags endpoint's `_links` is an empty list, not a dict — must not be treated as a cursor.
-                ScriptedResponse(json={"tags": [{"id": 46468, "name": "space"}], "_links": []}),
+                ScriptedResponse(json={"alerts": [{"alert": {"id": 11}}, {"alert": {"id": 22}}]}),
+                # `_links` is an empty list here, not a dict — must not be treated as a cursor.
+                ScriptedResponse(json={path: [item], "_links": []}),
+                ScriptedResponse(json={path: []}),
             ],
             api_version=mention.API_VERSION_1_19,
         )
         assert result.raised is None
-        assert result.rows == [{"id": 46468, "name": "space", "alert_id": "11"}]
-        assert result.paths == ["/api/accounts/me", "/api/accounts/acc1/alerts", "/api/accounts/acc1/alerts/11/tags"]
-        assert result.saved_states == [MentionResumeConfig(alert_ids=[])]
+        assert result.rows == [{**item, "alert_id": "11"}]
+        assert result.paths == [
+            "/api/accounts/me",
+            "/api/accounts/acc1/alerts",
+            f"/api/accounts/acc1/alerts/11/{path}",
+            f"/api/accounts/acc1/alerts/22/{path}",
+        ]
+        assert result.saved_states == [MentionResumeConfig(alert_ids=["22"]), MentionResumeConfig(alert_ids=[])]
 
     @parameterized.expand([("alert_authors", "authors"), ("alert_tasks", "tasks")])
     def test_paginated_fan_out_walks_each_alert_and_stages_state(self, endpoint: str, path: str) -> None:

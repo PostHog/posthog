@@ -69,10 +69,10 @@ from products.dashboards.backend.benchmarks.dashboard_load_harness import (
     run_auto_refresh,
     run_board_load,
 )
+from products.dashboards.backend.benchmarks.fixtures import create_insight_tiles
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.presentation.views.dashboard import DashboardsViewSet
-from products.dashboards.backend.test.benchmark_fixtures import create_insight_tiles
 from products.dashboards.backend.widgets import logs_list
 from products.logs.backend.facade.queries import LogsQueryRunner
 

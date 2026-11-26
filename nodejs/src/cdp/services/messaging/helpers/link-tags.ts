@@ -1,12 +1,16 @@
+import { readOpeningTag } from './opening-tag'
+
 export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 
 // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
 const CLICK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
-const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
 
 export const hasClickTrackingOptOut = (openingTag: string): boolean => CLICK_TRACKING_OPT_OUT_REGEX.test(openingTag)
 
-export const hasSesNoTrack = (openingTag: string): boolean => SES_NO_TRACK_ATTR_REGEX.test(openingTag)
+export const hasSesNoTrack = (openingTag: string): boolean =>
+    readOpeningTag(openingTag, openingTag.match(/^<[^\t\n\f\r />]*/)?.[0].length ?? 0).attributes.some(
+        ({ name }) => name === 'ses:no-track'
+    )
 
 export const isNeverClickTracked = (openingTag: string): boolean =>
     hasClickTrackingOptOut(openingTag) || hasSesNoTrack(openingTag)

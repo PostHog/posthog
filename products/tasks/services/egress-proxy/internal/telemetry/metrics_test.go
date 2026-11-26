@@ -14,6 +14,8 @@ func TestMetricsBoundLabelsAndSeparateFailures(t *testing.T) {
 	metrics := NewMetrics()
 	metrics.Request("denied", time.Second)
 	metrics.Request("unavailable", time.Second)
+	metrics.Request("upstream_unavailable", time.Second)
+	metrics.Request("interrupted", time.Second)
 	metrics.Request("run-secret-example", time.Second)
 	metrics.RelayFailure("connect")
 	metrics.RelayFailure("run-secret-example")
@@ -25,6 +27,10 @@ func TestMetricsBoundLabelsAndSeparateFailures(t *testing.T) {
 	for _, expected := range []string{
 		`egress_requests_total{outcome="denied"} 1`,
 		`egress_requests_total{outcome="unavailable"} 1`,
+		`egress_requests_total{outcome="upstream_unavailable"} 1`,
+		`egress_requests_total{outcome="interrupted"} 1`,
+		`egress_request_duration_seconds_count{outcome="upstream_unavailable"} 1`,
+		`egress_request_duration_seconds_count{outcome="interrupted"} 1`,
 		`egress_requests_total{outcome="other"} 1`,
 		`egress_relay_failures_total{kind="connect"} 1`,
 		`egress_relay_failures_total{kind="other"} 1`,

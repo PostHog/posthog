@@ -25,6 +25,7 @@ import {
     describeInterval,
     describeSchedule,
     listRowMute,
+    listRowFiringSince,
 } from './platformAlertFormat'
 import { PlatformAlertGroupRowMenu } from './PlatformAlertGroupRowMenu'
 import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
@@ -103,20 +104,24 @@ function listColumns(
         },
         {
             title: 'State',
-            render: (_, row) =>
-                row.kind === 'group' ? (
+            render: (_, row) => {
+                const since = listRowFiringSince(row)
+                return (
                     <div className="flex flex-wrap items-center gap-x-2">
-                        <PlatformAlertStateLabel status={row.group.state} />
-                        {row.group.state === 'firing' && row.group.firing_started_at && (
+                        {row.kind === 'group' ? (
+                            <PlatformAlertStateLabel status={row.group.state} />
+                        ) : (
+                            <PlatformAlertStateSummary configuration={row.configuration} />
+                        )}
+                        {since && (
                             <span className="inline-flex items-center gap-1 whitespace-nowrap text-muted">
                                 <span>since</span>
-                                <TZLabel time={row.group.firing_started_at} />
+                                <TZLabel time={since} />
                             </span>
                         )}
                     </div>
-                ) : (
-                    <PlatformAlertStateSummary configuration={row.configuration} />
-                ),
+                )
+            },
         },
         {
             title: 'Destinations',

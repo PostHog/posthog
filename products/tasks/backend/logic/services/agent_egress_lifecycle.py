@@ -14,6 +14,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
+from products.tasks.backend.logic.services.agent_egress_git import AgentEgressGitGrants, GitGrantUnavailable
 from products.tasks.backend.logic.services.agent_egress_probe import (
     AGENT_EGRESS_CAPABILITY_REFRESH_SECONDS,
     AgentEgressProbeCertificate,
@@ -57,6 +58,7 @@ class AgentEgressExecution(BaseModel):
     previous_relay_name: str | None = None
     owns_sandbox: bool = True
     publish_git_read_grant: bool = False
+    git_read_configured: bool = False
     capability_refresh_at: float = 0
     certificate_refresh_at: float = 0
     certificate_expires_at: float = 0
@@ -84,7 +86,12 @@ class AgentEgressLifecycle:
             config.model_dump_json(
                 exclude={
                     name
-                    for name in ("renew_relay_certificate", "maintain_for_run", "publish_git_read_grant")
+                    for name in (
+                        "renew_relay_certificate",
+                        "maintain_for_run",
+                        "publish_git_read_grant",
+                        "route_git_reads",
+                    )
                     if not getattr(config, name, False)
                 }
             ).encode()
@@ -223,6 +230,30 @@ class AgentEgressLifecycle:
         ):
             self._active()
             raise ValueError("The execution no longer has egress authority")
+
+    def configure_git_read(self) -> None:
+        state = self._active()
+        run = self._run()
+        if (run.state or {}).get("agent_egress_git_reads") is not True:
+            return
+        repositories = (run.state or {}).get("repositories", [run.task.repository] if run.task.repository else [])
+        if not getattr(self.config, "route_git_reads", False) or len(repositories) != 1:
+            raise ValueError("Git routing is not available for this run")
+        repository = repositories[0]
+        if (
+            AgentEgressGitGrants(region=settings.AGENT_EGRESS_REGION).lookup(
+                team_id=run.team_id, run_id=run.id, execution_id=self.execution_id, repository=repository.lower()
+            )
+            is None
+        ):
+            raise GitGrantUnavailable("Git read grant is not available")
+        self._connect(state).configure_git_read(repository)
+        self._active()
+        self._renew()
+        with transaction.atomic():
+            run = self._run(locked=True)
+            state = self._read(run)
+            self._save(run, state.model_copy(update={"git_read_configured": True}))
 
     def _publish(self, probe: ModalEgressProbe) -> None:
         self._active()

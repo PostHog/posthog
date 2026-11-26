@@ -37,6 +37,7 @@ Case names stay the same across trials.
 For a repeatable smoke comparison, use the [Claude and Codex command pair](../../products/posthog_ai/eval_harness/README.md#claude-and-codex-smoke-comparison).
 Both commands select the same MCP case and record the model, runtime, delivery mode, and checkout.
 Compare completed coverage and infrastructure errors alongside named scores and duration.
+The local JSON report saved by `--results-file` includes the resolved `team_setup_concurrency` and `max_sandboxes` so you can compare throughput at the same limits.
 Add `--compare` to one selected sandboxed run to execute both default models and save a combined local comparison.
 Repeated `--compare-model RUNTIME:MODEL` options select explicit models. The comparison checks both configurations
 before running agents, retains each model's results, and reports case or scorer selection differences.
