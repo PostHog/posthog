@@ -1052,14 +1052,14 @@ class _MetricNameSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Approximate number of distinct series (label sets) in the last 24 hours. "
-            "Only present when `series_stats` was requested."
+            "Only present when `series_stats` was requested and the count fit the read budget."
         ),
     )
     tag_key_count = serializers.IntegerField(
         required=False,
         help_text=(
             "Number of distinct datapoint attribute keys in the last 24 hours. "
-            "Only present when `series_stats` was requested."
+            "Only present when `series_stats` was requested and the count fit the read budget."
         ),
     )
     classic_histogram = _MetricClassicHistogramSerializer(

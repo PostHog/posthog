@@ -13,6 +13,7 @@ from rest_framework import status
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes
 
 from products.metrics.backend.facade.api import list_metric_picker_names
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
@@ -361,6 +362,21 @@ class TestNameMatches(SimpleTestCase):
     )
     def test_name_matches(self, _name: str, name: str, search: str, match: str, expected: bool):
         self.assertEqual(name_matches(name, search, match), expected)
+
+
+class TestSeriesStatsReadBudget(SimpleTestCase):
+    def test_names_survive_series_stats_over_the_read_budget(self):
+        with patch("products.metrics.backend.metric_names_query_runner.execute_hogql_query") as execute:
+            execute.side_effect = [
+                MagicMock(results=[("http.duration", "gauge", "ms", None)]),
+                CHQueryErrorTooManyBytes("too many bytes"),
+            ]
+            rows = MetricNamesQueryRunner(team=MagicMock(), include_sparklines=False, include_series_stats=True).run()
+
+        self.assertEqual(
+            rows,
+            [{"name": "http.duration", "metric_type": "gauge", "unit": "ms", "last_seen": None, "sparkline": []}],
+        )
 
 
 class TestFoldClassicHistograms(SimpleTestCase):
