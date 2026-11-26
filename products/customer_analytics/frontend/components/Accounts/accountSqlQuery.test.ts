@@ -31,11 +31,7 @@ describe('createAccountSqlQueryNode', () => {
         }
     )
 
-    it.each(
-        cases.filter(({ name }) =>
-            ['system accounts external ID', 'comment placeholder', 'string placeholder'].includes(name)
-        )
-    )('validates the editor config for $name with the parsed filter', async ({ query, valid }) => {
+    it.each(cases)('validates the editor config for $name with the parsed filter', async ({ query, valid }) => {
         expect(await getAccountSqlQueryConfigError({ query })).toEqual(valid ? undefined : expect.any(String))
     })
     it.each(cases.filter(({ valid }) => valid))('runs $name with the current account value', async ({ query }) => {

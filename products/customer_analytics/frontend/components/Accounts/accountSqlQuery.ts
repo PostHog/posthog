@@ -12,18 +12,30 @@ export const ACCOUNT_SQL_QUERY_PLACEHOLDER = `{${ACCOUNT_SQL_QUERY_PLACEHOLDER_N
 
 type ASTNode = Awaited<ReturnType<typeof parseSelectAst>>
 
+function isAccountSqlSourceField(field: ASTNode, aliases: Set<string>): boolean {
+    return (
+        field.node === 'Field' &&
+        !field.chain.some((_: string | number, index: number) => aliases.has(field.chain.slice(0, index + 1).join('.')))
+    )
+}
+
 function isAccountSqlQueryFilter(
     expression: ASTNode | null,
     aliases: Set<string>,
-    allowedFields?: (string | number)[][]
+    allowedFields?: (string | number)[][],
+    sourceAlias?: string
 ): boolean {
     if (expression?.node === 'And') {
-        return expression.exprs.some((item: ASTNode) => isAccountSqlQueryFilter(item, aliases, allowedFields))
+        return expression.exprs.some((item: ASTNode) =>
+            isAccountSqlQueryFilter(item, aliases, allowedFields, sourceAlias)
+        )
     }
     if (expression?.node === 'Or') {
         return (
             expression.exprs.length > 0 &&
-            expression.exprs.every((item: ASTNode) => isAccountSqlQueryFilter(item, aliases, allowedFields))
+            expression.exprs.every((item: ASTNode) =>
+                isAccountSqlQueryFilter(item, aliases, allowedFields, sourceAlias)
+            )
         )
     }
     if (expression?.node === 'CompareOperation' && expression.op === '==') {
@@ -32,16 +44,14 @@ function isAccountSqlQueryFilter(
             [expression.right, expression.left],
         ].some(
             ([field, placeholder]) =>
-                field.node === 'Field' &&
+                isAccountSqlSourceField(field, aliases) &&
+                (!sourceAlias || (field.chain.length >= 2 && field.chain[0] === sourceAlias)) &&
                 (!allowedFields ||
                     allowedFields.some(
                         (chain) =>
                             chain.length === field.chain.length &&
                             chain.every((part, index) => part === field.chain[index])
                     )) &&
-                !field.chain.some((_: string | number, index: number) =>
-                    aliases.has(field.chain.slice(0, index + 1).join('.'))
-                ) &&
                 placeholder.node === 'Placeholder' &&
                 placeholder.expr?.node === 'Field' &&
                 placeholder.expr.chain.length === 1 &&
@@ -49,6 +59,71 @@ function isAccountSqlQueryFilter(
         )
     }
     return false
+}
+
+function getAccountSqlQueryAllowedFields(source: ASTNode): (string | number)[][] | undefined {
+    return source.table?.node === 'Field' && source.table.chain.join('.') === 'system.accounts'
+        ? [
+              ['external_id'],
+              ['accounts', 'external_id'],
+              ['system', 'accounts', 'external_id'],
+              ...(source.alias ? [[source.alias, 'external_id']] : []),
+          ]
+        : undefined
+}
+
+function isAccountSqlJoinFilter(
+    expression: ASTNode | null,
+    previousAliases: Set<string>,
+    sourceAlias: string,
+    aliases: Set<string>
+): boolean {
+    if (expression?.node === 'And') {
+        return expression.exprs.some((item: ASTNode) =>
+            isAccountSqlJoinFilter(item, previousAliases, sourceAlias, aliases)
+        )
+    }
+    if (expression?.node !== 'CompareOperation' || expression.op !== '==') {
+        return false
+    }
+    return [
+        [expression.left, expression.right],
+        [expression.right, expression.left],
+    ].some(
+        ([left, right]) =>
+            isAccountSqlSourceField(left, aliases) &&
+            isAccountSqlSourceField(right, aliases) &&
+            left.chain.length >= 2 &&
+            right.chain.length >= 2 &&
+            previousAliases.has(left.chain[0]) &&
+            right.chain[0] === sourceAlias
+    )
+}
+
+function isAccountSqlJoinScoped(node: ASTNode, aliases: Set<string>): boolean {
+    const sourceAliases = new Set<string>()
+    let scoped = false
+    for (let source = node.select_from; source; source = source.next_join) {
+        if (!source.alias || sourceAliases.has(source.alias) || aliases.has(source.alias)) {
+            return false
+        }
+        if (
+            sourceAliases.size > 0 &&
+            (!['JOIN', 'INNER', 'INNER JOIN'].includes(source.join_type) ||
+                source.constraint?.constraint_type !== 'ON' ||
+                !isAccountSqlJoinFilter(source.constraint.expr, sourceAliases, source.alias, aliases))
+        ) {
+            return false
+        }
+        const allowedFields = getAccountSqlQueryAllowedFields(source)
+        const filtered = isAccountSqlQueryFilter(node.where, aliases, allowedFields, source.alias)
+        if (allowedFields && !filtered) {
+            return false
+        }
+        scoped ||= filtered || ['SelectQuery', 'SelectSetQuery'].includes(source.table?.node)
+        sourceAliases.add(source.alias)
+    }
+    return scoped
 }
 
 function collectAccountSqlQueryAliases(value: unknown, aliases: Set<string>): void {
@@ -84,20 +159,13 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
     }
     if (node.node === 'SelectQuery') {
         const source = node.select_from
-        const allowedFields: (string | number)[][] | undefined =
-            source?.table?.node === 'Field' && source.table.chain.join('.') === 'system.accounts'
-                ? [
-                      ['external_id'],
-                      ['accounts', 'external_id'],
-                      ['system', 'accounts', 'external_id'],
-                      ...(source.alias ? [[source.alias, 'external_id']] : []),
-                  ]
-                : undefined
+        const allowedFields = source ? getAccountSqlQueryAllowedFields(source) : undefined
         const readsValidatedSubquery = ['SelectQuery', 'SelectSetQuery'].includes(source?.table?.node)
         if (
-            source?.next_join ||
             !source ||
-            (!readsValidatedSubquery && !isAccountSqlQueryFilter(node.where, aliases, allowedFields))
+            (source.next_join
+                ? !isAccountSqlJoinScoped(node, aliases)
+                : !readsValidatedSubquery && !isAccountSqlQueryFilter(node.where, aliases, allowedFields))
         ) {
             return false
         }
@@ -171,7 +239,7 @@ export async function getAccountSqlQueryConfigError(config: AccountViewTileConfi
     }
     return (await isAccountSqlQueryScoped(query))
         ? undefined
-        : `Enter a valid query that filters an account ID column by ${ACCOUNT_SQL_QUERY_PLACEHOLDER} in every SELECT's WHERE`
+        : `Filter an account ID column by ${ACCOUNT_SQL_QUERY_PLACEHOLDER} in WHERE. Use INNER JOIN with unique table aliases and column equalities to connect other tables.`
 }
 
 export async function createAccountSqlQueryNode(

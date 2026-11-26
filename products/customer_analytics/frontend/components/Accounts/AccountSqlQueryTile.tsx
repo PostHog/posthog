@@ -75,7 +75,7 @@ export function AccountSqlQueryTile({
         return (
             <LemonBanner type="warning" className="mb-2">
                 {externalId.trim()
-                    ? `Couldn't validate this query. Edit this tile and add a column = ${ACCOUNT_SQL_QUERY_PLACEHOLDER} filter to every SELECT's WHERE clause.`
+                    ? `Couldn't validate this query. Edit this tile and check its ${ACCOUNT_SQL_QUERY_PLACEHOLDER} filter and INNER JOIN conditions.`
                     : "This account isn't linked to analytics data yet, so the query can't be filtered to it."}
             </LemonBanner>
         )

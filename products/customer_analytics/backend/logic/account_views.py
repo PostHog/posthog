@@ -79,29 +79,97 @@ ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
 ACCOUNT_VIEW_MAX_PROPERTIES = 50
 
 
+def is_account_sql_source_field(field: ast.Expr, aliases: set[str]) -> bool:
+    return isinstance(field, ast.Field) and not any(
+        ".".join(str(part) for part in field.chain[:length]) in aliases for length in range(1, len(field.chain) + 1)
+    )
+
+
 def is_account_sql_query_filter(
-    expression: ast.Expr | None, aliases: set[str], allowed_fields: set[tuple[str | int, ...]] | None = None
+    expression: ast.Expr | None,
+    aliases: set[str],
+    allowed_fields: set[tuple[str | int, ...]] | None = None,
+    source_alias: str | None = None,
 ) -> bool:
     if isinstance(expression, ast.And):
-        return any(is_account_sql_query_filter(item, aliases, allowed_fields) for item in expression.exprs)
+        return any(
+            is_account_sql_query_filter(item, aliases, allowed_fields, source_alias) for item in expression.exprs
+        )
     if isinstance(expression, ast.Or):
         return bool(expression.exprs) and all(
-            is_account_sql_query_filter(item, aliases, allowed_fields) for item in expression.exprs
+            is_account_sql_query_filter(item, aliases, allowed_fields, source_alias) for item in expression.exprs
         )
     if isinstance(expression, ast.CompareOperation) and expression.op == ast.CompareOperationOp.Eq:
         for field, placeholder in [(expression.left, expression.right), (expression.right, expression.left)]:
             if (
                 isinstance(field, ast.Field)
+                and is_account_sql_source_field(field, aliases)
+                and (source_alias is None or (len(field.chain) >= 2 and field.chain[0] == source_alias))
                 and (allowed_fields is None or tuple(field.chain) in allowed_fields)
-                and not any(
-                    ".".join(str(part) for part in field.chain[:length]) in aliases
-                    for length in range(1, len(field.chain) + 1)
-                )
                 and isinstance(placeholder, ast.Placeholder)
                 and placeholder.chain == ["account_external_id"]
             ):
                 return True
     return False
+
+
+def get_account_sql_query_allowed_fields(source: ast.JoinExpr) -> set[tuple[str | int, ...]] | None:
+    if isinstance(source.table, ast.Field) and ".".join(str(part) for part in source.table.chain) == "system.accounts":
+        fields: set[tuple[str | int, ...]] = {
+            ("external_id",),
+            ("accounts", "external_id"),
+            ("system", "accounts", "external_id"),
+        }
+        if source.alias:
+            fields.add((source.alias, "external_id"))
+        return fields
+    return None
+
+
+def is_account_sql_join_filter(
+    expression: ast.Expr | None, previous_aliases: set[str], source_alias: str, aliases: set[str]
+) -> bool:
+    if isinstance(expression, ast.And):
+        return any(
+            is_account_sql_join_filter(item, previous_aliases, source_alias, aliases) for item in expression.exprs
+        )
+    if not isinstance(expression, ast.CompareOperation) or expression.op != ast.CompareOperationOp.Eq:
+        return False
+    return any(
+        isinstance(left, ast.Field)
+        and isinstance(right, ast.Field)
+        and is_account_sql_source_field(left, aliases)
+        and is_account_sql_source_field(right, aliases)
+        and len(left.chain) >= 2
+        and len(right.chain) >= 2
+        and left.chain[0] in previous_aliases
+        and right.chain[0] == source_alias
+        for left, right in [(expression.left, expression.right), (expression.right, expression.left)]
+    )
+
+
+def is_account_sql_join_scoped(node: ast.SelectQuery, aliases: set[str]) -> bool:
+    source_aliases: set[str] = set()
+    scoped = False
+    source = node.select_from
+    while source:
+        if not source.alias or source.alias in source_aliases or source.alias in aliases:
+            return False
+        if source_aliases and (
+            source.join_type not in {"JOIN", "INNER", "INNER JOIN"}
+            or not source.constraint
+            or source.constraint.constraint_type != "ON"
+            or not is_account_sql_join_filter(source.constraint.expr, source_aliases, source.alias, aliases)
+        ):
+            return False
+        allowed_fields = get_account_sql_query_allowed_fields(source)
+        filtered = is_account_sql_query_filter(node.where, aliases, allowed_fields, source.alias)
+        if allowed_fields is not None and not filtered:
+            return False
+        scoped = scoped or filtered or isinstance(source.table, ast.SelectQuery | ast.SelectSetQuery)
+        source_aliases.add(source.alias)
+        source = source.next_join
+    return scoped
 
 
 class AccountSqlQueryAliasCollector(TraversingVisitor):
@@ -125,18 +193,15 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node.select_from and node.select_from.next_join:
-            raise InvalidAccountViewContent(
-                ["SQL account widgets do not support joins. Use a single table per SELECT."]
-            )
-        allowed_fields: set[tuple[str | int, ...]] | None = None
-        if (
-            node.select_from
-            and isinstance(node.select_from.table, ast.Field)
-            and ".".join(str(part) for part in node.select_from.table.chain) == "system.accounts"
-        ):
-            allowed_fields = {("external_id",), ("accounts", "external_id"), ("system", "accounts", "external_id")}
-            if node.select_from.alias:
-                allowed_fields.add((node.select_from.alias, "external_id"))
+            if not is_account_sql_join_scoped(node, self.aliases):
+                raise InvalidAccountViewContent(
+                    [
+                        "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source."
+                    ]
+                )
+            super().visit_select_query(node)
+            return
+        allowed_fields = get_account_sql_query_allowed_fields(node.select_from) if node.select_from else None
         reads_validated_subquery = node.select_from is not None and isinstance(
             node.select_from.table, ast.SelectQuery | ast.SelectSetQuery
         )

@@ -33,12 +33,13 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
             <LemonLabel
                 info={
                     <>
-                        Filter an account ID column in every SELECT's WHERE clause, including subqueries and UNION
-                        branches. For example:{' '}
+                        Filter an account ID column in WHERE. For example:{' '}
                         <code>SELECT * FROM system.accounts WHERE external_id = {ACCOUNT_SQL_QUERY_PLACEHOLDER}</code>.
                         For warehouse tables, choose the column that stores the account's external ID. The validator
-                        relies on your column choice. Every OR branch must keep this filter. Use the column directly,
-                        without a SELECT or WITH alias. Joins are not supported.
+                        relies on your column choice. Subqueries, UNION branches, and every OR branch must keep this
+                        filter. Use the column directly, without a SELECT or WITH alias. INNER JOIN can connect other
+                        tables to a filtered source. Give each table a unique alias and use qualified column equalities
+                        in ON. Deduplicate mapping rows when keys repeat to avoid multiplying counts.
                     </>
                 }
             >
