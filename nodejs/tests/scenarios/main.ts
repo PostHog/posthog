@@ -93,6 +93,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const onHost = Boolean(env.SCENARIO_RUN_MANIFEST)
     let manifest: ReturnType<typeof runManifestOf>
     let seed: number | undefined
+    let manifestProblem: string | undefined
     try {
         if (onHost && values.seed !== undefined) {
             throw new Error('Set --seed on the cloud controller. The run host reads the seed from its manifest.')
@@ -100,8 +101,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         manifest = runManifestOf(env)
         seed = values.seed === undefined ? manifest?.seed : parseSeed(values.seed)
     } catch (error) {
-        process.stderr.write(`${(error as Error).message}\n`)
-        return EXIT_CODE.invalid
+        const problem = (error as Error).message
+        if (!onHost || pair || values.seed !== undefined) {
+            process.stderr.write(`${problem}\n`)
+            return EXIT_CODE.invalid
+        }
+        manifestProblem = problem
     }
     if (pair && (target !== 'local' || (onHost && manifest?.pair !== true))) {
         process.stderr.write(
@@ -120,6 +125,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
             : pair
               ? checked.loaded.flatMap((loaded) => pairProblemsOf(loaded, onHost))
               : []
+    if (manifestProblem !== undefined) {
+        problems.push(manifestProblem)
+    }
     if (problems.length > 0 || 'problems' in checked) {
         process.stderr.write(`${problems.join('\n\n')}\n`)
         return EXIT_CODE.invalid
