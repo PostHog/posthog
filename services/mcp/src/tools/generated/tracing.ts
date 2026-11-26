@@ -5,11 +5,6 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castObjectToJsonString } from '@/tools/cast-helpers'
-import hooks_apmAttributeBreakdown from '@/tools/logs/redactCredentialsHooks'
-import hooks_apmAttributeValuesList from '@/tools/logs/redactCredentialsHooks'
-import hooks_apmAttributesList from '@/tools/logs/redactCredentialsHooks'
-import hooks_apmTraceGet from '@/tools/logs/redactCredentialsHooks'
-import hooks_queryApmSpans from '@/tools/logs/redactCredentialsHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import {
     withPostHogUrl,
@@ -18,6 +13,13 @@ import {
     type WithPostHogUrl,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
+import hooks_apmAttributeBreakdown from '@/tools/tracing/attributeValueRedactionHooks'
+import hooks_apmAttributeValuesList from '@/tools/tracing/attributeValueRedactionHooks'
+import hooks_apmAttributesList from '@/tools/tracing/attributeValueRedactionHooks'
+import hooks_apmSpansAggregate from '@/tools/tracing/redactSpanCredentialsHooks'
+import hooks_apmSpansTree from '@/tools/tracing/redactSpanCredentialsHooks'
+import hooks_apmTraceGet from '@/tools/tracing/redactSpanCredentialsHooks'
+import hooks_queryApmSpans from '@/tools/tracing/redactSpanCredentialsHooks'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = () => {
@@ -186,20 +188,28 @@ const apmSpansAggregate = (): ToolBase<
 > => ({
     name: 'apm-spans-aggregate',
     schema: ApmSpansAggregateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansAggregateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_apmSpansAggregate,
+        async (context: Context, params: z.infer<ReturnType<typeof ApmSpansAggregateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._TracingAggregationResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
+                body: await transformRequestBody(hooks_apmSpansAggregate, context, params, body),
+            })
+            const filtered = pickResponseFields(result, [
+                'results',
+                'compare',
+                'has_more',
+                'next_offset',
+            ]) as typeof result
+            return filtered
         }
-        const result = await context.api.request<Schemas._TracingAggregationResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['results', 'compare', 'has_more', 'next_offset']) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const ApmSpansCountSchema = () => {
@@ -315,20 +325,23 @@ const ApmSpansTreeSchema = () => {
 const apmSpansTree = (): ToolBase<ReturnType<typeof ApmSpansTreeSchema>, Schemas._TracingTreeResponse> => ({
     name: 'apm-spans-tree',
     schema: ApmSpansTreeSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansTreeSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_apmSpansTree,
+        async (context: Context, params: z.infer<ReturnType<typeof ApmSpansTreeSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._TracingTreeResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
+                body: await transformRequestBody(hooks_apmSpansTree, context, params, body),
+            })
+            const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+            return filtered
         }
-        const result = await context.api.request<Schemas._TracingTreeResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const ApmTraceGetSchema = () => {

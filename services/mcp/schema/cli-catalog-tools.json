@@ -4659,8 +4659,8 @@
     "apm-attribute-breakdown": {
         "name": "apm-attribute-breakdown",
         "kind": "http",
-        "requires": ["hook:logs/redactCredentialsHooks"],
-        "hooks": "logs/redactCredentialsHooks",
+        "requires": ["hook:tracing/attributeValueRedactionHooks"],
+        "hooks": "tracing/attributeValueRedactionHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -4700,8 +4700,8 @@
     "apm-attribute-values-list": {
         "name": "apm-attribute-values-list",
         "kind": "http",
-        "requires": ["hook:logs/redactCredentialsHooks"],
-        "hooks": "logs/redactCredentialsHooks",
+        "requires": ["hook:tracing/attributeValueRedactionHooks"],
+        "hooks": "tracing/attributeValueRedactionHooks",
         "uiApp": null,
         "request": {
             "method": "GET",
@@ -4777,8 +4777,8 @@
     "apm-attributes-list": {
         "name": "apm-attributes-list",
         "kind": "http",
-        "requires": ["hook:logs/redactCredentialsHooks"],
-        "hooks": "logs/redactCredentialsHooks",
+        "requires": ["hook:tracing/attributeValueRedactionHooks"],
+        "hooks": "tracing/attributeValueRedactionHooks",
         "uiApp": null,
         "request": {
             "method": "GET",
@@ -4954,8 +4954,8 @@
     "apm-spans-aggregate": {
         "name": "apm-spans-aggregate",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:tracing/redactSpanCredentialsHooks"],
+        "hooks": "tracing/redactSpanCredentialsHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -5012,7 +5012,7 @@
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": false
+            "transformBody": true
         },
         "response": {
             "list": false,
@@ -5159,8 +5159,8 @@
     "apm-spans-tree": {
         "name": "apm-spans-tree",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:tracing/redactSpanCredentialsHooks"],
+        "hooks": "tracing/redactSpanCredentialsHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -5176,7 +5176,7 @@
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": false
+            "transformBody": true
         },
         "response": {
             "list": false,
@@ -5200,8 +5200,8 @@
     "apm-trace-get": {
         "name": "apm-trace-get",
         "kind": "http",
-        "requires": ["hook:logs/redactCredentialsHooks"],
-        "hooks": "logs/redactCredentialsHooks",
+        "requires": ["hook:tracing/redactSpanCredentialsHooks"],
+        "hooks": "tracing/redactSpanCredentialsHooks",
         "uiApp": "trace-span-list",
         "request": {
             "method": "POST",
@@ -41022,8 +41022,8 @@
     "query-apm-spans": {
         "name": "query-apm-spans",
         "kind": "http",
-        "requires": ["hook:logs/redactCredentialsHooks"],
-        "hooks": "logs/redactCredentialsHooks",
+        "requires": ["hook:tracing/redactSpanCredentialsHooks"],
+        "hooks": "tracing/redactSpanCredentialsHooks",
         "uiApp": "trace-span-list",
         "request": {
             "method": "POST",
