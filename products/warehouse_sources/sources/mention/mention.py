@@ -229,21 +229,23 @@ def _fan_out_alert_ids(
     return _list_all_alert_ids(session, account_id, logger), None
 
 
-def _alert_tag_rows(
+def _unpaginated_alert_fan_out_rows(
     session: requests.Session,
     logger: FilteringBoundLogger,
     resume: MentionResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MentionResumeConfig],
+    path: str,
+    key: str,
 ) -> Iterator[list[dict[str, Any]]]:
     account_id = str(_get_account(session, logger)["id"])
     alert_ids, _ = _fan_out_alert_ids(session, account_id, logger, resume)
 
     while alert_ids:
         alert_id = alert_ids[0]
-        # The tags endpoint is not paginated (its ``_links`` is an empty list in the docs).
-        url = _list_url(f"/accounts/{account_id}/alerts/{alert_id}/tags", limit=None)
+        # The tags and shares endpoints are not paginated (the docs show no `_links.more`).
+        url = _list_url(f"/accounts/{account_id}/alerts/{alert_id}/{path}", limit=None)
         payload = _fetch_page(session, url, logger)
-        rows = _rows_from_payload(payload, "tags", url)
+        rows = _rows_from_payload(payload, key, url)
         for row in rows:
             row["alert_id"] = alert_id
 
@@ -394,7 +396,13 @@ def get_rows(
     elif endpoint == "alerts":
         yield from _alert_rows(session, logger, resume, resumable_source_manager, api_version)
     elif endpoint == "alert_tags":
-        yield from _alert_tag_rows(session, logger, resume, resumable_source_manager)
+        yield from _unpaginated_alert_fan_out_rows(
+            session, logger, resume, resumable_source_manager, path="tags", key="tags"
+        )
+    elif endpoint == "alert_shares":
+        yield from _unpaginated_alert_fan_out_rows(
+            session, logger, resume, resumable_source_manager, path="shares", key="shares"
+        )
     elif endpoint == "mentions":
         yield from _paginated_alert_fan_out_rows(
             session, logger, resume, resumable_source_manager, path="mentions", key="mentions"

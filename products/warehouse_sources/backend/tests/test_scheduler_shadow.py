@@ -847,6 +847,19 @@ class TestShadowReport:
                 """,
                 {"team_id": team.pk, "schedule_key": str(matched_schema.id), "due_at": due_at},
             )
+            conn.execute(
+                f"""
+                INSERT INTO {SCHEDULER_DECISION_TABLE}
+                    (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                VALUES (%(team_id)s, %(kind)s, %(schedule_key)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
+                """,
+                {
+                    "team_id": team.pk + 1,
+                    "kind": SYNC_EXTRACT_KIND,
+                    "schedule_key": str(uuid.uuid4()),
+                    "due_at": due_at,
+                },
+            )
 
         ExternalDataJob.objects.create(
             team=team,

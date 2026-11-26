@@ -30,6 +30,7 @@ class MessageTemplate(Taggable, UUIDTModel):
     # For emails carrying codes or reset links: sends keep no rendered body or subject, and clicks keep only
     # the link's origin.
     sensitive = models.BooleanField(default=False, db_default=False)
+    click_tracking_enabled = models.BooleanField(null=True, blank=True, default=None)
     key = models.CharField(
         max_length=400,
         null=True,

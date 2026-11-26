@@ -81,6 +81,7 @@ jest.mock('~/common/utils/request', () => {
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
+const RUN_CONFIG = { config_hash: 'c0ffee', service_versions: ['db postgres:15.12-alpine sha256:feed'] }
 const RAMP_INVARIANTS = SMOKE.card.invariants.filter(({ name }) => name !== 'no_loss')
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
@@ -156,6 +157,7 @@ describe('runner', () => {
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: null, services: null }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
         wiring: () =>
@@ -252,6 +254,36 @@ describe('runner', () => {
         expect(api.captured.map(({ properties }) => properties)).toEqual([
             expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
         ])
+    })
+
+    it("resets a pair's control with the Cyclotron routing of its faulted run", async () => {
+        const routings: unknown[] = []
+        const pairing = createRunner(
+            {
+                ...environment,
+                reset: (_settings, _replicas, through) => {
+                    routings.push(through)
+                    return Promise.resolve()
+                },
+            },
+            { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+            { topologyEveryMs: 10 }
+        )
+        const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+        const refusing = {
+            ...loaded,
+            card: {
+                ...loaded.card,
+                valves: [{ valve: 'pg.enqueue_refused', target: 'cyclotron', dose: { count: 1 }, at: '1s', for: '1s' }],
+            },
+        }
+        try {
+            await pairing.runPair(refusing, NEVER_ABORTED)
+        } finally {
+            await pairing.down()
+        }
+
+        expect(routings).toEqual([{ cyclotronThroughEdge: true }, { cyclotronThroughEdge: true }])
     })
 
     it('runs one card under the run id of its run manifest', async () => {
@@ -1117,6 +1149,7 @@ describe('runner through seed, drive and judge', () => {
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
         },
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: RUN_CONFIG.config_hash, services: RUN_CONFIG.service_versions }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
         wiring: (signal) => {
@@ -1806,6 +1839,22 @@ describe('runner through seed, drive and judge', () => {
                 ],
             })
             expect(api.captured[0]?.properties.valve_timeline).toEqual(result.timeline)
+            expect(evidenceOf(result, 'faults.json')).toEqual({
+                seed: SMOKE.card.seed,
+                faults: [
+                    {
+                        valve: 'role.kill',
+                        target: 'cdp-cyclotron-worker-email',
+                        dose: {},
+                        requestedAt: expect.any(String),
+                        intentAt: expect.any(String),
+                        appliedAt: expect.any(String),
+                        observedAt: expect.any(String),
+                        releasedAt: expect.any(String),
+                    },
+                ],
+            })
+            expect(api.captured[0]?.properties).toMatchObject(RUN_CONFIG)
             expect(api.captured[0]?.properties.admissions).toEqual(result.admissions)
             expect(evidenceOf(result, 'probes.json')).toEqual({
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },

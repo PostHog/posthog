@@ -11488,6 +11488,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
+                },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
                 },
@@ -11586,6 +11590,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
                 },
                 "timezone": {
                     "type": "string"
@@ -27444,6 +27452,17 @@
         "ErrorTrackingIssueTag": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagColor"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Named color of the tag, or null for a color picked from the label."
+                },
                 "description": {
                     "description": "What the tag means, for a tooltip.",
                     "type": "string"
@@ -27463,6 +27482,11 @@
             },
             "required": ["key", "label", "description"],
             "type": "object"
+        },
+        "ErrorTrackingIssueTagColor": {
+            "enum": ["blue", "teal", "green", "yellow", "orange", "red", "pink", "purple"],
+            "title": "ErrorTrackingIssueTagColor",
+            "type": "string"
         },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,
@@ -29899,6 +29923,10 @@
                     "const": "ExperimentExposureQuery",
                     "type": "string"
                 },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
+                },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
                 },
@@ -30680,6 +30708,10 @@
                     "const": "ExperimentQuery",
                     "type": "string"
                 },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -31390,6 +31422,31 @@
                 }
             },
             "required": ["connection_id", "kind", "query", "unit"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeRowsLeftOut": {
+            "additionalProperties": false,
+            "description": "Rows of a warehouse-native query that a run left out, counted by reason. The exposure counts cover the rows in the experiment's window. A warehouse-native run fills the fields its statements can count; every other run leaves the object out.",
+            "properties": {
+                "empty_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Exposure rows with an empty entity_id."
+                },
+                "exposed_without_rows": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposed entities with no row of the metric query that counted, by variant.",
+                    "type": "object"
+                },
+                "unknown_variants": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposure rows whose variant is not one the flag serves, counted by the value seen.",
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "ExperimentWarehouseNativeUnitBinding": {
@@ -49015,6 +49072,10 @@
                             "const": "ExperimentQuery",
                             "type": "string"
                         },
+                        "rows_left_out": {
+                            "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                            "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
+                        },
                         "variant_results": {
                             "anyOf": [
                                 {
@@ -49074,6 +49135,10 @@
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
+                        },
+                        "rows_left_out": {
+                            "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                            "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
                         },
                         "sample_ratio_mismatch": {
                             "$ref": "#/definitions/SampleRatioMismatch"

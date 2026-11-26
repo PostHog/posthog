@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     Button,
@@ -12,7 +12,7 @@ import {
     ComboboxLabel,
     ComboboxList,
     ComboboxSeparator,
-    SelectTriggerIcon,
+    ComboboxTrigger,
 } from '@posthog/quill'
 
 import { cn } from 'lib/utils/css-classes'
@@ -48,36 +48,34 @@ export function QuillCurrencyDropdown({
     disabledReason?: string
     className?: string
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     return (
         <Combobox<CurrencyCode>
             items={CURRENCY_GROUPS}
-            open={open}
-            onOpenChange={setOpen}
             value={value}
             onValueChange={(next) => {
                 if (next) {
                     onChange(next)
                 }
-                setOpen(false)
             }}
             itemToStringLabel={currencyLabel}
         >
-            <Button
+            <ComboboxTrigger
                 ref={triggerRef}
-                variant="outline"
-                left
-                className={cn('w-fit min-w-60', className)}
-                onClick={() => setOpen(!open)}
-                disabledReason={disabledReason}
+                render={
+                    <Button
+                        variant="outline"
+                        left
+                        className={cn('w-fit min-w-60', className)}
+                        disabledReason={disabledReason}
+                    />
+                }
             >
                 <span className="min-w-0 truncate">
                     {value ? `${CURRENCY_SYMBOL_TO_EMOJI_MAP[value]} ${currencyLabel(value)}` : 'Select currency'}
                 </span>
-                <SelectTriggerIcon />
-            </Button>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-80">
                 <ComboboxInput placeholder="Search currencies" showTrigger={false} />
                 <ComboboxEmpty>No matching currencies</ComboboxEmpty>

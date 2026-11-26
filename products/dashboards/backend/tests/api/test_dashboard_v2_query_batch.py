@@ -25,6 +25,7 @@ import requests
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -683,6 +684,29 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             [query_id.rsplit("-", 1)[0] for query_id, _parent in tags[:2] if query_id],
             ["dashboard-v2-batch-none-t_1-A", "dashboard-v2-batch-none-none-C"],
         )
+
+    def test_the_server_span_is_returned_and_tagged_instead_of_the_inbound_traceparent(self) -> None:
+        tags: list[str | None] = []
+
+        def tagged(*args: Any, **kwargs: Any) -> Any:
+            tags.append(get_query_tags().traceparent)
+            return process_query_dict(*args, **kwargs)
+
+        tracer = TracerProvider().get_tracer(__name__)
+        with (
+            patch.object(query_batch_module, "process_query_dict", side_effect=tagged),
+            tracer.start_as_current_span("POST query_batch", kind=SpanKind.SERVER) as span,
+        ):
+            response = self._batch(
+                [{"target": {"refId": "C", "language": "hogql", "query": "select 1"}, "time": _LAST_7_DAYS}],
+                {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+            )
+            b"".join(cast(Iterator[bytes], cast(StreamingHttpResponse, response).streaming_content))
+        context = span.get_span_context()
+        server_traceparent = f"00-{context.trace_id:032x}-{context.span_id:016x}-01"
+
+        self.assertEqual(response.headers["traceresponse"], server_traceparent)
+        self.assertEqual(tags, [server_traceparent])
 
     def test_each_line_carries_its_target_also_when_panels_share_a_cached_body(self) -> None:
         node = json.dumps(_events_node("$pageview")["source"])

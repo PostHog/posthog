@@ -128,7 +128,7 @@ READERS: dict[str, str] = {
     "products/alerts/backend/facade/api.py::insight_ids_with_alerts": "insights with a row or a native alert (B3)",
     "products/alerts/backend/facade/api.py::get_alert_team_id": "team of an alert with a row (G2)",
     "products/alerts/backend/presentation/views/insight_alerts.py": "embeds rows with their copy's settings (B3)",
-    "products/dashboards/backend/presentation/views/dashboard.py::tile_insight_prefetches": (
+    "products/alerts/backend/facade/api.py::insight_alerts_prefetch": (
         "dashboard tiles prefetch rows, shown with their copy's settings (B3)"
     ),
     "posthog/hogql/database/schema/system.py::<module>": "`system.alerts` and `system.logs_alerts` (B1, B3)",
