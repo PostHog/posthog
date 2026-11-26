@@ -1,6 +1,8 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconCheck, IconX } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { cn } from 'lib/utils/css-classes'
 
 import type { ExperimentScoreApi, ExperimentScorePreviewApi } from '../generated/api.schemas'
 import {
@@ -96,17 +98,22 @@ export function ExperimentScoreResult({
                             strokeColor={passes === null ? undefined : passes ? 'var(--success)' : 'var(--danger)'}
                         />
                     )}
-                    {passes !== null && (
-                        <LemonTag type={passes ? 'success' : 'danger'}>{passes ? 'Passed' : 'Failed'}</LemonTag>
-                    )}
                     <div className="flex flex-wrap items-baseline gap-1">
-                        <strong
-                            className={
-                                score.status === 'ok' ? 'text-3xl font-semibold tabular-nums' : 'text-lg font-semibold'
-                            }
-                        >
-                            {experimentScoreLabel(score)}
-                        </strong>
+                        <Tooltip title={passes === null ? undefined : passes ? 'Passed' : 'Failed'}>
+                            <strong
+                                className={cn(
+                                    'inline-flex items-center gap-1 font-semibold',
+                                    score.status === 'ok' ? 'text-3xl tabular-nums' : 'text-lg',
+                                    passes === true && 'text-success',
+                                    passes === false && 'text-danger'
+                                )}
+                                tabIndex={passes === null ? undefined : 0}
+                            >
+                                {passes === true && <IconCheck className="text-xl" role="img" aria-label="Passed" />}
+                                {passes === false && <IconX className="text-xl" role="img" aria-label="Failed" />}
+                                {experimentScoreLabel(score)}
+                            </strong>
+                        </Tooltip>
                         {score.status === 'ok' && numeric?.min === 0 && numeric.max != null && (
                             <span className="text-muted">/ {numeric.max}</span>
                         )}

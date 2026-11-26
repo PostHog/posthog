@@ -903,6 +903,7 @@ Numeric charts keep the mean as their primary metric and show the configured thr
 Summaries and tooltips show actual passing and failing counts separately from numeric means. Pooled passing rates divide total passing results by total passing plus failing results.
 On an experiment, the experiment score and item score summaries share one section. Scorer names open version-specific history in a new tab.
 Item summaries show compact bars for rates and bounded numeric means. Each category has its own rate and the first three are visible by default.
+Experiment scores and numeric means with a passing rule show a green check when they pass and a red cross when they fail. Hover or focus the value to read the verdict.
 Percentage displays use at most two decimal places across summaries, charts, and tooltips. Numeric scores and means normally use six significant digits, retaining more precision when rounding would change their passing verdict. Numeric tooltips and threshold labels show the exact value.
 On item scorer cards, the main metric appears beside the title. Categorical cards show the most frequent category and offer a popup with every category rate.
 Passing and failing counts share a line with the distinct experiment count and scored item count. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores.

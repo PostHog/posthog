@@ -1,6 +1,8 @@
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { cn } from 'lib/utils/css-classes'
 
 import { getNumericConfig } from '../scoreDefinitions/scoreDefinitionConfigUtils'
 import { boundedScorePercent, offlineScorePasses } from './offlineScoreInterpretation'
@@ -34,10 +36,20 @@ function SummaryMetric({
                 </span>
             )}
             <Tooltip title={title}>
-                <strong className="tabular-nums font-semibold">{value}</strong>
+                <strong
+                    className={cn(
+                        'inline-flex items-center gap-1 tabular-nums font-semibold',
+                        passed === true && 'text-success',
+                        passed === false && 'text-danger'
+                    )}
+                    tabIndex={title ? 0 : undefined}
+                >
+                    {passed === true && <IconCheck role="img" aria-label="Passed" />}
+                    {passed === false && <IconX role="img" aria-label="Failed" />}
+                    {value}
+                </strong>
             </Tooltip>
             <span className="text-xs text-muted break-words min-w-0">{label}</span>
-            {passed != null && <span className="text-xs">{passed ? 'Passed' : 'Failed'}</span>}
         </div>
     )
 }
