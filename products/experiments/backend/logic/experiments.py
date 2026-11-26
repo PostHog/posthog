@@ -179,10 +179,10 @@ def create_exposure_cohort(
     ).data
 
 
-def tag_created_experiment(*, experiment_id: int, tags: list[str] | None) -> Experiment:
-    """The experiment with the id, which the caller has just created, with its tags set to `tags` unless they are
-    None."""
-    experiment = Experiment.objects.get(id=experiment_id)
+def tag_created_experiment(*, team: Team, experiment_id: int, tags: list[str] | None) -> Experiment:
+    """The experiment of the project with the id, which the caller has just created, with its tags set to `tags`
+    unless they are None."""
+    experiment = Experiment.objects.get(team__project_id=team.project_id, id=experiment_id)
     if tags is not None:
         replace_tags_on_object(tags, experiment)
     return experiment

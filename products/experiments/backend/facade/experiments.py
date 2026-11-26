@@ -255,7 +255,7 @@ def add_experiment(
     `ValidationError` of Django REST framework and the approval exceptions of the flag write pass through unchanged.
     """
     created = create_experiment(team=team, user=user, input_dto=experiment)
-    return _to_ref(experiments.tag_created_experiment(experiment_id=created.id, tags=tags))
+    return _to_ref(experiments.tag_created_experiment(team=team, experiment_id=created.id, tags=tags))
 
 
 def edit_experiment(
