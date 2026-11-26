@@ -9,6 +9,7 @@ import {
     SERVER_CREATED_INDEX,
     SERVER_FRECENCY_INDEX,
     compareRanks,
+    idMatchRank,
     isIdentityQuery,
     rankCandidate,
     searchWords,
@@ -105,7 +106,10 @@ function rankItems(items: SearchItem[], query: string, groupKey: (item: SearchIt
     return items.flatMap((item) => {
         const key = groupKey(item)
         const candidate = candidateFor(item, key, query)
-        const rank = rankCandidate(query, candidate) ?? (item.rankKey && serverOnlyRank(item.rankKey, candidate))
+        const rank =
+            item.idMatch && item.rankKey
+                ? idMatchRank(item.rankKey, candidate)
+                : (rankCandidate(query, candidate) ?? (item.rankKey && serverOnlyRank(item.rankKey, candidate)))
         return rank ? [{ item, rank, groupKey: key }] : []
     })
 }

@@ -31,7 +31,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.helpers.full_text_search import build_rank, process_query
+from posthog.helpers.full_text_search import build_rank, integer_id_query, process_query
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
@@ -484,7 +484,7 @@ def class_queryset(
             if words:
                 qs = qs.filter(reduce(operator.or_, (Q(Contains(Lower("name"), Lower(Value(word)))) for word in words)))
         rank: Expression | None = build_rank(search_fields, query, config="simple")
-        exact_id = _integer_id_query(query) if match_id else None
+        exact_id = integer_id_query(query) if match_id else None
         if exact_id is not None:
             rank = Case(When(pk=exact_id, then=Value(EXACT_ID_RANK)), default=rank, output_field=FloatField())
         qs = qs.annotate(rank=rank)
@@ -500,14 +500,6 @@ def class_queryset(
 
 # `ts_rank` with the default weights stays below 1, so an exact ID match sorts above every text match.
 EXACT_ID_RANK = 1.0
-
-
-def _integer_id_query(query: str) -> int | None:
-    # Same rule as the ticket-number search (`is_ticket_number_search` in products/conversations), so a
-    # pasted "#1234" or "1234" means the same in both. ASCII only, because str.isdigit() accepts "²",
-    # which int() rejects.
-    digits = query.strip().removeprefix("#")
-    return int(digits) if digits.isascii() and digits.isdigit() else None
 
 
 def class_to_entity_name(klass: type[Model]):

@@ -70,6 +70,18 @@ describe('buildRankedResults', () => {
             expected: ['Results: Session replay, Recordings funnel'],
         },
         {
+            // The row's name does not hold the number, so without the ID tier it would rank by the server's word
+            // count alone and sort after every row whose name does.
+            name: 'a row found by its ID leads the rows whose names hold the number',
+            query: '4821',
+            results: [
+                result('2', 'Revenue 4821', 'insight', exactWordRank(2)),
+                { ...result('4821', 'Checkout redesign', 'experiment', exactWordRank(1)), idMatch: true },
+            ],
+            products: [],
+            expected: ['Results: Checkout redesign, Revenue 4821'],
+        },
+        {
             name: 'a product leads a tab of another product with the same name, and they do not collapse',
             query: 'playground',
             results: [],

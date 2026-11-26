@@ -76,6 +76,9 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
             return (
                 <>
                     {getIconForItem(item)}
+                    {item.leadingLabel && (
+                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.leadingLabel}</span>
+                    )}
                     <span className="truncate">{String(item.displayName || item.name)}</span>
                     {typeLabel && (
                         <span className="shrink-0 text-xs text-muted-foreground">

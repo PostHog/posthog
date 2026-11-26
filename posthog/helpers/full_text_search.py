@@ -9,6 +9,15 @@ UNSAFE_CHARACTERS = r"[\'&|!<>():]"
 """Characters unsafe in a `tsquery`."""
 
 
+def integer_id_query(query: str) -> int | None:
+    """The ID a query names when it is a bare integer, with an optional leading `#`, else None."""
+    # Same rule as the ticket-number search (`is_ticket_number_search` in products/conversations), so a
+    # pasted "#1234" or "1234" means the same in both. ASCII only, because str.isdigit() accepts "²",
+    # which int() rejects.
+    digits = query.strip().removeprefix("#")
+    return int(digits) if digits.isascii() and digits.isdigit() else None
+
+
 def process_query(query: str) -> str | None:
     """
     Converts a query string into a to_tsquery compatible string, where

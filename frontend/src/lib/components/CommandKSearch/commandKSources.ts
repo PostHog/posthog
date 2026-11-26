@@ -1,5 +1,6 @@
 import api, { isAbortError } from 'lib/api'
 import {
+    ID_MATCH_TYPES,
     SearchItem,
     accountToSearchItem,
     alertToSearchItem,
@@ -12,7 +13,7 @@ import {
     ticketToSearchItem,
     unifiedSearchResultToSearchItem,
 } from 'lib/components/Search/searchItems'
-import { isTicketNumberQuery, shouldSearchTickets } from 'lib/components/Search/utils'
+import { idFromNumberQuery, isTicketNumberQuery, shouldSearchTickets } from 'lib/components/Search/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -33,7 +34,7 @@ import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
 import { fileSystemTypesFor } from './commandKFilterOptions'
 import { TypeSearchTerms, parseToken, tokenize, typeSearchTerms } from './commandKQuery'
-import { compareRanks, freeWords } from './commandKRanking'
+import { FILTER_TOKEN, compareRanks, freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
 export const REMOTE_DEBOUNCE_MS = 150
@@ -180,6 +181,8 @@ const fetchRankedResults = async (
         { signal }
     )
     const typeCounts = new Map(response.type_counts.map(({ type, count }) => [type, count]))
+    // The server reads the ID from the words outside filters such as `type:experiment`, so this does too.
+    const searchedId = idFromNumberQuery(search.replace(FILTER_TOKEN, ' '))
     return response.results
         .filter(({ entry }) => isFileSystemEntryTypeEnabled(entry, featureFlags))
         .map(({ entry, rank }) => ({
@@ -187,6 +190,9 @@ const fetchRankedResults = async (
                 fileSystemEntryToSearchItem(toFileSystemEntry(entry), { id: entry.id, category: 'results' }),
                 entry
             ),
+            ...(searchedId !== null && ID_MATCH_TYPES.has(entry.type ?? '') && entry.ref === searchedId
+                ? { idMatch: true, leadingLabel: `#${entry.ref}` }
+                : {}),
             rankKey: rank,
             searchMatch: {
                 matchedAllWords: response.matched_all_words,

@@ -137,6 +137,26 @@ class TestFileSystemRankedSearch(APIBaseTest):
         self.assertFalse(data["matched_all_words"])
         self.assertEqual(data["matched_words"], matched_words)
 
+    @parameterized.expand(
+        [
+            ("bare_number", "4821", ["Checkout redesign", "Revenue 4821"]),
+            ("leading_hash", "#4821", ["Checkout redesign", "Revenue 4821"]),
+            ("number_and_a_word_is_not_an_id", "4821 revenue", ["Revenue 4821"]),
+        ]
+    )
+    def test_finds_an_experiment_by_id_before_name_matches(self, _name: str, search: str, expected: list[str]) -> None:
+        self._create("Unfiled/Experiments/Checkout redesign", type="experiment", ref="4821")
+        self._create("Unfiled/Insights/Revenue 4821", type="insight", ref="abc", days_ago=1)
+        # An insight's ref is not an integer ID, so an insight whose ref happens to equal the number stays hidden.
+        self._create("Unfiled/Insights/Pricing", type="insight", ref="4821")
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        FileSystem.objects.create(team=other_team, path="Unfiled/Experiments/Other", type="experiment", ref="4821")
+
+        data = self._search(search)
+
+        self.assertEqual(self._names(data), expected)
+        self.assertTrue(data["matched_all_words"])
+
     def test_frecency_breaks_ties_between_equal_matches(self) -> None:
         self._create("Unfiled/Dashboards/Home", type="dashboard", ref="1", days_ago=1)
         self._create("Unfiled/Dashboards/Home", type="dashboard", ref="2", days_ago=2)
