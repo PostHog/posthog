@@ -104,7 +104,7 @@ _TRACE_STATUS = SimpleNamespace(
     complete=True,
     error=False,
     error_message=None,
-    labels=["read-scope:tracing"],
+    labels=["read-scopes-recorded", "read-scope:tracing"],
     results={"columns": ["name"], "types": [["name", "String"]], "results": [["GET /api"]]},
 )
 
@@ -1793,11 +1793,25 @@ class TestSQLV2RunResult(APIBaseTest):
         (cell,) = [cell for cell in response.json()["cells"] if cell["node_id"] == "n1"]
         self.assertEqual(cell["last_run"]["error"], expected_error)
 
-    @parameterized.expand([("none", 403), ("viewer", 200)])
-    @patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError())
-    def test_a_run_stored_before_read_scopes_is_gated_on_its_query(self, access_level, expected, _mock_status):
+    @parameterized.expand(
+        [
+            ("stored_run_none", False, "none", 403),
+            ("stored_run_viewer", False, "viewer", 200),
+            # A status a pre-deploy worker completed carries no labels, which must not read as "no gated reads".
+            ("old_status_none", True, "none", 403),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
+    def test_a_run_stored_before_read_scopes_is_gated_on_its_query(
+        self, _name, from_old_status, access_level, expected, mock_status
+    ):
         _set_tracing_access(self, access_level)
-        run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]})
+        if from_old_status:
+            mock_status.return_value = SimpleNamespace(**{**vars(_TRACE_STATUS), "labels": None})
+            run = self._create_run(NotebookNodeRun.Status.RUNNING)
+        else:
+            mock_status.side_effect = QueryNotFoundError()
+            run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]})
         NotebookNodeRun.objects.for_team(self.team.id).filter(id=run.id).update(
             code="select name from posthog.trace_spans"
         )

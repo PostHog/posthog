@@ -318,7 +318,7 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
-        self.assertEqual(args_loaded["labels"], ["executed"])
+        self.assertEqual(args_loaded["labels"], ["executed", "read-scopes-recorded"])
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
