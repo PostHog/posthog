@@ -13,7 +13,7 @@ import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { AdmissionTargets, loadTargetsOf } from './load-targets'
-import { Card, Load, Named, Profile, stepsOf } from './schema'
+import { Card, Load, Named, Profile, SeedOverride, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
@@ -27,9 +27,10 @@ export type LoadedCard = {
     admission: AdmissionTargets
     cardHash: string
     profileHash: string
+    seedSource?: 'override'
 }
 
-export type LoadOptions = { profilePath?: string; target?: Target }
+export type LoadOptions = { profilePath?: string; target?: Target; seed?: number }
 
 export class CardError extends Error {
     constructor(
@@ -372,14 +373,19 @@ export function readProfile(file: string): ProfileRead {
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options)
 }
 
-export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
+export function loadText(
+    label: string,
+    { card, profile }: { card: string; profile: string },
+    options: Pick<LoadOptions, 'seed'> = {}
+): LoadedCard {
     return check(
         label,
         parseYaml(() => card, 'card'),
-        () => profileOf(parseYaml(() => profile, 'profile'))
+        () => profileOf(parseYaml(() => profile, 'profile')),
+        options
     )
 }
 
@@ -387,7 +393,7 @@ function check(
     cardPath: string,
     read: Read,
     profileFor: (card: Card) => ProfileRead,
-    target: Target = 'local'
+    { target = 'local', seed }: LoadOptions
 ): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
@@ -397,6 +403,16 @@ function check(
         throw new CardError(cardPath, problemsOf(parsed.error, ''))
     }
     const card = parsed.data
+    if (seed !== undefined) {
+        if (!card.seedable) {
+            throw new CardError(cardPath, ['Declare seedable: true to use --seed.'])
+        }
+        const override = SeedOverride.safeParse(seed)
+        if (!override.success) {
+            throw new CardError(cardPath, ['The seed override is outside the supported range.'])
+        }
+        card.seed = override.data
+    }
     const loaded = profileFor(card)
     const defaults = getDefaultConfig() as unknown as Settings
     const derived = 'profile' in loaded ? loadTargetsOf(card, loaded.profile) : { problems: [] }
@@ -432,8 +448,12 @@ function check(
         admission: { load: derived.load, host: loaded.profile.host },
         profileHash,
         cardHash: cardHashOf(card, profileHash),
+        ...(seed !== undefined && { seedSource: 'override' }),
     }
 }
 
 export const cardHashOf = (card: Card, profileHash: string): string =>
-    sha256({ card: { ...card, gates: undefined, pair: undefined, unpaired: undefined }, profileHash })
+    sha256({
+        card: { ...card, gates: undefined, pair: undefined, unpaired: undefined, seedable: undefined },
+        profileHash,
+    })
