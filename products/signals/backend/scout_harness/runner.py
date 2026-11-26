@@ -909,6 +909,13 @@ async def _arun_signals_scout(
                     team_id=team.parent_team_id or team.id, run_id=run_id, status=trial_status
                 )
             )
+        else:
+            # Success, failure and cancellation all send: the reports the queued messages point at exist.
+            await asyncio.shield(
+                database_sync_to_async(_send_queued_messages_safely, thread_sensitive=False)(
+                    team_id=team.parent_team_id or team.id, run_id=run_id
+                )
+            )
 
 
 async def arun_signals_scout(
@@ -1675,11 +1682,21 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 age_seconds=age_seconds,
             )
             transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
+            # A reaped run never reaches the runner's terminal paths, so its queued messages go out here.
+            _send_queued_messages_safely(team_id=team_id, run_id=run.id)
         except Exception:
             logger.exception(
                 "signals_scout: failed to reap stale in-progress run; continuing",
                 extra={"team_id": team_id, "skill_name": skill_name, "run_id": str(run.id)},
             )
+
+
+def _send_queued_messages_safely(*, team_id: int, run_id: Any) -> None:
+    from products.signals.backend.scout_harness.message_send import (
+        send_queued_scout_messages_safely,  # noqa: PLC0415 - avoids loading the Celery task registry when importing the runner
+    )
+
+    send_queued_scout_messages_safely(team_id=team_id, run_id=run_id)
 
 
 def _claim_finished_orphan(*, run_id: Any, team_id: int) -> bool:

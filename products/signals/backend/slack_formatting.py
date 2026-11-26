@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from urllib.parse import urlparse
 
 from posthog.dataclasses import frozen
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
@@ -64,6 +65,38 @@ def strip_chart_references(text: str) -> str:
     # Definitions go first: a definition opens with a bracketed label of its own, and reducing that
     # to bare text would leave the line behind as `daily: chart:signups-drop` for Slack to show.
     return _REFERENCE_LINK_RE.sub(_reduce, _CHART_REF_DEFINITION_RE.sub("", text))
+
+
+# An inline markdown link, `[label](dest)` or `[label](<dest>)`. Neither class matches `[`, so a
+# run of unclosed brackets cannot make each start position rescan the rest of the text.
+_INLINE_LINK_RE = re.compile(r"""(?<![!\\])\[([^\[\]\n]{1,300})\]\(\s*<?([^\s<>()\[\]]+)>?\s*\)""")
+# A label a reader takes for an address: an optional scheme, a dotted host, and an optional path.
+_URL_SHAPED_LABEL_RE = re.compile(
+    r"""^(?:[a-z][a-z0-9+.-]*://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:[/?#]\S*)?$""", re.IGNORECASE
+)
+
+
+def _link_host(value: str) -> str | None:
+    parsed = urlparse(value if "://" in value else f"//{value}")
+    return parsed.hostname.lower() if parsed.hostname else None
+
+
+def bare_misleading_link_labels(text: str) -> str:
+    """Render a link as its bare destination when its label looks like an address on another host.
+
+    `[github.com/org/repo](https://elsewhere.example)` reads as a GitHub link and opens another site.
+    A message interrupts a person who acts on it from Slack, so such a link is shown as the URL it
+    opens. Every other link, and every other part of the text, is left as written."""
+
+    def _replace(match: re.Match[str]) -> str:
+        label, destination = match.group(1).strip(), match.group(2)
+        if not _URL_SHAPED_LABEL_RE.match(label):
+            return match.group(0)
+        if _link_host(label) == _link_host(destination):
+            return match.group(0)
+        return destination
+
+    return _INLINE_LINK_RE.sub(_replace, text)
 
 
 # The Slack tokens that can address somebody or lie about where they point: the mentions

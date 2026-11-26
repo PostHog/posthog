@@ -52,6 +52,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutMessageDelivery,
     SignalScratchpadRevision,
     scout_lists_reports_in_inbox,
 )
@@ -76,6 +77,16 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_structured_output_schema_for,
 )
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
+from products.signals.backend.scout_harness.message_routes import (
+    MAX_MESSAGE_ROUTES,
+    MAX_ROUTE_KEY_LENGTH,
+    MAX_ROUTE_TARGETS,
+    MAX_ROUTE_WHEN_LENGTH,
+    MESSAGE_TARGET_SLACK_CHANNEL,
+    MESSAGE_TARGET_SLACK_DM,
+    ROUTE_KEY_RE,
+    SLACK_CHANNEL_TARGET_RE,
+)
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.precheck import (
@@ -3360,6 +3371,71 @@ class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
     )
 
 
+class SignalScoutMessageTargetSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=SignalScoutMessageDelivery.TargetType.choices,
+        help_text="`slack_dm` sends a direct message to `user`. `slack_channel` posts in `channel`.",
+    )
+    user = serializers.RegexField(
+        SLACK_MEMBER_TARGET_RE,
+        required=False,
+        max_length=255,
+        trim_whitespace=True,
+        error_messages={"invalid": SLACK_MEMBER_TARGET_ERROR},
+        help_text=(
+            "Slack member to message for a `slack_dm` target, as a member ID (`U0123ABC456`) or the "
+            "picker's `member_id|@display-name` format."
+        ),
+    )
+    channel = serializers.RegexField(
+        SLACK_CHANNEL_TARGET_RE,
+        required=False,
+        max_length=255,
+        trim_whitespace=True,
+        error_messages={"invalid": "Expected a Slack channel ID such as `C0456DEF789` or `C0456DEF789|#name`."},
+        help_text=(
+            "Slack channel to post in for a `slack_channel` target, as a channel ID (`C0456DEF789`) or the "
+            "picker's `channel_id|#channel-name` format. A channel shared with another workspace is never "
+            "posted to."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs["type"] == MESSAGE_TARGET_SLACK_DM:
+            if not attrs.get("user") or attrs.get("channel"):
+                raise serializers.ValidationError("A `slack_dm` target needs `user` and no `channel`.")
+            return {"type": MESSAGE_TARGET_SLACK_DM, "user": attrs["user"]}
+        if not attrs.get("channel") or attrs.get("user"):
+            raise serializers.ValidationError("A `slack_channel` target needs `channel` and no `user`.")
+        return {"type": MESSAGE_TARGET_SLACK_CHANNEL, "channel": attrs["channel"]}
+
+
+class SignalScoutMessageRouteSerializer(serializers.Serializer):
+    key = serializers.RegexField(
+        ROUTE_KEY_RE,
+        max_length=MAX_ROUTE_KEY_LENGTH,
+        error_messages={"invalid": "Route keys are lowercase kebab-case slugs, e.g. `outside-team-change`."},
+        help_text=(
+            "Slug naming the route, unique within the scout, e.g. `outside-team-change`. The scout names "
+            "this key when it sends a message, and never a recipient."
+        ),
+    )
+    when = serializers.CharField(
+        max_length=MAX_ROUTE_WHEN_LENGTH,
+        trim_whitespace=True,
+        help_text=(
+            "Short plain text saying when the scout should send a message on this route, e.g. `Someone "
+            "outside the team merges a significant change to our code`. Shown to the scout in its run prompt."
+        ),
+    )
+    to = serializers.ListField(
+        child=SignalScoutMessageTargetSerializer(),
+        min_length=1,
+        max_length=MAX_ROUTE_TARGETS,
+        help_text=f"Who receives a message sent on this route. At most {MAX_ROUTE_TARGETS} targets.",
+    )
+
+
 class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
     slack = SignalScoutSlackDestinationSerializer(
         required=False,
@@ -3384,6 +3460,26 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "An update that omits this key keeps the stored value."
         ),
     )
+    messages = serializers.ListField(
+        child=SignalScoutMessageRouteSerializer(),
+        required=False,
+        max_length=MAX_MESSAGE_ROUTES,
+        help_text=(
+            "Routes this scout may send a message on, through the Slack integration in `slack`. The scout "
+            "decides whether a finding deserves a message and names a route `key`; the route decides who "
+            "receives it. Routes need `slack.integration_id`, and work with no `slack.channel` or "
+            "`slack.users`, so a scout can record every report and message only on conditions. An update "
+            "that omits this key keeps the stored routes; pass `[]` to clear them. Only used while scout "
+            f"messaging is on for the project. At most {MAX_MESSAGE_ROUTES} routes."
+        ),
+    )
+
+    def validate_messages(self, value: list[dict]) -> list[dict]:
+        keys = [route["key"] for route in value]
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        if duplicates:
+            raise serializers.ValidationError(f"Route keys must be unique within a scout: {', '.join(duplicates)}.")
+        return value
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         data = super().to_representation(instance)
@@ -3406,9 +3502,16 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     webhook = value.get("webhook") or None
     # Absent means "not supplied", which the update path reads to keep a stored opt-out.
     inbox = {"inbox": value["inbox"]} if "inbox" in value else {}
+    # `messages: []` clears the routes, so nothing is stored for it. The update path fills in the
+    # stored routes before this runs when the key is absent.
+    messages = {"messages": value["messages"]} if value.get("messages") else {}
     slack = value.get("slack")
     if slack is None:
-        return {**({"webhook": webhook} if webhook else {}), **inbox}
+        if value.get("messages"):
+            raise serializers.ValidationError(
+                {"messages": "Message routes need a Slack integration. Set `slack.integration_id` too."}
+            )
+        return {**({"webhook": webhook} if webhook else {}), **inbox, **messages}
 
     project_id = context.get("project_id")
     if not isinstance(project_id, int):
@@ -3435,7 +3538,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
             raise InsufficientScope(["inbox:read"])
 
-    return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
+    return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox, **messages}
 
 
 _SCOUT_TAGS_HELP_TEXT = (
@@ -4551,6 +4654,11 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
     )
 
     def validate_output_destinations(self, value: dict) -> dict:
+        # Carried over here rather than in `update`, so stored routes kept by an update that drops
+        # the Slack integration are rejected the same way as routes sent with no integration.
+        stored = self.instance.output_destinations if isinstance(self.instance, SignalScoutConfig) else None
+        if "messages" not in value and isinstance(stored, dict) and stored.get("messages"):
+            value = {**value, "messages": stored["messages"]}
         return _validate_output_destinations(value, self.context)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
