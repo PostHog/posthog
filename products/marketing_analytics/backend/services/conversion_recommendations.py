@@ -18,6 +18,7 @@ from posthog.models.team.team_marketing_analytics_config import TeamMarketingAna
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import DefinitionListTimedOut, definition_read_db_alias
+from posthog.taxonomy.definition_search import project_definition_scale
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.user_permissions import UserPermissions
 
@@ -249,13 +250,14 @@ class ConversionRecommendationService:
     def event_catalog(self, run: ConversionRecommendationRun) -> list[ConversionCandidate]:
         alias = definition_read_db_alias(EventDefinition)
         with statement_timeout(alias, CATALOG_QUERY_TIMEOUT_MS, DefinitionListTimedOut, CATALOG_QUERY_TIMEOUTS):
+            scale = project_definition_scale("posthog_eventdefinition", self.team.project_id, alias)
             definitions = list(
                 EventDefinition.objects.using(alias)
                 .alias(effective_project_id=effective_project_id_expr())
                 .filter(effective_project_id=self.team.project_id)
                 .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__gte=run.date_from))
                 .exclude(name__in=DEFAULT_EXCLUDED_EVENTS)
-                .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+                .order_by(*(["name"] if scale.orders_by_name else [F("last_seen_at").desc(nulls_last=True), "name"]))
                 .values_list("pk", "name")[:MAX_CATALOG_EVENTS]
             )
             descriptions: dict[str, str] = {}

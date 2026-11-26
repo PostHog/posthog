@@ -461,6 +461,11 @@ class TestConversionRecommendations(APIBaseTest):
             [candidate.event for candidate in service.event_catalog(run)],
             ["z_seen_yesterday", "d_seen_last_week", "c_never_seen"],
         )
+        with patch("posthog.taxonomy.definition_search.NAME_ORDER_MIN_DEFINITIONS", 0):
+            by_name = service.event_catalog(run)
+        self.assertEqual(
+            [candidate.event for candidate in by_name], ["c_never_seen", "d_seen_last_week", "z_seen_yesterday"]
+        )
 
     @parameterized.expand([("valid", False), ("unknown", True)])
     def test_catalog_shortlist_uses_only_visible_bounded_metadata(self, _name: str, unknown: bool) -> None:
