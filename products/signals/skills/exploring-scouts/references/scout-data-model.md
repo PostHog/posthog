@@ -6,7 +6,7 @@ This reference is the vocabulary for everything `exploring-scouts` returns.
 ## SignalScoutConfig — the scout's settings
 
 One row per `(team, skill_name)`.
-Returned by `scout-config-list`.
+Returned in full by `scout-config-retrieve`. `scout-config-list` returns a compact row per scout: `id`, `skill_name`, `display_name`, `description`, `scout_origin`, `scout_role`, `enabled`, `status`, `pause_reason`, `emit`, `run_interval_minutes`, `run_cron_schedule`, `last_run_at`, `tags`, and `source_product`.
 This is the scout's control surface, separate from its instruction body (the `LLMSkill`).
 
 | Field                          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -48,7 +48,7 @@ It is the extra-careful rollout posture for a chatty or high-stakes scout (the d
 
 ## SignalScoutRun — one execution
 
-Returned by `scout-runs-list` (summary) and `scout-runs-retrieve` (detail; same shape).
+Returned in full by `scout-runs-retrieve`. `scout-runs-list` returns a compact row of the same run: it carries `summary_lead` (the first 600 characters of `summary`) in place of `summary`, and leaves out `error`, `metadata`, `task_id`, `task_run_id`, and `task_url`.
 Each run is one sandboxed agent execution of one scout.
 The run is a thin bridge to a `tasks.TaskRun` — status, timing, and the full transcript live on the Task side.
 

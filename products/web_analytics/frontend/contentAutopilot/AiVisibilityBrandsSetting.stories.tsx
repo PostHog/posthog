@@ -47,7 +47,7 @@ const meta: Meta<typeof AiVisibilityBrandsSetting> = {
 export default meta
 
 export const ToReview: StoryFn<typeof AiVisibilityBrandsSetting> = () => (
-    <div className="p-4 max-w-200">
+    <div className="p-4 max-w-200" data-quill>
         <AiVisibilityBrandsSetting />
     </div>
 )
