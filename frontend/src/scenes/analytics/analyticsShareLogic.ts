@@ -120,6 +120,9 @@ export interface analyticsShareLogicActions {
         key: string
         space: string | null
     }
+    itemsMoved: (moved: ShareToSpaceTarget[]) => {
+        moved: ShareToSpaceTarget[]
+    }
     loadFolderContents: (_: void) => void
     loadFolderContentsFailure: (
         error: string,
@@ -178,12 +181,6 @@ export interface analyticsShareLogicActions {
         destination: ShareDestination | null
         target: ShareToSpaceTarget
     }
-    openShareToSpace: (target: ShareToSpaceTarget) => {
-        target: ShareToSpaceTarget
-    }
-    openBulkShareToSpace: (targets: ShareToSpaceTarget[]) => {
-        targets: ShareToSpaceTarget[]
-    }
     moveItems: (
         targets: ShareToSpaceTarget[],
         destination: ShareDestination
@@ -191,8 +188,11 @@ export interface analyticsShareLogicActions {
         destination: ShareDestination
         targets: ShareToSpaceTarget[]
     }
-    itemsMoved: (moved: ShareToSpaceTarget[]) => {
-        moved: ShareToSpaceTarget[]
+    openBulkShareToSpace: (targets: ShareToSpaceTarget[]) => {
+        targets: ShareToSpaceTarget[]
+    }
+    openShareToSpace: (target: ShareToSpaceTarget) => {
+        target: ShareToSpaceTarget
     }
     setNewFolderName: (name: string) => {
         name: string
