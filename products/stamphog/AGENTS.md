@@ -97,6 +97,12 @@ supersession, run creation) must be pinned via `.using(router.db_for_write(Model
 reader silently skips retractions, resurrects disabled channels, or strands queued runs. If you
 add a read-then-act path, pin it; this class of bug has been found on five separate paths.
 
+## Human requests
+
+A human request's Slack message never shows a verdict or a finding that GitHub does not show.
+It reads a run's outcome only when `verdict_posted_at` is set, or `may_publish()` allows a failure, so a silent run's withheld verdict stays hidden.
+Every read that decides what the message shows, or whether to post it, is writer-pinned.
+
 ## Sandbox credentials and egress
 
 - The sandbox holds NO long-lived secret. `_mint_reviewer_scoped_token` mints a per-run `phe_`

@@ -47,6 +47,7 @@ from .scrubbing import neutralize_active_markdown, scrub_credentials
 
 logger = structlog.get_logger(__name__)
 
+REQUEST_CREATED_EVENT = "stamphog_human_request_created"
 CARD_POSTED_EVENT = "stamphog_human_request_card_posted"
 LOOK_CLICKED_EVENT = "stamphog_human_request_look_clicked"
 
@@ -131,6 +132,17 @@ def open_human_request(
             )
     except IntegrityError:
         return OpenedHumanRequest(request=active.get(), created=False)
+    transaction.on_commit(
+        lambda: _capture(
+            request,
+            REQUEST_CREATED_EVENT,
+            {
+                "stamphog_human_request_status": str(request.status),
+                "stamphog_human_request_has_note": bool(request.note),
+            },
+        ),
+        using=using,
+    )
     return OpenedHumanRequest(request=request, created=True)
 
 
@@ -274,19 +286,19 @@ def _next_state(
     return _NextState(status=status, approved_by_login="", run=run)
 
 
-def _capture_card_posted(request: HumanRequest, status: HumanRequestStatus) -> None:
+def _capture(request: HumanRequest, event: str, properties: dict[str, Any]) -> None:
     repo_config = request.pull_request.repo_config
     try:
         with ph_scoped_capture() as capture:
             capture(
                 distinct_id=repo_config.repository,
-                event=CARD_POSTED_EVENT,
+                event=event,
                 properties={
                     "stamphog_repo": repo_config.repository,
                     "stamphog_team_id": request.team_id,
                     "stamphog_human_request_id": str(request.id),
                     "stamphog_human_request_via": request.requested_via,
-                    "stamphog_human_request_status": status.value,
+                    **properties,
                 },
             )
     except Exception:
@@ -323,7 +335,7 @@ def _post_once(request: HumanRequest, card: HumanRequestCard, head_sha: str, *, 
         HumanRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
             pinged_head_sha=head_sha, updated_at=timezone.now()
         )
-    _capture_card_posted(request, card.status)
+    _capture(request, CARD_POSTED_EVENT, {"stamphog_human_request_status": card.status.value})
 
 
 def _post_if_open(
@@ -434,24 +446,6 @@ def refresh(team_id: int, human_request_id: str) -> None:
         )
 
 
-def _capture_look(request: HumanRequest, looking: bool) -> None:
-    repo_config = request.pull_request.repo_config
-    try:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=repo_config.repository,
-                event=LOOK_CLICKED_EVENT,
-                properties={
-                    "stamphog_repo": repo_config.repository,
-                    "stamphog_team_id": request.team_id,
-                    "stamphog_human_request_id": str(request.id),
-                    "stamphog_human_request_looking": looking,
-                },
-            )
-    except Exception:
-        logger.exception("stamphog_human_request_capture_failed", human_request_id=str(request.id))
-
-
 def record_look(click: LookClick) -> bool:
     """Mark the person who clicked a card as looking at its pull request, or as no longer looking.
 
@@ -512,5 +506,5 @@ def record_look(click: LookClick) -> bool:
             )
         )
     if changed:
-        _capture_look(request, click.looking)
+        _capture(request, LOOK_CLICKED_EVENT, {"stamphog_human_request_looking": click.looking})
     return changed

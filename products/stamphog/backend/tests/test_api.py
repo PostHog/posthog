@@ -1266,7 +1266,10 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def test_human_request_is_made_once_and_shown_on_the_run_and_pull_request(self) -> None:
         self._turn_on_human_requests()
-        with patch("products.stamphog.backend.tasks.human_requests.refresh_human_request.delay") as refresh:
+        with (
+            patch("products.stamphog.backend.tasks.human_requests.refresh_human_request.delay") as refresh,
+            patch("products.stamphog.backend.logic.human_requests.ph_scoped_capture") as scoped_capture,
+        ):
             first = self._request(human=True, note="Touches billing.")
             second = self._request(human=True, note="A second note.")
 
@@ -1282,6 +1285,10 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert first.json()["human_request"]["id"] == second.json()["human_request"]["id"] == str(request.id)
         assert second.json()["run"]["human_request"]["note"] == "Touches billing."
         assert refresh.call_args_list == [call(team_id=self.team.id, human_request_id=str(request.id))] * 2
+        captured = scoped_capture.return_value.__enter__.return_value.call_args_list
+        assert [(c.kwargs["event"], c.kwargs["properties"]["stamphog_human_request_has_note"]) for c in captured] == [
+            ("stamphog_human_request_created", True)
+        ]
         # The note stays off the reviewer's context.
         assert "Touches billing." not in json.dumps(ReviewRun.objects.unscoped().get(team_id=self.team.id).output)
 
