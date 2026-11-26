@@ -10556,17 +10556,17 @@ Note: Parsed every operation in the official OpenAPI 3.1 document, including nes
 
 ## OctopusDeploy — gaps
 
-Today (14): `channels`, `deployments`, `environments`, `events`, `interruptions`, `lifecycles`, `machines`, `project_groups`, `projects`, `releases`, `spaces`, `tasks`, `tenants`, `users`
+Today (17): `channels`, `deployments`, `environments`, `events`, `interruptions`, `lifecycles`, `machines`, `project_groups`, `projects`, `releases`, `runbook_runs`, `runbooks`, `spaces`, `tasks`, `teams`, `tenants`, `users`
 
 Diffed against: <https://demo.octopus.app/api>
 
 - [x] `users (/api/users)` — Lookup that resolves the user ids already carried on events, deployments, tasks and interruptions (high)
-- [ ] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high)
+- [x] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high). Built teams; teammembership not built: it needs one userId per call, and MemberUserIds on teams already holds the user→team junction.
 - [x] `lifecycles (/api/{space}/lifecycles)` — Lookup resolving the LifecycleId on projects/releases into ordered phases and environments, needed to judge whether a deployment progressed normally (high)
 - [x] `interruptions (/api/{space}/interruptions)` — Manual intervention and approval records with responsible-team and resolution timestamps — the wait time inside deployment lead time (high)
-- [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high)
-- [ ] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
-- [ ] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
+- [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high). Skipped: lists only Enterprise report definitions; the metrics are pre-aggregated per-report /metrics series, not warehouse rows.
+- [x] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
+- [x] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
 - [ ] `build-information (/api/{space}/build-information)` — Commits, work items and build URLs attached to packages — the join from a deployment back to source control (medium)
 - [ ] `packages (/api/{space}/packages)` — Package versions consumed by releases, the other half of release-to-artifact traceability (medium)
 - [ ] `artifacts (/api/{space}/artifacts)` — Files produced by deployments/tasks, joinable to the task that generated them (medium)
