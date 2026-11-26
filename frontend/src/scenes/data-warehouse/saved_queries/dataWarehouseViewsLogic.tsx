@@ -753,6 +753,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     })),
     listeners(({ actions, asyncActions, values, cache }) => ({
         refreshAfterWindowFocus: async () => {
+            // A failed load clears `dataWarehouseSavedQueriesLoaded`, so do not gate on it, or one
+            // failed refresh would stop every later one.
+            if (values.dataWarehouseSavedQueriesLoading) {
+                return
+            }
             const catalogKeyBefore = savedQueryCatalogKey(values.dataWarehouseSavedQueries)
             actions.loadDataWarehouseSavedQueryFolders()
             try {
@@ -977,7 +982,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
     }),
-    events(({ actions, values, cache }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
             actions.loadDataWarehouseSavedQueryFolders()
@@ -985,11 +990,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             cache.disposables.add(
                 () => {
                     const onFocus = (): void => {
-                        // A failed load clears `dataWarehouseSavedQueriesLoaded`, so do not gate on it, or one
-                        // failed refresh would stop every later one.
-                        if (!values.dataWarehouseSavedQueriesLoading) {
-                            actions.refreshAfterWindowFocus()
-                        }
+                        actions.refreshAfterWindowFocus()
                     }
                     window.addEventListener('focus', onFocus)
                     return () => window.removeEventListener('focus', onFocus)

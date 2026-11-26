@@ -170,6 +170,22 @@ describe('dataWarehouseViewsLogic', () => {
         expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(['view-1'])
     })
 
+    it('ignores a focus callback that outlives the logic', () => {
+        logic.unmount()
+        const addEventListenerSpy = jest.spyOn(window, 'addEventListener')
+        logic.mount()
+        const focusListener = addEventListenerSpy.mock.calls.find((call: unknown[]) => call[0] === 'focus')?.[1] as
+            | EventListener
+            | undefined
+        expect(focusListener).toEqual(expect.any(Function))
+
+        logic.unmount()
+        expect(() => focusListener?.(new Event('focus'))).not.toThrow()
+
+        addEventListenerSpy.mockRestore()
+        logic.mount()
+    })
+
     // Regression: deleting a view that's already gone (double DELETE, stale list, double-click) is
     // the outcome the user asked for, so a 404 must resolve as success — not throw an error toast.
     it('treats a 404 on delete as success', async () => {
