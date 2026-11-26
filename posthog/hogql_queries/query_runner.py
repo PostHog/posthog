@@ -774,7 +774,19 @@ def get_query_runner(
 
     # Checked here rather than in validate_query_runner_access, which run() skips for share links and userless runs.
     if kind in DASHBOARD_V2_BATCH_ONLY_KINDS and not in_dashboard_v2_batch():
-        raise UserAccessControlError("tracing", "viewer")
+        error = UserAccessControlError("tracing", "viewer")
+        if user is not None and not user.is_anonymous:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="query access control error",
+                properties={
+                    "query_type": kind,
+                    "resource": error.resource,
+                    "required_level": error.required_level,
+                    "resource_id": error.resource_id,
+                },
+            )
+        raise error
 
     if kind == "InboxUsageQuery":
         from products.signals.backend.facade.spend import InboxUsageQueryRunner

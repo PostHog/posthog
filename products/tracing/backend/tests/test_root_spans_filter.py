@@ -3,6 +3,7 @@ import datetime as dt
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -187,5 +188,16 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         }
         query = {"kind": "TraceSpansQuery", "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}, "limit": 100}
 
-        with self.assertRaises(UserAccessControlError):
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture") as capture,
+            self.assertRaises(UserAccessControlError),
+        ):
             get_query_runner(query, self.team, user=users[principal]).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        # A signed-in denial keeps the audit event that run() records for other denied runners.
+        denials = [
+            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == "query access control error"
+        ]
+        assert [(d["distinct_id"], d["properties"]["resource"]) for d in denials] == (
+            [(self.user.distinct_id, "tracing")] if principal == "signed_in" else []
+        )

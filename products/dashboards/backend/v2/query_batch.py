@@ -1098,8 +1098,11 @@ class QueryBatch:
                 if len(queries) + len(span_queries) >= room:
                     break
                 is_span = query[1].query.get("kind") in DASHBOARD_V2_BATCH_ONLY_KINDS
-                if is_span and (span_busy or not _span_refresh_slots.acquire(blocking=False)):
-                    continue
+                if is_span:
+                    if span_busy or not _span_refresh_slots.acquire(blocking=False):
+                        continue
+                    # One span refresh per dispatch, so one board can't take every span slot.
+                    span_busy = True
                 if not is_span and not _refresh_slots.acquire(blocking=False):
                     break
                 (span_queries if is_span else queries).append(query)

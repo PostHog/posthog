@@ -393,19 +393,32 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(len(refreshed), 1)
 
     @parameterized.expand(
-        [("span_refresh_idle", False, 4), ("span_refresh_in_flight", True, 4), ("span_slots_taken", False, 0)]
+        [
+            ("span_refresh_idle", False, 4, 1),
+            ("span_refresh_in_flight", True, 4, 1),
+            ("span_slots_taken", False, 0, 1),
+            ("one_span_refresh_per_board", False, 4, 2),
+        ]
     )
     def test_a_span_refresh_in_flight_holds_back_only_the_next_span_refresh(
-        self, _name: str, busy: bool, span_slots: int
+        self, _name: str, busy: bool, span_slots: int, span_tiles: int
     ) -> None:
         self._warm_via_query_endpoint("$pageview")
-        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
-        span_panel = {
-            "target": {"refId": "traces", "language": "query", "query": json.dumps(query)},
-            "time": _LAST_7_DAYS,
-            "swr": True,
-        }
-        self._lines([span_panel], format="frames")
+        span_panels = [
+            {
+                "target": {
+                    "refId": f"traces{n}",
+                    "language": "query",
+                    "query": json.dumps(
+                        {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": f"-{24 + n}h"}}
+                    ),
+                },
+                "time": _LAST_7_DAYS,
+                "swr": True,
+            }
+            for n in range(span_tiles)
+        ]
+        self._lines(span_panels, format="frames")
         shares = query_batch_module._share_keys(self.team.organization_id, self.user.pk)
         refreshed: list[str] = []
 
@@ -418,7 +431,7 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
                 side_effect=lambda team, query, **kwargs: refreshed.append(query["kind"]),
             ),
         ):
-            self._lines([span_panel, _insight("$pageview", swr=True)], format="frames")
+            self._lines([*span_panels, _insight("$pageview", swr=True)], format="frames")
             wait_until(
                 lambda: (
                     query_batch_module._refresh_slots._value == query_batch_module.MAX_QUEUED_REFRESHES
