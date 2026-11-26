@@ -576,6 +576,32 @@ class TestProcessSingle:
         mock_capture.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_connection_drop_text_still_reported_when_not_a_destination_error(self):
+        # DESTINATION_CONNECT_EXHAUSTED_PATTERNS matches generic libpq wording that a plain
+        # OperationalError against PostHog's own app DB or PgBouncer can carry too, not only a
+        # DestinationDeliveryError. That must still reach error tracking once retries exhaust.
+        consumer = _make_consumer(max_attempts=2)
+        batch = _make_batch(latest_attempt=1)
+        consumer._process_batch = AsyncMock(
+            side_effect=DjangoOperationalError(
+                'connection to server at "10.0.0.5", port 5432 failed: server closed the connection unexpectedly'
+            )
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        mock_capture.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_non_reportable_error_skips_error_tracking_on_first_attempt_too(self):
         # A NonReportableError can also match a non-retryable message pattern (e.g. a storage
         # backend out of disk space during a maintenance op) and fail on the very first attempt,

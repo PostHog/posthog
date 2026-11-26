@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
+    DestinationDeliveryError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     INCOMPLETE_RUN_ERROR,
@@ -216,6 +217,12 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
 # wrapper: that text also covers an OperationalError our own connect setup could raise (an
 # SSL root-cert file problem, a host-resolution failure), and matching it would hide a
 # regression in our code, not just the destination's own infra.
+#
+# This generic libpq/psycopg wording can also come from PostHog's own app DB or PgBouncer
+# (a Django ORM OperationalError, or another step in delivery.py that reads/writes it), so
+# is_expected_user_error only matches these against a DestinationDeliveryError, never any
+# exception — unlike the other EXPECTED_USER_ERROR_PATTERNS entries below, which are each
+# markers or messages only a destination-delivery or schema/job-deletion failure can carry.
 DESTINATION_CONNECT_EXHAUSTED_PATTERNS: tuple[str, ...] = (
     # libpq's wording for the destination dropping the connection mid-handshake or mid-query.
     "server closed the connection unexpectedly",
@@ -243,7 +250,6 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # self-healing by design, the next scheduled sync retries automatically, and
     # INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL already tracks how often it fires
     INCOMPLETE_RUN_ERROR,
-    *DESTINATION_CONNECT_EXHAUSTED_PATTERNS,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -1204,7 +1210,13 @@ class DeltaBatchConsumerAdapter:
 
     def is_expected_user_error(self, err: Exception) -> bool:
         message = str(err)
-        return any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS)
+        if any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS):
+            return True
+        # Scoped to DestinationDeliveryError, not any exception: the same libpq wording can
+        # come from PostHog's own app DB or PgBouncer, which must still reach error tracking.
+        return isinstance(err, DestinationDeliveryError) and any(
+            pattern in message for pattern in DESTINATION_CONNECT_EXHAUSTED_PATTERNS
+        )
 
     async def after_batch_processed(
         self,
