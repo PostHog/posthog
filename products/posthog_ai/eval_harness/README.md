@@ -368,7 +368,7 @@ Every selected suite runs concurrently on one event loop, and a global semaphore
 Selecting more suites therefore increases throughput without increasing peak load.
 
 A separate semaphore covers the full per-case team setup, including the demo-data clone and optional setup hook.
-It defaults to one setup on ordinary local machines, two on Coder, and four on other CI machines. Set `--team-setup-concurrency N` for a different devbox capacity. See [tuning parallel evals](../../../.agents/skills/writing-evals/references/running-evals.md#tuning-parallel-evals-on-a-coder-devbox) for choosing both limits.
+It defaults to one setup on ordinary local machines, two on Coder, and four on other CI machines. Set `--team-setup-concurrency N` for a different devbox capacity.
 These phases can issue large ClickHouse copies or direct inserts, so the independent limit protects ClickHouse from RAM exhaustion even when Modal sandbox capacity is unbounded while letting managed environments prepare cases faster.
 On a single local ClickHouse shard, the harness copies the stored event properties and session columns along with the events.
 New master fixtures record their simulation time. Case teams use that clock and copy complete daily experiment results when the metric settings match. An older master or a missing or incompatible timeseries uses the usual backfill. Copied chart points omit the source team’s diagnostic SQL.

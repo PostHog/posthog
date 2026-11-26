@@ -137,35 +137,6 @@ It also terminates each case's task-tagged sandbox and sweeps leftovers belongin
 Funnel config lives in `tailscaled` and outlives the harness process, so a run killed with `SIGKILL` can leave the three ports public — check with `tailscale serve status` and turn them off by hand.
 The Funnel URLs are reachable by anyone on the internet who learns them while the run is active, so do not share them or leave a run unattended after an interruption.
 
-## Tuning parallel evals on a Coder devbox
-
-The harness recognizes Coder through `CODER` or `CODER_WORKSPACE_ID`. On the standard devbox it starts with two setup workers and twelve Modal slots. For a large run on a dedicated devbox, size ClickHouse to the available host resources, then measure throughput before raising the per-run concurrency flags. Keep Compose configuration in source control untouched. Local Docker sandboxes draw from the same host memory budget, so use their separate four-slot starting point.
-
-1. Check `nproc`, `free -h`, `df -h .` and `docker stats`. Use the running ClickHouse container's CPU and RAM limits to choose the starting profile. On an idle host with about 16 CPUs and 64 GiB of RAM using Modal, allocate **6 CPUs and 16 GiB to ClickHouse** for the run. Inspect and save the original CPU, memory and swap limits first. Use the actual container name if the Compose project has a different name.
-
-   ```bash
-   .codex/with-flox docker inspect --format '{{.HostConfig.NanoCpus}} {{.HostConfig.CpuQuota}} {{.HostConfig.CpuPeriod}} {{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}' posthog-clickhouse-1
-   .codex/with-flox docker update --cpus 6 --memory 16g --memory-swap 32g posthog-clickhouse-1
-   curl -fsSG http://localhost:8123 --data-urlencode "query=SELECT formatReadableSize(value::UInt64) FROM system.server_settings WHERE name='max_server_memory_usage'"
-   ```
-
-   With the standard server ratio of 0.9, wait for the query to report about 14.4 GiB. The run header shows the effective harness limits. Start with the Coder defaults of **2 setup workers and 12 Modal slots**. For a suite with complete fixtures and a persistent setup queue, compare 4 and then 6 workers at the same sandbox cap. A faster event copy alone does not measure full team setup. Compare 12 Modal slots against a neighboring cap on the winning setup configuration. Local Django and MCP latency depend on the suite.
-
-2. Reuse timings from a recent run of the same suite, model, provider and fixture. Otherwise run a representative sample after the master fixture is warm. Include enough trials to fill the candidate sandbox cap and start a second wave. Save each run with a different `--results-file`. Compare completed, correctly seeded trials per minute and total elapsed time.
-3. Tune `--team-setup-concurrency` first, keeping the sandbox cap fixed and at least as large as the candidate setup limit. Increase by one worker and compare. Back off when throughput plateaus, ClickHouse hits its memory limit, or setup retries rise. Check the fixture through the same reads the agent relies on, for example the expected experiment chart points and warehouse tables. If cases lose chart points or warehouse tables, rerun with one setup worker and verify the same reads. Django settings overrides such as `TEST` are process-wide and can overlap across worker threads. Additional ClickHouse memory cannot resolve that race. Keep seeding serial for the affected suite until repeated concurrent batches produce complete fixtures. Agent execution can still run in parallel.
-4. Fix the best setup count and tune `--max-sandboxes`. A slot covers setup plus execution. Estimate the slots needed as setup workers + (teams prepared per second × average agent seconds), rounded up. For example, four workers preparing a team every 15 seconds collectively and 90-second agents suggest ten slots. Try a neighboring cap with the same sample. Watch local Django and MCP tool latency, timeouts, and delivery of expected tool results as well as model or provider throttling. A faster run that misses required tool behavior is a failed candidate.
-
-Pass the winning pair on the full run. For example, if six workers and twelve slots passed the pilot:
-
-```bash
-.codex/with-flox hogli evals '<suite-selector>' --provider modal \
-  --team-setup-concurrency 6 --max-sandboxes 12 --trials 20
-```
-
-Restore the saved Docker limits when the run finishes, including after a failed pilot. For a container that started at 2 CPUs, 8 GiB RAM and 16 GiB memory-plus-swap, use `.codex/with-flox docker update --cpus 2 --memory 8g --memory-swap 16g posthog-clickhouse-1`. Verify the restored limits with the same checks.
-
-Record the provider, effective ClickHouse limits, worker counts, retries, fixture checks and elapsed time with the result. Reuse the pair for comparable runs and recalibrate when the machine, model or fixture changes.
-
 ## Diagnosing setup failures
 
 Read the preflight error first; it names the missing executable, credential, or environment variable and gives the expected fix.
