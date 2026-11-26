@@ -925,6 +925,8 @@ def _resolve_sandbox_backend(
     requested_template = (state or {}).get("sandbox_template")
     if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
         return "modal"
+    if (state or {}).get("wizard_config") is not None:
+        return "modal"
     if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 
