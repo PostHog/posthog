@@ -33,8 +33,8 @@ class TestMetricsSqlInsight(APIBaseTest):
             ("unknown_placeholder", "SELECT count() FROM events WHERE event = {unknown}", None),
             (
                 "other_table",
-                "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= { date_from }",
-                "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= {filters.dateRange.from}",
+                "SELECT count() FROM events WHERE properties.$browser = 'Chrome' AND timestamp >= { date_from }",
+                "SELECT count() FROM events WHERE properties.$browser = 'Chrome' AND timestamp >= {filters.dateRange.from}",
             ),
         ]
     )
@@ -47,7 +47,6 @@ class TestMetricsSqlInsight(APIBaseTest):
                 "sql": sql,
                 "clauses": [],
                 "display": {"type": "table"},
-                "variables": {"event": {"values": ["$pageleave"]}},
             },
         )
 

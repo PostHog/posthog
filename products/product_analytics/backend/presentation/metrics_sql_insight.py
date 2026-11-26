@@ -39,25 +39,16 @@ _DATE_PLACEHOLDERS = {
     re.compile(r"\{\s*date_from\s*\}"): "{filters.dateRange.from}",
     re.compile(r"\{\s*date_to\s*\}"): "{filters.dateRange.to}",
 }
-# A dashboard variable reference, as metrics SQL reads it. `properties.$browser` is a field, not a reference.
-_VARIABLE_REFERENCE = re.compile(r"(?<![\w.])(?P<quote>['\"`]?)\$\{?(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
-
-
-def _uses_dashboard_variables(sql: str, variables: Any) -> bool:
-    """Whether metrics SQL would fill in a variable. It leaves a quoted reference to an unknown variable as text."""
-    names = set(variables) if isinstance(variables, dict) else set()
-    return any(not match.group("quote") or match.group("name") in names for match in _VARIABLE_REFERENCE.finditer(sql))
+# A dashboard variable reference. A dashboard can fill one in at render time, also inside quotes, so any one keeps
+# the query on the metrics path. `properties.$browser` is a field, not a reference.
+_VARIABLE_REFERENCE = re.compile(r"(?<![\w.])\$\{?[A-Za-z_]")
 
 
 def sql_insight_for_metrics_sql(team: Team, query: dict[str, Any]) -> dict[str, Any] | None:
     if query.get("kind") != "MetricsQuery" or query.get("language") != "sql":
         return None
     sql = query.get("sql")
-    if (
-        not isinstance(sql, str)
-        or _INTERVAL_PLACEHOLDER.search(sql)
-        or _uses_dashboard_variables(sql, query.get("variables"))
-    ):
+    if not isinstance(sql, str) or _INTERVAL_PLACEHOLDER.search(sql) or _VARIABLE_REFERENCE.search(sql):
         return None
     try:
         parsed = parse_select(
