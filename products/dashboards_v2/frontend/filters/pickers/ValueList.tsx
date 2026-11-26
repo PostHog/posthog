@@ -18,9 +18,22 @@ export type ValueListProps = {
     onChange: (selected: string[]) => void
 }
 
+function emptyText(hasLoader: boolean, loading: boolean, failed: boolean): string {
+    if (!hasLoader) {
+        return 'Type a value'
+    }
+    if (failed) {
+        return "Couldn't load values"
+    }
+    if (loading) {
+        return 'Loading…'
+    }
+    return 'No values seen recently'
+}
+
 export function ValueList({ load, selected, onChange }: ValueListProps): JSX.Element {
     const [search, setSearch] = useState('')
-    const { options } = useSearchedOptions(load, search)
+    const { options, loading, failed } = useSearchedOptions(load, search)
 
     const counts = useMemo(() => new Map(options.map((option) => [option.value, option.count])), [options])
     const total = options.reduce((sum, option) => sum + (option.count ?? 0), 0)
@@ -40,7 +53,7 @@ export function ValueList({ load, selected, onChange }: ValueListProps): JSX.Ele
             filter={null}
         >
             <ComboboxInput placeholder={load ? 'Search values' : 'Type a value'} showTrigger={false} autoFocus />
-            <ComboboxEmpty>No values seen recently</ComboboxEmpty>
+            <ComboboxEmpty>{emptyText(!!load, loading, failed)}</ComboboxEmpty>
             <ComboboxList className="max-h-64">
                 {(value: string) => {
                     const count = counts.get(value)

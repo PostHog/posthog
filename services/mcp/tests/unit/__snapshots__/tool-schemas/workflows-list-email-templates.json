@@ -6,6 +6,10 @@
             "description": "With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.",
             "type": "boolean"
         },
+        "created_by": {
+            "description": "List only templates created by the user with this ID.",
+            "type": "number"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -13,6 +17,12 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "search": {
+            "default": "",
+            "description": "List only templates whose name, description or a tag contains this text, ignoring case.",
+            "maxLength": 400,
+            "type": "string"
         },
         "transactional": {
             "anyOf": [
@@ -24,6 +34,30 @@
                 }
             ],
             "description": "With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates."
+        },
+        "type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "const": "email",
+                            "type": "string"
+                        },
+                        {
+                            "const": "push",
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "List only templates of this type. Leave out to list every type.\n\n* `email` - email\n* `push` - push"
         }
     },
     "type": "object"

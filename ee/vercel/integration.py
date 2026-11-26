@@ -1388,6 +1388,17 @@ class VercelIntegration:
             user.current_organization = installation.organization
             user.save(update_fields=["current_organization"])
         else:
+            # The same checks _sso_login_block_reason applies to an existing account. With an enforced identity
+            # provider, the login page offers only that provider, so the account and the membership come from its
+            # login and the continue step, never from this Vercel token.
+            sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(claims.user_email)
+            domain_blocked = OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+                claims.user_email, installation.organization
+            )
+            if sso_enforced or domain_blocked:
+                raise RequiresExistingUserLogin(
+                    email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+                )
             intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
             user = VercelIntegration._create_user_for_email(
                 email=claims.user_email,
