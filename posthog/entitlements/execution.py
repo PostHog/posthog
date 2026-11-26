@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.entitlements.contracts import EntitlementChange, Entitlements
+from posthog.entitlements.flags import enabled_reactor_keys
 from posthog.entitlements.registry import EntitlementReactorRegistry, get_entitlement_reactor_registry
 from posthog.models.organization import Organization
 from posthog.models.organization_entitlement_applied_state import OrganizationEntitlementAppliedState
@@ -50,7 +51,15 @@ def get_behind_reactor_keys(
 
 
 def list_behind_reactor_keys(organization_id: str) -> list[str]:
-    return get_behind_reactor_keys(organization_id, load_entitlements(organization_id))
+    registry = get_entitlement_reactor_registry()
+    enabled = enabled_reactor_keys(organization_id, registry=registry)
+    if not enabled:
+        return []
+    return [
+        key
+        for key in get_behind_reactor_keys(organization_id, load_entitlements(organization_id), registry=registry)
+        if key in enabled
+    ]
 
 
 _REACTOR_LOCK_TIMEOUT_MS = 5_000

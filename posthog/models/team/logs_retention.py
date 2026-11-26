@@ -30,6 +30,7 @@ LOGS_RETENTION_MAX_DAYS = LOGS_RETENTION_MONTH_DAYS * LOGS_RETENTION_MAX_MONTHS
 LOGS_RETENTION_BASE_TIERS_DAYS = frozenset({DEFAULT_LOGS_RETENTION_DAYS, 30})
 LOGS_CUSTOM_RETENTION_FLAG = "logs-settings-custom-retention"
 LOGS_RETENTION_PAID_FEATURE = AvailableFeature.LOGS_RETENTION_30D
+LOGS_RETENTION_REACTOR_KEY = "logs-retention"
 
 
 def logs_retention_days_error(days: int, *, custom_retention_enabled: bool) -> str | None:

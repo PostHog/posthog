@@ -28,11 +28,13 @@ from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_entitlement_applied_state import OrganizationEntitlementAppliedState
 from posthog.models.organization_provisioning import (
     OrganizationProvisioning,
     get_billing_lock_partner,
     record_partner_paid,
 )
+from posthog.models.team.logs_retention import LOGS_RETENTION_REACTOR_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -584,7 +586,16 @@ class TestBillingManager(BaseTest):
         assert organization.usage["events"].get("quota_limited_until") is None
         assert organization.usage["events"].get("quota_limiting_suspended_until") is None
 
-    def test_update_org_details_resets_logs_retention_when_entitlement_revoked(self):
+    @parameterized.expand(
+        [
+            ("reactor_flag_off", {"return_value": False}, False),
+            ("reactor_flag_check_fails", {"side_effect": RuntimeError("flag")}, False),
+            ("reactor_flag_on", {"return_value": True}, True),
+        ]
+    )
+    def test_update_org_details_resets_logs_retention_when_entitlement_revoked(
+        self, _name: str, flag_patch: dict[str, Any], reactor_owns_reset: bool
+    ):
         organization = self.organization
         organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
         organization.save()
@@ -599,11 +610,24 @@ class TestBillingManager(BaseTest):
 
         billing_status = {"customer": {"available_product_features": [{"key": "surveys", "name": "Surveys"}]}}
 
-        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+        with patch("posthog.entitlements.flags.feature_enabled_or_false", **flag_patch):
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
         self.team.refresh_from_db()
-        # Retention drops to the default; unrelated Logs settings survive.
-        assert self.team.logs_settings == {"retention_days": 14, "json_parse_logs": True}
+        checkpoints = list(
+            OrganizationEntitlementAppliedState.objects.filter(organization=organization).values_list(
+                "reactor_key", "snapshot"
+            )
+        )
+        if reactor_owns_reset:
+            assert self.team.logs_settings == {"retention_days": 30, "json_parse_logs": True}
+            assert checkpoints == [
+                (LOGS_RETENTION_REACTOR_KEY, [{"key": "logs_retention_30d", "limit": None, "unit": None}])
+            ]
+        else:
+            # Retention drops to the default; unrelated Logs settings survive.
+            assert self.team.logs_settings == {"retention_days": 14, "json_parse_logs": True}
+            assert checkpoints == []
 
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
         organization = self.organization

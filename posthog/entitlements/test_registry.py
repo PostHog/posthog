@@ -13,7 +13,9 @@ def record_change(change: EntitlementChange) -> None:
 
 
 def reactor(key: str) -> EntitlementReactor:
-    return EntitlementReactor(key=key, feature_keys=frozenset({"exports"}), react=record_change)
+    return EntitlementReactor(
+        key=key, feature_flag=f"{key}-flag", feature_keys=frozenset({"exports"}), react=record_change
+    )
 
 
 class TestEntitlementRegistry(SimpleTestCase):

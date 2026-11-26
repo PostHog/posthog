@@ -14,8 +14,12 @@ from posthog.models.organization_entitlement_applied_state import OrganizationEn
 def test_repair_pages_match_canonical_discovery(monkeypatch, page_size: int) -> None:
     registry = EntitlementReactorRegistry(
         reactors=(
-            EntitlementReactor(key="fixture", feature_keys=frozenset({"a", "b"}), react=lambda _: None),
-            EntitlementReactor(key="other", feature_keys=frozenset({"other"}), react=lambda _: None),
+            EntitlementReactor(
+                key="fixture", feature_flag="fixture-flag", feature_keys=frozenset({"a", "b"}), react=lambda _: None
+            ),
+            EntitlementReactor(
+                key="other", feature_flag="other-flag", feature_keys=frozenset({"other"}), react=lambda _: None
+            ),
         )
     )
     monkeypatch.setattr(repair, "get_entitlement_reactor_registry", lambda: registry)
@@ -80,8 +84,12 @@ def test_empty_registry_skips_repair_query(monkeypatch, django_assert_num_querie
         assert repair.list_behind_organizations_page(None).organization_ids == []
 
 
-FIXTURE_REACTOR = EntitlementReactor(key="fixture", feature_keys=frozenset({"a"}), react=lambda _: None)
-OTHER_REACTOR = EntitlementReactor(key="other", feature_keys=frozenset({"other"}), react=lambda _: None)
+FIXTURE_REACTOR = EntitlementReactor(
+    key="fixture", feature_flag="fixture-flag", feature_keys=frozenset({"a"}), react=lambda _: None
+)
+OTHER_REACTOR = EntitlementReactor(
+    key="other", feature_flag="other-flag", feature_keys=frozenset({"other"}), react=lambda _: None
+)
 
 
 def walk_pages(monkeypatch: pytest.MonkeyPatch, page_size: int) -> tuple[list[str], int]:

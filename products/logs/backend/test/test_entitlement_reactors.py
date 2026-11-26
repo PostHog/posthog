@@ -10,9 +10,8 @@ from posthog.entitlements.execution import execute_entitlement_reactor
 from posthog.entitlements.registry import get_entitlement_reactor_registry
 from posthog.models.organization import Organization
 from posthog.models.organization_entitlement_applied_state import OrganizationEntitlementAppliedState
-from posthog.models.team.logs_retention import EntitlementSnapshotOutOfDateError
+from posthog.models.team.logs_retention import LOGS_RETENTION_REACTOR_KEY, EntitlementSnapshotOutOfDateError
 
-from products.logs.backend.entitlement_reactors import LOGS_RETENTION_REACTOR_KEY
 from products.logs.backend.models import LogsRetentionRule
 
 PAID_RETENTION = Entitlements.from_features([{"key": "logs_retention_30d"}])
