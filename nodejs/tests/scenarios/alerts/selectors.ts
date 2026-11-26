@@ -1,10 +1,12 @@
 const LABEL_LISTS = new Set(['by', 'without', 'on', 'ignoring', 'group_left', 'group_right'])
-// Operators and modifiers that follow an operand, so a metric of the same name reads as one where an operand starts.
-const AFTER_OPERAND = new Set([
+const KEYWORDS = new Set([
     'and',
     'or',
     'unless',
+    'bool',
     'offset',
+    'inf',
+    'nan',
     'keep_metric_names',
     'if',
     'ifnot',
@@ -12,10 +14,7 @@ const AFTER_OPERAND = new Set([
     'atan2',
     'limit',
     'prefix',
-    'group_left',
-    'group_right',
 ])
-const ANYWHERE = new Set(['bool', 'inf', 'nan'])
 const WORD = /[a-zA-Z_:][a-zA-Z0-9_:.]*/y
 const NUMBER = /[0-9.][0-9.a-zA-Z_]*(?:[eE][+-]?[0-9]+)?/y
 
@@ -54,52 +53,40 @@ const nextNonSpace = (expr: string, from: number): number => from + (/^\s*/.exec
 
 export function selectorsOf(expr: string): string[] {
     const selectors: string[] = []
-    let afterOperand = false
     for (let at = 0; at < expr.length; ) {
         const char = expr[at]
         if (char === '"' || char === "'" || char === '`') {
             at = afterString(expr, at)
-            afterOperand = true
         } else if (char === '[') {
             at = afterGroup(expr, at, '[', ']')
-            afterOperand = true
         } else if (char === '{') {
             const end = afterGroup(expr, at, '{', '}')
             selectors.push(expr.slice(at, end))
             at = end
-            afterOperand = true
         } else if (/[0-9.]/.test(char)) {
             at += match(NUMBER, expr, at)?.length ?? 1
-            afterOperand = true
         } else {
             const word = match(WORD, expr, at)
             if (word === undefined) {
-                afterOperand = char === ')' || (/\s/.test(char) && afterOperand)
                 at++
                 continue
             }
-            const keyword = word.toLowerCase()
             const next = nextNonSpace(expr, at + word.length)
             if (LABEL_LISTS.has(word) && expr[next] === '(') {
                 at = afterGroup(expr, next, '(', ')')
-                afterOperand = true
             } else if (
                 expr[next] === '(' ||
-                ANYWHERE.has(keyword) ||
-                (afterOperand && AFTER_OPERAND.has(keyword)) ||
+                KEYWORDS.has(word.toLowerCase()) ||
                 LABEL_LISTS.has(match(WORD, expr, next) ?? '')
             ) {
                 at += word.length
-                afterOperand = false
             } else if (expr[next] === '{') {
                 const end = afterGroup(expr, next, '{', '}')
                 selectors.push(`${word}${expr.slice(next, end)}`)
                 at = end
-                afterOperand = true
             } else {
                 selectors.push(word)
                 at += word.length
-                afterOperand = true
             }
         }
     }
