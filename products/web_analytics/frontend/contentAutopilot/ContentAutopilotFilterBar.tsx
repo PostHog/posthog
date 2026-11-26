@@ -26,7 +26,21 @@ export const ContentAutopilotFilterBar = ({
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (todayRailNav) {
-        return <QuillContentAutopilotFilterBar tab={tab} filters={filters} />
+        return (
+            <QuillContentAutopilotFilterBar
+                tab={tab}
+                filters={filters}
+                engine={engine}
+                engineOptions={engineOptions}
+                onEngineChange={(value) => setEngine(value, tab)}
+                topicValue={topicValue}
+                topicOptions={topicOptions}
+                onTopicChange={(value) => setTopic(value, tab)}
+                promptTopicsError={promptTopicsError}
+                promptTopicsLoading={promptTopicsLoading}
+                onRetryTopics={loadPromptTopics}
+            />
+        )
     }
 
     return (

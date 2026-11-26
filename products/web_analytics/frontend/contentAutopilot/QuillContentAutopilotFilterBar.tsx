@@ -1,12 +1,9 @@
-import { useActions, useValues } from 'kea'
-
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text } from '@posthog/quill'
 
 import { AiVisibilityDateFilter } from './AiVisibilityDateFilter'
 import type { AiVisibilityFilter, AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
-import { type FilterOption, contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
-import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
+import type { FilterOption } from './contentAutopilotFilterBarLogic'
 
 // A quill Select reads a null value as nothing chosen, so the "All …" option, whose value is null, gets a key of its own.
 const ALL = '__all__'
@@ -42,19 +39,33 @@ const FilterSelect = ({
     </Select>
 )
 
+export interface QuillContentAutopilotFilterBarProps {
+    tab: AiVisibilityFilterTab
+    filters: readonly AiVisibilityFilter[]
+    engine: string | null
+    engineOptions: FilterOption[]
+    onEngineChange: (engine: string | null) => void
+    topicValue: string | null
+    topicOptions: FilterOption[]
+    onTopicChange: (topic: string | null) => void
+    promptTopicsError: boolean
+    promptTopicsLoading: boolean
+    onRetryTopics: () => void
+}
+
 export const QuillContentAutopilotFilterBar = ({
     tab,
     filters,
-}: {
-    tab: AiVisibilityFilterTab
-    filters: readonly AiVisibilityFilter[]
-}): JSX.Element => {
-    const { engine } = useValues(contentAutopilotFiltersLogic)
-    const { setEngine, setTopic } = useActions(contentAutopilotFiltersLogic)
-    const { engineOptions, topicOptions, topicValue, promptTopicsError, promptTopicsLoading } =
-        useValues(contentAutopilotFilterBarLogic)
-    const { loadPromptTopics } = useActions(contentAutopilotFilterBarLogic)
-
+    engine,
+    engineOptions,
+    onEngineChange,
+    topicValue,
+    topicOptions,
+    onTopicChange,
+    promptTopicsError,
+    promptTopicsLoading,
+    onRetryTopics,
+}: QuillContentAutopilotFilterBarProps): JSX.Element => {
     return (
         <div className="flex flex-wrap items-center gap-2" data-attr={`content-autopilot-${tab}-filters`}>
             {filters.includes('dateRange') ? <AiVisibilityDateFilter tab={tab} /> : null}
@@ -63,7 +74,7 @@ export const QuillContentAutopilotFilterBar = ({
                     label="Engine"
                     value={engine}
                     options={engineOptions}
-                    onChange={(value) => setEngine(value, tab)}
+                    onChange={onEngineChange}
                     dataAttr={`content-autopilot-${tab}-engine-filter`}
                 />
             ) : null}
@@ -76,7 +87,7 @@ export const QuillContentAutopilotFilterBar = ({
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={loadPromptTopics}
+                            onClick={onRetryTopics}
                             loading={promptTopicsLoading}
                             data-attr={`content-autopilot-${tab}-topics-retry`}
                         >
@@ -88,7 +99,7 @@ export const QuillContentAutopilotFilterBar = ({
                         label="Topic"
                         value={topicValue}
                         options={topicOptions}
-                        onChange={(value) => setTopic(value, tab)}
+                        onChange={onTopicChange}
                         dataAttr={`content-autopilot-${tab}-topic-filter`}
                     />
                 )
