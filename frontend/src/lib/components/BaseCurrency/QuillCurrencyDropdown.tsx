@@ -12,6 +12,7 @@ import {
     ComboboxLabel,
     ComboboxList,
     ComboboxSeparator,
+    ComboboxTrigger,
     SelectTriggerIcon,
 } from '@posthog/quill'
 
@@ -65,19 +66,23 @@ export function QuillCurrencyDropdown({
             }}
             itemToStringLabel={currencyLabel}
         >
-            <Button
+            <ComboboxTrigger
                 ref={triggerRef}
-                variant="outline"
-                left
-                className={cn('w-fit min-w-60', className)}
-                onClick={() => setOpen(!open)}
-                disabledReason={disabledReason}
+                showChevron={false}
+                render={
+                    <Button
+                        variant="outline"
+                        left
+                        className={cn('w-fit min-w-60', className)}
+                        disabledReason={disabledReason}
+                    />
+                }
             >
                 <span className="min-w-0 truncate">
                     {value ? `${CURRENCY_SYMBOL_TO_EMOJI_MAP[value]} ${currencyLabel(value)}` : 'Select currency'}
                 </span>
                 <SelectTriggerIcon />
-            </Button>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-80">
                 <ComboboxInput placeholder="Search currencies" showTrigger={false} />
                 <ComboboxEmpty>No matching currencies</ComboboxEmpty>

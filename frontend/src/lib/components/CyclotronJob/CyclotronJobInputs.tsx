@@ -33,7 +33,15 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
+import {
+    Combobox,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxTrigger,
+} from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
@@ -679,16 +687,13 @@ function SearchableChoiceCombobox({
             value={choices.find((choice) => choice.value === value) ?? null}
             onValueChange={(choice: SearchableChoice | null) => onChange(choice ? choice.value : null)}
         >
-            <LemonButton
+            <ComboboxTrigger
                 ref={triggerRef}
-                type="secondary"
-                fullWidth
-                disabled={disabled}
-                onClick={() => setOpen((prev) => !prev)}
-                className="ph-no-capture"
+                showChevron={false}
+                render={<LemonButton type="secondary" fullWidth disabled={disabled} className="ph-no-capture" />}
             >
                 {selectedLabel ?? <span className="text-secondary">Select a value</span>}
-            </LemonButton>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef}>
                 <ComboboxInput placeholder="Search" showTrigger={false} />
                 <ComboboxEmpty>No items found</ComboboxEmpty>

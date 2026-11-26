@@ -8,6 +8,7 @@ import {
     ComboboxInput,
     ComboboxItem,
     ComboboxList,
+    ComboboxTrigger,
     SelectTriggerIcon,
 } from '@posthog/quill'
 
@@ -47,18 +48,22 @@ export function QuillJoinKeyColumnCombobox({
             itemToStringValue={(option) => option.value}
             isItemEqualToValue={(item, selected) => item.value === selected.value}
         >
-            <Button
+            <ComboboxTrigger
                 ref={triggerRef}
-                variant="outline"
-                left
-                className="max-w-80"
-                onClick={() => setOpen(!open)}
-                disabledReason={disabledReason}
-                aria-label={ariaLabel}
+                showChevron={false}
+                render={
+                    <Button
+                        variant="outline"
+                        left
+                        className="max-w-80"
+                        disabledReason={disabledReason}
+                        aria-label={ariaLabel}
+                    />
+                }
             >
                 <span className="min-w-0 truncate">{value || 'Select a key'}</span>
                 <SelectTriggerIcon />
-            </Button>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="min-w-60">
                 <ComboboxInput placeholder="Search columns..." showTrigger={false} />
                 <ComboboxEmpty>No results</ComboboxEmpty>

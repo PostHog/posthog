@@ -10,6 +10,7 @@ import {
     ComboboxInput,
     ComboboxItem,
     ComboboxList,
+    ComboboxTrigger,
     Spinner,
 } from '@posthog/quill'
 
@@ -100,16 +101,20 @@ export function QuillSuggestionAssigneeSelect({
                 key === UNASSIGNED ? 'Unassigned' : `${fullName(usersById[key])} ${usersById[key]?.email ?? ''}`
             }
         >
-            <Button
+            <ComboboxTrigger
                 ref={triggerRef}
-                {...TRIGGER_PROPS[column ? 'column' : 'inline']}
-                loading={!!actionsInFlight[suggestionId]}
-                disabledReason={canAct ? undefined : EDIT_ACCESS_REASON}
-                onClick={() => setPickerOpen(!open)}
-                data-attr="warehouse-suggestions-assign"
+                showChevron={false}
+                render={
+                    <Button
+                        {...TRIGGER_PROPS[column ? 'column' : 'inline']}
+                        loading={!!actionsInFlight[suggestionId]}
+                        disabledReason={canAct ? undefined : EDIT_ACCESS_REASON}
+                        data-attr="warehouse-suggestions-assign"
+                    />
+                }
             >
                 {column ? <ColumnTriggerContent assignee={assignee} /> : inlineLabel}
-            </Button>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-64">
                 <ComboboxInput placeholder="Search members…" showTrigger={false} />
                 <ComboboxEmpty>

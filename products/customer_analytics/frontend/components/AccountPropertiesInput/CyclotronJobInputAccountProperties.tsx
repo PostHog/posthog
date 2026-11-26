@@ -7,7 +7,15 @@ import { LemonButton, LemonColorGlyph, LemonSelect } from '@posthog/lemon-ui'
 import type { DataColorToken } from 'lib/colors'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
+import {
+    Combobox,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxTrigger,
+} from 'lib/ui/quill'
 
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -135,17 +143,21 @@ function AddPropertyDropdown({
                 setOpen(false)
             }}
         >
-            <LemonButton
+            <ComboboxTrigger
                 ref={triggerRef}
-                type="secondary"
-                size="small"
-                icon={<IconPlus />}
-                loading={loading}
-                disabledReason={loading ? 'Loading properties…' : undefined}
-                onClick={() => setOpen(true)}
+                showChevron={false}
+                render={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        loading={loading}
+                        disabledReason={loading ? 'Loading properties…' : undefined}
+                    />
+                }
             >
                 Add property
-            </LemonButton>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef}>
                 <ComboboxInput placeholder="Search properties" showTrigger={false} />
                 <ComboboxEmpty>No properties found</ComboboxEmpty>
