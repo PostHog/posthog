@@ -14,6 +14,7 @@ from django.conf import settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.quota_spine_comparison import (
+    COMPARISON_FLAG,
     EMPTY,
     MISMATCH_EVENT,
     STATE_KEY,
@@ -297,7 +298,9 @@ class TestCompareWithSpine:
             patch("posthog.quota_spine_comparison.BillingManager") as manager,
             patch("posthog.quota_spine_comparison.get_instance_region", return_value="EU"),
             patch("posthog.quota_spine_comparison.ph_scoped_capture", self.scoped_capture),
+            patch("posthog.quota_spine_comparison.feature_enabled_or_false", return_value=True) as flag,
         ):
+            self.flag = flag
             self.get_limiting = manager.return_value.get_limiting
             self.get_limiting.return_value = spine()
             self.capture = MagicMock()
@@ -426,3 +429,22 @@ class TestCompareWithSpine:
             compare_with_spine(RUN)
 
         self.get_limiting.assert_not_called()
+
+    def test_does_nothing_while_its_flag_is_off(self) -> None:
+        self.flag.return_value = False
+
+        compare_with_spine(USED)
+
+        self.get_limiting.assert_not_called()
+        assert get_client().get(STATE_KEY) is None
+
+    def test_reads_its_flag_for_this_region_from_the_flags_the_worker_holds(self) -> None:
+        compare_with_spine(RUN)
+
+        self.flag.assert_called_once_with(
+            COMPARISON_FLAG,
+            "internal_billing_events",
+            person_properties={"region": "EU"},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )

@@ -20,7 +20,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 from posthog.redis import get_client
 from posthog.utils import get_instance_region
 
@@ -62,6 +62,7 @@ EMPTY: State = {"usage_through": None, "mismatches": {}}
 STATE_KEY = "@posthog/quota-limiting/spine-comparison"
 STATE_TTL = timedelta(days=7)
 MISMATCH_EVENT = "quota limiting spine mismatch"
+COMPARISON_FLAG = "quota-limiting-spine-comparison"
 NEAR_LIMIT = Decimal("0.01")
 # One analytics batch: a hanging capture endpoint holds the run for its retries only. A backlog takes several runs.
 CONFIRMED_PER_RUN = 100
@@ -197,10 +198,21 @@ def labels(state: State) -> Counter[str]:
     return Counter(name.rsplit(":", 1)[-1] for name in state["mismatches"])
 
 
+def _enabled() -> bool:
+    """Whether the flag is on for this region. Read from the flags the worker holds, so no run waits on a request."""
+    return feature_enabled_or_false(
+        COMPARISON_FLAG,
+        "internal_billing_events",
+        person_properties={"region": get_instance_region()},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
 def compare_with_spine(run: QuotaLimitingRunResult) -> None:
-    """Report where billing's limiting disagrees with this quota run."""
+    """Report where billing's limiting disagrees with this quota run. Off unless its flag is on."""
     license = get_cached_instance_license()
-    if not is_cloud() or license is None:
+    if not is_cloud() or license is None or not _enabled():
         return
     quota = quota_levels(run)
     spine = BillingManager(license).get_limiting(sorted({organization_id for organization_id, _ in quota}))
