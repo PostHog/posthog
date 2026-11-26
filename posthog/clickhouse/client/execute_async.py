@@ -1,5 +1,6 @@
 import uuid
 import datetime
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import orjson as json
@@ -247,11 +248,17 @@ def execute_process_query(
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
     staff_rights_withheld: bool = False,
+    credential_denied_scopes: Sequence[str] = (),
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.hogql.database.database import READ_SCOPE_QUERY_STATUS_LABEL_PREFIX, read_posthog_table_scopes
+    from posthog.hogql.database.database import (
+        READ_SCOPE_QUERY_STATUS_LABEL_PREFIX,
+        READ_SCOPES_RECORDED_QUERY_STATUS_LABEL,
+        credential_denied_scopes as credential_denial,
+        read_posthog_table_scopes,
+    )
 
     from posthog.api.services.query import ExecutionMode, process_query_dict
     from posthog.models import Team
@@ -300,7 +307,7 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
-        with read_posthog_table_scopes() as read_scopes:
+        with credential_denial(credential_denied_scopes), read_posthog_table_scopes() as read_scopes:
             results = process_query_dict(
                 team=team,
                 query_json=query_json,
@@ -315,11 +322,11 @@ def execute_process_query(
                 query_status=query_status,
             )
         # The run may be userless, so retrieval checks the requester against what the run actually read.
-        if read_scopes:
-            query_status.labels = [
-                *(query_status.labels or []),
-                *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
-            ]
+        query_status.labels = [
+            *(query_status.labels or []),
+            READ_SCOPES_RECORDED_QUERY_STATUS_LABEL,
+            *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
+        ]
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
@@ -485,6 +492,11 @@ def enqueue_process_query_task(
         optional_kwargs["sharing_configuration_id"] = sharing_configuration_id
     if staff_rights_withheld:
         optional_kwargs["staff_rights_withheld"] = True
+    from posthog.hogql.database.database import current_credential_denied_scopes  # noqa: PLC0415
+
+    # The worker has no request, so the request credential's table denials travel with the task.
+    if credential_denied := current_credential_denied_scopes():
+        optional_kwargs["credential_denied_scopes"] = sorted(credential_denied)
     task_signature = process_query_task.si(
         team.id,
         user_id,

@@ -765,6 +765,8 @@ def _access_controlled_posthog_table_types() -> Mapping[type, APIScopeObject]:
 
 # Marks an async query status whose run read a table gated on this resource.
 READ_SCOPE_QUERY_STATUS_LABEL_PREFIX = "read-scope:"
+# On every status a worker that records read scopes completes, so a status without it predates them.
+READ_SCOPES_RECORDED_QUERY_STATUS_LABEL = "read-scopes-recorded"
 
 _read_posthog_table_scopes: ContextVar[set[str] | None] = ContextVar("read_posthog_table_scopes", default=None)
 
@@ -791,9 +793,15 @@ def read_posthog_table_scopes() -> Iterator[set[str]]:
 def record_posthog_table_read(table: Table) -> None:
     """Called where a query references a table, so building the schema or its joins records nothing."""
     # A cached result is checked against these on read, because its cache key may not show the table.
+    if scope := _access_controlled_posthog_table_types().get(type(table)):
+        record_read_scopes([scope])
+
+
+def record_read_scopes(scopes: Collection[str]) -> None:
+    """Adds scopes to the active collector, such as those a served cached result was computed from."""
     read_scopes = _read_posthog_table_scopes.get()
-    if read_scopes is not None and (scope := _access_controlled_posthog_table_types().get(type(table))):
-        read_scopes.add(scope)
+    if read_scopes is not None:
+        read_scopes.update(scopes)
 
 
 def record_posthog_table_scopes(scopes: Collection[str]) -> None:
@@ -1025,6 +1033,10 @@ def credential_denied_scopes(scopes: Collection[str]) -> Iterator[None]:
         _credential_denied_scopes.reset(token)
 
 
+def current_credential_denied_scopes() -> frozenset[str]:
+    return _credential_denied_scopes.get()
+
+
 def denied_posthog_table_scopes(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
@@ -1116,6 +1128,11 @@ def _compute_system_table_access_decision(
     # have cannot be granted by a role.
     unentitled = set(unentitled) if unentitled is not None else _unentitled_system_tables(team)
 
+    # The request credential's denials hold for every principal, including a userless worker run it enqueued.
+    credential_denied = {
+        name for name, scope in access_controlled_posthog_tables().items() if scope in _credential_denied_scopes.get()
+    }
+
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
@@ -1130,12 +1147,9 @@ def _compute_system_table_access_decision(
             denied_by_access_control |= {
                 name for name, scope in access_controlled_posthog_tables().items() if scope not in readable_scopes
             }
-        return None, unentitled | denied_by_access_control
+        return None, unentitled | denied_by_access_control | credential_denied
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
-    credential_denied = {
-        name for name, scope in access_controlled_posthog_tables().items() if scope in _credential_denied_scopes.get()
-    }
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:

@@ -29,6 +29,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from prometheus_client import Counter
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.hogql.database.database import credential_denied_scopes
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -48,7 +49,11 @@ from products.notebooks.backend.sql_v2 import (
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
-from products.notebooks.backend.sql_v2_runs import record_kernel_read_scopes, touch_run_progress
+from products.notebooks.backend.sql_v2_runs import (
+    record_kernel_read_scopes,
+    run_credential_denied_scopes,
+    touch_run_progress,
+)
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -173,6 +178,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         return JsonResponse({"error": str(exc)}, status=400)
 
     bounded = apply_page_bounds(data["query"], limit=data["limit"], offset=data["offset"])
+    denied_scopes = run_credential_denied_scopes(claims.team_id, claims.run_id)
 
     if data["delivery"] == "object":
         # The `notebooks-frame-store` flag carries the rollout on its own; the only other
@@ -181,7 +187,8 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         # clamped at the async row ceiling. DEBUG stands in for the flag so local dev takes the object
         # path without a flag on whichever project this instance sends analytics to.
         frame_store_configured = frame_store.is_enabled()
-        if frame_store_configured and (settings.DEBUG or is_frame_store_enabled(user)):
+        # The frame worker can't apply a run's credential denials, so such a run takes the inline path.
+        if frame_store_configured and not denied_scopes and (settings.DEBUG or is_frame_store_enabled(user)):
             # Whole-frame materialization: stream the result to object storage via a
             # Temporal worker; the poll answers with a 302 to a presigned URL. The
             # frame_materialize module is imported lazily — it pulls temporalio and the
@@ -224,7 +231,10 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
             )
 
     try:
-        with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
+        with (
+            tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id),
+            credential_denied_scopes(denied_scopes),
+        ):
             status = enqueue_process_query_task(
                 team=team,
                 user_id=user.id if user else None,
@@ -281,6 +291,8 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
         try:
             assert_read_scopes_readable(read_scopes, Team.objects.get(id=claims.team_id), user)
+            if not read_scopes.isdisjoint(run_credential_denied_scopes(claims.team_id, claims.run_id)):
+                raise PermissionDenied("The credential that started this run can't read this data.")
         except PermissionDenied as error:
             return JsonResponse({"error": str(error.detail)}, status=403)
         # The kernel keeps these rows past this response, so its outputs must stay gated on them.

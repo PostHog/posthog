@@ -95,9 +95,7 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         return JsonResponse({"error": "Run not found"}, status=404)
 
     # Set by the server, never taken from the sandbox: readers of this run are checked against it.
-    envelope.pop("read_scopes", None)
-    if read_scopes := kernel_read_scopes(team_id, run.kernel_runtime_id):
-        envelope["read_scopes"] = read_scopes
+    envelope["read_scopes"] = kernel_read_scopes(team_id, run.kernel_runtime_id)
 
     status_by_envelope = {
         "ok": NotebookNodeRun.Status.DONE,

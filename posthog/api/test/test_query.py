@@ -49,7 +49,7 @@ from posthog.api.query import (
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.constants import AvailableFeature
@@ -2178,6 +2178,32 @@ class TestTracingQueryStatusRetrieval(APIBaseTest):
         assert (response.status_code == 200) is allowed, response.content
         if not allowed:
             assert "posthog.trace_spans" in response.json()["detail"]
+
+    @parameterized.expand([(["query:read"], False), (["query:read", "tracing:read"], True)])
+    def test_an_async_span_query_runs_with_the_keys_tracing_scope(self, scopes: list[str], allowed: bool):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="spans", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        with (
+            patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select name from posthog.trace_spans"},
+                    "refresh": "force_async",
+                },
+                format="json",
+                headers={"Authorization": f"Bearer {value}"},
+            )
+        assert response.status_code == 202, response.content
+
+        query_status = get_query_status(self.team.id, response.json()["query_status"]["id"])
+
+        assert query_status.complete and query_status.error is not allowed
+        if not allowed:
+            assert "posthog.trace_spans" in (query_status.error_message or "")
 
     @parameterized.expand([(["query:read"], 403), (["query:read", "tracing:read"], 200)])
     def test_a_span_result_needs_the_tracing_scope(self, scopes: list[str], expected: int):

@@ -29,6 +29,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import current_credential_denied_scopes
 from posthog.hogql.parser import parse_select
 
 from posthog import redis
@@ -103,7 +104,7 @@ _TRACE_STATUS = SimpleNamespace(
     complete=True,
     error=False,
     error_message=None,
-    labels=["read-scope:tracing"],
+    labels=["read-scopes-recorded", "read-scope:tracing"],
     results={"columns": ["name"], "types": [["name", "String"]], "results": [["GET /api"]]},
 )
 
@@ -899,6 +900,47 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual([i["name"] for i in dispatched.inputs], ["df1"])
         self.assertEqual(dispatched.inputs[0]["query"], "select id from events")
 
+    @parameterized.expand(
+        [
+            ("query_only_key", ["notebook:write", "query:read"], {"tracing"}, 403),
+            ("key_with_tracing", ["notebook:write", "query:read", "tracing:read"], set(), 200),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status", return_value=_TRACE_STATUS)
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    def test_scoped_key_run_reads_trace_tables_only_with_tracing_read(
+        self, _name, scopes, expected_denied, expected_status, _mock_start, _mock_status
+    ):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="notebook run", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "py", "node_type": "python", "code": "1", "output_name": "result"},
+            format="json",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        # The sandbox fetches without the key, so the run carries what the key may not read.
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id, response.json()["run_id"])
+        denied_at_enqueue: list[frozenset[str]] = []
+
+        def enqueue(**_kwargs):
+            denied_at_enqueue.append(current_credential_denied_scopes())
+            return SimpleNamespace(id="q1")
+
+        with patch("products.notebooks.backend.sql_v2_data_plane.enqueue_process_query_task", side_effect=enqueue):
+            self.client.post(
+                "/internal/notebooks/data_plane/query/",
+                data=json.dumps({"query": "select name from posthog.trace_spans"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        self.assertEqual(denied_at_enqueue, [frozenset(expected_denied)])
+        status = self.client.get("/internal/notebooks/data_plane/query/q1/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(status.status_code, expected_status)
+
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     def test_python_node_referencing_a_never_run_node_is_rejected(self, mock_start):
         response = self.client.post(
@@ -1661,7 +1703,11 @@ class TestSQLV2RunResult(APIBaseTest):
             self.organization, "producer@posthog.com", None, level=OrganizationMembership.Level.ADMIN
         )
         runtime = KernelRuntime.objects.create(
-            team=self.team, notebook=self.notebook, notebook_short_id=self.notebook.short_id, user=producer
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=producer,
+            read_scopes=[],
         )
         # The second run fetches nothing: it reads a frame the first one left in the kernel.
         fetching, reusing = (
@@ -1686,6 +1732,90 @@ class TestSQLV2RunResult(APIBaseTest):
             )
             self.assertEqual(callback.status_code, 200)
             self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    def test_kernel_started_before_reads_were_recorded_gates_its_output(self, access_level, expected):
+        _set_tracing_access(self, access_level)
+        # read_scopes is None: the kernel predates read recording, so its cache may hold anything.
+        runtime = KernelRuntime.objects.create(
+            team=self.team, notebook=self.notebook, notebook_short_id=self.notebook.short_id, user=self.user
+        )
+        run = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=NotebookNodeRun.NodeType.PYTHON)
+        with team_scope(self.team.id):
+            run.kernel_runtime_id = runtime.id
+            run.save(update_fields=["kernel_runtime_id"])
+        callback = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok", "first_page": [["GET /api"]]}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {mint_callback_token(str(run.id), self.team.id)}",
+        )
+        self.assertEqual(callback.status_code, 200)
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
+    @parameterized.expand(
+        [
+            ("kernel_none", NotebookNodeRun.NodeType.PYTHON, "none", 403),
+            ("kernel_viewer", NotebookNodeRun.NodeType.PYTHON, "viewer", 200),
+        ]
+    )
+    def test_result_stored_before_reads_were_recorded(self, _name, node_type, access_level, expected):
+        _set_tracing_access(self, access_level)
+        run = self._create_run(
+            NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]}, node_type=node_type
+        )
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
+    @parameterized.expand([("none", None), ("viewer", "KeyError: 'GET /api'")])
+    def test_state_hides_a_kernel_error_from_readers_denied_what_it_read(self, access_level, expected_error):
+        _set_tracing_access(self, access_level)
+        self.notebook.content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-markdown-notebook",
+                    "attrs": {
+                        "nodeId": "markdown-notebook-v2",
+                        "markdown": '<PythonV2 nodeId="n1" code="x = 1" returnVariable="x" />',
+                    },
+                }
+            ],
+        }
+        self.notebook.save()
+        self._create_run(
+            NotebookNodeRun.Status.FAILED,
+            envelope={"status": "error", "read_scopes": ["tracing"], "columns": ["name"], "row_count": 1},
+            error="KeyError: 'GET /api'",
+            node_type=NotebookNodeRun.NodeType.PYTHON,
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/state/")
+        self.assertEqual(response.status_code, 200)
+        (cell,) = [cell for cell in response.json()["cells"] if cell["node_id"] == "n1"]
+        self.assertEqual(cell["last_run"]["error"], expected_error)
+
+    @parameterized.expand(
+        [
+            ("stored_run_none", False, "none", 403),
+            ("stored_run_viewer", False, "viewer", 200),
+            # A status a pre-deploy worker completed carries no labels, which must not read as "no gated reads".
+            ("old_status_none", True, "none", 403),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
+    def test_a_run_stored_before_read_scopes_is_gated_on_its_query(
+        self, _name, from_old_status, access_level, expected, mock_status
+    ):
+        _set_tracing_access(self, access_level)
+        if from_old_status:
+            mock_status.return_value = SimpleNamespace(**{**vars(_TRACE_STATUS), "labels": None})
+            run = self._create_run(NotebookNodeRun.Status.RUNNING)
+        else:
+            mock_status.side_effect = QueryNotFoundError()
+            run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]})
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            code="select name from posthog.trace_spans"
+        )
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
 
     @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
     def test_completed_query_never_overwrites_an_interrupt(self, mock_status):
