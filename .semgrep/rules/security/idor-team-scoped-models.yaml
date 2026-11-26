@@ -362,6 +362,7 @@ rules:
                               |NotificationEvent
                               |Notebook
                               |NotebookAppRelease
+                              |NotebookAppViewGrant
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
@@ -914,6 +915,7 @@ rules:
                         |NotificationEvent
                         |Notebook
                         |NotebookAppRelease
+                        |NotebookAppViewGrant
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
