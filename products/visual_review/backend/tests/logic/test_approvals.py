@@ -779,6 +779,18 @@ class TestReviewDecisions:
         rows = BaselineApproval.objects.filter(repo=repo, pr_number=1).values_list("identifier", "content_hash")
         assert sorted(rows) == [("Button", ""), ("Card", "b1")]
 
+    def test_a_toleration_after_an_accept_keeps_the_baseline_at_finalize(self, ledger, team, user, bob):
+        repo, git, flow = ledger
+        run = _changed_run(git, flow)
+        _decide(run, bob, ACCEPT, new_hash="b1")
+
+        toleration.mark_snapshot_as_tolerated(run.id, run.snapshots.get(identifier="Button").id, user.id, team.id)
+        approvals.finalize_run(run_id=run.id, user_id=user.id)
+
+        assert api.get_run_snapshots(run.id, team_id=team.id).snapshots[0].review_state == "tolerated"
+        assert not BaselineApproval.objects.filter(repo=repo, pr_number=1, identifier="Button").exists()
+        assert [entry["action"] for entry in _history(run)] == ["accept", "clear"]
+
     def test_a_partial_run_that_leaves_out_a_rejected_story_stays_blocked(self, ledger, user, bob):
         _repo, git, flow = ledger
         first = _changed_run(git, flow)

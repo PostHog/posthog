@@ -16,7 +16,15 @@ from posthog.dataclasses import frozen
 from ..classifier import ToleratedKey
 from ..db import WRITER_DB
 from ..facade.contracts import TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
-from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
+from ..facade.enums import (
+    INTENTIONAL_TOLERATE_REASONS,
+    ActorType,
+    DecisionAction,
+    DecisionChannel,
+    ReviewState,
+    SnapshotResult,
+    ToleratedReason,
+)
 from ..models import Run, RunSnapshot, ToleratedHash
 from . import commit_status, errors, review_decisions, run_queries
 from .run_queries import SnapshotKey
@@ -77,10 +85,33 @@ def mark_snapshot_as_tolerated(
         raise ValueError("Snapshot has no current hash")
 
     key = review_decisions.key_of(snapshot.identifier, snapshot.baseline_hash, snapshot.current_hash)
-    if review_decisions.pull_request_decisions(run).effective(key).rejected:
+    decisions = review_decisions.pull_request_decisions(run)
+    effective = decisions.effective(key)
+    if effective.rejected:
         raise errors.SnapshotRejectedError(
             f"{snapshot.identifier} is rejected on this pull request, so it cannot be tolerated. "
             "Fix the code and push, or undo the rejection first."
+        )
+    # Finalize records an accepted pair as the new baseline, so an earlier accept would undo the
+    # toleration. Tolerating undoes the accept instead, and the history shows who did it.
+    if review_decisions.decides_by_pull_request(run) and effective.accepted:
+        review_decisions.append_decisions(
+            [
+                (
+                    snapshot,
+                    review_decisions.Decision(
+                        action=DecisionAction.CLEAR,
+                        key=key,
+                        by_id=user_id,
+                        via=DecisionChannel.MCP if actor == ActorType.AGENT else DecisionChannel.WEB,
+                        reason="",
+                        at=review_decisions.database_now(),
+                        seq=decisions.max_seq + 1,
+                        run_id=run.id,
+                        commit_sha=run.commit_sha,
+                    ),
+                )
+            ]
         )
 
     # Explicit team_id in the lookup (not just defaults) so the IDOR audit
