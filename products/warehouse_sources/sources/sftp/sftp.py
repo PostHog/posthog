@@ -26,6 +26,7 @@ from products.warehouse_sources.sources.sdk import (
     iter_file_rows,
     normalize_delimiter,
     resolve_file_format,
+    resolve_safe_host,
 )
 from products.warehouse_sources.sources.sftp.settings import (
     CONNECT_TIMEOUT_SECONDS,
@@ -104,23 +105,38 @@ class SFTPAuth:
         return load_private_key(self.private_key, self.passphrase) if self.private_key else None
 
 
+def _open_socket(host: str, port: int, team_id: int | None, timeout: int) -> socket.socket:
+    resolution = resolve_safe_host(host, team_id)
+    if resolution.connect_host is None:
+        raise SFTPCredentialsError(f"{CONNECTION_FAILED_ERROR} at {host}: {resolution.error}")
+
+    # Dial the addresses the check approved, never the hostname. A second lookup can get a
+    # different answer from a short-TTL record, public for the check and internal for the connect.
+    # No egress proxy sees this socket, so the check is the only control on where it goes.
+    last_error: OSError | None = None
+    for address in resolution.addresses or (resolution.connect_host,):
+        try:
+            return socket.create_connection((address, port), timeout=timeout)
+        except OSError as e:
+            last_error = e
+
+    raise SFTPCredentialsError(
+        f"{CONNECTION_FAILED_ERROR} at {host}:{port}. Check the host and port, and that the server "
+        "accepts connections from the public internet."
+    ) from last_error
+
+
 @contextmanager
 def sftp_connection(
     host: str,
     port: int,
     user: str,
     auth: SFTPAuth,
+    team_id: int | None,
     timeout: int = CONNECT_TIMEOUT_SECONDS,
 ) -> Generator[paramiko.SFTPClient]:
     pkey = auth.pkey()
-
-    try:
-        sock = socket.create_connection((host, port), timeout=timeout)
-    except OSError as e:
-        raise SFTPCredentialsError(
-            f"{CONNECTION_FAILED_ERROR} at {host}:{port}. Check the host and port, and that the server "
-            "accepts connections from the public internet."
-        ) from e
+    sock = _open_socket(host, port, team_id, timeout)
 
     # The connect timeout must not linger as a read timeout — a large file transfer can idle
     # longer than the handshake ever should.
@@ -344,6 +360,7 @@ def get_rows(
     user: str,
     schema_name: str,
     auth: SFTPAuth,
+    team_id: int | None,
     path: str = "/",
     file_pattern: str | None = None,
     configured_format: ConfiguredFileFormat | str | None = "infer",
@@ -351,7 +368,7 @@ def get_rows(
     combined_table_name: str | None = None,
     logger: FilteringBoundLogger | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    with sftp_connection(host=host, port=port, user=user, auth=auth) as client:
+    with sftp_connection(host=host, port=port, user=user, auth=auth, team_id=team_id) as client:
         files = parseable_files(list_remote_files(client, path, file_pattern, logger=logger), configured_format)
         grouped = group_files_by_table(files, combined_table_name)
         target = grouped.get(schema_name)
@@ -368,6 +385,7 @@ def validate_credentials(
     port: int,
     user: str,
     auth: SFTPAuth,
+    team_id: int | None,
     path: str = "/",
     file_pattern: str | None = None,
     configured_format: ConfiguredFileFormat | str | None = "infer",
@@ -384,7 +402,7 @@ def validate_credentials(
         normalize_delimiter(delimiter)
     except FileDelimiterError as e:
         raise SFTPCredentialsError(str(e)) from e
-    with sftp_connection(host=host, port=port, user=user, auth=auth) as client:
+    with sftp_connection(host=host, port=port, user=user, auth=auth, team_id=team_id) as client:
         files = parseable_files(list_remote_files(client, path, file_pattern), configured_format)
 
     if not files:
@@ -402,6 +420,7 @@ def sftp_source(
     user: str,
     schema_name: str,
     auth: SFTPAuth,
+    team_id: int | None,
     path: str = "/",
     file_pattern: str | None = None,
     configured_format: ConfiguredFileFormat | str | None = "infer",
@@ -417,6 +436,7 @@ def sftp_source(
             user=user,
             schema_name=schema_name,
             auth=auth,
+            team_id=team_id,
             path=path,
             file_pattern=file_pattern,
             configured_format=configured_format,
