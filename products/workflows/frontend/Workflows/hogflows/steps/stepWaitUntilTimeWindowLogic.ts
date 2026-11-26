@@ -110,7 +110,16 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
@@ -421,6 +430,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
@@ -451,7 +461,16 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
@@ -762,6 +781,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined

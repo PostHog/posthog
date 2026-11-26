@@ -18,6 +18,9 @@ class OnfleetEndpointConfig:
     data_key: Optional[str] = None
     # `/organization` returns a single object rather than an array.
     single_object: bool = False
+    # `/cfGroups/task` lists the built-in default templates with a null `id`; tasks can't reference
+    # them by id, and a null primary key can't be merged.
+    drop_rows_without_id: bool = False
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
@@ -68,6 +71,13 @@ ONFLEET_ENDPOINTS: dict[str, OnfleetEndpointConfig] = {
     "administrators": OnfleetEndpointConfig(name="administrators", path="/admins"),
     "webhooks": OnfleetEndpointConfig(name="webhooks", path="/webhooks"),
     "organization": OnfleetEndpointConfig(name="organization", path="/organization", single_object=True),
+    # Task templates are an Enterprise-only feature, so other plans can't read this endpoint.
+    "task_templates": OnfleetEndpointConfig(
+        name="task_templates",
+        path="/cfGroups/task",
+        drop_rows_without_id=True,
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(ONFLEET_ENDPOINTS.keys())

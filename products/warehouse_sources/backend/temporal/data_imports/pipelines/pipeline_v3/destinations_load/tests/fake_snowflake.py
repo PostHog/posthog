@@ -58,6 +58,9 @@ class FakeSnowflakeClient:
         self.schemas: set[str] = set()
         # Keyed the way Snowflake keys an internal stage: per table, then per file path.
         self.stage_files: dict[tuple[str, str], bytes] = {}
+        # The size of every file PUT, in upload order. Kept apart from `stage_files`, which a
+        # retry clears.
+        self.uploaded_bytes: list[int] = []
 
     @asynccontextmanager
     async def connect(self):
@@ -73,6 +76,7 @@ class FakeSnowflakeClient:
         key = (table.name, f"{table.stage_prefix}/{file.name}")
         assert key not in self.stage_files, f"PUT does not overwrite, and {key} is already staged"
         self.stage_files[key] = file.getvalue()
+        self.uploaded_bytes.append(len(self.stage_files[key]))
 
     async def copy_loaded_files_to_snowflake_table(self, table: SnowflakeTable, timeout: float) -> None:
         target = self.tables[table.name]

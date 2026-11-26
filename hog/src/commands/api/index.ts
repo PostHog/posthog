@@ -1,4 +1,4 @@
-import { defineGroup, defineLegacy } from '@/core/command'
+import { defineGroup } from '@/core/command'
 
 import access from './access'
 import call from './call'
@@ -20,9 +20,5 @@ export default defineGroup({
         call,
         access,
         refresh,
-        'agents-md': defineLegacy({
-            description: 'Install the PostHog steering snippet in AGENTS.md',
-            use: 'posthog-cli api agents-md',
-        }),
     },
 })

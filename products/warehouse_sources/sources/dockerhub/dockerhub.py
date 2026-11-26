@@ -9,7 +9,11 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.sources.dockerhub.settings import DOCKERHUB_ENDPOINTS, ORG_SCOPED_ENDPOINTS
+from products.warehouse_sources.sources.dockerhub.settings import (
+    DOCKERHUB_ENDPOINTS,
+    ORG_SCOPED_ENDPOINTS,
+    PUBLISHER_SCOPED_ENDPOINTS,
+)
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
@@ -25,6 +29,8 @@ DOCKERHUB_BASE_URL = "https://hub.docker.com"
 # cursors) is pinned to this host so a hostile/spoofed response can't redirect the token elsewhere.
 DOCKERHUB_HOST = urlsplit(DOCKERHUB_BASE_URL).netloc
 LOGIN_PATH = "/v2/users/login"
+# The DVP Data API is served from the same host and takes the same JWT as the management API.
+DVP_BASE_PATH = "/api/publisher/analytics/v1"
 # Maximum accepted page_size on the v2 list endpoints.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
@@ -61,6 +67,8 @@ class DockerhubResumeConfig:
     # Audit logs only: the next page number to fetch. That endpoint returns no `next` link, so its
     # cursor is the page number we would ask for next.
     page: int | None = None
+    # Group members fan-out only: the group whose member pages we were walking, like `repository`.
+    group_id: int | None = None
 
 
 def _repositories_url(namespace: str) -> str:
@@ -80,6 +88,17 @@ def _org_members_url(namespace: str, page_size: int = PAGE_SIZE) -> str:
 def _org_groups_url(namespace: str, page_size: int = PAGE_SIZE) -> str:
     query = urlencode({"page_size": page_size})
     return f"{DOCKERHUB_BASE_URL}/v2/orgs/{quote(namespace)}/groups?{query}"
+
+
+def _org_group_members_url(namespace: str, group_name: str) -> str:
+    query = urlencode({"page_size": PAGE_SIZE})
+    return f"{DOCKERHUB_BASE_URL}/v2/orgs/{quote(namespace)}/groups/{quote(group_name, safe='')}/members?{query}"
+
+
+def _repository_pulls_url(namespace: str) -> str:
+    # Weekly buckets over the longest period the endpoint offers, one series per repository.
+    query = urlencode({"timespan": "weeks", "period": "last-12-months", "group": "repo"})
+    return f"{DOCKERHUB_BASE_URL}{DVP_BASE_PATH}/namespaces/{quote(namespace)}/pulls?{query}"
 
 
 def _audit_logs_url(namespace: str, page: int, since: Optional[str], page_size: int = PAGE_SIZE) -> str:
@@ -209,8 +228,8 @@ def _fetch_object(
 ) -> dict[str, Any]:
     """Fetch an endpoint that answers with a bare object instead of the `results`/`next` envelope.
 
-    The audit log endpoints are the two that do: events come back under `logs` with no next link,
-    and the action catalog comes back under `actions` as a map."""
+    The audit log endpoints do: events come back under `logs` with no next link, and the action
+    catalog comes back under `actions` as a map. The DVP pull analytics come back under `pulls`."""
     data = _request_json(session, url, logger, allow_reauth)
     if not isinstance(data, dict):
         raise DockerhubRetryableError(f"Docker Hub returned an unexpected payload for {url}: {type(data).__name__}")
@@ -352,6 +371,80 @@ def _tag_pages(
             url = next_url
 
 
+@frozen
+class _OrgGroup:
+    id: int
+    name: str
+
+
+def _list_org_groups(
+    client: DockerHubClient,
+    namespace: str,
+    resumable_source_manager: ResumableSourceManager[DockerhubResumeConfig],
+) -> list[_OrgGroup]:
+    groups: list[_OrgGroup] = []
+    url: Optional[str] = _org_groups_url(namespace)
+    while url:
+        items, url = client.get_page(url)
+        groups.extend(_OrgGroup(id=item["id"], name=item["name"]) for item in items)
+        # The groups are not rows, and this attempt has yielded nothing yet.
+        resumable_source_manager.safe_point()
+    # The groups endpoint takes no ordering parameter, so order by the immutable id here to make the
+    # saved group a stable resume point.
+    return sorted(groups, key=lambda group: group.id)
+
+
+def _org_group_member_pages(
+    client: DockerHubClient,
+    namespace: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[DockerhubResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    groups = _list_org_groups(client, namespace, resumable_source_manager)
+
+    resume_group_id = resume.group_id if resume else None
+    resume_next_url = resume.next_url if resume else None
+    if resume_group_id is not None:
+        # Skip the groups that completed before the interruption. A saved group that was deleted
+        # since is simply absent, and the walk continues at the next higher id.
+        groups = [group for group in groups if group.id >= resume_group_id]
+        logger.debug(f"Docker Hub: resuming group members from group id {resume_group_id}")
+
+    for group in groups:
+        url: Optional[str] = (
+            resume_next_url
+            if group.id == resume_group_id and resume_next_url
+            else _org_group_members_url(namespace, group.name)
+        )
+
+        while url:
+            items, next_url = client.get_page(url)
+            resumable_source_manager.save_state(DockerhubResumeConfig(next_url=next_url, group_id=group.id))
+            if items:
+                # Member rows do not say which group they came from, so add it. A user in several
+                # groups gets one row per group.
+                yield [{**row, "group_id": group.id, "group_name": group.name} for row in items]
+            resumable_source_manager.safe_point()
+
+            if not next_url:
+                break
+
+            url = next_url
+
+
+def _repository_pull_rows(client: DockerHubClient, namespace: str) -> Iterator[list[dict[str, Any]]]:
+    # The whole period comes back in one unpaginated response. An empty period is `null`.
+    payload = client.get_object(_repository_pulls_url(namespace))
+    pulls = payload.get("pulls")
+    if pulls is None:
+        return
+    if not isinstance(pulls, list):
+        raise DockerhubRetryableError(f"Docker Hub returned an unexpected pull data payload: {type(pulls).__name__}")
+    if pulls:
+        yield [{**row, "namespace": namespace} for row in pulls]
+
+
 def _audit_log_row(row: dict[str, Any]) -> dict[str, Any]:
     # Audit events carry no identifier of their own, so key them by a hash of their own contents.
     # A row re-read at the incremental window boundary then merges onto itself instead of landing
@@ -465,6 +558,10 @@ def get_rows(
         yield from _cursor_pages(client, _org_members_url(namespace), "org members", logger, resumable_source_manager)
     elif endpoint == "org_groups":
         yield from _cursor_pages(client, _org_groups_url(namespace), "org groups", logger, resumable_source_manager)
+    elif endpoint == "org_group_members":
+        yield from _org_group_member_pages(client, namespace, logger, resumable_source_manager)
+    elif endpoint == "repository_pulls":
+        yield from _repository_pull_rows(client, namespace)
     elif endpoint == "audit_logs":
         yield from _audit_log_pages(client, namespace, incremental_start, logger, resumable_source_manager)
     elif endpoint == "audit_log_actions":
@@ -613,8 +710,11 @@ def validate_credentials(username: str, personal_access_token: str, namespace: s
 def _permission_probe_url(endpoint: str, namespace: str) -> str:
     if endpoint == "org_members":
         return _org_members_url(namespace, page_size=1)
-    if endpoint == "org_groups":
+    if endpoint in ("org_groups", "org_group_members"):
+        # Group members need a group name to ask for, and reading the groups takes the same access.
         return _org_groups_url(namespace, page_size=1)
+    if endpoint == "repository_pulls":
+        return _repository_pulls_url(namespace)
     if endpoint == "audit_log_actions":
         return _audit_log_actions_url(namespace)
     return _audit_logs_url(namespace, page=1, since=None, page_size=1)
@@ -632,18 +732,29 @@ def _org_scope_reason(namespace: str, status_code: int) -> str:
     )
 
 
+def _publisher_scope_reason(namespace: str) -> str:
+    return (
+        f"Your personal access token cannot read pull analytics for '{namespace}'. Docker Hub provides "
+        "them only for namespaces in the Docker Verified Publisher program, so deselect this table if "
+        f"'{namespace}' is not a verified publisher."
+    )
+
+
 def check_endpoint_access(
     username: str, personal_access_token: str, namespace: str, endpoints: list[str]
 ) -> dict[str, str | None]:
     """Report which endpoints the configured namespace and token can read. ``None`` = reachable.
 
     The org and audit log endpoints answer only for an organization namespace, and only for a
-    token that belongs to an owner of it. A source pointed at a personal namespace can still sync
+    token that belongs to an owner of it. The pull analytics endpoint answers only for a Docker
+    Verified Publisher namespace. A source pointed at a personal namespace can still sync
     repositories and tags, so saying which tables are unavailable lets the user deselect them
     instead of finding out through a failed sync.
     """
     permissions: dict[str, str | None] = dict.fromkeys(endpoints)
-    probes = [endpoint for endpoint in endpoints if endpoint in ORG_SCOPED_ENDPOINTS]
+    probes = [
+        endpoint for endpoint in endpoints if endpoint in ORG_SCOPED_ENDPOINTS or endpoint in PUBLISHER_SCOPED_ENDPOINTS
+    ]
     if not probes:
         return permissions
 
@@ -678,6 +789,10 @@ def check_endpoint_access(
             # reachable rather than telling the user to change a setting that is already right.
             continue
         if probe.status_code in (403, 404):
-            permissions[endpoint] = _org_scope_reason(namespace, probe.status_code)
+            permissions[endpoint] = (
+                _publisher_scope_reason(namespace)
+                if endpoint in PUBLISHER_SCOPED_ENDPOINTS
+                else _org_scope_reason(namespace, probe.status_code)
+            )
 
     return permissions

@@ -8,10 +8,10 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 operations = [
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS kafka_metrics_avro_kafka_metrics_mv",
-        node_roles=[NodeRole.LOGS, NodeRole.APM],
+        node_roles=[NodeRole.LOGS, NodeRole.INGESTION_APM],
     ),
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS kafka_metrics_avro",
-        node_roles=[NodeRole.LOGS, NodeRole.APM],
+        node_roles=[NodeRole.LOGS, NodeRole.INGESTION_APM],
     ),
 ]

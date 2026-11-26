@@ -13,7 +13,14 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ActivityTab, FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    ActivityTab,
+    FilterLogicalOperator,
+    PersonActorType,
+    PropertyFilterType,
+    PropertyOperator,
+    SessionActorType,
+} from '~/types'
 
 import { personsModalLogic } from './personsModalLogic'
 
@@ -86,16 +93,46 @@ describe('personsModalLogic', () => {
                     matched_recordings: [],
                     value_at_data_point: null,
                 },
+                {
+                    type: 'person',
+                    id: 'person-4',
+                    distinct_ids: ['user-4'],
+                    is_identified: true,
+                    properties: {},
+                    created_at: '2024-01-01',
+                    matched_recordings: [
+                        {
+                            session_id: 'session-4',
+                            events: [{ uuid: 'event-1', timestamp: '2024-01-02T10:00:00Z' }],
+                        },
+                    ],
+                    value_at_data_point: null,
+                },
             ]
 
             logic.actions.loadActorsSuccess({
-                results: [{ count: 3, people: mockActors }],
+                results: [{ count: 4, people: mockActors }],
                 missing_persons: 0,
             })
 
             expectLogic(logic).toMatchValues({
-                sessionIdsFromLoadedActors: ['session-1', 'session-2', 'session-3'],
+                sessionIdsFromLoadedActors: ['session-1', 'session-2', 'session-3', 'session-4'],
             })
+
+            const { entries, firstPositionByActorId } = logic.values.playerRecordingList
+            expect(entries.map((entry) => [entry.sessionRecording.id, entry.personDisplayName])).toEqual([
+                ['session-1', 'user-1'],
+                ['session-2', 'user-1'],
+                ['session-3', 'user-2'],
+                ['session-4', 'user-4'],
+            ])
+            expect(firstPositionByActorId).toEqual({ 'person-1': 0, 'person-2': 2, 'person-4': 3 })
+            expect(entries[3].sessionRecording.matching_events).toEqual([
+                {
+                    session_id: 'session-4',
+                    events: [{ uuid: 'event-1', timestamp: '2024-01-02T10:00:00Z' }],
+                },
+            ])
         })
 
         it('returns empty array when actors have no matched_recordings', () => {
@@ -139,6 +176,56 @@ describe('personsModalLogic', () => {
 
             expectLogic(logic).toMatchValues({
                 sessionIdsFromLoadedActors: [],
+            })
+        })
+    })
+
+    describe('playerRecordingList', () => {
+        it('includes each session row as one recording, named after its person when known', () => {
+            logic = personsModalLogic({ query: null, url: null })
+            logic.mount()
+
+            const mockSessions: SessionActorType[] = [
+                {
+                    type: 'session',
+                    id: 'session-with-person',
+                    properties: {},
+                    created_at: null,
+                    matched_recordings: [],
+                    value_at_data_point: null,
+                    person: {
+                        type: 'person',
+                        id: 'person-1',
+                        distinct_ids: ['user-1'],
+                        properties: {},
+                        created_at: '2024-01-01',
+                        matched_recordings: [],
+                        value_at_data_point: null,
+                    },
+                },
+                {
+                    type: 'session',
+                    id: 'session-without-person',
+                    properties: {},
+                    created_at: null,
+                    matched_recordings: [],
+                    value_at_data_point: null,
+                },
+            ]
+
+            logic.actions.loadActorsSuccess({
+                results: [{ count: 2, people: mockSessions }],
+                missing_persons: 0,
+            })
+
+            expectLogic(logic).toMatchValues({
+                playerRecordingList: {
+                    entries: [
+                        { sessionRecording: { id: 'session-with-person' }, personDisplayName: 'user-1' },
+                        { sessionRecording: { id: 'session-without-person' }, personDisplayName: null },
+                    ],
+                    firstPositionByActorId: { 'session-with-person': 0, 'session-without-person': 1 },
+                },
             })
         })
     })

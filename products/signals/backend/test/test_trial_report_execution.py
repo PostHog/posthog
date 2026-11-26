@@ -646,7 +646,11 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         generation = AsyncMock(return_value=SimpleNamespace(_request_id="free-system-generation"))
         with patch(
             "products.signals.backend.llm_spend._wait_for_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
+            new=AsyncMock(
+                return_value=GatewayRequestCost(
+                    model="model", provider="provider", cost_microusd=123, standard_cost_microusd=123
+                )
+            ),
         ):
             async_to_sync(generate_with_spend)(
                 generation(),
@@ -671,7 +675,9 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             "products.signals.backend.llm_spend.fetch_gateway_cost",
             new=AsyncMock(
                 side_effect=TimeoutError if delayed else None,
-                return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123),
+                return_value=GatewayRequestCost(
+                    model="model", provider="provider", cost_microusd=123, standard_cost_microusd=123
+                ),
             ),
         ):
             async_to_sync(generate_with_spend)(
@@ -759,7 +765,9 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         with patch(
             "products.signals.backend.llm_spend._wait_for_gateway_cost",
             new=AsyncMock(
-                return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123),
+                return_value=GatewayRequestCost(
+                    model="model", provider="provider", cost_microusd=123, standard_cost_microusd=123
+                ),
                 side_effect=None if settled else TimeoutError,
             ),
         ):
@@ -830,6 +838,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=True):
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="second-pass")
         SignalReport.objects.filter(id=report.id, team_id=self.team.id).update(status=SignalReport.Status.IN_PROGRESS)
+        task.runs.update(status=TaskRun.Status.COMPLETED)
         context = report_trial_context.set((self.team.id, str(report.id)))
         try:
             paid_run = task.create_run(environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": "research"})

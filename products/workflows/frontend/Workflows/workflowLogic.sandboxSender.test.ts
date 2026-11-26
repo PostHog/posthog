@@ -113,7 +113,7 @@ describe('workflowLogic first-run email sender', () => {
             post: {
                 '/api/projects/:team_id/workflow_email_sandbox/provision/': (req: any) => {
                     if (provisionStatus !== 200) {
-                        return [provisionStatus, { detail: "This organization can't use the sandbox sender." }]
+                        return [provisionStatus, { detail: "This organization can't use the PostHog test sender." }]
                     }
                     sandboxSenders[req.params.team_id] = 11
                     return [200, { integration_id: 11 }]
@@ -148,7 +148,7 @@ describe('workflowLogic first-run email sender', () => {
                 verifiedSender,
             ],
         ],
-    ])('prefers a verified own sender %s over the sandbox sender', async (_, integrations) => {
+    ])('prefers a verified own sender %s over the PostHog test sender', async (_, integrations) => {
         useSenderMocks(integrations, sandboxStatus())
 
         const email = await openTemplate()
@@ -164,7 +164,7 @@ describe('workflowLogic first-run email sender', () => {
             sandboxStatus({ integration_id: null }),
             [{ event: 'workflows sandbox sender provisioned', properties: { surface: 'first_run' } }],
         ],
-    ])('uses the sandbox sender when the project has no own sender and %s', async (_, status, expectedEvents) => {
+    ])('uses the PostHog test sender when the project has no own sender and %s', async (_, status, expectedEvents) => {
         useSenderMocks([], status)
 
         const email = await openTemplate()
@@ -179,7 +179,7 @@ describe('workflowLogic first-run email sender', () => {
         expect(events.filter(({ event }) => event.startsWith('workflows sandbox'))).toEqual(expectedEvents)
     })
 
-    it('sets up the sandbox sender in the selected environment rather than its project', async () => {
+    it('sets up the PostHog test sender in the selected environment rather than its project', async () => {
         const environmentId = MOCK_DEFAULT_TEAM.id + 1
         useSenderMocks([], sandboxStatus({ integration_id: null }))
 
@@ -222,28 +222,46 @@ describe('workflowLogic first-run email sender', () => {
             {},
         ],
         [
-            'the email has a Reply-To the sandbox sender would drop',
+            'the email has a Reply-To the PostHog test sender would drop',
             [],
             sandboxStatus({ integration_id: null }),
             200,
             { replyTo: 'help@example.com' },
         ],
         [
-            'the step id is one the sandbox sender rejects',
+            'the step id is one the PostHog test sender rejects',
             [],
             sandboxStatus({ integration_id: null }),
             200,
             {},
             'welcome.email',
         ],
+        [
+            'the email is sensitive, which the PostHog test sender would drop',
+            [],
+            sandboxStatus({ integration_id: null }),
+            200,
+            {},
+            EMAIL_ID,
+            { sensitive: true },
+        ],
     ])(
         'keeps an own email step without a sender when %s',
-        async (_, integrations, status, provisionStatus, emailValue, emailId = EMAIL_ID) => {
-            useSenderMocks(integrations, status, provisionStatus, templateWithEmail(emailValue, {}, emailId))
+        async (
+            _,
+            integrations,
+            status,
+            provisionStatus,
+            emailValue,
+            emailId = EMAIL_ID,
+            stepConfig: Record<string, unknown> = {}
+        ) => {
+            useSenderMocks(integrations, status, provisionStatus, templateWithEmail(emailValue, stepConfig, emailId))
 
             const email = await openTemplate()
 
             expect(email?.type).toEqual('function_email')
+            expect(email?.config).toMatchObject(stepConfig)
             expect((email?.config as any).inputs.email.value).toMatchObject({ from: {}, ...emailValue })
             expect(sandboxSenders).toEqual({})
         }

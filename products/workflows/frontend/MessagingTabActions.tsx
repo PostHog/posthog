@@ -14,8 +14,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { openEmailDomainSetupPage } from './Channels/EmailDomain/openEmailDomainSetupPage'
+import { startEmailDomainSetup } from './Channels/EmailDomain/emailDomainSetupLinks'
 import type { MessagingNavTabKey } from './messagingTabs'
+import { ImportFromAnotherToolButton } from './OptOuts/ImportFromAnotherToolButton'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { QuillMessagingTabActions } from './QuillMessagingTabActions'
 import { newTemplateAgentLogic } from './TemplateLibrary/newTemplateAgentLogic'
@@ -35,7 +36,12 @@ export function MessagingTabActions({
     }
     // One component per action, so a tab mounts (and loads) only the logic its own button needs.
     if (tab === 'library') {
-        return <NewTemplateButton />
+        return (
+            <>
+                <ImportFromAnotherToolButton entryPoint="templates" dataAttr="templates-import-from-another-tool" />
+                <NewTemplateButton />
+            </>
+        )
     }
     if (tab === 'channels') {
         return <NewChannelButton channelsUrl={channelsUrl} />
@@ -75,7 +81,7 @@ function NewChannelButton({ channelsUrl }: { channelsUrl: string }): JSX.Element
                     <IconLetter /> Email
                 </div>
             ),
-            onClick: () => openEmailDomainSetupPage('channels'),
+            onClick: () => startEmailDomainSetup('channels'),
         },
 
         {

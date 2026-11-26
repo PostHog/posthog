@@ -352,7 +352,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         >
             <FloatingContainerContext.Provider value={playerContainer}>
                 {explorerMode ? (
-                    <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    <div data-not-quill className="contents">
+                        <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    </div>
                 ) : (
                     <div className="SessionRecordingPlayer__main flex flex-col h-full w-full">
                         {isRecentAndInvalid || isOldAndInvalid ? (
@@ -446,8 +448,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                         {!hidePlayerElements ? (
                                             <>
                                                 <PlayerFrameOverlay />
-                                                <PlayerFrameCommentOverlay />
-                                                <ClipOverlay />
+                                                {/* The watch layout's resizable group is a quill scope, where Lemon's bg-primary is the brand orange. */}
+                                                <div data-not-quill className="contents">
+                                                    <PlayerFrameCommentOverlay />
+                                                    <ClipOverlay />
+                                                </div>
                                             </>
                                         ) : null}
                                     </div>

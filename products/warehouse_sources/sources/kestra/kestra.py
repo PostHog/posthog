@@ -1,7 +1,7 @@
 import re
 import json
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -18,6 +18,8 @@ from products.warehouse_sources.sources.kestra.settings import (
     PAGE_SIZE,
     PERMISSION_ERROR,
     PRIMARY_KEYS,
+    TASK_OUTPUT_RUNS_PATH,
+    USAGE_DAYS,
 )
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
@@ -40,6 +42,8 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 INVALID_PAGE = "Kestra returned an invalid page. Expected results and a total count."
+USAGE_ROWS = "executions.dailyExecutionsCount"
+TASK_OUTPUT_RUN_FIELDS = ("executionId", "execution_start_date", "taskId", "taskRunId", "value", "iteration", "inline")
 
 
 @frozen
@@ -167,7 +171,14 @@ def validate_credentials(config: KestraSourceConfig, team_id: int, schema_name: 
         return False, str(error)
     probe_name = schema_name or "flows"
     schema_for_resource(ENDPOINTS, probe_name)
-    endpoint = ENDPOINTS[FANOUT_PARENTS.get(probe_name, probe_name)]
+    if probe_name == "daily_execution_statistics":
+        endpoint, params, data_selector = ENDPOINTS[probe_name], {"days": 1}, USAGE_ROWS
+    else:
+        endpoint, params, data_selector = (
+            ENDPOINTS[FANOUT_PARENTS.get(probe_name, probe_name)],
+            {"page": 1, "size": 1},
+            "results",
+        )
     client = RESTClient(
         base_url=settings["base_url"],
         auth=create_auth(settings["auth"]),
@@ -179,9 +190,9 @@ def validate_credentials(config: KestraSourceConfig, team_id: int, schema_name: 
         next(
             client.paginate(
                 endpoint,
-                params={"page": 1, "size": 1},
+                params=params,
                 paginator=SinglePagePaginator(),
-                data_selector="results",
+                data_selector=data_selector,
                 data_selector_required=True,
             ),
             None,
@@ -233,6 +244,32 @@ def normalize_metric(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "entry_id": entry_id(row), "execution_start_date": execution_start_date}
 
 
+def normalize_task_output_run(row: dict[str, Any]) -> dict[str, Any]:
+    # Kestra leaves out null fields, and include_from_parent needs every field to be present.
+    return {
+        "executionId": row["_executions_id"],
+        "execution_start_date": row["_executions_start_date"],
+        "taskId": row.get("taskId"),
+        "taskRunId": row["taskRunId"],
+        "value": row.get("value"),
+        "iteration": row.get("iteration"),
+        "inline": row.get("inline"),
+    }
+
+
+def normalize_task_output(row: dict[str, Any]) -> dict[str, Any]:
+    task_run = {field: row.pop(f"_task_output_runs_{field}") for field in TASK_OUTPUT_RUN_FIELDS}
+    # The response maps each output name to its value, so the names differ for each task.
+    return {**task_run, "outputs": row}
+
+
+def daily_statistics_in_window(row: dict[str, Any], window_start: datetime) -> list[dict[str, Any]]:
+    start_date = parse_timestamp(row["startDate"])
+    if start_date.tzinfo is None:
+        start_date = start_date.replace(tzinfo=UTC)
+    return [{**row, "start_date": start_date}] if start_date >= window_start else []
+
+
 def time_window_params(schema_name: str, start_date: str | None, end_date: str) -> dict[str, Any]:
     params: dict[str, Any] = {"filters[endDate][LESS_THAN_OR_EQUAL_TO]": end_date}
     if start_date is not None:
@@ -273,8 +310,34 @@ def fanout_resources(schema_name: str, start_date: str | None, end_date: str) ->
             },
         ]
     resolve_execution = {"type": "resolve", "resource": "executions", "field": "id"}
+    child_name = schema_name
     child_endpoint: Endpoint
-    if schema_name == "task_runs":
+    grandchildren: list[str | EndpointResource] = []
+    if schema_name == "task_outputs":
+        child_name = "task_output_runs"
+        child_endpoint = {
+            "path": TASK_OUTPUT_RUNS_PATH,
+            "params": {"executionId": resolve_execution},
+            "data_selector_required": True,
+            "paginator": SinglePagePaginator(),
+            "response_actions": not_found_is_empty,
+        }
+        grandchildren.append(
+            {
+                "name": schema_name,
+                "include_from_parent": list(TASK_OUTPUT_RUN_FIELDS),
+                "endpoint": {
+                    "path": ENDPOINTS[schema_name],
+                    "params": {
+                        "executionId": {"type": "resolve", "resource": child_name, "field": "executionId"},
+                        "taskRunId": {"type": "resolve", "resource": child_name, "field": "taskRunId"},
+                    },
+                    "paginator": SinglePagePaginator(),
+                    "response_actions": not_found_is_empty,
+                },
+            }
+        )
+    elif schema_name == "task_runs":
         child_endpoint = {
             "path": ENDPOINTS[schema_name],
             "params": {"executionId": resolve_execution},
@@ -303,7 +366,13 @@ def fanout_resources(schema_name: str, start_date: str | None, end_date: str) ->
             },
             "data_map": normalize_execution,
         },
-        {"name": schema_name, "include_from_parent": ["start_date"], "endpoint": child_endpoint},
+        {
+            "name": child_name,
+            "include_from_parent": ["id", "start_date"] if grandchildren else ["start_date"],
+            "endpoint": child_endpoint,
+            **({"data_map": normalize_task_output_run} if grandchildren else {}),
+        },
+        *grandchildren,
     ]
 
 
@@ -334,6 +403,8 @@ def kestra_source(
             resource.add_map(normalize_task_run)
         elif inputs.schema_name == "execution_metrics":
             resource.add_map(normalize_metric)
+        elif inputs.schema_name == "task_outputs":
+            resource.add_map(normalize_task_output)
         return SourceResponse(
             name=inputs.schema_name,
             items=lambda: resource,
@@ -341,6 +412,9 @@ def kestra_source(
             sort_mode="asc" if incremental else "desc",
             on_complete=manager.clear_state,
         )
+
+    if inputs.schema_name == "daily_execution_statistics":
+        return daily_statistics_response(client, inputs, manager)
 
     resume = manager.load_state() if manager.can_resume() else None
     if resume is None:
@@ -402,5 +476,40 @@ def kestra_source(
         items=lambda: resource,
         primary_keys=PRIMARY_KEYS[inputs.schema_name],
         sort_mode="asc" if incremental else "desc",
+        on_complete=manager.clear_state,
+    )
+
+
+def daily_statistics_response(
+    client: ClientConfig, inputs: SourceInputs, manager: ResumableSourceManager[KestraResumeState]
+) -> SourceResponse:
+    # The oldest day starts before the window, so Kestra counts only part of it. Dropping it keeps
+    # the merge from replacing the full count that an earlier sync stored.
+    window_start = datetime.now(UTC) - timedelta(days=USAGE_DAYS)
+    resource = rest_api_resource(
+        {
+            "client": client,
+            "resources": [
+                {
+                    "name": inputs.schema_name,
+                    "endpoint": {
+                        "path": ENDPOINTS[inputs.schema_name],
+                        "params": {"days": USAGE_DAYS},
+                        "data_selector": USAGE_ROWS,
+                        "data_selector_required": True,
+                        "paginator": SinglePagePaginator(),
+                    },
+                }
+            ],
+        },
+        inputs.team_id,
+        inputs.job_id,
+        None,
+    )
+    resource.add_map(lambda row: daily_statistics_in_window(row, window_start))
+    return SourceResponse(
+        name=inputs.schema_name,
+        items=lambda: resource,
+        primary_keys=PRIMARY_KEYS[inputs.schema_name],
         on_complete=manager.clear_state,
     )

@@ -2,9 +2,11 @@ import base64
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import jwt
+import responses
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -12,6 +14,28 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import VercelAuthentication
+from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL
+
+VERCEL_TEST_ACCESS_TOKEN = "vercel_short_lived_token"
+
+
+def fake_vercel_token_endpoint(test_case: SimpleTestCase) -> responses.RequestsMock:
+    vercel = responses.RequestsMock(assert_all_requests_are_fired=False)
+    vercel.add(
+        responses.POST,
+        VERCEL_OAUTH_TOKEN_URL,
+        json={"access_token": VERCEL_TEST_ACCESS_TOKEN, "token_type": "Bearer", "expires_in": 3600},
+    )
+    vercel.start()
+    test_case.addCleanup(vercel.stop)
+    test_case.addCleanup(vercel.reset)
+
+    credentials = override_settings(
+        VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="client_secret"
+    )
+    credentials.enable()
+    test_case.addCleanup(credentials.disable)
+    return vercel
 
 
 class VercelTestBase(APIBaseTest):

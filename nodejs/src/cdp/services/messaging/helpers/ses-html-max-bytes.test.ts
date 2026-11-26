@@ -20,7 +20,7 @@ describe('sesHtmlMaxBytes', () => {
     const invocation = createExampleInvocation()
     const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, 'https://track.example.com')
     const maxBytes = (html: string, utm: typeof UTM | null): number =>
-        sesHtmlMaxBytes(html, { utmTags: utm?.tags ?? null, invocation, signer, preheader: PREHEADER })
+        sesHtmlMaxBytes(html, { utmTags: utm?.tags ?? null, invocation, preheader: PREHEADER })
 
     it.each<{ case: string; html: string; utm?: typeof UTM | null }>([
         { case: 'a plain link', html: '<body><a href="https://example.com/p">x</a></body>' },
@@ -51,6 +51,10 @@ describe('sesHtmlMaxBytes', () => {
             html: `<body>${'<a ses:tags="k:v" href="https://example.com/?x=\'">y</a>'.repeat(12)}</body>`,
         },
         { case: 'many anchors that never close', html: unclosedAnchors(1_000) },
+        {
+            case: 'many links with spaced, slashed and line-break end tags',
+            html: `<body>${'<a href="https://example.com/a">a</a ><a href="https://example.com/b">b</A\n><a href="https://example.com/c">c</a/>'.repeat(12)}</body>`,
+        },
         {
             case: 'UTM values with apostrophes, reserved and multi-byte characters',
             html: '<body><a href="https://example.com/p">x</a><a href="https://example.com/q">y</a></body>',

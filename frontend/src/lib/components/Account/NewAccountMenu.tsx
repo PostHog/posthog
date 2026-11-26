@@ -37,7 +37,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { NewEventsTableSwitch } from '~/layout/navigation/NewEventsTableSwitch'
+import { NewEventsTableControls } from '~/layout/navigation/NewEventsTableControls'
 import { AvailableFeature } from '~/types'
 
 import { RenderKeybind } from '../Shortcuts/RenderKeybind'
@@ -460,7 +460,7 @@ export function NewAccountMenu({
                                         />
                                     </>
                                 )}
-                                <NewEventsTableSwitch />
+                                <NewEventsTableControls />
 
                                 {switchAvailable && (
                                     <Menu.Item

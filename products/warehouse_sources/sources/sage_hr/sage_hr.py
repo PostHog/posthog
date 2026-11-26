@@ -10,7 +10,6 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sage_hr.settings import SAGE_HR_ENDPOINTS, SageHREndpointConfig
 from products.warehouse_sources.sources.sdk import (
@@ -18,8 +17,9 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     SyncWindow,
     make_tracked_session,
+    raise_for_retryable_status,
     reach_safe_point,
-    retry_with_deadline,
+    vendor_retry,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -103,18 +103,9 @@ def _extract_next_page(payload: dict[str, Any]) -> int | None:
     return next_page if isinstance(next_page, int) else None
 
 
-def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
-    # Each page is fetched only after the rows before it are yielded, and nothing is buffered.
-    reach_safe_point()
-
-
-@retry_with_deadline(
-    retry=retry_if_exception_type((SageHRRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    before_sleep=_safe_point_before_retry_wait,
-    reraise=True,
-)
+# Each page is fetched only after the rows before it are yielded, and nothing is buffered, so a
+# retry wait is a safe point.
+@vendor_retry(retry_on=(SageHRRetryableError,), safe_point=reach_safe_point)
 def _fetch_page(
     session: requests.Session,
     url: str,
@@ -122,8 +113,7 @@ def _fetch_page(
 ) -> tuple[list[dict[str, Any]], int | None]:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SageHRRetryableError(f"Sage HR API error (retryable): status={response.status_code}, url={url}")
+    raise_for_retryable_status(response, vendor="Sage HR", url=url)
 
     if not response.ok:
         logger.error(f"Sage HR API error: status={response.status_code}, body={response.text}, url={url}")

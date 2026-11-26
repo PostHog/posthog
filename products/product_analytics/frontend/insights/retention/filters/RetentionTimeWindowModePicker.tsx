@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

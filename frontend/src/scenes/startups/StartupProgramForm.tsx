@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconUpload, IconX } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, lemonToast } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -21,8 +22,9 @@ const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
  * tokens inside the page's quill subtree - see styles/quill-bridge.scss.
  */
 export function StartupProgramForm(): JSX.Element {
-    const { startupProgram, isYC, isReferralProgram, ycBatchOptions } = useValues(startupProgramLogic)
+    const { startupProgram, isYC, isReferralProgram, ycBatchOptions, eligibilityError } = useValues(startupProgramLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url) => {
@@ -84,6 +86,22 @@ export function StartupProgramForm(): JSX.Element {
                                 selectionPeriod="past"
                             />
                         </LemonField>
+
+                        {eligibilityError && (
+                            <LemonBanner type="warning">
+                                <span>{`${eligibilityError}.`}</span>{' '}
+                                <span>
+                                    If you think your company should still qualify,{' '}
+                                    <Link
+                                        onClick={() => openSupportForm({ kind: 'support', billing_issue: true })}
+                                        data-attr="startup-program-ineligible-contact-support"
+                                    >
+                                        contact support
+                                    </Link>
+                                    .
+                                </span>
+                            </LemonBanner>
+                        )}
 
                         {!isReferralProgram && (
                             <LemonField

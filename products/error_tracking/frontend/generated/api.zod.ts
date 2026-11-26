@@ -402,7 +402,7 @@ export const ErrorTrackingExternalReferencesLinkIssueCreateBody = /* @__PURE__ *
     external_context: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+            "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue."
         ),
 })
 
@@ -1109,6 +1109,128 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
         .describe('Free-form metadata object. Omit to preserve the current value.'),
 })
 
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationApplyCreateBodyAuthTokenMax = 1024
+
+export const errorTrackingSentryMigrationApplyCreateBodyBaseUrlDefault = `https://sentry.io`
+export const errorTrackingSentryMigrationApplyCreateBodyBaseUrlMax = 2048
+
+export const errorTrackingSentryMigrationApplyCreateBodyOrganizationSlugMax = 255
+
+export const errorTrackingSentryMigrationApplyCreateBodyProjectSlugMax = 255
+
+export const errorTrackingSentryMigrationApplyCreateBodyRegionUrlMax = 2048
+
+export const errorTrackingSentryMigrationApplyCreateBodyItemIdsItemMax = 255
+
+export const errorTrackingSentryMigrationApplyCreateBodyItemIdsMax = 1000
+
+export const ErrorTrackingSentryMigrationApplyCreateBody = /* @__PURE__ */ zod.object({
+    auth_token: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyAuthTokenMax)
+        .describe(
+            "Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it."
+        ),
+    base_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyBaseUrlMax)
+        .default(errorTrackingSentryMigrationApplyCreateBodyBaseUrlDefault)
+        .describe(
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+        ),
+    organization_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyOrganizationSlugMax)
+        .describe('Slug of the Sentry organization.'),
+    project_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyProjectSlugMax)
+        .describe('Slug of the Sentry project to import from.'),
+    region_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationApplyCreateBodyRegionUrlMax)
+        .nullish()
+        .describe(
+            'Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.'
+        ),
+    item_ids: zod
+        .array(zod.string().max(errorTrackingSentryMigrationApplyCreateBodyItemIdsItemMax))
+        .max(errorTrackingSentryMigrationApplyCreateBodyItemIdsMax)
+        .describe('IDs of the preview items to import.'),
+})
+
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationPreviewCreateBodyAuthTokenMax = 1024
+
+export const errorTrackingSentryMigrationPreviewCreateBodyBaseUrlDefault = `https://sentry.io`
+export const errorTrackingSentryMigrationPreviewCreateBodyBaseUrlMax = 2048
+
+export const errorTrackingSentryMigrationPreviewCreateBodyOrganizationSlugMax = 255
+
+export const errorTrackingSentryMigrationPreviewCreateBodyProjectSlugMax = 255
+
+export const errorTrackingSentryMigrationPreviewCreateBodyRegionUrlMax = 2048
+
+export const ErrorTrackingSentryMigrationPreviewCreateBody = /* @__PURE__ */ zod.object({
+    auth_token: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyAuthTokenMax)
+        .describe(
+            "Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it."
+        ),
+    base_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyBaseUrlMax)
+        .default(errorTrackingSentryMigrationPreviewCreateBodyBaseUrlDefault)
+        .describe(
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+        ),
+    organization_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyOrganizationSlugMax)
+        .describe('Slug of the Sentry organization.'),
+    project_slug: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyProjectSlugMax)
+        .describe('Slug of the Sentry project to import from.'),
+    region_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationPreviewCreateBodyRegionUrlMax)
+        .nullish()
+        .describe(
+            'Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.'
+        ),
+})
+
+/**
+ * Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits.
+ */
+export const errorTrackingSentryMigrationProjectsCreateBodyAuthTokenMax = 1024
+
+export const errorTrackingSentryMigrationProjectsCreateBodyBaseUrlDefault = `https://sentry.io`
+export const errorTrackingSentryMigrationProjectsCreateBodyBaseUrlMax = 2048
+
+export const ErrorTrackingSentryMigrationProjectsCreateBody = /* @__PURE__ */ zod.object({
+    auth_token: zod
+        .string()
+        .max(errorTrackingSentryMigrationProjectsCreateBodyAuthTokenMax)
+        .describe(
+            "Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it."
+        ),
+    base_url: zod
+        .string()
+        .max(errorTrackingSentryMigrationProjectsCreateBodyBaseUrlMax)
+        .default(errorTrackingSentryMigrationProjectsCreateBodyBaseUrlDefault)
+        .describe(
+            'Base URL of the Sentry instance. It must use `https:\/\/`. Defaults to `https:\/\/sentry.io`. Use your own URL for self-hosted Sentry.'
+        ),
+})
+
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     adaptive_ingestion_enabled: zod
         .boolean()
@@ -1143,6 +1265,12 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .optional()
         .describe(
             'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
+        ),
+    ai_issue_summaries_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds."
         ),
 })
 
@@ -1412,4 +1540,535 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .optional()
         .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
     release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
+})
+
+export const errorTrackingTagRulesCreateBodyLabelMax = 128
+
+export const errorTrackingTagRulesCreateBodyDescriptionDefault = ``
+export const errorTrackingTagRulesCreateBodyDescriptionMax = 1000
+
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
+export const errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
+export const errorTrackingTagRulesCreateBodyOrderKeyDefault = 0
+export const errorTrackingTagRulesCreateBodyOrderKeyMin = -2147483648
+export const errorTrackingTagRulesCreateBodyOrderKeyMax = 2147483647
+
+export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
+    label: zod
+        .string()
+        .max(errorTrackingTagRulesCreateBodyLabelMax)
+        .describe('Display name of the tag the rule applies to matching issues.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesCreateBodyDescriptionMax)
+        .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
+        .describe('What the tag means. Shown with the tag. Defaults to empty.'),
+    filters: zod
+        .object({
+            type: zod.enum(['AND', 'OR']),
+            values: zod.array(
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(
+                                        errorTrackingTagRulesCreateBodyFiltersOneValuesItemOneValuesItemTypeDefault
+                                    )
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            })
+                        ),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod
+                            .union([
+                                zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                zod.null(),
+                            ])
+                            .default(errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault),
+                        type: zod
+                            .literal('event')
+                            .default(errorTrackingTagRulesCreateBodyFiltersOneValuesItemTwoTypeDefault)
+                            .describe('Event properties'),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                ])
+            ),
+        })
+        .describe(
+            'Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
+        ),
+    order_key: zod
+        .number()
+        .min(errorTrackingTagRulesCreateBodyOrderKeyMin)
+        .max(errorTrackingTagRulesCreateBodyOrderKeyMax)
+        .default(errorTrackingTagRulesCreateBodyOrderKeyDefault)
+        .describe('Position in the list of tag rules. Lower values come first. Defaults to 0.'),
+})
+
+export const errorTrackingTagRulesUpdateBodyLabelMax = 128
+
+export const errorTrackingTagRulesUpdateBodyDescriptionMax = 1000
+
+export const errorTrackingTagRulesUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
+export const errorTrackingTagRulesUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
+export const errorTrackingTagRulesUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
+export const errorTrackingTagRulesUpdateBodyFiltersOneValuesItemTwoTypeDefault = `event`
+
+export const ErrorTrackingTagRulesUpdateBody = /* @__PURE__ */ zod.object({
+    label: zod
+        .string()
+        .max(errorTrackingTagRulesUpdateBodyLabelMax)
+        .optional()
+        .describe('Replacement display name for the tag. Omit to keep the existing label.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Replacement description. Omit to keep the existing description.'),
+    filters: zod
+        .object({
+            type: zod.enum(['AND', 'OR']),
+            values: zod.array(
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        errorTrackingTagRulesUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(
+                                        errorTrackingTagRulesUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault
+                                    )
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            })
+                        ),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod
+                            .union([
+                                zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                zod.null(),
+                            ])
+                            .default(errorTrackingTagRulesUpdateBodyFiltersOneValuesItemTwoOperatorDefault),
+                        type: zod
+                            .literal('event')
+                            .default(errorTrackingTagRulesUpdateBodyFiltersOneValuesItemTwoTypeDefault)
+                            .describe('Event properties'),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                ])
+            ),
+        })
+        .optional()
+        .describe(
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+        ),
+})
+
+export const errorTrackingTagRulesPartialUpdateBodyLabelMax = 128
+
+export const errorTrackingTagRulesPartialUpdateBodyDescriptionMax = 1000
+
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault = `exact`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault = `event`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
+export const errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoTypeDefault = `event`
+
+export const ErrorTrackingTagRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    label: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyLabelMax)
+        .optional()
+        .describe('Replacement display name for the tag. Omit to keep the existing label.'),
+    description: zod
+        .string()
+        .max(errorTrackingTagRulesPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Replacement description. Omit to keep the existing description.'),
+    filters: zod
+        .object({
+            type: zod.enum(['AND', 'OR']),
+            values: zod.array(
+                zod.union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(
+                                        errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemOneValuesItemTypeDefault
+                                    )
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            })
+                        ),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod
+                            .union([
+                                zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                zod.null(),
+                            ])
+                            .default(errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoOperatorDefault),
+                        type: zod
+                            .literal('event')
+                            .default(errorTrackingTagRulesPartialUpdateBodyFiltersOneValuesItemTwoTypeDefault)
+                            .describe('Event properties'),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                ])
+            ),
+        })
+        .optional()
+        .describe(
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+        ),
+})
+
+export const errorTrackingTagRulesReorderPartialUpdateBodyOrdersMinOne = -2147483648
+export const errorTrackingTagRulesReorderPartialUpdateBodyOrdersMaxOne = 2147483647
+
+export const ErrorTrackingTagRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
+    orders: zod
+        .record(
+            zod.string(),
+            zod
+                .number()
+                .min(errorTrackingTagRulesReorderPartialUpdateBodyOrdersMinOne)
+                .max(errorTrackingTagRulesReorderPartialUpdateBodyOrdersMaxOne)
+        )
+        .optional()
+        .describe('Mapping from tag rule UUID to its new order key.'),
 })

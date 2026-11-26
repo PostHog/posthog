@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
+import { isSocialProviderHeldBack } from 'lib/components/SocialLoginButton/socialProviderRollout'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,6 +19,8 @@ import { isWebKitBrowser } from 'lib/utils/dom'
 import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
+import { type InboxProvider, parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import {
     clearPendingVerificationEmail,
     normalizeVerificationCode,
@@ -67,6 +70,8 @@ export interface PrecheckResponseType {
      * rest of the page session.
      */
     precheckFailed?: boolean
+    // WorkOS client ID for the Radar browser script. Present while Radar checks password logins.
+    radar_client_id?: string
 }
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
@@ -80,6 +85,38 @@ function precheckFallback(email: string): PrecheckResponseType {
         email,
         precheckFailed: true,
     }
+}
+
+// Matches the backend's CodeBasedVerificationResendThrottle (1/minute), which also counts the first send
+export const CODE_RESEND_COOLDOWN_MS = 60_000
+
+interface LoginChallenge {
+    nonce: string
+    siteKey: string
+}
+
+interface SolvedLoginChallenge {
+    nonce: string
+    token: string
+}
+
+async function loginRequestBody(
+    login: LoginForm,
+    precheckResponse: PrecheckResponseType,
+    solvedChallenge: SolvedLoginChallenge | null
+): Promise<Record<string, string>> {
+    return {
+        ...login,
+        ...(await radarSignalsFields(precheckResponse.radar_client_id)),
+        ...(solvedChallenge ? { turnstile_token: solvedChallenge.token, challenge_nonce: solvedChallenge.nonce } : {}),
+    }
+}
+
+function challengeRequiredBy(error: unknown): LoginChallenge | null {
+    const { code, data } = error as ApiError
+    const nonce = data?.extra?.challenge_nonce
+    const siteKey = data?.extra?.turnstile_site_key
+    return code === 'challenge_required' && nonce && siteKey ? { nonce, siteKey } : null
 }
 
 function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
@@ -112,12 +149,15 @@ export interface loginLogicValues {
     autoRedirectingToProvider: SSOProvider | null
     availableLoginMethods: LoginMethod[]
     codeResendAttempted: boolean
+    codeResendAvailableAt: number | null
+    codeSentAt: number | null
     codeVerification: CodeVerificationForm
     codeVerificationAllErrors: Record<string, any>
     codeVerificationChanged: boolean
     codeVerificationEmail: string | null
     codeVerificationErrors: DeepPartialMap<CodeVerificationForm, ValidationErrorType>
     codeVerificationHasErrors: boolean
+    codeVerificationInboxProvider: InboxProvider | null
     codeVerificationManualErrors: Record<string, any>
     codeVerificationRequired: boolean
     codeVerificationTouched: boolean
@@ -136,12 +176,14 @@ export interface loginLogicValues {
     isPasswordLoginUnavailable: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
+    loginChallenge: LoginChallenge | null
     loginChanged: boolean
     loginErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     loginHasErrors: boolean
     loginManualErrors: Record<string, any>
     loginTouched: boolean
     loginTouches: Record<string, boolean>
+    loginTurnstileToken: string | null
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     passkeyPromptedForEmail: string | null
     precheckResponse: PrecheckResponseType
@@ -156,6 +198,7 @@ export interface loginLogicValues {
     setPasswordLinkSentToLoading: boolean
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
+    solvedLoginChallenge: SolvedLoginChallenge | null
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -169,6 +212,9 @@ export interface loginLogicActions {
     }
     exitCodeVerification: () => {
         value: true
+    }
+    markCodeResent: () => {
+        sentAt: number
     }
     markPasskeyPrompted: (email: string) => {
         email: string
@@ -224,6 +270,9 @@ export interface loginLogicActions {
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
     }
+    resetLoginChallenge: () => {
+        value: true
+    }
     sendSetPasswordLink: (email: string) => string
     sendSetPasswordLinkFailure: (
         error: string,
@@ -242,8 +291,13 @@ export interface loginLogicActions {
     setCodeVerificationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
-    setCodeVerificationRequired: (email: string) => {
+    setCodeVerificationRequired: (
+        email: string,
+        inboxProvider: InboxProvider | null
+    ) => {
         email: string
+        inboxProvider: InboxProvider | null
+        sentAt: number
     }
     setCodeVerificationValue: (
         key: FieldName,
@@ -262,8 +316,18 @@ export interface loginLogicActions {
         code: string
         detail: string
     }
+    setLoginChallenge: (
+        nonce: string,
+        siteKey: string
+    ) => {
+        nonce: string
+        siteKey: string
+    }
     setLoginManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
+    }
+    setLoginTurnstileToken: (token: string) => {
+        token: string
     }
     setLoginValue: (
         key: FieldName,
@@ -325,6 +389,11 @@ export interface loginLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        solvedLoginChallenge: (
+            loginChallenge: LoginChallenge | null,
+            loginTurnstileToken: string | null
+        ) => SolvedLoginChallenge | null
+        codeResendAvailableAt: (codeSentAt: number | null) => number | null
         isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
         hasNoConfiguredLoginMethod: (
@@ -336,7 +405,7 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
-        instanceSocialProviders: (preflight: PreflightStatus | null) => SSOProvider[]
+        instanceSocialProviders: (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet) => SSOProvider[]
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -361,12 +430,35 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
-        setCodeVerificationRequired: (email: string) => ({ email }),
+        setCodeVerificationRequired: (email: string, inboxProvider: InboxProvider | null) => ({
+            email,
+            inboxProvider,
+            sentAt: Date.now(),
+        }),
+        markCodeResent: () => ({ sentAt: Date.now() }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
         markPasskeyPrompted: (email: string) => ({ email }),
+        setLoginChallenge: (nonce: string, siteKey: string) => ({ nonce, siteKey }),
+        setLoginTurnstileToken: (token: string) => ({ token }),
+        resetLoginChallenge: true,
     }),
     reducers({
+        loginChallenge: [
+            null as LoginChallenge | null,
+            {
+                setLoginChallenge: (_, challenge) => challenge,
+                resetLoginChallenge: () => null,
+            },
+        ],
+        loginTurnstileToken: [
+            null as string | null,
+            {
+                setLoginTurnstileToken: (_, { token }) => token,
+                setLoginChallenge: () => null,
+                resetLoginChallenge: () => null,
+            },
+        ],
         // This is separate from the login form, so that the form can be submitted even if a general error is present
         generalError: [
             null as { code: string; detail: string } | null,
@@ -393,12 +485,27 @@ export const loginLogic = kea<loginLogicType>([
                 exitCodeVerification: () => null,
             },
         ],
+        codeVerificationInboxProvider: [
+            null as InboxProvider | null,
+            {
+                setCodeVerificationRequired: (_, { inboxProvider }) => inboxProvider,
+                exitCodeVerification: () => null,
+            },
+        ],
         codeResendAttempted: [
             false,
             {
                 resendCodeBasedVerification: () => true,
                 setCodeVerificationRequired: () => false,
                 exitCodeVerification: () => false,
+            },
+        ],
+        codeSentAt: [
+            null as number | null,
+            {
+                setCodeVerificationRequired: (_, { sentAt }) => sentAt,
+                markCodeResent: (_, { sentAt }) => sentAt,
+                exitCodeVerification: () => null,
             },
         ],
         // Extends the loader's reducer below, so one login's "Code sent" cannot show on the next
@@ -514,6 +621,7 @@ export const loginLogic = kea<loginLogicType>([
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create<any>('api/login/code-based-verification/resend')
                         actions.clearGeneralError()
+                        actions.markCodeResent()
                         lemonToast.success('Verification email resent')
                         return response
                     } catch (e) {
@@ -541,9 +649,21 @@ export const loginLogic = kea<loginLogicType>([
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
                 try {
+                    const body = await loginRequestBody(
+                        { email, password },
+                        values.precheckResponse,
+                        values.solvedLoginChallenge
+                    )
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', { email, password })
+                    return await api.create<any>('api/login', body)
                 } catch (e) {
+                    const challenge = challengeRequiredBy(e)
+                    if (challenge) {
+                        actions.setLoginChallenge(challenge.nonce, challenge.siteKey)
+                        throw e
+                    }
+                    // The server used the nonce up, so the next submit gets a new verdict
+                    actions.resetLoginChallenge()
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
                         const next: string | undefined = router.values.searchParams.next
@@ -557,19 +677,20 @@ export const loginLogic = kea<loginLogicType>([
                         }
                         throw e
                     }
+                    const inboxProvider = parseInboxProvider((e as ApiError).data?.extra?.inbox_provider)
                     if (code === 'verify_email_pending' && typeof detail === 'string') {
                         // detail carries the user uuid; the verification page has the code entry form
                         lemonToast.info('Verify your email to continue. We just sent you a new code.')
                         // The verify page has no session in this state, so store the address for its copy.
                         // detail carries the user uuid, which keys the stored value.
-                        setPendingVerificationEmail(detail, email)
+                        setPendingVerificationEmail(detail, email, inboxProvider)
                         const next: string | undefined = router.values.searchParams.next
                         router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
                         throw e
                     }
                     if (code === 'code_based_verification_required') {
                         const emailAddress = detail?.email || email
-                        actions.setCodeVerificationRequired(emailAddress)
+                        actions.setCodeVerificationRequired(emailAddress, inboxProvider)
                         throw e
                     }
                     // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a
@@ -596,7 +717,6 @@ export const loginLogic = kea<loginLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login/code-based-verification', {
                         code: normalizeVerificationCode(code),
-                        email: values.login.email,
                     })
                 } catch (e) {
                     const { detail } = e as Record<string, any>
@@ -609,6 +729,18 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     selectors(() => ({
+        solvedLoginChallenge: [
+            (s) => [s.loginChallenge, s.loginTurnstileToken],
+            (loginChallenge: LoginChallenge | null, loginTurnstileToken: string | null): SolvedLoginChallenge | null =>
+                loginChallenge && loginTurnstileToken
+                    ? { nonce: loginChallenge.nonce, token: loginTurnstileToken }
+                    : null,
+        ],
+        codeResendAvailableAt: [
+            (s) => [s.codeSentAt],
+            (codeSentAt: number | null): number | null =>
+                codeSentAt === null ? null : codeSentAt + CODE_RESEND_COOLDOWN_MS,
+        ],
         // True only when we know this account exists and has no usable password, so every variant
         // hides the password field for the same reason. The explicit `=== false` matters: an older
         // server or a failed precheck omits the field, and those must keep the password box.
@@ -671,13 +803,14 @@ export const loginLogic = kea<loginLogicType>([
                     : null,
         ],
         instanceSocialProviders: [
-            (s) => [s.preflight],
-            (preflight: PreflightStatus | null): SSOProvider[] => {
+            (s) => [s.preflight, s.featureFlags],
+            (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet): SSOProvider[] => {
                 const order = Object.keys(SSO_PROVIDER_NAMES)
                 return (
                     (Object.entries(preflight?.available_social_auth_providers ?? {}) as [SSOProvider, boolean][])
                         // SAML and OIDC are domain-configured and never render as a social button.
                         .filter(([provider, available]) => available && provider !== 'saml' && provider !== 'oidc')
+                        .filter(([provider]) => !isSocialProviderHeldBack(provider, featureFlags))
                         .map(([provider]) => provider)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
                 )
@@ -689,6 +822,19 @@ export const loginLogic = kea<loginLogicType>([
         ],
     })),
     listeners(({ values, actions }) => ({
+        // The password login and a passkey prompt can't both finish: the login drops the passkey
+        // challenge. So close any open prompt, and don't auto-open one for this email after it.
+        submitLoginRequest: async ({ login }) => {
+            actions.markPasskeyPrompted(login.email)
+            // Dynamic import to avoid circular dependency
+            const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
+            passkeyLogic.findMounted()?.actions.cancelPasskeyLogin()
+        },
+        setLoginTurnstileToken: ({ token }) => {
+            if (token && values.loginChallenge) {
+                actions.submitLogin()
+            }
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -707,6 +853,8 @@ export const loginLogic = kea<loginLogicType>([
             if (name !== 'email') {
                 return
             }
+            // The server ties a challenge to the address that got it
+            actions.resetLoginChallenge()
             await breakpoint(PRECHECK_IDLE_DELAY_MS)
             const { email } = values.login
             if (isEmail(email, { requireTLD: true })) {
@@ -722,6 +870,7 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
+            startRadarSignalsFor(precheckResponse.radar_client_id)
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (
@@ -731,13 +880,14 @@ export const loginLogic = kea<loginLogicType>([
                 !isWebKitBrowser()
             ) {
                 const promptEmail = precheckResponse.email ?? ''
-                if (values.passkeyPromptedForEmail === promptEmail) {
-                    return
-                }
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
+                // Check after the import: a password login submitted during it also marks the email
+                if (values.passkeyPromptedForEmail === promptEmail) {
+                    return
+                }
                 // Mark only after the last breakpoint. A newer run that starts during the import cancels
                 // this one, so the email must still be unmarked when the newer run checks it.
                 actions.markPasskeyPrompted(promptEmail)
@@ -768,7 +918,13 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, message }) => {
+        '/login': (_, { error_code, error_detail, message, code_verification_pending, email }) => {
+            if (code_verification_pending) {
+                // The IdP round trip returns here with a code already emailed; continue that login.
+                actions.setCodeVerificationRequired(typeof email === 'string' ? email : '', null)
+                return
+            }
+
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})

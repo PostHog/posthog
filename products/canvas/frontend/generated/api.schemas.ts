@@ -138,6 +138,11 @@ export interface UserBasicApi {
  * A canvas document. Version/build content hangs off the source and build endpoints.
  */
 export interface CanvasApi {
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
     readonly id: string
     readonly name: string
     /** What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), or 'grid' (a composition of components).
@@ -530,6 +535,8 @@ export interface CanvasCommentEntryApi {
     content: string
     /** Whether this comment body has more content. */
     content_truncated: boolean
+    /** Byte offset where this body chunk starts. */
+    content_offset: number
     /**
      * Byte offset for the next body chunk, or null when complete.
      * @nullable

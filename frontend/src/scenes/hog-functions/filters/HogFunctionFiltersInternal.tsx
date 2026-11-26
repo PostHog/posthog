@@ -16,6 +16,7 @@ import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfi
 import {
     type FilterOption,
     getProductEventFilterOptions,
+    getProductEventPropertyTaxonomicOptions,
     getProductEventPropertyValues,
 } from './productEventFilterOptions'
 
@@ -64,6 +65,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
         [contextId]
     )
 
+    const taxonomicOptions = useMemo(() => getProductEventPropertyTaxonomicOptions(contextId), [contextId])
+
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {
             return [
@@ -81,6 +84,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'batch-export-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'signals-reports') {
+            return [TaxonomicFilterGroupType.InternalEventProperties]
         }
         return []
     }, [contextId])
@@ -113,6 +118,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 buttonSize="small"
                                 disablePopover
                                 staticValueOptions={staticValueOptions}
+                                taxonomicFilterOptionsFromProp={taxonomicOptions}
                             />
                         ) : null}
                     </>

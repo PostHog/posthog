@@ -223,7 +223,7 @@ class ResaveCohortsTool(ConsoleTool):
     key = "resave-cohorts"
     title = "Re-save cohorts"
     owner = FEATURE_FLAGS
-    group = "Data"
+    group = "Product data"
     description = (
         "Re-saves cohorts so their compiled bytecode and cohort type match the current backend logic, and re-syncs "
         "static cohorts from their source query."

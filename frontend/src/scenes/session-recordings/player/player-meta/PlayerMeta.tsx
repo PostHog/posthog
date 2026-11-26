@@ -107,19 +107,21 @@ function PlayerMetaControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Elem
     const chromeItems = usePlayerChromeMenuItems()
     const isSharing = mode === SessionRecordingPlayerMode.Sharing
 
+    const iconOnly = size === 'small'
+
     return (
-        <div className="flex items-center gap-0.5">
+        <div className="flex flex-wrap items-center justify-end gap-0.5">
             {!isSharing && sessionRecordingId && <MenuActions size={size} extraItems={chromeItems} />}
-            <SetPlaybackSpeed />
-            {withSidebar && <InspectDOM />}
+            <SetPlaybackSpeed short={iconOnly} />
+            {withSidebar && <InspectDOM iconOnly={iconOnly} />}
             {!isSharing && (
                 <>
                     <InsertInNotebookPlaylistButton size={size} />
-                    <PinToPlaylistButton />
+                    <PinToPlaylistButton iconOnly={iconOnly} />
                     <PlayerShareMenu />
                 </>
             )}
-            {withSidebar && <PlayerInspectorButton />}
+            {withSidebar && <PlayerInspectorButton iconOnly={iconOnly} />}
             {!withSidebar && <PlayerPersonMeta />}
         </div>
     )
@@ -189,33 +191,34 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div className="flex flex-row items-center justify-between gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
-                    {loading ? (
-                        <LemonSkeleton className="w-1/3 h-4 my-1" />
-                    ) : (
-                        <>
-                            <LemonSelect
-                                size="xsmall"
-                                options={windowOptions}
-                                value={trackedWindow}
-                                disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
-                                onSelect={(value) => setTrackedWindow(value)}
-                                data-attr="player-meta-window-select"
-                            />
+                <div className="flex flex-row flex-wrap items-center justify-end gap-x-1 gap-y-0.5 whitespace-nowrap px-1 py-0.5 text-xs">
+                    <div className="flex flex-1 basis-28 min-w-0 flex-row items-center gap-x-1 overflow-hidden">
+                        {loading ? (
+                            <LemonSkeleton className="w-1/3 h-4 my-1" />
+                        ) : (
+                            <>
+                                <LemonSelect
+                                    size="xsmall"
+                                    options={windowOptions}
+                                    value={trackedWindow}
+                                    disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
+                                    onSelect={(value) => setTrackedWindow(value)}
+                                    data-attr="player-meta-window-select"
+                                />
 
-                            <URLOrScreen url={currentURL} />
-                            {lastPageviewEvent?.properties?.['$screen_name'] && (
-                                <span className="flex flex-row items-center gap-x-1 truncate">
-                                    <span>·</span>
+                                <URLOrScreen url={currentURL} />
+                                {lastPageviewEvent?.properties?.['$screen_name'] && (
                                     <span className="flex flex-row items-center gap-x-1 truncate">
-                                        {lastPageviewEvent?.properties['$screen_name']}
+                                        <span>·</span>
+                                        <span className="flex flex-row items-center gap-x-1 truncate">
+                                            {lastPageviewEvent?.properties['$screen_name']}
+                                        </span>
                                     </span>
-                                </span>
-                            )}
-                        </>
-                    )}
+                                )}
+                            </>
+                        )}
+                    </div>
                     <PlayerMetaExperimentTags />
-                    <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaControls size={size} />
                 </div>
             </div>

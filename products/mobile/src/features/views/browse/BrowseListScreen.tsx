@@ -7,6 +7,7 @@ import type { BrowseRow } from '@/model/views'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { ScreenChrome } from '@/ui/ScreenChrome'
 import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
@@ -67,21 +68,27 @@ export function BrowseListScreen({ kind }: { kind: BrowseKind }): ReactElement {
     }
     return (
         <View style={styles.screen} testID={`views-browse-${kind}-screen`}>
-            {access.state !== 'ok' ? (
-                <View
-                    style={[
-                        styles.fill,
-                        { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP), paddingBottom: bottomOffset(insets, 60) },
-                    ]}
-                >
-                    <ViewsReauthState access={access} />
-                </View>
-            ) : kind === 'dashboards' ? (
-                <DashboardsList scrollTitle={scrollTitle} />
-            ) : (
-                <InsightsList scrollTitle={scrollTitle} />
-            )}
-            <ScreenChrome onBack={goBack} backTestID="views-browse-back" title={scrollTitle.title} />
+            <ScreenBlur
+                chrome={<ScreenChrome onBack={goBack} backTestID="views-browse-back" title={scrollTitle.title} />}
+            >
+                {access.state !== 'ok' ? (
+                    <View
+                        style={[
+                            styles.fill,
+                            {
+                                paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
+                                paddingBottom: bottomOffset(insets, 60),
+                            },
+                        ]}
+                    >
+                        <ViewsReauthState access={access} />
+                    </View>
+                ) : kind === 'dashboards' ? (
+                    <DashboardsList scrollTitle={scrollTitle} />
+                ) : (
+                    <InsightsList scrollTitle={scrollTitle} />
+                )}
+            </ScreenBlur>
         </View>
     )
 }

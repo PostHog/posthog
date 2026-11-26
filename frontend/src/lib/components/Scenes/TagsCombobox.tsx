@@ -18,6 +18,8 @@ import {
 const SCROLL_END_THRESHOLD_PX = 64
 
 type TagsComboboxProps = {
+    /** Id of the text input, so a field label can point at it. */
+    id?: string
     value: string[]
     onChange: (next: string[]) => void
     onOpen?: () => void
@@ -33,10 +35,14 @@ type TagsComboboxProps = {
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
+    /** Disables the input and says why in a tooltip. */
+    disabledReason?: React.ReactNode
     /** When true (default), typing a value not in options surfaces a "Create X" entry. */
     allowCustomValues?: boolean
     /** Label used in the "Create X" placeholder, e.g. "tag" → "Create new tag "foo"". */
     customValueNoun?: string
+    /** When true, leaving the input adds the typed custom value, like `LemonInputSelect` does. */
+    commitOnBlur?: boolean
     /** data-attr applied to the input */
     dataAttr?: string
     className?: string
@@ -52,6 +58,7 @@ export function TagsCombobox(props: TagsComboboxProps): JSX.Element {
 }
 
 function TagsComboboxInner({
+    id,
     value,
     onChange,
     onOpen,
@@ -66,8 +73,10 @@ function TagsComboboxInner({
     placeholder,
     autoFocus,
     disabled,
+    disabledReason,
     allowCustomValues = true,
     customValueNoun = 'tag',
+    commitOnBlur = false,
     dataAttr,
     className,
 }: TagsComboboxProps): JSX.Element {
@@ -91,6 +100,13 @@ function TagsComboboxInner({
         items.push(createSentinel)
     }
 
+    const commitTypedValue = (): void => {
+        if (commitOnBlur && showCreateItem) {
+            onChange([...value, trimmed])
+            setInputValue('')
+        }
+    }
+
     return (
         <Combobox
             multiple
@@ -112,21 +128,28 @@ function TagsComboboxInner({
                 setInputValue(v)
                 onInputChange?.(v)
             }}
-            onOpenChange={(open) => {
+            onOpenChange={(open, eventDetails) => {
                 if (open) {
                     onOpen?.()
                 } else {
+                    // A click outside clears the typed text before the input blurs, so commit it while closing.
+                    if (eventDetails.reason === 'outside-press') {
+                        commitTypedValue()
+                    }
                     onClose?.()
                 }
             }}
         >
             <TagsComboboxBody
+                id={id}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
                 disabled={disabled}
+                disabledReason={disabledReason}
                 dataAttr={dataAttr}
                 className={className}
                 createSentinel={showCreateItem ? createSentinel : null}
+                onInputBlur={commitTypedValue}
                 customValueNoun={customValueNoun}
                 trimmed={trimmed}
                 loading={loading}
@@ -140,12 +163,15 @@ function TagsComboboxInner({
 }
 
 function TagsComboboxBody({
+    id,
     placeholder,
     autoFocus,
     disabled,
+    disabledReason,
     dataAttr,
     className,
     createSentinel,
+    onInputBlur,
     customValueNoun,
     trimmed,
     loading,
@@ -154,12 +180,15 @@ function TagsComboboxBody({
     onScrollEnd,
     loadingMore,
 }: {
+    id?: string
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
+    disabledReason?: React.ReactNode
     dataAttr?: string
     className?: string
     createSentinel: string | null
+    onInputBlur?: () => void
     customValueNoun: string
     trimmed: string
     loading?: boolean
@@ -171,7 +200,7 @@ function TagsComboboxBody({
     const anchor = useComboboxAnchor()
     return (
         <>
-            <ComboboxChips ref={anchor} className={className}>
+            <ComboboxChips ref={anchor} className={className} disabledReason={disabledReason}>
                 <ComboboxValue>
                     {(values) => (
                         <>
@@ -183,10 +212,12 @@ function TagsComboboxBody({
                                     </ComboboxChip>
                                 ))}
                             <ComboboxChipsInput
+                                id={id}
                                 placeholder={placeholder}
                                 autoFocus={autoFocus}
                                 disabled={disabled}
                                 data-attr={dataAttr}
+                                onBlur={onInputBlur}
                             />
                         </>
                     )}

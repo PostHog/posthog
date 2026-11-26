@@ -18,6 +18,7 @@ from django.utils import timezone
 import structlog
 import dateutil.parser
 import posthoganalytics
+from redis.client import Pipeline
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -27,6 +28,12 @@ from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
+from posthog.quota_migration import (
+    QuotaReconciliationSnapshots,
+    reconcile_secondary_quota_sets,
+    run_secondary_quota_operation,
+    snapshot_quota_stores,
+)
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     combine_posthog_code_credits,
@@ -59,6 +66,8 @@ QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
 
 # Feature flags always get a 2-day grace period regardless of trust score
 FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
+# Far in the future because only reactivation lifts the limit, and not every deployment has a quota run to renew it.
+DEACTIVATED_ORG_FLAGS_LIMIT_DAYS = 3650
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
@@ -194,6 +203,14 @@ YESTERDAY_FINISHED_TTL = timedelta(days=2)
 # E.g. key: @posthog/quota-limits/recordings, value: {"phc_PWDYpjHUGMyJOmLhQXB4il4So2lWh1BMjgdXi9FIXYK": 1737867600}
 # E.g. key: @posthog/quota-limiting-suspended/recordings, value: {"phc_PWDYpjHUGMyJOmLhQXB4il4So2lWh1BMjgdXi9FIXYK": 1737867600}
 
+# Redis rejects a command with more than this many arguments, counting the command name and the key.
+REDIS_MAX_COMMAND_ARGUMENTS = 1024 * 1024
+
+
+def _queue_zadd(pipe: Pipeline, key: str, tokens: Mapping[str, int]) -> None:
+    for token_batch in batched(tokens.items(), (REDIS_MAX_COMMAND_ARGUMENTS - 2) // 2, strict=False):
+        pipe.zadd(key, dict(token_batch))
+
 
 def replace_limited_team_tokens(
     resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches
@@ -201,10 +218,10 @@ def replace_limited_team_tokens(
     """
     Replaces the all tokens in the cache with the new ones.
     """
+    key = f"{cache_key.value}{resource.value}"
     pipe = get_client().pipeline()
-    pipe.delete(f"{cache_key.value}{resource.value}")
-    if tokens:
-        pipe.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    pipe.delete(key)
+    _queue_zadd(pipe, key, tokens)
     pipe.execute()
 
 
@@ -213,6 +230,8 @@ def reconcile_limited_team_tokens(
     snapshot_tokens: Iterable[str],
     tokens: Mapping[str, int],
     cache_key: QuotaLimitingCaches,
+    *,
+    store_snapshots: QuotaReconciliationSnapshots | None = None,
 ) -> None:
     """
     Writes one quota run's verdict into the cache without discarding entries the run never saw.
@@ -227,13 +246,14 @@ def reconcile_limited_team_tokens(
     Expired scores are purged so entries that lapsed on their own do not accumulate.
     """
     key = f"{cache_key.value}{resource.value}"
-    stale_tokens = [token for token in snapshot_tokens if token not in tokens]
+    now = timezone.now().timestamp()
+    shared_tokens = store_snapshots.shared[key] if store_snapshots is not None else snapshot_tokens
+    stale_tokens = [token for token in shared_tokens if token not in tokens]
     pipe = get_client().pipeline()
-    pipe.zremrangebyscore(key, "-inf", timezone.now().timestamp())
-    if stale_tokens:
-        pipe.zrem(key, *stale_tokens)
-    if tokens:
-        pipe.zadd(key, tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    pipe.zremrangebyscore(key, "-inf", now)
+    for stale_batch in batched(stale_tokens, REDIS_MAX_COMMAND_ARGUMENTS - 2, strict=False):
+        pipe.zrem(key, *stale_batch)
+    _queue_zadd(pipe, key, tokens)
     pipe.execute()
 
 
@@ -242,6 +262,11 @@ def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], 
         return
     redis_client = get_client()
     redis_client.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    run_secondary_quota_operation(
+        "add",
+        lambda client: client.zadd(f"{cache_key.value}{resource.value}", tokens),  # type: ignore[arg-type]
+        resource=f"{cache_key.value}{resource.value}",
+    )
 
 
 def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache_key: QuotaLimitingCaches) -> None:
@@ -253,6 +278,8 @@ def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache
 
     redis_client = get_client()
     redis_client.zrem(f"{cache_key.value}{resource.value}", *tokens)
+    key = f"{cache_key.value}{resource.value}"
+    run_secondary_quota_operation("remove", lambda client: client.zrem(key, *tokens), resource=key)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
@@ -331,7 +358,7 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
 def team_quota_snapshot(team: Team) -> dict[str, Any]:
     """Reads Redis fresh because the legacy gateway re-caches this for minutes, and the 30s memo would
     re-poison a just-invalidated entry. A deactivated org is limited only on the gateway credit buckets,
-    which blocks AI spend without dropping events."""
+    which blocks AI spend without dropping events. Its flag limit lives in the Redis limiter, not here."""
     organization = team.organization
     org_usage = organization.usage or {}
     org_deactivated = organization.is_active is False
@@ -388,11 +415,14 @@ def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
     return is_team_over_credit_budget(team_api_token, QuotaResource.AI_CREDITS)
 
 
-def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[str]) -> dict[str, dict[str, float]]:
+def get_teams_limited_until(
+    team_api_tokens: Iterable[str], resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, dict[str, float]]:
+    """`timeout_seconds` bounds the connect and the read, for a caller that can do without the answer."""
     tokens = list(team_api_tokens)
     names = list(resources)
     now_ts = timezone.now().timestamp()
-    pipe = get_client().pipeline()
+    pipe = get_client(socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds).pipeline()
     for token in tokens:
         for name in names:
             pipe.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{name}", token)
@@ -407,8 +437,10 @@ def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[
     }
 
 
-def get_team_limited_until(team_api_token: str, resources: Iterable[str]) -> dict[str, float]:
-    return get_teams_limited_until([team_api_token], resources)[team_api_token]
+def get_team_limited_until(
+    team_api_token: str, resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, float]:
+    return get_teams_limited_until([team_api_token], resources, timeout_seconds=timeout_seconds)[team_api_token]
 
 
 _LLM_GATEWAY_PROJECTION_BATCH = 500
@@ -512,6 +544,29 @@ def _daily_usage(
     return {day: count for day, count in ((yesterday, yesterdays_count), (today.isoformat(), todays_count)) if count}
 
 
+def _deactivated_org_flags_limited_until() -> int:
+    return int((get_current_day().end + timedelta(days=DEACTIVATED_ORG_FLAGS_LIMIT_DAYS)).timestamp())
+
+
+def sync_deactivated_org_flags_limit(organization: Organization) -> None:
+    """Stops or resumes flag requests as soon as is_active changes, ahead of the next quota run.
+
+    Reactivation removes the entry instead of recalculating: a leftover deactivation entry would read
+    as an earlier billing limit and end a flag grace period. The next quota run restores a billing limit.
+    """
+    tokens = [token for token in organization.teams.values_list("api_token", flat=True) if token]
+    if organization.is_active is False:
+        add_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS,
+            dict.fromkeys(tokens, _deactivated_org_flags_limited_until()),
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+    else:
+        remove_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -521,6 +576,9 @@ def org_quota_limited_until(
     batch: QuotaUsageBatch | None = None,
 ) -> Optional[OrgQuotaLimitingInformation]:
     report_action = batch.report_action if batch is not None else report_organization_action
+    # Derived from is_active on every call and never stored in usage, so reactivation lifts the limit.
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS and organization.is_active is False:
+        return {"quota_limited_until": _deactivated_org_flags_limited_until(), "quota_limiting_suspended_until": None}
     if not organization.usage:
         return None
 
@@ -1490,7 +1548,7 @@ def _iter_quota_organizations(
         yield org_teams[0].organization, org_teams
     organizations = (
         Organization.objects.filter(id__in=offline_usage.keys() - seen)
-        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
+        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id", "is_active")
         .order_by("id")
     )
     # Buffer each page because quota updates close database connections between batches.
@@ -1684,7 +1742,15 @@ def update_all_orgs_billing_quotas(
 
     teams_iterator = iter_billable_teams(
         team_fields=("id", "api_token"),
-        organization_fields=("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id"),
+        organization_fields=(
+            "id",
+            "usage",
+            "created_at",
+            "never_drop_data",
+            "customer_trust_scores",
+            "customer_id",
+            "is_active",
+        ),
         buffer_teams=True,
     )
     total_orgs = (
@@ -1715,6 +1781,18 @@ def update_all_orgs_billing_quotas(
         )
         for resource in QuotaResource
     }
+    store_snapshots = snapshot_quota_stores(
+        {
+            **{
+                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource}": tokens
+                for resource, tokens in previously_quota_limited_team_tokens.items()
+            },
+            **{
+                f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY.value}{resource}": tokens
+                for resource, tokens in previously_quota_limiting_suspended_team_tokens.items()
+            },
+        }
+    )
     previously_quota_limited_team_token_sets = {
         field: set(tokens) for field, tokens in previously_quota_limited_team_tokens.items()
     }
@@ -1766,7 +1844,7 @@ def update_all_orgs_billing_quotas(
             str(org.id): org
             for org in retry_quota_database_operation(
                 Organization.objects.filter(id__in=refresh_candidates)
-                .only("id", "usage", "customer_trust_scores", "never_drop_data")
+                .only("id", "usage", "customer_trust_scores", "never_drop_data", "is_active")
                 .annotate(usage_md5=MD5(Cast("usage", output_field=TextField())))
                 .in_bulk
             ).values()
@@ -1796,7 +1874,7 @@ def update_all_orgs_billing_quotas(
             try:
                 if org_id in failed_org_ids:
                     continue
-                if org.usage and org.usage.get("period"):
+                if (org.usage and org.usage.get("period")) or org.is_active is False:
                     if org_id in refresh_candidates:
                         fresh = fresh_orgs.get(org_id)
                         if fresh is None:
@@ -1805,6 +1883,7 @@ def update_all_orgs_billing_quotas(
                         org.usage = fresh.usage
                         org.customer_trust_scores = fresh.customer_trust_scores
                         org.never_drop_data = fresh.never_drop_data
+                        org.is_active = fresh.is_active
                         usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
@@ -1968,6 +2047,7 @@ def update_all_orgs_billing_quotas(
 
     # A failed decision must not remove that organization's existing Redis state.
     if failed_team_tokens:
+        store_snapshots = store_snapshots.without_tokens(failed_team_tokens)
         for field in previously_quota_limited_team_tokens:
             previously_quota_limited_team_tokens[field] = [
                 token for token in previously_quota_limited_team_tokens[field] if token not in failed_team_tokens
@@ -1978,6 +2058,11 @@ def update_all_orgs_billing_quotas(
                 if token not in failed_team_tokens
             ]
 
+    # Covers every team of a deactivated org, including demo projects and internal-metrics orgs that the run above skips.
+    flag_limited_teams = quota_limited_teams[QuotaResource.FEATURE_FLAG_REQUESTS.value]
+    for token in Team.objects.filter(organization__is_active=False).values_list("api_token", flat=True):
+        flag_limited_teams.setdefault(token, _deactivated_org_flags_limited_until())
+
     if not dry_run:
         redis_start = time()
         for field in quota_limited_teams:
@@ -1986,6 +2071,7 @@ def update_all_orgs_billing_quotas(
                 previously_quota_limited_team_tokens[field],
                 quota_limited_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                store_snapshots=store_snapshots,
             )
         for field in quota_limiting_suspended_teams:
             reconcile_limited_team_tokens(
@@ -1993,6 +2079,7 @@ def update_all_orgs_billing_quotas(
                 previously_quota_limiting_suspended_team_tokens[field],
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+                store_snapshots=store_snapshots,
             )
         # Re-project every team limited before or after this run: the blob TTL is the limit's end,
         # which can move for a team that stays limited.
@@ -2010,6 +2097,21 @@ def update_all_orgs_billing_quotas(
 
         if recordings_transitioned_team_ids:
             dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
+
+        # The optional store goes last so a slow copy cannot delay any authoritative step.
+        reconcile_secondary_quota_sets(
+            store_snapshots,
+            {
+                **{
+                    f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{field}": tokens
+                    for field, tokens in quota_limited_teams.items()
+                },
+                **{
+                    f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY.value}{field}": tokens
+                    for field, tokens in quota_limiting_suspended_teams.items()
+                },
+            },
+        )
 
     # No quota reads AI overage yet, so it runs after every decision is written and cannot delay them.
     ai_overage_mb = _timed_query("ai_overage_mb", _get_ai_overage_mb_by_team, service, period)

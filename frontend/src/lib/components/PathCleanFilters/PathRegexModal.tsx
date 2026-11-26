@@ -2,12 +2,17 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import {
+    AiRegexHelperButton,
+    useAiRegexHelperIsOpen,
+} from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 
 import { PathCleaningFilter } from '~/types'
 
 import { isValidPathCleaningRegex } from './pathCleaningUtils'
+import { QuillPathRegexModal } from './QuillPathRegexModal'
 
 export interface PathRegexModalProps {
     isOpen: boolean
@@ -19,6 +24,8 @@ export interface PathRegexModalProps {
 export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexModalProps): JSX.Element {
     const [alias, setAlias] = useState(filter?.alias ?? '')
     const [regex, setRegex] = useState(filter?.regex ?? '')
+    const quillSurface = useQuillSurface()
+    const aiRegexHelperOpen = useAiRegexHelperIsOpen()
 
     const isNew = !filter
     const disabledReason = !alias
@@ -36,6 +43,37 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
             setRegex(filter?.regex ?? '')
         }
     }, [isOpen, filter])
+
+    const save = (): void => {
+        onSave({
+            alias: alias.trim(),
+            regex: regex.trim(),
+            order: filter?.order,
+        })
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillPathRegexModal
+                isOpen={isOpen}
+                isNew={isNew}
+                regex={regex}
+                alias={alias}
+                disabledReason={disabledReason}
+                onRegexChange={setRegex}
+                onAliasChange={setAlias}
+                onSave={save}
+                onClose={onClose}
+                aiRegexHelper={
+                    <>
+                        <AiRegexHelper onApply={setRegex} />
+                        <AiRegexHelperButton />
+                    </>
+                }
+                aiRegexHelperOpen={aiRegexHelperOpen}
+            />
+        )
+    }
 
     return (
         <LemonModal isOpen={isOpen} onClose={onClose}>
@@ -106,17 +144,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                             <LemonButton type="secondary" onClick={onClose}>
                                 Cancel
                             </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    onSave({
-                                        alias: alias.trim(),
-                                        regex: regex.trim(),
-                                        order: filter?.order,
-                                    })
-                                }}
-                                disabledReason={disabledReason}
-                            >
+                            <LemonButton type="primary" onClick={save} disabledReason={disabledReason}>
                                 Save
                             </LemonButton>
                         </div>

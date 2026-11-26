@@ -141,6 +141,7 @@ class TestHosts:
             ("live_management", "live", "management", "https://management-live.adyen.com/v3"),
             ("test_reports", "test", "reports", "https://ca-test.adyen.com"),
             ("live_legal_entity", "live", "legal_entity", "https://kyc-live.adyen.com/lem/v4"),
+            ("test_capital", "test", "capital", "https://balanceplatform-api-test.adyen.com/capital/v1"),
             # An unrecognised environment can never retarget the API key at another host.
             ("unknown_falls_back_to_live", "evil.example.com", "management", "https://management-live.adyen.com/v3"),
             ("none_falls_back_to_live", None, "reports", "https://ca-live.adyen.com"),
@@ -494,6 +495,138 @@ class TestFanout:
         assert rows == [{"id": "LE2", "type": "organization"}]
         assert session.requested_urls[1] == "https://kyc-test.adyen.com/lem/v4/legalEntities/LE2"
         assert manager.saved_states == [AdyenResumeConfig(parent_index=2)]
+
+    def test_grants_are_listed_per_account_holder_from_the_capital_host(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"accountHolders": [{"id": "AH1"}, {"id": "AH2"}, {"id": "AH3"}]}),
+                _FakeResponse(json_data={"grants": [{"id": "GR1"}, {"id": "GR2"}]}),
+                _FakeResponse(json_data={"grants": []}),
+                _FakeResponse(json_data={"grants": [{"id": "GR3"}, "junk"]}),
+            ]
+        )
+        manager = _FakeManager()
+
+        rows = _drain(session, "Grants", manager, balance_platform="BP123")
+
+        assert [row["id"] for row in rows] == ["GR1", "GR2", "GR3"]
+        assert session.requested_urls[1:] == [
+            f"https://balanceplatform-api-test.adyen.com/capital/v1/grants?counterpartyAccountHolderId={holder}"
+            for holder in ("AH1", "AH2", "AH3")
+        ]
+        assert manager.saved_states == [AdyenResumeConfig(parent_index=index) for index in (1, 2, 3)]
+
+
+class TestPayoutScheduleExecutions:
+    @staticmethod
+    def _executions(prefix: str, count: int) -> _FakeResponse:
+        return _FakeResponse(
+            json_data={
+                "payoutScheduleExecutions": [{"id": f"{prefix}{i}", "result": "succeeded"} for i in range(count)]
+            }
+        )
+
+    def test_walks_balance_accounts_schedule_pages_and_execution_pages(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"accountHolders": [{"id": "AH1"}]}),
+                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA1"}, {"id": "BA2"}]}),
+                # BA1: two schedule pages joined by `link.next`, and one malformed schedule id.
+                _FakeResponse(
+                    json_data={
+                        "balanceAccountPayoutSchedules": [{"id": "PS1"}, {"id": "../x"}],
+                        "link": {"next": {"href": "https://x/bcl/v2/balanceAccounts/BA1/payoutSchedules?cursor=c2"}},
+                    }
+                ),
+                self._executions("A", PAGE_SIZE),
+                self._executions("B", 1),
+                _FakeResponse(json_data={"balanceAccountPayoutSchedules": [{"id": "PS2"}], "link": {}}),
+                self._executions("C", 0),
+                # BA2 has no payout schedules.
+                _FakeResponse(json_data={"balanceAccountPayoutSchedules": [], "link": {}}),
+            ]
+        )
+        manager = _FakeManager()
+
+        rows = _drain(session, "PayoutScheduleExecutions", manager, balance_platform="BP123")
+
+        assert len(rows) == PAGE_SIZE + 1
+        assert {(row["balanceAccountId"], row["payoutScheduleId"]) for row in rows} == {("BA1", "PS1")}
+        assert [(urlparse(url).path, _query(url)) for url in session.requested_urls[2:]] == [
+            ("/bcl/v2/balanceAccounts/BA1/payoutSchedules", {"limit": ["100"]}),
+            ("/bcl/v2/balanceAccounts/BA1/payoutSchedules/PS1/executions", {"limit": ["100"], "offset": ["1"]}),
+            ("/bcl/v2/balanceAccounts/BA1/payoutSchedules/PS1/executions", {"limit": ["100"], "offset": ["2"]}),
+            ("/bcl/v2/balanceAccounts/BA1/payoutSchedules", {"limit": ["100"], "cursor": ["c2"]}),
+            ("/bcl/v2/balanceAccounts/BA1/payoutSchedules/PS2/executions", {"limit": ["100"], "offset": ["1"]}),
+            ("/bcl/v2/balanceAccounts/BA2/payoutSchedules", {"limit": ["100"]}),
+        ]
+        assert manager.saved_states == [AdyenResumeConfig(parent_index=1), AdyenResumeConfig(parent_index=2)]
+
+    def test_resume_skips_balance_accounts_already_walked(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"accountHolders": [{"id": "AH1"}]}),
+                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA1"}, {"id": "BA2"}]}),
+                _FakeResponse(json_data={"balanceAccountPayoutSchedules": [{"id": "PS9"}]}),
+                self._executions("Z", 2),
+            ]
+        )
+
+        rows = _drain(
+            session,
+            "PayoutScheduleExecutions",
+            _FakeManager(AdyenResumeConfig(parent_index=1)),
+            balance_platform="BP123",
+        )
+
+        assert [(row["balanceAccountId"], row["id"]) for row in rows] == [("BA2", "Z0"), ("BA2", "Z1")]
+        assert "/balanceAccounts/BA2/" in session.requested_urls[2]
+
+    @parameterized.expand(
+        [
+            # A schedule page that points back at its own cursor must not loop forever.
+            ("repeated_cursor", {"href": "https://x/payoutSchedules?cursor=c1"}, 1),
+            ("next_without_cursor", {"href": "https://x/payoutSchedules?limit=100"}, 0),
+        ]
+    )
+    def test_schedule_pagination_stops_without_a_new_cursor(
+        self, _name: str, next_link: dict[str, str], extra_pages: int
+    ) -> None:
+        page = _FakeResponse(json_data={"balanceAccountPayoutSchedules": [], "link": {"next": next_link}})
+        first = _FakeResponse(
+            json_data={
+                "balanceAccountPayoutSchedules": [],
+                "link": {"next": {"href": "https://x/payoutSchedules?cursor=c1"}},
+            }
+        )
+        responses = (
+            [
+                _FakeResponse(json_data={"accountHolders": [{"id": "AH1"}]}),
+                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA1"}]}),
+            ]
+            + ([first] * extra_pages)
+            + [page]
+        )
+        session = _FakeSession(responses)
+
+        assert _drain(session, "PayoutScheduleExecutions", _FakeManager(), balance_platform="BP123") == []
+        assert len(session.requested_urls) == len(responses)
+
+    def test_execution_pages_stop_at_the_page_cap(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"accountHolders": [{"id": "AH1"}]}),
+                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA1"}]}),
+                _FakeResponse(json_data={"balanceAccountPayoutSchedules": [{"id": "PS1"}]}),
+                self._executions("A", PAGE_SIZE),
+                self._executions("B", PAGE_SIZE),
+            ]
+        )
+
+        with mock.patch.object(adyen_module, "MAX_EXECUTION_PAGES", 2):
+            rows = _drain(session, "PayoutScheduleExecutions", _FakeManager(), balance_platform="BP123")
+
+        assert len(rows) == PAGE_SIZE * 2
 
 
 class TestReportBatches:

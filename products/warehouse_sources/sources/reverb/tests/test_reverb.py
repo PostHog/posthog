@@ -160,6 +160,15 @@ def _payout(payout_id: int) -> dict[str, Any]:
     }
 
 
+def _negotiation(negotiation_id: int, listing_id: int) -> dict[str, Any]:
+    return {
+        "id": negotiation_id,
+        "state": "active",
+        "created_at": "2026-02-03T09:00:00-06:00",
+        "_links": {"listing": {"href": f"https://api.reverb.com/api/listings/{listing_id}"}},
+    }
+
+
 class TestReverbSourceRows:
     @parameterized.expand(
         [
@@ -223,6 +232,75 @@ class TestReverbSourceRows:
                         "id": 44,
                     }
                 ],
+            ),
+            (
+                "negotiations_one_row_per_offer_across_listing_pages",
+                "Negotiations",
+                {
+                    "/my/listings/negotiations": [
+                        ScriptedResponse(
+                            json={
+                                "listings": [
+                                    {"id": 501, "negotiations": [_negotiation(9001, 501), _negotiation(9002, 501)]},
+                                    {"id": 502, "negotiations": []},
+                                ],
+                                "current_page": 1,
+                                "total_pages": 2,
+                            }
+                        ),
+                        ScriptedResponse(
+                            json={
+                                "listings": [{"id": 503, "negotiations": [_negotiation(9003, 503)]}],
+                                "current_page": 2,
+                                "total_pages": 2,
+                            }
+                        ),
+                    ],
+                },
+                [
+                    {**_negotiation(9001, 501), "listing_id": 501},
+                    {**_negotiation(9002, 501), "listing_id": 501},
+                    {**_negotiation(9003, 503), "listing_id": 503},
+                ],
+            ),
+            (
+                "conversations_get_id_from_self_link",
+                "Conversations",
+                {
+                    "/my/conversations": [
+                        _response(
+                            "conversations",
+                            [
+                                {
+                                    "read": False,
+                                    "_links": {"self": {"href": "https://api.reverb.com/api/my/conversations/77"}},
+                                }
+                            ],
+                            total_pages=1,
+                        )
+                    ],
+                },
+                [
+                    {
+                        "read": False,
+                        "_links": {"self": {"href": "https://api.reverb.com/api/my/conversations/77"}},
+                        "id": 77,
+                    }
+                ],
+            ),
+            (
+                "received_feedback_get_id_from_self_link",
+                "ReceivedFeedback",
+                {
+                    "/my/feedback/received": [
+                        _response(
+                            "feedbacks",
+                            [{"rating": 4, "_links": {"self": {"href": "https://api.reverb.com/api/feedback/615"}}}],
+                            total_pages=1,
+                        )
+                    ],
+                },
+                [{"rating": 4, "_links": {"self": {"href": "https://api.reverb.com/api/feedback/615"}}, "id": 615}],
             ),
         ]
     )

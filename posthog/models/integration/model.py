@@ -224,6 +224,7 @@ class Integration(models.Model):
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
+        MOTHERDUCK = "motherduck"
         PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
@@ -274,6 +275,10 @@ class Integration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     created_by_id: int | None
+
+    # A BEFORE UPDATE trigger (migration 1456) sets this from the old row. It goes up by 1 when a
+    # content column changes, so writes that skip save() count too. A value set in Python is ignored.
+    row_version = models.BigIntegerField(default=0, db_default=0, editable=False)
 
     # Django's default manager, because it is declared first. Admin widgets, DRF relation fields,
     # `validate_constraints` and `get_object_or_404` read through it, so it must see every row. After
@@ -372,6 +377,8 @@ class Integration(models.Model):
             auth_type = self.config.get("authentication_type", "password")
             account = self.config.get("account")
             return f"{name} (account: {account}, {auth_type} auth)"
+        if self.kind == Integration.IntegrationKind.MOTHERDUCK:
+            return self.integration_id or "unknown ID"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":

@@ -31,6 +31,7 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
+from products.engineering_analytics.backend.logic.bots import KNOWN_BOT_HANDLES
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries._test_spans import PYTEST_CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
@@ -44,7 +45,6 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
-from products.engineering_analytics.backend.logic.views.pull_requests import KNOWN_BOT_HANDLES
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENT_STATUSES_COLUMNS,
     DEPLOYMENTS_COLUMNS,
@@ -769,7 +769,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-product-analytics",
+        "team-analytics",
         "posthog/hogql_queries/insights/trends/test",
         [
             ("TestTrendsQueryRunner", "test_interval_boundary_timezone", 3, 2),
@@ -816,7 +816,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-web-analytics",
+        "team-analytics",
         "products/web_analytics/backend/test",
         [
             ("TestWebOverview", "test_preaggregated_table_parity", 2, 2),

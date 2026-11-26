@@ -73,15 +73,20 @@ export function rankingProbability(ranking: Ranking, outcome: string, isStaff: b
     return typeof probability === 'number' ? probability : null
 }
 
+/** A stale score predates the last edit to the title or summary, and still counts like a current one. */
+function hasRankingScore(ranking: SignalReport['ranking']): ranking is Ranking {
+    return ranking?.status === 'scored' || ranking?.status === 'stale'
+}
+
 export interface RankingPillLifts {
     open: number | null
     action: number | null
     fix: number | null
 }
 
-/** The lifts the Recommended pill shows, or null when the report has no current score to show. */
+/** The lifts the Recommended pill shows, or null when the report has no score to show. */
 export function rankingPillLifts(report: SignalReport): RankingPillLifts | null {
-    if (report.ranking?.status !== 'scored') {
+    if (!hasRankingScore(report.ranking)) {
         return null
     }
     const lift = (outcome: string): number | null => {
@@ -92,9 +97,9 @@ export function rankingPillLifts(report: SignalReport): RankingPillLifts | null 
     return lifts.open === null && lifts.action === null && lifts.fix === null ? null : lifts
 }
 
-/** The served probability a model sort orders by, or null when the report has no score for that outcome or the score is stale. */
+/** The served probability a model sort orders by, or null when the report has no score for that outcome. */
 export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
-    if (report.ranking?.status !== 'scored') {
+    if (!hasRankingScore(report.ranking)) {
         return null
     }
     const probability = rankingPrediction(report.ranking, rankingScoreForField(field).outcome)?.probability
@@ -102,7 +107,7 @@ export function rankingSortScore(report: SignalReport, field: InboxRankingSortFi
 }
 
 /**
- * The comparator of the Recommended and Personalized sorts. The server gives each row a merge key that follows the ranker's
+ * The comparator of the Recommended sort. The server gives each row a merge key that follows the ranker's
  * order, so rows from several responses merge in one order. Rows with equal keys keep their input order.
  * A row without a key sorts last.
  */

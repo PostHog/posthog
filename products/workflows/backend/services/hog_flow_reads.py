@@ -433,11 +433,19 @@ def _to_workflow(
 # by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
 # tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
 # workflows page asks for everything except the ones that moved out.
-WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast", "transactional_email")
+WORKFLOW_TYPES: Final[tuple[str, ...]] = (
+    "messaging",
+    "automation",
+    "loop",
+    "broadcast",
+    "transactional_email",
+    "transactional_push",
+)
 OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
     "loop": HogFlow.OriginProduct.LOOPS,
     "broadcast": HogFlow.OriginProduct.BROADCASTS,
     "transactional_email": HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
+    "transactional_push": HogFlow.OriginProduct.TRANSACTIONAL_PUSH,
 }
 HIDDEN_ORIGIN_PRODUCTS: Final[tuple[str, ...]] = (HogFlow.OriginProduct.TRANSACTIONAL_EMAIL_KEYS,)
 
@@ -589,7 +597,7 @@ def get_workflow_replay_targets(team_ids: list[int], workflow_ids: list[str]) ->
                 status=flow.status,
                 template_ids=tuple(sorted({c["template_id"] for c in configs if c.get("template_id")})),
                 sends_sensitive_email=any(
-                    action.get("type") == "function_email" and config.get("sensitive") is True
+                    action.get("type") in ("function_email", "function_push") and config.get("sensitive") is True
                     for action, config in zip(actions, configs)
                 ),
             )

@@ -93,7 +93,6 @@ class TestSuggestRetentionRuleName:
         with self._patched_client("Keep api logs for 30 days") as mock_client:
             assert self._suggest(retention_days=30) == "Keep api logs for 30 days"
         mock_client.assert_called_once_with(
-            "django",
             ai_product="logs",
             properties={"ai_feature": "retention-rule-name-suggestion", "team_id": "1"},
             distinct_id="user-1",

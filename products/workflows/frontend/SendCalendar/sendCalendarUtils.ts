@@ -11,7 +11,7 @@ import type {
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { audienceCohortIds, isCohortInclusion } from '../Broadcasts/audience/audienceList'
+import { audienceCohortIds, isCohortInclusion, withCohortExclusionOperator } from '../Broadcasts/audience/audienceList'
 import { manageDisabledReason } from '../Broadcasts/broadcastLifecycle'
 import {
     fakeUtcToReal,
@@ -84,7 +84,7 @@ export function audienceFromProperties(properties: AnyPropertyFilter[], accounts
     // An excluded cohort says nothing about who else the audience reaches, so it counts like any other filter.
     return {
         cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
-        filters: properties.filter((filter) => !isCohortInclusion(filter)),
+        filters: properties.filter((filter) => !isCohortInclusion(filter)).map(withCohortExclusionOperator),
         accounts,
         address: null,
     }

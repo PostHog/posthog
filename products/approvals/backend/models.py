@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -38,10 +39,12 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     resource_type = models.CharField(max_length=64)
     resource_id = models.CharField(max_length=128, null=True, blank=True)
 
-    intent = models.JSONField()
-    intent_display = models.JSONField()
+    # Writers pass a serializer's `validated_data`, which holds native objects such as a `datetime` that psycopg
+    # cannot dump. The encoder renders them as the ISO strings that the apply path parses again.
+    intent = models.JSONField(encoder=DjangoJSONEncoder)
+    intent_display = models.JSONField(encoder=DjangoJSONEncoder)
 
-    policy_snapshot = models.JSONField()
+    policy_snapshot = models.JSONField(encoder=DjangoJSONEncoder)
 
     # Which product owned the resource when this request was created. Re-derived at apply and
     # refused on a mismatch, so an approval binds to the ownership the approvers reviewed.

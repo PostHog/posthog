@@ -1,5 +1,6 @@
 """Core project settings serializers and field definitions."""
 
+from collections.abc import Callable
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
@@ -8,24 +9,29 @@ from rest_framework import serializers
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.property import validate_group_type_index
+from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
 
+from products.access_control.backend.facade.api import organization_role_names
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
     InvalidPinnedAccountProperties,
     validate_pinned_account_properties,
+    validate_pinned_account_property_lists,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.feature_flags.backend.facade.request_blocklist import (
-    MAX_BLOCKED_HOSTS,
-    MAX_BLOCKED_IPS,
-    MAX_BLOCKLIST_INPUT_ENTRIES,
-    MIN_BLOCKED_IPV4_PREFIX,
-    MIN_BLOCKED_IPV6_PREFIX,
-    BlocklistEntryError,
-    normalize_blocked_hosts,
-    normalize_blocked_ips,
+from products.feature_flags.backend.facade.request_lists import (
+    MAX_LISTED_HOSTS,
+    MAX_LISTED_IPS,
+    MAX_REQUEST_LIST_INPUT_ENTRIES,
+    MIN_LISTED_IPV4_PREFIX,
+    MIN_LISTED_IPV6_PREFIX,
+    RequestListEntryError,
+    normalize_allowed_hosts,
+    normalize_listed_hosts,
+    normalize_listed_ips,
 )
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.replay_vision.backend.facade.workflow_scan_limits import (
@@ -70,8 +76,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "extra_settings",
-            "secret_api_token",
-            "secret_api_token_backup",
             "session_recording_opt_in",
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
@@ -378,6 +382,15 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    email_workflow_run_link_tag_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether tracked links in emails this project sends get a ph_workflow_run parameter with "
+            "the send's run ID. When the landing page runs posthog-js, the parameter links each click "
+            "to the session it starts. Links with click tracking turned off never get it. On by default."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
@@ -385,6 +398,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "email_utm_tags_enabled",
             "email_utm_params",
+            "email_workflow_run_link_tag_enabled",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
             "replay_vision_scan_rate_limit_per_day",
@@ -463,6 +477,9 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         return attrs
 
 
+REQUEST_ALLOWLIST_FEATURE_FLAG = "feature-flag-request-allowlist"
+
+
 class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     require_tags = serializers.BooleanField(
         required=False,
@@ -475,45 +492,108 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
     )
 
     # allow_blank lets a client send a list split from pasted lines, because the normalizers drop blank entries.
-    # The normalizers own the MAX_BLOCKED_* caps, because they count entries after dropping blanks and duplicates.
+    # The normalizers own the MAX_LISTED_* caps, because they count entries after dropping blanks and duplicates.
     blocked_hosts = serializers.ListField(
         child=serializers.CharField(max_length=2000, allow_blank=True),
-        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"Domains to block from feature flag requests (/flags and /decide), up to {MAX_BLOCKED_HOSTS}. "
-            "A domain also covers its subdomains. It is compared with the Origin header, or with the Referer "
-            "header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is "
-            "reduced to its domain, and an internationalized domain is stored as punycode."
+            f"Domains to block from /flags requests, up to {MAX_LISTED_HOSTS}. A domain also covers its subdomains. "
+            "It is compared with the Origin header, or with Referer when Origin is missing or names no domain."
         ),
     )
     blocked_ips = serializers.ListField(
         child=serializers.CharField(max_length=2000, allow_blank=True),
-        max_length=MAX_BLOCKLIST_INPUT_ENTRIES,
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
         required=False,
         help_text=(
-            f"IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), "
-            f"up to {MAX_BLOCKED_IPS}. Ranges can be /{MIN_BLOCKED_IPV4_PREFIX} or narrower for IPv4 and "
-            f"/{MIN_BLOCKED_IPV6_PREFIX} or narrower for IPv6. Entries are stored in canonical form without "
-            "duplicates, and an IPv4-mapped IPv6 address is stored as IPv4."
+            f"IP addresses or CIDR ranges to block from /flags requests, up to {MAX_LISTED_IPS}. The widest ranges "
+            f"are /{MIN_LISTED_IPV4_PREFIX} for IPv4 and /{MIN_LISTED_IPV6_PREFIX} for IPv6."
+        ),
+    )
+    allowed_hosts = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"Domains allowed to make /flags requests, up to {MAX_LISTED_HOSTS}. When not empty, pages whose domain "
+            "is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from "
+            "server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains "
+            "such as vercel.app are rejected. A blocked domain wins."
+        ),
+    )
+    allowed_ips = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"IP addresses or CIDR ranges allowed to make /flags requests, up to {MAX_LISTED_IPS}. When not empty, "
+            "every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse "
+            "proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. "
+            "Entries follow the same rules as blocked_ips. A blocked address wins."
         ),
     )
 
     class Meta:
         model = TeamFeatureFlagPolicyConfig
-        fields = ["require_tags", "blocked_hosts", "blocked_ips"]
+        fields = ["require_tags", "blocked_hosts", "blocked_ips", "allowed_hosts", "allowed_ips"]
+
+    @staticmethod
+    def _normalize(normalizer: Callable[[list[str]], list[str]], value: list[str]) -> list[str]:
+        try:
+            return normalizer(value)
+        except RequestListEntryError as error:
+            raise serializers.ValidationError(str(error))
 
     def validate_blocked_hosts(self, value: list[str]) -> list[str]:
-        try:
-            return normalize_blocked_hosts(value)
-        except BlocklistEntryError as error:
-            raise serializers.ValidationError(str(error))
+        return self._normalize(normalize_listed_hosts, value)
 
     def validate_blocked_ips(self, value: list[str]) -> list[str]:
-        try:
-            return normalize_blocked_ips(value)
-        except BlocklistEntryError as error:
-            raise serializers.ValidationError(str(error))
+        return self._normalize(normalize_listed_ips, value)
+
+    def validate_allowed_hosts(self, value: list[str]) -> list[str]:
+        return self._normalize(normalize_allowed_hosts, value)
+
+    def validate_allowed_ips(self, value: list[str]) -> list[str]:
+        return self._normalize(normalize_listed_ips, value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        # Only the pass nested under the team or project serializer checks the flag. The reruns have no
+        # parent and write data that pass already checked.
+        if self.parent:
+            self._refuse_new_allowed_entries_without_flag(attrs)
+        return attrs
+
+    def _refuse_new_allowed_entries_without_flag(self, attrs: dict[str, Any]) -> None:
+        lists = {field: set(attrs[field]) for field in ("allowed_hosts", "allowed_ips") if attrs.get(field)}
+        if not lists:
+            return
+        instance = self.root.instance
+        team = getattr(instance, "passthrough_team", instance)
+        # The flags service enforces saved entries whatever the flag says, so a project can always remove some.
+        saved = TeamFeatureFlagPolicyConfig.objects.filter(team_id=team.pk).first() if team else None
+        added = [field for field, entries in lists.items() if entries - set(getattr(saved, field, []))]
+        if added and not self._allowlist_enabled(team):
+            raise serializers.ValidationError(
+                dict.fromkeys(
+                    added,
+                    "Allowed domains and IP addresses aren't available for this project yet. "
+                    "You can only remove saved entries.",
+                )
+            )
+
+    def _allowlist_enabled(self, team: Team | None) -> bool:
+        user = self.context["request"].user
+        if team is None or not isinstance(user, User):
+            return False
+        return posthog_feature_flag_enabled(
+            REQUEST_ALLOWLIST_FEATURE_FLAG,
+            str(user.distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            person_properties={"email": user.email},
+        )
 
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
@@ -534,6 +614,18 @@ class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serialize
 
     class Meta:
         ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
+
+
+class TeamCustomerAnalyticsRoleDefaultPinnedPropertiesSerializer(serializers.Serializer):
+    role_id = serializers.UUIDField(help_text="Organization role whose members inherit these properties.")
+    pinned_properties = TeamCustomerAnalyticsPinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        help_text="Ordered account properties shown to members of this role.",
+    )
+
+    class Meta:
+        ref_name = "TeamCustomerAnalyticsRoleDefaultPinnedProperties"
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -563,6 +655,16 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "Pass an empty list to show no properties by default."
         ),
     )
+    role_default_pinned_properties = TeamCustomerAnalyticsRoleDefaultPinnedPropertiesSerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text=(
+            "Default pinned account properties per organization role. A user who has not saved a personal "
+            "selection sees the merged defaults of every role they belong to, ordered by role name, instead "
+            "of default_pinned_properties. Replaces every role's defaults on write."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -574,6 +676,7 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "payment_event",
             "account_group_type_index",
             "default_pinned_properties",
+            "role_default_pinned_properties",
         ]
 
     def update(
@@ -603,3 +706,35 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
         except InvalidPinnedAccountProperties as error:
             raise serializers.ValidationError(error.errors)
         return [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties]
+
+    def validate_role_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.instance is None:
+            return value
+        role_ids = [entry["role_id"] for entry in value]
+        if len(set(role_ids)) != len(role_ids):
+            raise serializers.ValidationError("Each role can appear only once.")
+        organization_id = self.instance.team.organization_id
+        known_role_ids = organization_role_names(organization_id=organization_id, role_ids=role_ids).keys()
+        if unknown_role_ids := [str(role_id) for role_id in role_ids if role_id not in known_role_ids]:
+            raise serializers.ValidationError(f"Roles not found in this organization: {', '.join(unknown_role_ids)}.")
+        try:
+            validated_lists = validate_pinned_account_property_lists(
+                team_id=self.instance.team_id,
+                pinned_property_lists=[
+                    [
+                        PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                        for reference in entry["pinned_properties"]
+                    ]
+                    for entry in value
+                ],
+            )
+        except InvalidPinnedAccountProperties as error:
+            raise serializers.ValidationError(error.errors)
+        return [
+            {
+                "role_id": str(entry["role_id"]),
+                "pinned_properties": [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties],
+            }
+            for entry, pinned_properties in zip(value, validated_lists)
+            if pinned_properties
+        ]

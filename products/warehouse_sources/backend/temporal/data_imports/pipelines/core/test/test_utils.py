@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    pyarrow_schema_from_arrow_exportable,
     raise_on_nullability_drift,
     reconcile_batch_to_accumulated_schema,
     relax_batch_nullability,
@@ -2020,6 +2021,40 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
     assert excinfo.value.column_name is None
     assert excinfo.value.stored_type is None
     assert excinfo.value.incoming_type is None
+
+
+@pytest.mark.parametrize(
+    "column_type,expected_type",
+    [
+        (pa.uuid(), pa.binary()),
+        (pa.struct([pa.field("id", pa.uuid())]), pa.struct([pa.field("id", pa.binary())])),
+        (pa.list_(pa.struct([pa.field("id", pa.uuid())])), pa.list_(pa.struct([pa.field("id", pa.binary())]))),
+        (
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.uuid())])),
+            pa.map_(pa.string(), pa.struct([pa.field("id", pa.binary())])),
+        ),
+    ],
+)
+def test_pyarrow_schema_from_arrow_exportable_recovers_from_stale_uuid_extension(
+    column_type: pa.DataType, expected_type: pa.DataType
+) -> None:
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", column_type, metadata={"source": "test"}), pa.field("name", pa.string())])
+    )
+
+    schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+
+    assert schema.field("id").type == expected_type
+    assert schema.field("id").metadata == {b"source": b"test"}
+    assert schema.field("name").type == pa.string()
+
+
+def test_pyarrow_schema_from_arrow_exportable_reraises_unrelated_errors():
+    not_a_delta_schema = MagicMock(spec=["__arrow_c_schema__"])
+    not_a_delta_schema.__arrow_c_schema__.side_effect = pa.ArrowInvalid("some other arrow problem")
+
+    with pytest.raises(pa.ArrowInvalid, match="some other arrow problem"):
+        pyarrow_schema_from_arrow_exportable(not_a_delta_schema)
 
 
 @pytest.mark.parametrize(

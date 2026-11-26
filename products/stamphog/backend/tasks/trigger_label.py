@@ -11,7 +11,6 @@ from django.db import router
 import structlog
 from celery import shared_task
 
-from products.stamphog.backend.facade.enums import ReviewMode
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import StamphogRepoConfig
 
@@ -23,13 +22,13 @@ TRIGGER_LABEL_DESCRIPTION = "Ask Stamphog to review this pull request"
 
 @shared_task(ignore_result=True)
 def create_trigger_label(team_id: int, config_id: str) -> None:
-    """Create the trigger label of an enabled label-mode repository, if GitHub lets the app do it."""
+    """Create the trigger label of an enabled repository, if GitHub lets the app do it. Both modes act on it."""
     # Writer pin: the task runs right after the commit that enabled the row, and a lagged replica
     # can still show it disabled or missing.
     config = (
         StamphogRepoConfig.objects.for_team(team_id)
         .using(router.db_for_write(StamphogRepoConfig))
-        .filter(id=config_id, enabled=True, review_mode=ReviewMode.LABEL)
+        .filter(id=config_id, enabled=True)
         .exclude(installation_id="")
         .first()
     )

@@ -1,9 +1,11 @@
 import json
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.core.exceptions import ValidationError
 
 from slack_sdk.errors import SlackApiError
@@ -11,6 +13,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
 
+from products.signals.backend.facade.api import set_sources
 from products.slack_app.backend.logic.feature_tips.state import get_state
 from products.slack_app.backend.logic.onboarding import dispatch
 from products.slack_app.backend.logic.onboarding.card import (
@@ -25,7 +28,12 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
 )
 from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
 from products.slack_app.backend.logic.onboarding.tools_step import ToolsStep
-from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import (
+    ChannelWelcomeMode,
+    SlackSettings,
+    SlackThreadTaskMapping,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services.slack_settings import (
     onboarding_status_label,
     reset_onboarding,
@@ -149,6 +157,46 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
         "slack app onboarding started",
         "slack app onboarding step shown",
     ]
+    assert capture.call_args_list[0].kwargs["planned_steps"] == ["link_account", "model", "replies_in_threads"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "earlier_thread_offset, expected_intro",
+    [
+        (None, "I'm PostHog, your team's AI agent in Slack"),
+        (-timedelta(days=30), "thanks for working with me in Slack"),
+        (timedelta(minutes=1), "I'm PostHog, your team's AI agent in Slack"),
+    ],
+)
+def test_intro_skips_the_pitch_for_someone_who_mentioned_the_agent_before_the_start(
+    org_team_user, slack_client: MagicMock, earlier_thread_offset: timedelta | None, expected_intro: str
+) -> None:
+    _, team, _ = org_team_user
+    integration = _install(team)
+    update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, start=True)
+    if earlier_thread_offset is not None:
+        state = resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID)
+        assert state is not None and state.started_at is not None
+        started_at = datetime.fromisoformat(state.started_at)
+        task = apps.get_model("tasks", "Task").objects.create(team=team, title="t")
+        task_run = apps.get_model("tasks", "TaskRun").objects.create(team=team, task=task)
+        mapping = SlackThreadTaskMapping.objects.create(
+            team=team,
+            integration_id=integration.id,
+            slack_workspace_id=SLACK_TEAM_ID,
+            channel="C1",
+            thread_ts="1.1",
+            task=task,
+            task_run=task_run,
+            mentioning_slack_user_id=SLACK_USER_ID,
+        )
+        SlackThreadTaskMapping.objects.filter(id=mapping.id).update(created_at=started_at + earlier_thread_offset)
+
+    _refresh(integration)
+
+    root = _posts(slack_client)[0]
+    assert expected_intro in all_block_text(root["blocks"])
 
 
 @pytest.mark.django_db
@@ -496,6 +544,7 @@ def test_an_org_admin_who_links_later_gets_ai_consent_at_the_end(
         ("sources", True, False, None),
         ("sources_no_access", True, False, NO_PROJECT_ACCESS_TEXT),
         ("continue", True, True, None),
+        ("continue_done", True, True, None),
     ],
 )
 def test_workspace_step_clicks(
@@ -514,6 +563,8 @@ def test_workspace_step_clicks(
         OrganizationMembership.objects.filter(user=user, organization=org).update(organization=other_org)
     link_user(user)
     integration = _install(team, scope=ADMIN_SCOPES)
+    if action == "continue_done":
+        set_sources(team.id, user.id, ["error_tracking"])
     if action.startswith("sources"):
         payload = _click(integration, "slack_onboarding:sources")
         payload["actions"] = [
@@ -524,17 +575,18 @@ def test_workspace_step_clicks(
             }
         ]
     else:
-        payload = _click(integration, f"slack_onboarding:{action.removesuffix('_fails')}", step="sources")
+        action_id = action.removesuffix("_fails").removesuffix("_done")
+        payload = _click(integration, f"slack_onboarding:{action_id}", step="sources")
 
     with (
         patch(f"{CLICKS}.request_onboarding") as refresh,
         patch(f"{CLICKS}.post_response_url") as reply,
         patch(f"{CLICKS}.capture_slack_event"),
-        patch(f"{STEP}.capture_slack_event"),
+        patch(f"{STEP}.capture_slack_event") as capture_completed,
         patch(f"{AI_STEP}.start_work_focus") as work_focus,
         patch(f"{INBOX_STEP}.ensure_inbox_channel", return_value=("C_INBOX", "#posthog-inbox")),
         patch(f"{INBOX_STEP}.invite_user_to_inbox", return_value=action != "inbox_join_fails") as invite,
-        patch("products.signals.backend.facade.api.set_sources") as set_sources,
+        patch("products.signals.backend.facade.api.set_sources") as set_sources_mock,
     ):
         handle_onboarding_action(payload)
 
@@ -549,9 +601,14 @@ def test_workspace_step_clicks(
         invite.assert_called_once_with(integration, "C_INBOX", SLACK_USER_ID)
         assert "inbox_channel" in get_state(SLACK_TEAM_ID, SLACK_USER_ID).used
     if action == "sources":
-        set_sources.assert_called_once_with(team.id, user.id, ["session_replay"])
+        set_sources_mock.assert_called_once_with(team.id, user.id, ["session_replay"])
     if action == "sources_no_access":
-        set_sources.assert_not_called()
+        set_sources_mock.assert_not_called()
+    completed = [(c.args[1], c.kwargs["step"], c.kwargs.get("sources")) for c in capture_completed.call_args_list]
     if action == "continue":
         # Continue with no signal ticked closes the step, so the thread moves on.
         assert _skipped() == ("sources",)
+        assert completed == []
+    if action == "continue_done":
+        assert _skipped() == ()
+        assert completed == [("slack app onboarding step completed", "sources", ["error_tracking"])]

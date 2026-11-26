@@ -197,7 +197,6 @@ organizationFeatureFlags organizations/{}/feature_flags/{}
 organizationMember organizations/{}/members/{}
 organizationMemberScopedApiKeys organizations/{}/members/{}/scoped_api_keys
 organizationMembers organizations/{}/members
-organizationOAuthApplications organizations/{}/oauth_applications
 person projects/{}/persons/{}
 personActivity projects/{}/persons/activity
 personActivity projects/{}/persons/{}/activity

@@ -1,7 +1,6 @@
 import "reflect-metadata";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { archiveModule } from "@posthog/core/archive/archive.module";
 import {
   ARCHIVE_CLIENT,
@@ -795,14 +794,12 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
         url,
         init,
       ),
-    messagesUrl: (apiHost: string) =>
-      `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
 // The Go gateway sends no CORS headers and the web host has no loopback
-// proxy, so helper prompts stay on the legacy gateway here.
+// proxy, so helper prompts are unavailable here.
 container
   .bind(GATEWAY_TOKEN_HOST)
   .toConstantValue({ goEnabled: false, override: null });
@@ -854,10 +851,10 @@ container
   .toConstantValue(createWebSpeechUserName(queryClient));
 container.bind(SPEECH_NOTIFY_SETTINGS).toConstantValue(webSpeechNotifySettings);
 
-// ── Inbox: resolve the default cloud-run model from the LLM gateway ──
+// ── Inbox: resolve the default cloud-run model from the model catalog ──
 // Host capability consumed by UI hooks (canvas/home/inbox) that create cloud
 // runs. Same logic as desktop-services.ts, over the web host router's
-// getPreviewConfigOptions (backed by the CORS-open gateway, web-agent-config.ts).
+// getPreviewConfigOptions (backed by Django's tasks/models, web-agent-config.ts).
 const reportModelResolverLog = scoped("report-model-resolver");
 container.bind(REPORT_MODEL_RESOLVER).toConstantValue({
   async resolveDefaultModel(

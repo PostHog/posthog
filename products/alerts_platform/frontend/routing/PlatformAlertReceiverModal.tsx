@@ -1,26 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { RECEIVER_TYPE_OPTIONS, keepsStoredUrl } from './platformAlertRoutingFormat'
+import { IncidentIoReceiverFields } from './IncidentIoReceiverFields'
+import { PagerDutyReceiverFields } from './PagerDutyReceiverFields'
+import { INCIDENT_HANDOFF_NOTICE, RECEIVER_TYPE_OPTIONS } from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
+import { SlackReceiverFields } from './SlackReceiverFields'
+import { WebhookReceiverFields } from './WebhookReceiverFields'
 
 export function PlatformAlertReceiverModal(): JSX.Element {
-    const {
-        receiverModalOpen,
-        editingReceiver,
-        receiverForm,
-        isReceiverFormSubmitting,
-        slackIntegration,
-        slackIntegrations,
-        integrationsLoading,
-    } = useValues(platformAlertRoutingLogic)
-    const { closeReceiverModal, submitReceiverForm, setReceiverFormValue } = useActions(platformAlertRoutingLogic)
-    const keepsUrl = keepsStoredUrl(receiverForm, editingReceiver)
+    const { receiverModalOpen, editingReceiver, receiverForm, isReceiverFormSubmitting } =
+        useValues(platformAlertRoutingLogic)
+    const { closeReceiverModal, submitReceiverForm } = useActions(platformAlertRoutingLogic)
 
     return (
         <LemonModal
@@ -50,6 +45,8 @@ export function PlatformAlertReceiverModal(): JSX.Element {
                 enableFormOnSubmit
                 className="flex flex-col gap-4"
             >
+                {/* A new receiver has no routes yet, so saving it moves no firing alert. */}
+                {editingReceiver ? <LemonBanner type="info">{INCIDENT_HANDOFF_NOTICE}</LemonBanner> : null}
                 <LemonField name="name" label="Name">
                     <LemonInput placeholder="Infra on-call" data-attr="platform-alert-receiver-name" />
                 </LemonField>
@@ -57,56 +54,13 @@ export function PlatformAlertReceiverModal(): JSX.Element {
                     <LemonSelect options={RECEIVER_TYPE_OPTIONS} fullWidth data-attr="platform-alert-receiver-type" />
                 </LemonField>
                 {receiverForm.type === 'slack' ? (
-                    integrationsLoading ? (
-                        <Spinner />
-                    ) : slackIntegration ? (
-                        <>
-                            {slackIntegrations && slackIntegrations.length > 1 ? (
-                                <LemonField name="slackWorkspaceId" label="Workspace">
-                                    {({ onChange }) => (
-                                        <LemonSelect
-                                            fullWidth
-                                            value={slackIntegration.id}
-                                            options={slackIntegrations.map((integration) => ({
-                                                value: integration.id,
-                                                label: integration.display_name,
-                                            }))}
-                                            onChange={(workspaceId) => {
-                                                onChange(workspaceId)
-                                                // A channel ID belongs to one workspace.
-                                                setReceiverFormValue('slackChannel', null)
-                                            }}
-                                            data-attr="platform-alert-receiver-slack-workspace"
-                                        />
-                                    )}
-                                </LemonField>
-                            ) : null}
-                            <LemonField name="slackChannel" label="Channel">
-                                {({ value, onChange }) => (
-                                    <SlackChannelPicker
-                                        integration={slackIntegration}
-                                        value={value ?? undefined}
-                                        onChange={onChange}
-                                    />
-                                )}
-                            </LemonField>
-                        </>
-                    ) : (
-                        <SlackNotConfiguredBanner />
-                    )
+                    <SlackReceiverFields />
+                ) : receiverForm.type === 'pagerduty' ? (
+                    <PagerDutyReceiverFields />
+                ) : receiverForm.type === 'incident_io' ? (
+                    <IncidentIoReceiverFields />
                 ) : (
-                    <LemonField
-                        name="webhookUrl"
-                        label="Webhook URL"
-                        help={keepsUrl ? 'Leave blank to keep the current URL.' : undefined}
-                    >
-                        <LemonInput
-                            // The URL's path carries the provider's secret, so copied text is not captured.
-                            className="ph-no-capture"
-                            placeholder={keepsUrl ? editingReceiver?.webhook_url : 'https://example.com/webhook'}
-                            data-attr="platform-alert-receiver-webhook-url"
-                        />
-                    </LemonField>
+                    <WebhookReceiverFields />
                 )}
             </Form>
         </LemonModal>

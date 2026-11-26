@@ -7,10 +7,14 @@ MAX_PAGE_ROWS = 100
 MAX_BACKLINK_ROWS = 1000
 MAX_KEYWORD_ROWS = 1000
 MAX_REFDOMAIN_ROWS = 1000
+MAX_TOP_PAGE_ROWS = 1000
 # Matches the largest Rank Tracker plan's tracked keyword allowance; the endpoint is free.
 MAX_RANK_TRACKER_ROWS = 10000
 # History rows cost API units and plans cap how far back history goes, so a first sync reads a bounded window.
 HISTORY_DAYS = 180
+# Mentions history keeps one date cursor for every report and platform series, so each sync re-reads
+# this window to pick up days that one platform published after the others.
+BRAND_RADAR_HISTORY_LOOKBACK_DAYS = 30
 # Link intersect requests accept at most 20 competitors.
 MAX_COMPETITORS = 20
 MAX_WEB_PAGE_ROWS = 1000
@@ -74,6 +78,30 @@ REFDOMAIN_FIELDS = (
     "positions_source_domain",
     "first_seen",
     "last_seen",
+)
+
+TOP_PAGE_FIELDS = (
+    "url",
+    "top_keyword",
+    "top_keyword_country",
+    "top_keyword_best_position",
+    "sum_traffic",
+    "value",
+    "keywords",
+    "referring_domains",
+    "ur",
+)
+
+# Brand Radar models that answer Ahrefs prompts. Claude answers custom prompts only, and the
+# *_keywords models report keyword visibility rather than prompt mentions.
+BRAND_RADAR_DATA_SOURCES = (
+    "chatgpt",
+    "google_ai_overviews",
+    "google_ai_mode",
+    "gemini",
+    "perplexity",
+    "copilot",
+    "grok",
 )
 
 RANK_TRACKER_FIELDS = (
@@ -146,7 +174,7 @@ class EndpointSettings(TypedDict):
     # POST reports take their parameters as a JSON body instead of the query string.
     body: NotRequired[dict[str, Any]]
     # Reports that need more inputs than the project's target, or more than one request.
-    kind: NotRequired[Literal["link_intersect", "brand_radar", "top_domains"]]
+    kind: NotRequired[Literal["link_intersect", "brand_radar", "brand_radar_history", "top_domains"]]
     # Snapshot reports require the report date; each sync reads today's state.
     snapshot_date: NotRequired[bool]
     # Rank Tracker reports one device per request, so the table reads each and tags rows with it.
@@ -284,6 +312,18 @@ ENDPOINTS: dict[str, EndpointSettings] = {
         ),
         "kind": "brand_radar",
     },
+    "brand_radar_mentions_history": {
+        "path": "brand-radar/mentions-history",
+        "data_selector": "metrics",
+        "primary_keys": ["project_id", "report_id", "data_source", "date"],
+        "params": {},
+        "description": (
+            "Estimated mentions over time of the brands in each Brand Radar report linked to the "
+            "selected project, for each AI search platform."
+        ),
+        "history": True,
+        "kind": "brand_radar_history",
+    },
     "domain_rating_top_domains": {
         "path": "public/domain-rating-top-domains",
         "data_selector": "domains",
@@ -325,6 +365,22 @@ ENDPOINTS: dict[str, EndpointSettings] = {
         ),
         "target_params": ["target", "mode", "protocol"],
     },
+    "top_pages": {
+        "path": "site-explorer/top-pages",
+        "data_selector": "pages",
+        "primary_keys": ["project_id", "url"],
+        "params": {
+            "select": ",".join(TOP_PAGE_FIELDS),
+            "limit": MAX_TOP_PAGE_ROWS,
+            "order_by": "sum_traffic:desc",
+        },
+        "description": (
+            f"Up to {MAX_TOP_PAGE_ROWS} pages of the selected project's target that get the most organic "
+            "search traffic, highest traffic first."
+        ),
+        "target_params": ["target", "mode", "protocol"],
+        "snapshot_date": True,
+    },
     "rank_tracker_overview": {
         "path": "rank-tracker/overview",
         "data_selector": "overviews",
@@ -358,6 +414,12 @@ QUOTA_RETRY_ERROR = (
 PROJECT_NOT_FOUND_ERROR = (
     "Ahrefs returned no target for the Site Audit project. Check the project ID and that the project has a target URL."
 )
+# project_id is the only documented parameter for this endpoint, so a 400 here isn't a malformed
+# request on our side — it means Ahrefs can't serve issues for this project (e.g. no completed crawl).
+ISSUES_BAD_REQUEST_ERROR = (
+    "Ahrefs rejected the Site Audit issues request for this project. Check that the project has a "
+    "completed crawl in Ahrefs Site Audit."
+)
 
 NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     "ahrefs_invalid_api_key": AUTH_ERROR,
@@ -365,6 +427,7 @@ NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     "ahrefs_project_not_found": PROJECT_NOT_FOUND_ERROR,
     "401 Client Error": AUTH_ERROR,
     "403 Client Error": ACCESS_ERROR,
+    "Bad Request for url: https://api.ahrefs.com/v3/site-audit/issues?output=json&project_id=": ISSUES_BAD_REQUEST_ERROR,
 }
 
 RETRYABLE_QUOTA_ERRORS: frozenset[str] = frozenset({"ahrefs_quota_exceeded", "402 Client Error"})

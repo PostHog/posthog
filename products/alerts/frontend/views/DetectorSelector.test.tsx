@@ -50,7 +50,7 @@ describe('DetectorSelector', () => {
         [
             'turning off spikes keeps only the drop rule',
             () => fireEvent.click(screen.getByText('Fire on spikes')),
-            { type: 'forecast', below: { quantile: 0.05 } },
+            { type: 'forecast', below: { quantile: 0.01 } },
         ],
         [
             'a minimum change in percent is stored as a fraction',
@@ -58,7 +58,7 @@ describe('DetectorSelector', () => {
                 fireEvent.change(screen.getByLabelText('Minimum change above expected, in percent'), {
                     target: { value: '20' },
                 }),
-            { type: 'forecast', above: { quantile: 0.95, min_relative_change: 0.2 }, below: { quantile: 0.05 } },
+            { type: 'forecast', above: { quantile: 0.99, min_relative_change: 0.2 }, below: { quantile: 0.01 } },
         ],
     ])('forecast rule: %s', (_, act, expected) => {
         const onChange = jest.fn()

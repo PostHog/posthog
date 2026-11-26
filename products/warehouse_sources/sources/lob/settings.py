@@ -32,6 +32,10 @@ class LobEndpointConfig:
     # Most Lob lists page with a `next_url` cursor; a few only accept `offset`, and `/uploads` returns
     # every row in a single bare array.
     pagination: Literal["cursor", "offset", "none"] = "cursor"
+    # Fan-out child endpoints: `path` holds a `{parent_id}` placeholder that is filled from each row of
+    # the `parent` endpoint, and `parent_id_field` stamps that id onto every child row.
+    parent: Optional[str] = None
+    parent_id_field: Optional[str] = None
 
 
 LOB_ENDPOINTS: dict[str, LobEndpointConfig] = {
@@ -45,6 +49,18 @@ LOB_ENDPOINTS: dict[str, LobEndpointConfig] = {
     "postcards": LobEndpointConfig(
         name="postcards",
         path="/postcards",
+        supports_incremental=True,
+        incremental_fields=[DATE_CREATED_INCREMENTAL_FIELD],
+    ),
+    "snap_packs": LobEndpointConfig(
+        name="snap_packs",
+        path="/snap_packs",
+        supports_incremental=True,
+        incremental_fields=[DATE_CREATED_INCREMENTAL_FIELD],
+    ),
+    "booklets": LobEndpointConfig(
+        name="booklets",
+        path="/booklets",
         supports_incremental=True,
         incremental_fields=[DATE_CREATED_INCREMENTAL_FIELD],
     ),
@@ -83,6 +99,24 @@ LOB_ENDPOINTS: dict[str, LobEndpointConfig] = {
         path="/qr_code_analytics",
         primary_keys=["resource_id"],
         pagination="offset",
+    ),
+    # Cards only accept the `before`/`after` cursor, with no sort or date filter.
+    "cards": LobEndpointConfig(name="cards", path="/cards"),
+    "card_orders": LobEndpointConfig(
+        name="card_orders",
+        path="/cards/{parent_id}/orders",
+        primary_keys=["card_id", "id"],
+        pagination="offset",
+        parent="cards",
+        parent_id_field="card_id",
+    ),
+    # Version rows carry no template id, so the parent id is stamped on as `template_id`.
+    "template_versions": LobEndpointConfig(
+        name="template_versions",
+        path="/templates/{parent_id}/versions",
+        primary_keys=["template_id", "id"],
+        parent="templates",
+        parent_id_field="template_id",
     ),
     # Uploads use camelCase fields, unlike the rest of the Lob API.
     "uploads": LobEndpointConfig(name="uploads", path="/uploads", partition_key="dateCreated", pagination="none"),

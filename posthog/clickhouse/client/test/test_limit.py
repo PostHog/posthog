@@ -2,6 +2,7 @@ import uuid
 import asyncio
 from collections.abc import Callable
 from dataclasses import replace
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -9,16 +10,26 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
     ConcurrencySlot,
+    QueueWait,
     RateLimit,
     get_api_team_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
-from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import (
+    Product,
+    QueryTags,
+    get_query_tag_value,
+    query_tags,
+    reset_query_tags,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 
 
@@ -45,7 +56,8 @@ class TestRateLimit(SimpleTestCase):
                 self.limit.release(slot)
 
     def test_rate_limit(self):
-        args, kwargs = (), {"is_api": True, "team_id": 7, "task_id": 17}
+        args: tuple = ()
+        kwargs: dict[str, Any] = {"is_api": True, "team_id": 7, "task_id": 17}
 
         self.cancels.append(self.limit.use(*args, **kwargs))
 
@@ -284,7 +296,13 @@ class TestRateLimit(SimpleTestCase):
 
         assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
 
-    @parameterized.expand([(get_api_team_rate_limiter, 0.1005), (get_materialized_endpoints_rate_limiter, 0.134)])
+    @parameterized.expand(
+        [
+            (get_api_team_rate_limiter, 0.1005),
+            (get_materialized_endpoints_rate_limiter, 0.134),
+            (get_app_telemetry_queries_rate_limiter, 0.075),
+        ]
+    )
     def test_factory_retry_policy(self, factory: Callable[[], RateLimit], expected_wait: float) -> None:
         time_helper = TimeHelper()
         limiter = replace(factory(), get_time=time_helper.get_time, sleep=time_helper.sleep, allow_team_bypass=False)
@@ -294,6 +312,92 @@ class TestRateLimit(SimpleTestCase):
             slot = limiter.use(task_id="waiting")
         self.assertIsNotNone(slot)
         self.assertAlmostEqual(sum(time_helper.sleep_times), expected_wait)
+
+    def _full_limiter(self) -> tuple[RateLimit, ConcurrencySlot, "TimeHelper"]:
+        name = f"queue-wait-test:{uuid.uuid4()}"
+        limiter = RateLimit(
+            max_concurrency=1,
+            applicable=lambda *args, **kwargs: True,
+            limit_name="queue_wait_test",
+            get_task_name=lambda *args, **kwargs: name,
+            get_task_id=lambda *args, **kwargs: f"task-{kwargs['task_id']}",
+            ttl=60,
+        )
+        time_helper = TimeHelper()
+        limiter.get_time = time_helper.get_time
+        limiter.sleep = time_helper.sleep
+        slot = limiter.use(task_id=1, team_id=5)
+        assert slot is not None
+        self.addCleanup(limiter.release, slot)
+        return limiter, slot, time_helper
+
+    def _queue_wait_count(self, result: str) -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "posthog_clickhouse_query_concurrency_queue_wait_total",
+                {"limit_name": "queue_wait_test", "result": result},
+            )
+            or 0.0
+        )
+
+    def test_full_limiter_without_queue_wait_rejects_at_once(self) -> None:
+        limiter, _, time_helper = self._full_limiter()
+        waited_before = self._queue_wait_count("waited")
+
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            limiter.use(task_id=2, team_id=5)
+
+        assert time_helper.sleep_times == []
+        assert self._queue_wait_count("waited") == waited_before
+
+    def test_queue_wait_admits_when_a_slot_frees(self) -> None:
+        limiter, slot, time_helper = self._full_limiter()
+
+        def free_slot_on_second_poll(_: float) -> None:
+            if len(time_helper.sleep_times) == 2:
+                limiter.release(slot)
+
+        time_helper.on_sleep = free_slot_on_second_poll
+        admitted_before = self._queue_wait_count("waited_then_admitted")
+        queue_wait = QueueWait()
+
+        reset_query_tags()
+        waiting_slot = limiter.use(task_id=2, team_id=5, queue_wait=queue_wait)
+        assert waiting_slot is not None
+        self.addCleanup(limiter.release, waiting_slot)
+
+        assert len(time_helper.sleep_times) == 2
+        assert get_query_tag_value("queue_wait_ms") == int(1000 * queue_wait.waited) > 0
+        assert self._queue_wait_count("waited_then_admitted") == admitted_before + 1
+        assert limiter.redis_client.zcard(f"{slot.running_tasks_key}:waiters:5") == 0
+
+    @parameterized.expand([("fresh_budget", 0.0), ("budget_partly_spent_on_another_limiter", 7.5)])
+    def test_queue_wait_rejects_once_the_budget_runs_out(self, _name: str, already_waited: float) -> None:
+        limiter, slot, time_helper = self._full_limiter()
+        rejected_before = self._queue_wait_count("waited_then_rejected")
+        queue_wait = QueueWait(waited=already_waited)
+
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            limiter.use(task_id=2, team_id=5, queue_wait=queue_wait)
+
+        remaining = 10.0 - already_waited
+        assert remaining - 0.01 < sum(time_helper.sleep_times) <= remaining
+        assert 10.0 - 0.01 < queue_wait.waited < 10.0 + 0.01
+        assert self._queue_wait_count("waited_then_rejected") == rejected_before + 1
+        assert limiter.redis_client.zcard(f"{slot.running_tasks_key}:waiters:5") == 0
+
+    def test_queue_wait_rejects_at_once_when_the_team_has_too_many_waiters(self) -> None:
+        limiter, slot, time_helper = self._full_limiter()
+        waiters_key = f"{slot.running_tasks_key}:waiters:5"
+        limiter.redis_client.zadd(waiters_key, {"waiter-a": 1e12, "waiter-b": 1e12})
+        self.addCleanup(limiter.redis_client.delete, waiters_key)
+        capped_before = self._queue_wait_count("waiter_cap_rejected")
+
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            limiter.use(task_id=2, team_id=5, queue_wait=QueueWait())
+
+        assert time_helper.sleep_times == []
+        assert self._queue_wait_count("waiter_cap_rejected") == capped_before + 1
 
 
 class TimeHelper:

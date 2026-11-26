@@ -1155,25 +1155,21 @@ describe("PostHogAPIClient", () => {
     expect(request.body).toBe(JSON.stringify({}));
   });
 
-  it("builds cloud task config from the authenticated gateway catalog", async () => {
+  it("builds cloud task config from the Django model catalog", async () => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: [
+          models: [
             {
-              id: "claude-opus-4-8",
-              owned_by: "anthropic",
-              context_window: 200000,
-              supports_streaming: true,
-              supports_vision: true,
+              runtime_adapter: "claude",
+              model: "claude-opus-4-8",
+              context_window: 1000000,
               allowed: true,
             },
             {
-              id: "claude-fable-5",
-              owned_by: "anthropic",
-              context_window: 200000,
-              supports_streaming: true,
-              supports_vision: true,
+              runtime_adapter: "claude",
+              model: "claude-fable-5",
+              context_window: 1000000,
               allowed: false,
             },
           ],
@@ -1192,14 +1188,9 @@ describe("PostHogAPIClient", () => {
     const options = await client.getCloudTaskConfigOptions("claude");
 
     expect(fetch).toHaveBeenCalledWith(
-      new URL("https://gateway.eu.posthog.com/posthog_code/v1/models"),
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.any(Headers),
-      }),
+      new URL("https://eu.posthog.com/api/projects/123/tasks/models/"),
+      expect.objectContaining({ method: "GET" }),
     );
-    const requestHeaders = fetch.mock.calls[0]?.[1]?.headers as Headers;
-    expect(requestHeaders.get("X-PostHog-Project-Id")).toBe("123");
     expect(options.find((option) => option.category === "model")).toMatchObject(
       {
         currentValue: "claude-opus-4-8",
@@ -2346,24 +2337,6 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getSignalReport", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = {
-        baseUrl: "http://localhost:8000",
-        fetcher: { fetch },
-      };
-      return client;
-    }
-
     it("returns the parsed report on success", async () => {
       const fetch = vi.fn().mockResolvedValue({
         json: async () => ({ id: "abc", title: "hi" }),
@@ -2512,25 +2485,41 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  describe("clearTaskRunConversation", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = {
-        baseUrl: "http://localhost:8000",
-        fetcher: { fetch },
-      };
-      return client;
-    }
+  function makeClient(fetch: ReturnType<typeof vi.fn>) {
+    const client = new PostHogAPIClient(
+      "http://localhost:8000",
+      async () => "token",
+      async () => "token",
+      123,
+    );
+    (
+      client as unknown as {
+        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+      }
+    ).api = {
+      baseUrl: "http://localhost:8000",
+      fetcher: { fetch },
+    };
+    return client;
+  }
 
+  describe("heartbeatTaskRun", () => {
+    it("posts to the run's heartbeat endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue(undefined);
+      const client = makeClient(fetch);
+
+      await client.heartbeatTaskRun("task-1", "run-1");
+
+      const path = "/api/projects/123/tasks/task-1/runs/run-1/heartbeat/";
+      expect(fetch).toHaveBeenCalledWith({
+        method: "post",
+        url: new URL(`http://localhost:8000${path}`),
+        path,
+      });
+    });
+  });
+
+  describe("clearTaskRunConversation", () => {
     it("surfaces the backend's clean error message", async () => {
       const fetch = vi
         .fn()
@@ -2740,24 +2729,6 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getSignalReportArtefacts", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = {
-        baseUrl: "http://localhost:8000",
-        fetcher: { fetch },
-      };
-      return client;
-    }
-
     // One row per backend ArtefactType (products/signals/backend/models.py),
     // content shapes mirroring artefact_schemas.py / real API payloads.
     const ROWS = [

@@ -16,6 +16,8 @@ Reference: https://docs.mem0.ai/api-reference
 - ``organizations``: GET /api/v1/orgs/organizations/ — a bare array, no pagination.
 - ``projects``: GET /api/v1/orgs/organizations/{org_id}/projects/ — a bare array per organization,
   fanned out over the organizations listing.
+- ``organization_members``: GET /api/v1/orgs/organizations/{org_id}/members/ — a ``{"members": [...]}``
+  object per organization, fanned out over the organizations listing.
 """
 
 from dataclasses import dataclass, field
@@ -40,6 +42,7 @@ EVENTS_ENDPOINT = "events"
 MEMORY_HISTORY_ENDPOINT = "memory_history"
 ORGANIZATIONS_ENDPOINT = "organizations"
 PROJECTS_ENDPOINT = "projects"
+ORGANIZATION_MEMBERS_ENDPOINT = "organization_members"
 
 
 def _datetime_incremental_fields(*names: str) -> list[IncrementalField]:
@@ -112,6 +115,13 @@ MEM0_ENDPOINTS: dict[str, Mem0EndpointConfig] = {
         method="GET",
         # Project rows carry no org id, so the fan-out adds it and the key includes it.
         primary_keys=["org_id", "project_id"],
+    ),
+    ORGANIZATION_MEMBERS_ENDPOINT: Mem0EndpointConfig(
+        name=ORGANIZATION_MEMBERS_ENDPOINT,
+        path="/api/v1/orgs/organizations/{org_id}/members/",
+        method="GET",
+        # A user can belong to several organizations, so the fan-out adds the org id to the key.
+        primary_keys=["org_id", "user_id"],
     ),
 }
 

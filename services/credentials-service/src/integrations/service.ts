@@ -78,6 +78,8 @@ export interface IntegrationsDeps {
 export interface Caller {
     auth: IntegrationAuth
     actor: AuditActor
+    /** The access time on every audit row of the request, so the rows of one request share it. */
+    requestedAt: Date
 }
 
 export interface RecordPage {
@@ -979,6 +981,7 @@ export class IntegrationsService {
     ): AuditEntry {
         return {
             actor: caller.actor,
+            occurredAt: caller.requestedAt,
             operation,
             outcome,
             ownerType: row.ownerType,

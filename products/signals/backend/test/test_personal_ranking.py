@@ -20,7 +20,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
-from openai import APITimeoutError, BadRequestError, omit
+from openai import APITimeoutError, BadRequestError, RateLimitError, omit
 from parameterized import parameterized
 
 from posthog.models import OrganizationMembership, Team, User
@@ -65,18 +65,18 @@ from products.signals.backend.personal_ranking.logic import (
     input_parts,
 )
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
-from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
+from products.signals.backend.personal_ranking.validation import MalformedRankingError, cap, validate_ranking
 from products.signals.backend.personal_ranking_tasks import (
     build_lock_key,
     build_personal_inbox_ranking,
     start_first_summary_build,
 )
-from products.signals.backend.ranking.inbox_sort import PERSONAL_RECOMMENDED_FLAG, RECOMMENDED_INBOX_SORT_FLAG
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
 REFS = ["c1", "c2", "c3", "c4"]
 MODEL_REASONS = {ref: f"model {ref}" for ref in REFS}
 LIMITS = ReasonLimits(top=40, worth_a_look=30, later=20)
+WEB_USER_AGENT = "Mozilla/5.0"
 
 
 def _entry(
@@ -218,9 +218,22 @@ class TestValidateRanking(SimpleTestCase):
             ("c4", "later", "model"),
         ]
         assert result.counts.tier_corrections == 2
+        assert result.counts.reasons_cut == 1
         assert result.entries[0].reason == "r" * 19 + "…"
         assert [entry.next_step for entry in result.entries] == ["open the PR…", "look", None, None]
         assert result.entries[3].reason == "model c4"
+
+    @parameterized.expand(
+        [
+            ("fits", "Near your flag work", "Near your flag work", 20),
+            ("mid_word", "Breaks the checkout funnel", "Breaks the…"),
+            ("at_a_space", "Breaks the checkout funnel", "Breaks the checkout…", 20),
+            ("after_punctuation", "Checkout, funnel and flags", "Checkout…"),
+            ("one_long_word", "r" * 30, "r" * 14 + "…"),
+        ]
+    )
+    def test_cap_cuts_at_a_word_boundary(self, _name: str, text: str, expected: str, limit: int = 15) -> None:
+        assert cap(text, limit) == expected
 
     @parameterized.expand(
         [
@@ -371,14 +384,20 @@ def _scored(probability: float) -> ReportPredictions:
 
 
 class TestInputParts(SimpleTestCase):
-    def test_input_hash_keeps_its_value(self) -> None:
+    @parameterized.expand(
+        [
+            ("defaults", CONFIG),
+            ("service_tiers", dataclasses.replace(CONFIG, service_tier="flex", on_demand_service_tier="priority")),
+        ]
+    )
+    def test_input_hash_keeps_its_value(self, _name: str, config: PersonalRankingConfig) -> None:
         candidates = [_candidate(1, _IDS[0]), _candidate(2, _IDS[1], predictions=None, needs_you=())]
 
         assert (
             input_hash(
-                candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
+                candidates, config=config, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
             )
-            == "9fd317c4f9be057d443190b2b97bc2608552333a6e816da77c07db2867b275e1"
+            == "34299ea407bb3601fd5abdd5c88116119623ffd109700d92185083ad840f7dfd"
         )
 
     @parameterized.expand(
@@ -536,10 +555,21 @@ class TestPrompt(SimpleTestCase):
         assert "p" * 100 in message and "p" * 101 not in message
         assert "- Checkout (mode build, strength strong, last seen 2026-10-29)" in message
 
-    def test_system_prompt_states_the_tier_and_reason_caps(self) -> None:
+    @parameterized.expand(
+        [
+            ("without_inbox_activity", 0, "the focus and this candidate's own block", False),
+            ("with_inbox_activity", 20, "the focus, the recent inbox activity and this candidate's own block", True),
+        ]
+    )
+    def test_system_prompt_states_the_tier_and_reason_rules(
+        self, _name: str, inbox_activity_lines: int, reason_sources: str, has_working_now_rule: bool
+    ) -> None:
         prompt = system_prompt(
             PersonalRankingConfig(
-                top_max=3, worth_a_look_max=7, reason_limits=ReasonLimits(top=90, worth_a_look=60, later=30)
+                top_max=3,
+                worth_a_look_max=7,
+                reason_limits=ReasonLimits(top=90, worth_a_look=60, later=30),
+                inbox_activity_lines=inbox_activity_lines,
             ),
             limit=25,
         )
@@ -547,6 +577,10 @@ class TestPrompt(SimpleTestCase):
         assert '"top" for at most 3 reports' in prompt
         assert '"worth_a_look" for at most 7 other' in prompt
         assert 'At most 90 characters for "top", 60 for "worth_a_look", 30 for "later".' in prompt
+        assert f"Use only facts from the person block, {reason_sources}." in prompt
+        assert ("A report they are working on now moves up" in prompt) == has_working_now_rule
+        # The reason rules forbid claims, so no example reason may cite one.
+        assert "you claimed" not in prompt
 
 
 class TestConfig(SimpleTestCase):
@@ -614,6 +648,16 @@ class TestConfig(SimpleTestCase):
             ),
             ("reasoning_effort", {"reasoning_effort": "high"}, PersonalRankingConfig(reasoning_effort="high")),
             ("invalid_reasoning_effort", {"reasoning_effort": "max"}, PersonalRankingConfig()),
+            (
+                "service_tiers",
+                {"service_tier": "flex", "on_demand_service_tier": "priority"},
+                PersonalRankingConfig(service_tier="flex", on_demand_service_tier="priority"),
+            ),
+            (
+                "invalid_service_tiers",
+                {"service_tier": "Flex", "on_demand_service_tier": 1},
+                PersonalRankingConfig(),
+            ),
             ("tick_without_enabled_stays_off", {"tick": {"organization_ids": ["org"]}}, PersonalRankingConfig()),
             (
                 "tick_drops_invalid_values_and_caps_large_ones",
@@ -629,6 +673,8 @@ class TestConfig(SimpleTestCase):
                         "max_org_share": 2,
                         "overdue_after_minutes": -1,
                         "time_budget_share": 2,
+                        "precheck_hours": 1000,
+                        "precheck_sample_share": 2,
                     },
                     "max_builds_per_day": 100_000,
                 },
@@ -641,6 +687,7 @@ class TestConfig(SimpleTestCase):
                         max_pairs_per_tick=2000,
                         max_concurrency=100,
                         time_budget_share=0.85,
+                        precheck_hours=48,
                     ),
                 ),
             ),
@@ -648,7 +695,13 @@ class TestConfig(SimpleTestCase):
                 "enabled_tick_raises_freshness_and_overdue_age_and_leaves_a_shared_reserve",
                 {
                     "max_builds_per_day": 100,
-                    "tick": {"enabled": True, "target_interval_minutes": 180, "max_tick_builds_per_day": 100},
+                    "tick": {
+                        "enabled": True,
+                        "target_interval_minutes": 180,
+                        "max_tick_builds_per_day": 100,
+                        "precheck_hours": 24,
+                        "precheck_sample_share": 0,
+                    },
                 },
                 PersonalRankingConfig(
                     max_builds_per_day=100,
@@ -658,6 +711,8 @@ class TestConfig(SimpleTestCase):
                         target_interval_minutes=180,
                         overdue_after_minutes=360,
                         max_tick_builds_per_day=80,
+                        precheck_hours=24,
+                        precheck_sample_share=0.0,
                     ),
                 ),
             ),
@@ -678,6 +733,7 @@ class TestConfig(SimpleTestCase):
                             "model": "gpt-luna",
                             "reasoning_effort": "medium",
                             "timeout_seconds": 500,
+                            "service_tier": "flex",
                         },
                     ],
                 },
@@ -691,6 +747,7 @@ class TestConfig(SimpleTestCase):
                             model="gpt-luna",
                             reasoning_effort="medium",
                             timeout_seconds=120.0,
+                            service_tier="flex",
                         ),
                     ),
                 ),
@@ -757,6 +814,11 @@ class TestConfig(SimpleTestCase):
                 PersonalRankingConfig(),
             ),
             (
+                "model_arm_with_an_invalid_service_tier",
+                {"model_arms": [{"name": "terra", "percentage": 5, "model": "gpt-terra", "service_tier": "cheap"}]},
+                PersonalRankingConfig(),
+            ),
+            (
                 "model_arms_with_an_invalid_salt",
                 {"model_arms_salt": 7, "model_arms": [{"name": "terra", "percentage": 5, "model": "gpt-terra"}]},
                 PersonalRankingConfig(),
@@ -804,10 +866,19 @@ class TestConfig(SimpleTestCase):
         assert config_for_user(config, default_user).model == "gpt-base"
 
 
-def _response(content: str | None, finish_reason: str = "stop") -> SimpleNamespace:
+def _response(content: str | None, finish_reason: str = "stop", service_tier: str | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         usage=SimpleNamespace(prompt_tokens=1000, completion_tokens=200),
         choices=[SimpleNamespace(finish_reason=finish_reason, message=SimpleNamespace(content=content))],
+        service_tier=service_tier,
+    )
+
+
+def _api_error(error_class: type[BadRequestError] | type[RateLimitError], message: str, status: int) -> Exception:
+    return error_class(
+        message,
+        response=httpx.Response(status, request=httpx.Request("POST", "https://example.com")),
+        body=None,
     )
 
 
@@ -831,10 +902,6 @@ class TestBuildPersonalRanking(BaseTest):
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
                 MagicMock(return_value={}),
-            ),
-            (
-                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag",
-                MagicMock(return_value="action_pills"),
             ),
         ):
             patcher = patch(target, value)
@@ -956,6 +1023,15 @@ class TestBuildPersonalRanking(BaseTest):
         assert (event["properties"]["personalized"], event["properties"]["model_called"]) == (True, True)
         assert event["properties"]["model_arm"] == "default"
         assert event["properties"]["tier_counts"] == {"top": 0, "worth_a_look": 2, "later": 1}
+        assert [needs_you[entry["report_id"]] for entry in row.result["ranked"]] == [
+            ("waiting_on_input",),
+            ("suggested_reviewer",),
+            ("claimed",),
+        ]
+        assert (event["properties"]["needs_you_candidate_count"], event["properties"]["needs_you_leading_count"]) == (
+            2,
+            1,
+        )
         assert event["properties"]["report_ids"] == [
             *(entry["report_id"] for entry in row.result["ranked"]),
             *(fold["report_id"] for fold in row.result["folded"]),
@@ -1026,22 +1102,121 @@ class TestBuildPersonalRanking(BaseTest):
         )
         assert PersonalInboxRanking.objects.for_team(self.team.id).get().model == "gpt-terra"
 
-    def test_a_model_that_rejects_reasoning_effort_gets_calls_without_it(self) -> None:
+    @parameterized.expand(
+        [
+            ("reasoning_effort", ["low", omit, omit], ["flex", "flex", "flex"]),
+            ("service_tier", ["low", "low", "low"], ["flex", omit, omit]),
+        ]
+    )
+    def test_a_model_that_rejects_a_parameter_gets_calls_without_it(
+        self, parameter: str, efforts: list[Any], tiers: list[Any]
+    ) -> None:
         self._setup_reports()
-        rejection = BadRequestError(
-            "Unsupported parameter: 'reasoning_effort'",
-            response=httpx.Response(400, request=httpx.Request("POST", "https://example.com")),
-            body=None,
-        )
         answer = _response(_answer([_entry("c1", 1)]))
-        self.create.side_effect = [rejection, answer, answer]
+        self.create.side_effect = [
+            _api_error(BadRequestError, f"Unsupported parameter: '{parameter}'", 400),
+            answer,
+            answer,
+        ]
+        config = PersonalRankingConfig(on_demand_service_tier="flex")
 
-        with patch("products.signals.backend.personal_ranking.logic._REJECTED_REASONING_EFFORTS", set()):
-            first = self._build(dry_run=True)
-            second = self._build(dry_run=True)
+        with (
+            patch("products.signals.backend.personal_ranking.logic._REJECTED_REASONING_EFFORTS", set()),
+            patch("products.signals.backend.personal_ranking.logic._REJECTED_SERVICE_TIERS", set()),
+        ):
+            first = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
+            second = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
 
         assert (first.status, second.status) == ("ok", "ok")
-        assert [call.kwargs["reasoning_effort"] for call in self.create.call_args_list] == ["low", omit, omit]
+        assert [call.kwargs["reasoning_effort"] for call in self.create.call_args_list] == efforts
+        assert [call.kwargs["service_tier"] for call in self.create.call_args_list] == tiers
+
+    @parameterized.expand(
+        [
+            ("tick_takes_the_background_tier", {}, "tick", "flex"),
+            ("first_summary_takes_the_background_tier", {}, "first_summary", "flex"),
+            ("inbox_load_takes_the_background_tier", {}, "inbox_load", "flex"),
+            ("on_demand_takes_its_own_tier", {"on_demand_service_tier": "priority"}, "on_demand", "priority"),
+            ("on_demand_without_its_own_tier_sends_none", {}, "on_demand", None),
+            (
+                "an_arm_replaces_the_background_tier",
+                {
+                    "model_arms": [
+                        {"name": "standard", "percentage": 100, "model": "gpt-terra", "service_tier": "default"}
+                    ]
+                },
+                "tick",
+                "default",
+            ),
+            (
+                "an_arm_leaves_the_on_demand_tier_alone",
+                {
+                    "model_arms": [
+                        {"name": "standard", "percentage": 100, "model": "gpt-terra", "service_tier": "default"}
+                    ]
+                },
+                "on_demand",
+                None,
+            ),
+        ]
+    )
+    def test_the_trigger_picks_the_service_tier(
+        self, _name: str, payload: dict[str, Any], trigger: Any, expected: str | None
+    ) -> None:
+        self._setup_reports()
+        self.create.return_value = _response(_answer([_entry("c1", 1)]), service_tier=expected or "default")
+
+        build_personal_ranking(
+            self.team, self.user, config=parse_config({"service_tier": "flex", **payload}), trigger=trigger
+        )
+
+        assert self.create.call_args.kwargs["service_tier"] == (expected or omit)
+        assert self.build_client.call_args.kwargs["properties"].get("requested_service_tier") == expected
+        properties = self.capture.call_args.kwargs["properties"]
+        assert (
+            properties["service_tier"],
+            properties["served_service_tier"],
+            properties["service_tier_fallback"],
+        ) == (expected, expected or "default", False)
+
+    @parameterized.expand(
+        [
+            ("capacity_refusal_retries_on_the_default_tier", "capacity", 90, "ok", None, ["flex", omit]),
+            ("capacity_refusal_with_too_little_time_left", "capacity", 10, "fallback", "llm_error", ["flex"]),
+            ("timeout_stays_a_timeout", "timeout", 90, "fallback", "timeout", ["flex"]),
+        ]
+    )
+    def test_a_failed_flex_call(
+        self,
+        _name: str,
+        failure: str,
+        timeout_seconds: int,
+        status: str,
+        fallback_reason: str | None,
+        tiers: list[Any],
+    ) -> None:
+        self._setup_reports()
+        error = (
+            _api_error(RateLimitError, "Resource unavailable", 429)
+            if failure == "capacity"
+            else APITimeoutError(request=httpx.Request("POST", "https://example.com"))
+        )
+        self.create.side_effect = [error, _response(_answer([_entry("c1", 1)]), service_tier="default")]
+
+        build = build_personal_ranking(
+            self.team,
+            self.user,
+            config=parse_config({"service_tier": "flex", "timeout_seconds": timeout_seconds}),
+            trigger="tick",
+        )
+
+        assert (build.status, build.fallback_reason) == (status, fallback_reason)
+        assert [call.kwargs["service_tier"] for call in self.create.call_args_list] == tiers
+        retried = len(tiers) == 2
+        if retried:
+            assert 0 < self.create.call_args.kwargs["timeout"] <= timeout_seconds
+        properties = self.capture.call_args.kwargs["properties"]
+        assert (properties["service_tier"], properties["service_tier_fallback"]) == ("flex", retried)
 
     @parameterized.expand(
         [
@@ -1498,7 +1673,7 @@ class TestForMeEndpoint(APIBaseTest):
             traveller.shift(datetime.timedelta(hours=2))
             with patch.object(personal_ranking_serve, "gather_candidates") as gather:
                 body = self._get()
-            assert (self._state(body), gather.call_count, [args[-1] for args in self.queued]) == (
+            assert (self._state(body), gather.call_count, [args[4] for args in self.queued]) == (
                 (True, False, True),
                 0,
                 [True],
@@ -1603,10 +1778,11 @@ class TestPersonalRankingState(SimpleTestCase):
 class TestPersonalListSort(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        cache.delete(build_lock_key(self.team.id, self.user.id))
         self.payload: dict[str, Any] = {}
         self.flag_enabled = True
-        self.analytics = MagicMock()
-        self.analytics.get_feature_flag.return_value = "control"
         self.gather = MagicMock()
         self.delay = MagicMock()
         for target, value in (
@@ -1618,7 +1794,6 @@ class TestPersonalListSort(APIBaseTest):
                 "products.signals.backend.ranking.access.feature_enabled_or_false",
                 MagicMock(side_effect=lambda *_args, **_kwargs: self.flag_enabled),
             ),
-            ("products.signals.backend.ranking.inbox_sort.posthoganalytics", self.analytics),
             ("products.signals.backend.personal_ranking.serve.gather_candidates", self.gather),
             ("products.signals.backend.personal_ranking.serve.build_personal_inbox_ranking.delay", self.delay),
         ):
@@ -1661,50 +1836,49 @@ class TestPersonalListSort(APIBaseTest):
             **{"user": self.user, "status": "ok", **defaults, **kwargs},
         )
 
-    def _variants(self, variants: dict[str, str]) -> None:
-        self.analytics.get_feature_flag.side_effect = lambda flag, *_args, **_kwargs: variants.get(flag)
-
-    def _list(self, **params: Any) -> dict[str, Any]:
+    def _list(self, user_agent: str | None = None, **params: Any) -> dict[str, Any]:
         query = "&".join(f"{key}={value}" for key, value in {"status": "ready", **params}.items())
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
+        headers = {"user-agent": user_agent} if user_agent is not None else {}
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}", headers=headers)
         assert response.status_code == 200, response.json()
         return response.json()
 
     def _ids(self, body: dict[str, Any]) -> list[str]:
         return [row["id"] for row in body["results"]]
 
-    def test_puts_ranked_then_folded_reports_first_without_a_build_or_an_exposure(self) -> None:
+    @parameterized.expand([("personal",), ("recommended",)])
+    def test_puts_ranked_then_folded_reports_first_without_a_build(self, sort: str) -> None:
         r0, r1, r2, r3, r4 = self.reports
         row = self._ranking([r2, r0], [r1])
-        base = self._ids(self._list(sort="recommended"))
-        self.analytics.reset_mock()
+        base = self._ids(self._list(sort="priority"))
 
-        body = self._list(sort="personal")
+        body = self._list(sort=sort)
 
         rest = [report_id for report_id in base if report_id not in {str(r2.id), str(r0.id), str(r1.id)}]
         assert self._ids(body) == [str(r2.id), str(r0.id), str(r1.id), *rest]
-        assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), False)
+        assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), True)
         assert [row["inbox_merge_key"] for row in body["results"]] == [0, 1, 2, 3 + 5, 3 + 5]
         assert [(row["personal_tier"], row["personal_reason"]) for row in body["results"][:3]] == [
             ("top", "reason R2"),
             (None, None),
             (None, None),
         ]
-        assert self.analytics.get_feature_flag.call_args.kwargs["send_feature_flag_events"] is False
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
         assert PersonalInboxRanking.objects.for_team(self.team.id).count() == 1
 
     @parameterized.expand(
         [
-            ("no_row", None, True, True),
-            ("empty_row", {"ranked": [], "folded": []}, True, True),
-            ("not_personalized", "not_personalized", True, True),
-            ("flag_off", "ranked", False, True),
-            ("disabled", "ranked", True, False),
+            ("no_row", None, True, True, "personal"),
+            ("empty_row", {"ranked": [], "folded": []}, True, True, "personal"),
+            ("not_personalized", "not_personalized", True, True, "personal"),
+            ("flag_off", "ranked", False, True, "personal"),
+            ("disabled", "ranked", True, False, "personal"),
+            ("recommended_no_row", None, True, True, "recommended"),
+            ("recommended_flag_off", "ranked", False, True, "recommended"),
         ]
     )
-    def test_falls_back_to_the_recommended_order(
-        self, _name: str, row: Any, flag_enabled: bool, config_enabled: bool
+    def test_falls_back_to_the_priority_order(
+        self, _name: str, row: Any, flag_enabled: bool, config_enabled: bool, sort: str
     ) -> None:
         r0, r1, *_ = self.reports
         if row == "not_personalized":
@@ -1713,21 +1887,21 @@ class TestPersonalListSort(APIBaseTest):
             self._ranking([r0], [r1])
         elif row is not None:
             self._ranking([], [], result=row)
-        base = self._list(sort="recommended")
+        base = self._list(sort="priority")
         self.flag_enabled = flag_enabled
         self.payload = {} if config_enabled else {"enabled": False}
 
-        body = self._list(sort="personal")
+        body = self._list(sort=sort)
 
         assert self._ids(body) == self._ids(base)
-        assert (body["ranker"], body["ranking_id"]) == ("priority", None)
-        assert [row["inbox_merge_key"] for row in body["results"]] == [
-            row["inbox_merge_key"] for row in base["results"]
-        ]
+        assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("priority", None, False)
+        # No report has a priority, so each key is the last priority rank.
+        assert [row["inbox_merge_key"] for row in body["results"]] == [5] * len(self.reports)
         assert all(row["personal_reason"] is None for row in body["results"])
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
 
-    def test_teammate_scope_reads_the_teammate_ranking(self) -> None:
+    @parameterized.expand([("personal",), ("recommended",)])
+    def test_teammate_scope_reads_the_teammate_ranking(self, sort: str) -> None:
         r0, r1, r2, r3, _ = self.reports
         teammate = User.objects.create(email="teammate@example.com")
         OrganizationMembership.objects.create(user=teammate, organization=self.organization)
@@ -1741,7 +1915,7 @@ class TestPersonalListSort(APIBaseTest):
         self._ranking([r0, r1], [])
         row = self._ranking([r3, r2], [r1], user=teammate)
 
-        body = self._list(sort="personal", scope="teammate", teammate_uuid=teammate.uuid)
+        body = self._list(sort=sort, scope="teammate", teammate_uuid=teammate.uuid)
 
         assert self._ids(body)[:3] == [str(r3.id), str(r2.id), str(r1.id)]
         assert set(self._ids(body)) == {str(r0.id), str(r1.id), str(r2.id), str(r3.id)}
@@ -1749,13 +1923,11 @@ class TestPersonalListSort(APIBaseTest):
         assert (body["results"][0]["personal_tier"], body["results"][0]["personal_reason"]) == ("top", "reason R3")
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
 
-    def test_teammate_scope_outside_the_organization_falls_back_to_the_recommended_order(self) -> None:
+    def test_teammate_scope_outside_the_organization_falls_back_to_the_priority_order(self) -> None:
         r0, r1, r2, r3, r4 = self.reports
         outsider = User.objects.create(email="outsider@example.com")
         self._ranking([r0, r1, r2, r3], [r4])
         self._ranking([r1, r0], [], user=outsider)
-        # The personal arm falls back to the priority order, not to the ranker of the pills arm.
-        self._variants({PERSONAL_RECOMMENDED_FLAG: "personal", RECOMMENDED_INBOX_SORT_FLAG: "action_pills"})
 
         body = self._list(sort="personal", scope="teammate", teammate_uuid=outsider.uuid)
 
@@ -1765,7 +1937,6 @@ class TestPersonalListSort(APIBaseTest):
     @parameterized.expand([("personal",), ("recommended",)])
     def test_later_pages_keep_the_order_of_the_first_page_after_a_rebuild(self, sort: str) -> None:
         r0, r1, r2, r3, r4 = self.reports
-        self._variants({PERSONAL_RECOMMENDED_FLAG: "personal"})
         old = self._ranking([r0, r1, r2, r3], [r4])
         first = self._list(sort=sort, limit=2)
         assert (self._ids(first), first["ranking_id"]) == ([str(r0.id), str(r1.id)], str(old.id))
@@ -1777,41 +1948,6 @@ class TestPersonalListSort(APIBaseTest):
         old.delete()
         latest = self._list(sort=sort, limit=2, offset=2, ranking_id=first["ranking_id"])
         assert self._ids(latest) == [str(r1.id), str(r0.id)]
-
-    @parameterized.expand(
-        [
-            ("full_list", 4, "personal", "personal", [True]),
-            ("full_list_in_control", 4, "control", "priority", [True]),
-            # A rebuild can make an exposed person's list shorter, and they must keep their arm.
-            ("short_list", 3, "personal", "personal", [False]),
-            ("short_list_in_control", 3, "control", "priority", [False]),
-            ("no_list", None, "personal", "priority", []),
-        ]
-    )
-    def test_recommended_exposes_the_personal_test_only_with_a_full_list(
-        self, _name: str, ranked: int | None, variant: str, ranker: str, exposures: list[bool]
-    ) -> None:
-        r0, r1, r2, r3, r4 = self.reports
-        listed = [r3, r1, r4, r0][:ranked]
-        row = self._ranking(listed, [r2]) if ranked is not None else None
-        base = self._ids(self._list(sort="priority"))
-        self._variants({PERSONAL_RECOMMENDED_FLAG: variant, RECOMMENDED_INBOX_SORT_FLAG: "control"})
-
-        body = self._list(sort="recommended")
-
-        if ranker == "personal":
-            assert row is not None
-            assert self._ids(body)[: len(listed) + 1] == [str(report.id) for report in [*listed, r2]]
-            assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), True)
-            assert body["results"][0]["personal_reason"] == "reason R3"
-        else:
-            assert self._ids(body) == base
-            assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("priority", None, False)
-        assert [
-            call.kwargs["send_feature_flag_events"]
-            for call in self.analytics.get_feature_flag.call_args_list
-            if call.args[0] == PERSONAL_RECOMMENDED_FLAG
-        ] == exposures
 
     @parameterized.expand([("priority", {}), ("personal", {}), ("personal", {"scope": "teammate"})])
     def test_first_page_reports_the_viewer_ranking_status(self, sort: str, params: dict[str, Any]) -> None:
@@ -1837,6 +1973,7 @@ class TestPersonalListSort(APIBaseTest):
             "age_minutes": 120,
             "checked_age_minutes": 30,
             "fallback_reason": "timeout",
+            "building": False,
         }
         assert later["personal_ranking_status"] is None
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
@@ -1856,7 +1993,40 @@ class TestPersonalListSort(APIBaseTest):
                 "age_minutes": None,
                 "checked_age_minutes": None,
                 "fallback_reason": None,
+                "building": False,
             }
+
+    @parameterized.expand(
+        [
+            ("recommended_on_the_web", {"sort": "recommended"}, WEB_USER_AGENT, False, True),
+            ("personal_on_desktop", {"sort": "personal"}, "posthog/desktop.hog.dev; 1.0", False, True),
+            ("ranking_stored", {"sort": "recommended"}, WEB_USER_AGENT, True, False),
+            ("priority_sort", {"sort": "priority"}, WEB_USER_AGENT, False, False),
+            ("explicit_ordering", {"sort": "recommended", "ordering": "-updated_at"}, WEB_USER_AGENT, False, False),
+            ("teammate_scope", {"sort": "personal", "scope": "teammate"}, WEB_USER_AGENT, False, False),
+            ("api_client", {"sort": "recommended"}, "python-requests/2.32", False, False),
+        ]
+    )
+    def test_first_inbox_page_without_a_ranking_starts_one_build(
+        self, _name: str, params: dict[str, Any], user_agent: str, stored: bool, builds: bool
+    ) -> None:
+        r0, r1, *_ = self.reports
+        if stored:
+            self._ranking([r0, r1], [], status="fallback", personalized=False, fallback_reason="timeout")
+        if params.get("scope") == "teammate":
+            teammate = User.objects.create(email="teammate@example.com")
+            OrganizationMembership.objects.create(user=teammate, organization=self.organization)
+            params = {**params, "teammate_uuid": teammate.uuid}
+
+        first = self._list(user_agent, limit=2, **params)
+        again = self._list(user_agent, limit=2, **params)
+        later = self._list(user_agent, limit=2, offset=2, **params)
+
+        assert first["personal_ranking_status"]["building"] is builds
+        assert again["personal_ranking_status"]["building"] is builds
+        assert later["personal_ranking_status"] is None
+        queued = [(call.args[:2], call.args[4:]) for call in self.delay.call_args_list]
+        assert queued == ([((self.team.id, self.user.id), (True, "inbox_load"))] if builds else [])
 
     def test_ranking_status_adds_one_query_to_the_first_page(self) -> None:
         r0, r1, *_ = self.reports

@@ -2,11 +2,13 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSkeleton, LemonSnack, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
 import { MAX_GITHUB_REPOS, githubReposLogic } from './githubReposLogic'
+import { QuillGithubReposSetting } from './QuillGithubReposSetting'
 
 export function GithubReposSetting(): JSX.Element {
     useMountedLogic(integrationsLogic)
@@ -14,6 +16,24 @@ export function GithubReposSetting(): JSX.Element {
     const { connection, connectionLoading, draftRepos, saving, connecting, disconnecting } = useValues(githubReposLogic)
     const { addRepo, removeRepo, saveRepos, connectGithub, disconnectGithub, loadConnection } =
         useActions(githubReposLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmDisconnect = (): void => {
+        LemonDialog.open({
+            title: 'Disconnect GitHub?',
+            description: 'Business knowledge will stop reading these repositories. The GitHub App stays installed.',
+            primaryButton: {
+                children: 'Disconnect',
+                status: 'danger',
+                onClick: disconnectGithub,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    if (todayRailNav) {
+        return <QuillGithubReposSetting onDisconnect={confirmDisconnect} />
+    }
 
     if (connectionLoading && !connection) {
         return <LemonSkeleton className="h-16 w-full max-w-xl" />
@@ -82,19 +102,7 @@ export function GithubReposSetting(): JSX.Element {
                     loading={disconnecting}
                     disabledReason={disconnecting ? 'Disconnecting GitHub' : undefined}
                     data-attr="business-knowledge-github-disconnect"
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Disconnect GitHub?',
-                            description:
-                                'Business knowledge will stop reading these repositories. The GitHub App stays installed.',
-                            primaryButton: {
-                                children: 'Disconnect',
-                                status: 'danger',
-                                onClick: disconnectGithub,
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
+                    onClick={confirmDisconnect}
                 >
                     Disconnect
                 </LemonButton>

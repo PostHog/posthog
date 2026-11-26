@@ -6,6 +6,7 @@ import { LemonButton, LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@pos
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,8 +32,8 @@ import {
 } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import {
-    EXPERIMENT_EXPOSURE_EVENT,
     EXPOSURE_DEFAULT_EVENT,
+    draftDefaultExposureEvent,
     exposureEventLabel,
     getActivationConfig,
     resolveFilterTestAccounts,
@@ -289,19 +290,21 @@ function ExposureCriteriaFields({
                 </div>
             </div>
 
-            {/* Test Account Filtering */}
-            <div>
-                <TestAccountFilterSwitch
-                    checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
-                    onChange={(checked: boolean) => {
-                        onChange({ filterTestAccounts: checked })
-                    }}
-                    bordered={false}
-                    fullWidth
-                    settingsLinkIcon="new-tab"
-                    className="p-0"
-                />
-            </div>
+            {/* Test account filters read PostHog person and event properties, which warehouse rows do not have */}
+            {!getWarehouseNativeExposure(experiment.exposure_criteria) && (
+                <div>
+                    <TestAccountFilterSwitch
+                        checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
+                        onChange={(checked: boolean) => {
+                            onChange({ filterTestAccounts: checked })
+                        }}
+                        bordered={false}
+                        fullWidth
+                        settingsLinkIcon="new-tab"
+                        className="p-0"
+                    />
+                </div>
+            )}
         </div>
     )
 }
@@ -330,10 +333,10 @@ export function ExposureCriteriaPanel({
             !!warehouseExposure,
             metricDataSources ?? { warehouseNative: false, posthog: false }
         )
-    const experimentExposureEventEnabled = useFeatureFlag('EXPERIMENT_EXPOSURE_EVENT')
+    const { preflight } = useValues(preflightLogic)
     const defaultExposureEvent = resolvedExposureEvent(
         experiment,
-        experimentExposureEventEnabled ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
+        draftDefaultExposureEvent(preflight?.experiment_exposure_event_cutoff)
     )
     const defaultExposureLabel = exposureEventLabel(defaultExposureEvent)
 

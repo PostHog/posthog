@@ -37,6 +37,8 @@ class WhopEndpointConfig:
     # filter, which we always send so a key reaching several companies stays pinned to the one the
     # user connected.
     company_id_required: bool = False
+    # False when the list takes no company filter and the key's own account scope bounds the rows.
+    company_filter: bool = True
     # Set when the endpoint's `order` enum contains `created_at`. Only then can we force a known
     # ascending page order and let the pipeline checkpoint the watermark after every batch.
     supports_created_at_order: bool = False
@@ -141,11 +143,6 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
         company_id_required=True,
         supports_created_after=True,
     ),
-    "leads": WhopEndpointConfig(
-        path="/leads",
-        company_id_required=True,
-        supports_created_after=True,
-    ),
     "experiences": WhopEndpointConfig(
         path="/experiences",
         company_id_required=True,
@@ -200,6 +197,36 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
         page_size_param="limit",
         cursor_param="cursor",
         versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # Takes no account filter, only `origin_id` and `destination_id`, which cannot express "sent or
+    # received". A company API key only lists its own account's transfers.
+    "transfers": WhopEndpointConfig(
+        path="/transfers",
+        company_filter=False,
+        supports_created_at_order=True,
+        supports_direction=True,
+        supports_created_after=True,
+        versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # The native reviews resource, from 2026-10-13-1. It lists published reviews only.
+    "reviews": WhopEndpointConfig(
+        path="/reviews",
+        supports_created_at_order=True,
+        supports_direction=True,
+        supports_created_after=True,
+        versions=WHOP_DATED_API_VERSIONS,
+    ),
+    # No sort or timestamp filter params, so it only syncs as a full refresh.
+    "courses": WhopEndpointConfig(path="/courses", versions=WHOP_DATED_API_VERSIONS),
+}
+
+# Tables Whop no longer serves. Leaving WHOP_ENDPOINTS drops them from discovery; the reason here
+# is what a job already scheduled against one of them fails with, instead of a KeyError.
+RETIRED_ENDPOINTS: dict[str, str] = {
+    "leads": (
+        "Whop retired the leads endpoint and moved existing leads to members, so syncing for the leads table "
+        "has stopped. Sync the members table instead. A member that was a lead has the lead's ID in its "
+        "metadata as lead_id."
     ),
 }
 

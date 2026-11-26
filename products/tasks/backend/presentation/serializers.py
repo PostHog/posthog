@@ -69,7 +69,7 @@ from products.tasks.backend.facade.contracts import (
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
+from products.tasks.backend.facade.model_catalogue import ModelChoice, uncataloged_runtime_adapter
 from products.tasks.backend.facade.profiles import (
     RunOptionsCaller,
     SourceKind,
@@ -331,17 +331,6 @@ def build_task_run_artifact_size_error(
         return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit for PDFs in cloud runs"
 
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
-
-
-class AgentDefinitionSerializer(serializers.Serializer):
-    """Serializer for agent definitions"""
-
-    id = serializers.CharField()
-    name = serializers.CharField()
-    agent_type = serializers.CharField()
-    description = serializers.CharField()
-    config = serializers.DictField(default=dict)
-    is_active = serializers.BooleanField(default=True)
 
 
 class TaskRunUpdateSerializer(serializers.Serializer):
@@ -1666,10 +1655,6 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
     )
-
-
-class AgentListResponseSerializer(serializers.Serializer):
-    results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
 
 
 class TaskRunAppendLogRequestSerializer(serializers.Serializer):
@@ -3618,6 +3603,7 @@ class TaskCommentEntrySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Comment id.")
     content = serializers.CharField(help_text="Byte-bounded comment body chunk.")
     content_truncated = serializers.BooleanField(help_text="Whether this comment body has more content.")
+    content_offset = serializers.IntegerField(help_text="Byte offset where this body chunk starts.")
     content_next_offset = serializers.IntegerField(
         allow_null=True,
         help_text="Byte offset for the next body chunk, or null when complete.",
@@ -3692,16 +3678,31 @@ class ModelChoiceSerializer(DataclassSerializer):
             "flatters either. Null for a model the catalogue quotes no rate for."
         ),
     )
+    context_window = serializers.IntegerField(
+        required=False, help_text="Largest context window the model accepts, in tokens."
+    )
+    allowed = serializers.BooleanField(
+        required=False,
+        help_text="Whether the project's plan may run this model. A free plan may run only the free-tier models.",
+    )
 
     class Meta:
         dataclass = ModelChoice
-        fields = ["runtime_adapter", "model", "display_name", "supported_efforts", "cost_multiplier"]
+        fields = [
+            "runtime_adapter",
+            "model",
+            "display_name",
+            "supported_efforts",
+            "cost_multiplier",
+            "context_window",
+            "allowed",
+        ]
 
 
 class ModelCatalogueResponseSerializer(serializers.Serializer):
     models = ModelChoiceSerializer(
         many=True,
-        help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+        help_text="Every model a PostHog Code run may use, read from the PostHog model catalog.",
     )
 
 
@@ -4171,13 +4172,9 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or next(
-                (
-                    RuntimeAdapter(choice.runtime_adapter)
-                    for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-                    if choice.model == attrs["model"]
-                ),
-                None,
+            uncataloged_adapter = uncataloged_runtime_adapter(attrs["model"])
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or (
+                RuntimeAdapter(uncataloged_adapter) if uncataloged_adapter else None
             )
             if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
@@ -5206,6 +5203,7 @@ class SandboxCustomImageWriteSerializer(serializers.Serializer):
     repository = serializers.CharField(
         required=False,
         allow_null=True,
+        allow_blank=True,
         default=None,
         max_length=255,
         help_text="Optional 'org/repo' the builder session clones so it can verify the image "

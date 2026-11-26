@@ -379,6 +379,63 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         mock_sync_delay.assert_called_once_with(str(self.organization.id))
 
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, 204),
+            ("admin", OrganizationMembership.Level.ADMIN, 204),
+            ("owner", OrganizationMembership.Level.OWNER, 400),
+        ]
+    )
+    def test_leave_organization_unless_owner(self, _name, level, expected_status):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+
+        self.assertEqual(response.status_code, expected_status)
+        still_member = OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists()
+        self.assertEqual(still_member, expected_status == 400)
+
+    @parameterized.expand(
+        [
+            ("admin_removes_owner", OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER, None, 403),
+            (
+                "admin_demotes_owner",
+                OrganizationMembership.Level.ADMIN,
+                OrganizationMembership.Level.OWNER,
+                OrganizationMembership.Level.MEMBER,
+                403,
+            ),
+            ("admin_removes_admin", OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.ADMIN, None, 204),
+            (
+                "owner_demotes_owner",
+                OrganizationMembership.Level.OWNER,
+                OrganizationMembership.Level.OWNER,
+                OrganizationMembership.Level.ADMIN,
+                200,
+            ),
+        ]
+    )
+    def test_member_changes_need_a_level_at_least_the_target_level(
+        self, _name, requester_level, target_level, new_level, expected_status
+    ):
+        self.organization_membership.level = requester_level
+        self.organization_membership.save()
+        user = User.objects.create_and_join(self.organization, "target@x.com", None, "X", level=target_level)
+
+        if new_level is None:
+            response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
+        else:
+            response = self.client.patch(f"/api/organizations/@current/members/{user.uuid}/", {"level": new_level})
+
+        self.assertEqual(response.status_code, expected_status)
+        membership = OrganizationMembership.objects.filter(user=user, organization=self.organization).first()
+        if expected_status == 204:
+            self.assertIsNone(membership)
+        else:
+            assert membership is not None
+            self.assertEqual(membership.level, new_level if expected_status == 200 else target_level)
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
     def test_change_organization_member_level(self, mock_sync_delay):

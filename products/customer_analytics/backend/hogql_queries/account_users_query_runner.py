@@ -153,12 +153,27 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return "denied"
         access_key = reader.get_access_key()
         if self._catalog is not None and self._catalog.variant is not None:
-            return f"{access_key}:catalog-{self._catalog.variant}"
+            access_key += f":catalog-{self._catalog.variant}"
+        if self._catalog is not None and self._catalog.query_variant is not None:
+            access_key += f":fewer-hops-{self._catalog.query_variant}"
         return access_key
 
+    def is_fewer_hops_enabled(self) -> bool:
+        return self._catalog is not None and self._catalog.query_variant == "test"
+
     def to_query(self) -> ast.SelectQuery:
+        reader = self.get_reader()
+        return self._get_source_query(reader)
+
+    def _get_source_query(
+        self, reader: AccountPersonsReader, membership: ast.SelectQuery | ast.Field | None = None
+    ) -> ast.SelectQuery:
         self.modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
-        return self.get_reader().get_source_query()
+        if self.is_fewer_hops_enabled():
+            return reader.get_optimized_source_query(
+                membership if membership is not None else reader.get_membership_query()
+            )
+        return reader.get_source_query()
 
     def to_actors_query(self) -> ast.SelectQuery:
         if not settings.HOGQL_MATERIALIZED_CTE_SUPPORTED:
@@ -176,10 +191,23 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if not settings.HOGQL_MATERIALIZED_CTE_SUPPORTED:
             return query
         AccountUsersMembershipReferences(source_query).visit(query)
+        membership_ctes: dict[str, ast.CTE] = {}
+        if self.is_fewer_hops_enabled():
+            reader = self.get_reader()
+            membership_ctes["__account_membership"] = ast.CTE(
+                name="__account_membership",
+                expr=reader.get_membership_query(),
+                cte_type="subquery",
+                materialized=True,
+            )
+            account_members = self._get_source_query(reader, ast.Field(chain=["__account_membership"]))
+        else:
+            account_members = self.to_query()
         query.ctes = {
             **(query.ctes or {}),
+            **membership_ctes,
             "__account_members": ast.CTE(
-                name="__account_members", expr=self.to_query(), cte_type="subquery", materialized=True
+                name="__account_members", expr=account_members, cte_type="subquery", materialized=True
             ),
         }
         return query

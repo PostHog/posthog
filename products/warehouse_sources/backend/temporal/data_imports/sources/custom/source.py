@@ -2550,4 +2550,5 @@ def _schema_from_resource(resource: dict[str, Any]) -> SourceSchema:
         supports_append=False,
         incremental_fields=incremental_fields,
         detected_primary_keys=detected_primary_keys,
+        declares_primary_keys=True,
     )

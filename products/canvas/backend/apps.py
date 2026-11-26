@@ -26,6 +26,9 @@ class CanvasConfig(AppConfig):
         from posthog.api.file_system.visibility import register_file_system_visibility_filter  # noqa: PLC0415
         from posthog.models.file_system.unfiled_file_saver import register_mixin_model  # noqa: PLC0415
 
+        from products.access_control.backend.facade.object_names import (  # noqa: PLC0415
+            register_object_visibility_filter,
+        )
         from products.canvas.backend import checks, search_sync  # noqa: F401, PLC0415
         from products.canvas.backend.models import Canvas  # noqa: PLC0415
 
@@ -44,6 +47,11 @@ class CanvasConfig(AppConfig):
             from products.canvas.backend.logic import visibility  # noqa: PLC0415
 
             return visibility.filter_file_system_rows(rows, request, project_id)
+
+        def _access_rule_target_ids(team_id: int, user_id: int | None, sandboxed: bool) -> set[str]:
+            from products.canvas.backend.logic import visibility  # noqa: PLC0415
+
+            return visibility.access_rule_target_ids(team_id, user_id, sandboxed)
 
         def _authorize_delete(context: DeletionContext, canvas: Canvas) -> None:
             from posthog.oauth_provenance import is_sandbox_oauth_request  # noqa: PLC0415
@@ -72,5 +80,6 @@ class CanvasConfig(AppConfig):
                 raise ValidationError({"detail": UNDO_DELETE_REFUSED})
 
         register_file_system_visibility_filter("canvas", _filter_rows)
+        register_object_visibility_filter("canvas", _access_rule_target_ids)
         register_pre_delete_hook("canvas", _authorize_delete)
         register_pre_restore_hook("canvas", _authorize_restore)

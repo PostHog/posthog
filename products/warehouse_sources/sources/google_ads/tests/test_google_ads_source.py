@@ -543,7 +543,8 @@ class TestValidateCredentials:
             ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
 
         assert ok is False
-        assert "Reconnect your Google Ads account" in (message or "")
+        assert "Reconnect your Google account" in (message or "")
+        assert "allow Google Ads access when Google asks" in (message or "")
         assert "scopes" not in (message or "")
 
     def test_transient_google_side_error_returns_retry_message(self):
@@ -1620,7 +1621,7 @@ class TestGetOAuthAccountsPermissionErrors:
         [
             (
                 '{"error": {"status": "PERMISSION_DENIED", "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}',
-                "allow access to your Google Ads data",
+                "allow Google Ads access when Google asks",
             ),
             ('{"error": {"status": "PERMISSION_DENIED"}}', "Google rejected the credentials"),
         ],

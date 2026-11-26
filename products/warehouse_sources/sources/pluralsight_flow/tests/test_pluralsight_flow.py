@@ -96,6 +96,8 @@ class TestPluralsightFlowSourceCoreEndpoints:
             ("TicketProjects", "/v3/customer/core/ticket_projects/"),
             ("PullRequestComments", "/v3/customer/core/pull_request_comments/"),
             ("TicketEvents", "/v3/customer/core/ticket_events/"),
+            ("PullRequestEvents", "/v3/customer/core/pull_request_events/"),
+            ("TicketComments", "/v3/customer/core/ticket_comments/"),
         ],
     )
     def test_full_refresh_endpoint_sends_no_date_filter(self, endpoint: str, path: str) -> None:

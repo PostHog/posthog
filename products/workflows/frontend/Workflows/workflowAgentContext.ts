@@ -94,9 +94,9 @@ export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
         prompt: 'Re-engage users who have been inactive for 30 days',
     },
     {
-        title: 'Answer support tickets with AI',
-        description: 'Triage each new ticket and draft a reply in Slack',
-        prompt: 'When a support ticket comes in, have an AI agent look at the customer in PostHog, set a priority, draft a reply, and post it to Slack',
+        title: 'Triage support tickets with AI',
+        description: 'Investigate each new ticket and save the findings to it',
+        prompt: 'When a support ticket comes in, have an AI agent investigate the customer in PostHog, tag the ticket with a category, set a priority, and save its findings and a suggested reply as a private note on the ticket',
     },
     {
         title: 'Send a weekly AI report',
@@ -181,7 +181,7 @@ function buildEmailEditingContextItems(): AttachedContextItem[] {
                 `config.inputs.email.value. For content and layout changes prefer ` +
                 `workflows-patch-action-email with design operations targeting that action; use ` +
                 `workflows-patch-graph with update_action on it for other fields. An email_sandbox step sends ` +
-                `from PostHog's sandbox sender to verified members of the organization only, so it takes no ` +
+                `from the PostHog test sender to verified members of the organization only, so it takes no ` +
                 `from, replyTo, cc or bcc; switch a step's sender with workflows-patch-action-email's sender ` +
                 `field. The open editor reloads external edits live, so the user sees applied changes immediately.`,
         },

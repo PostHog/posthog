@@ -205,7 +205,6 @@ class TestObservationRequestAPI(APIBaseTest):
         self.start_workflow.assert_not_called()
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
-
         response = self.client.post(
             self.url, {"session_ids": ["s1"], "inline": {"prompt": "did they rage click?"}}, format="json"
         )

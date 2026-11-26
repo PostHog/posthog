@@ -61,6 +61,10 @@ def _source_response(
     items_fn: Any,
     column_hints: Any = None,
 ) -> SourceResponse:
+    if config.partition_key is None:
+        return SourceResponse(
+            name=config.name, items=items_fn, primary_keys=config.primary_keys, column_hints=column_hints
+        )
     return SourceResponse(
         name=config.name,
         items=items_fn,
@@ -156,7 +160,7 @@ def _declarative_fanout_source(
             },
             child_endpoint_extra={
                 "paginator": SinglePagePaginator(),
-                "data_selector": "data",
+                "data_selector": config.data_selector,
                 "data_selector_required": True,
             },
         ),
@@ -197,13 +201,45 @@ def _query_fanout_source(api_key: str, config: AlgunaEndpointConfig) -> SourceRe
     # scratch and the merge dedupes.
     assert config.query_fanout is not None
     parent_config = ALGUNA_ENDPOINTS[config.query_fanout.parent_name]
-    client = RESTClient(
+    client = _client(api_key)
+    return _source_response(config, lambda: _query_fanout_pages(client, config, parent_config))
+
+
+def _client(api_key: str) -> RESTClient:
+    return RESTClient(
         base_url=ALGUNA_BASE_URL,
         headers=_version_headers(),
         auth=BearerTokenAuth(api_key),
         paginator=_offset_paginator(),
     )
-    return _source_response(config, lambda: _query_fanout_pages(client, config, parent_config))
+
+
+def _envelope_rows_pages(client: RESTClient, config: AlgunaEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    rows_key = config.rows_key
+    assert rows_key is not None
+    for page in client.paginate(
+        path=config.path,
+        params=config.params,
+        paginator=SinglePagePaginator(),
+    ):
+        for body in page:
+            if not isinstance(body, dict) or not isinstance(body.get(rows_key), list):
+                keys = sorted(body.keys())[:20] if isinstance(body, dict) else type(body).__name__
+                raise ValueError(
+                    f"Alguna {config.path} response has no {rows_key!r} list (body keys: {keys}). "
+                    "The API response shape may have changed."
+                )
+            envelope = {key: value for key, value in body.items() if not isinstance(value, dict | list)}
+            rows = [{**envelope, **row} for row in body[rows_key] if isinstance(row, dict)]
+            if rows:
+                yield rows
+
+
+def _envelope_rows_source(api_key: str, config: AlgunaEndpointConfig) -> SourceResponse:
+    # A single object whose rows sit in a nested list. The envelope's scalar fields (currency,
+    # interval) apply to every row, so each row carries them.
+    client = _client(api_key)
+    return _source_response(config, lambda: _envelope_rows_pages(client, config))
 
 
 def alguna_source(
@@ -220,6 +256,8 @@ def alguna_source(
         return _declarative_fanout_source(api_key, config, team_id, job_id, db_incremental_field_last_value)
     if config.query_fanout is not None:
         return _query_fanout_source(api_key, config)
+    if config.rows_key is not None:
+        return _envelope_rows_source(api_key, config)
     return _top_level_source(
         api_key, config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value
     )

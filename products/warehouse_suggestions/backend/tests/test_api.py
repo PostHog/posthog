@@ -44,6 +44,7 @@ from .test_suggestions import ingest_one, make_draft
 REVIEW_FIELDS = ("reviewed_by_id", "reviewed_at", "dismissal_reason", "dismissal_note", "dismissed_at_score")
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
+REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
 
 
 def ingest_surfaced(team_id: int, draft: SuggestionDraft) -> WarehouseSuggestion:
@@ -169,16 +170,25 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         )
         assert (rows[str(low.id)]["subject_source_id"], rows[str(low.id)]["subject_schema_id"]) == (None, None)
 
-        dismissed = self.client.post(
-            f"{self.url}/{low.id}/dismiss/",
-            {"reason": WarehouseSuggestionDismissalReason.OTHER, "note": "We sunset this view"},
-        )
+        with patch(REPORT) as report:
+            dismissed = self.client.post(
+                f"{self.url}/{low.id}/dismiss/?bulk=true",
+                {"reason": WarehouseSuggestionDismissalReason.ALREADY_HANDLED, "note": "We sunset this view"},
+            )
         assert dismissed.status_code == status.HTTP_200_OK, dismissed.json()
+        [(event, properties)] = [call.args for call in report.call_args_list]
+        assert (event, properties["reason"], properties["has_note"], properties["bulk"]) == (
+            "warehouse suggestion dismissed",
+            WarehouseSuggestionDismissalReason.ALREADY_HANDLED,
+            True,
+            True,
+        )
+        assert "We sunset this view" not in json.dumps(properties, default=str)
         low.refresh_from_db()
         assert low.status == WarehouseSuggestionStatus.DISMISSED
         assert low.reviewed_by_id == self.user.id
         assert low.reviewed_at is not None
-        assert low.dismissal_reason == WarehouseSuggestionDismissalReason.OTHER
+        assert low.dismissal_reason == WarehouseSuggestionDismissalReason.ALREADY_HANDLED
         assert low.dismissal_note == "We sunset this view"
         assert low.dismissed_at_score == 2.0
 
@@ -322,7 +332,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             (
                 "view_read_and_table_write",
                 ["warehouse_view:read", "warehouse_table:write"],
-                {"view": False, "table": True},
+                {"table": True},
                 {"view": 403, "table": 200},
             ),
             ("no_warehouse_scope", ["insight:write"], None, {"view": 403, "table": 403}),
@@ -537,12 +547,12 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("warehouse_viewer_with_edit_on_the_view", "viewer", "editor", status.HTTP_200_OK),
-            ("no_warehouse_access_with_view_on_the_view", "none", "viewer", status.HTTP_403_FORBIDDEN),
+            ("warehouse_viewer_with_edit_on_the_view", "viewer", "editor", True, status.HTTP_200_OK),
+            ("no_warehouse_access_with_view_on_the_view", "none", "viewer", False, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_a_grant_on_one_view_is_enough(
-        self, _name: str, warehouse_level: str, view_level: str, expected_dismiss_status: int
+        self, _name: str, warehouse_level: str, view_level: str, expected_listed: bool, expected_dismiss_status: int
     ) -> None:
         suggestion = self._suggest(self.view.id)
         self._restrict("warehouse_objects", None, warehouse_level)
@@ -553,19 +563,19 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}
         )
 
-        assert [row["id"] for row in listed.json()["results"]] == [str(suggestion.id)]
+        assert [row["id"] for row in listed.json()["results"]] == ([str(suggestion.id)] if expected_listed else [])
         assert dismissed.status_code == expected_dismiss_status, dismissed.json()
 
     @parameterized.expand(
         [
-            ("dismiss_as_view_viewer", "dismiss", "warehouse_view", False),
-            ("accept_as_view_viewer", "accept", "warehouse_view", False),
-            ("assign_as_view_viewer", "assign", "warehouse_view", False),
-            ("certify_as_catalog_viewer", "accept", "data_catalog", True),
+            ("dismiss_as_view_viewer", "dismiss", "warehouse_view", []),
+            ("accept_as_view_viewer", "accept", "warehouse_view", []),
+            ("assign_as_view_viewer", "assign", "warehouse_view", []),
+            ("certify_as_catalog_viewer", "accept", "data_catalog", [True]),
         ]
     )
     def test_a_viewer_cannot_decide_the_suggestion(
-        self, _name: str, action: str, restricted_resource: str, expected_can_act: bool
+        self, _name: str, action: str, restricted_resource: str, expected_listed_can_act: list[bool]
     ) -> None:
         suggestion = self._suggest(self.view.id)
         self._restrict(restricted_resource, self.view.id if restricted_resource == "warehouse_view" else None, "viewer")
@@ -576,10 +586,19 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL, "assignee_id": self.user.id},
         )
 
-        assert listed.json()["results"][0]["can_act"] is expected_can_act
+        assert [row["can_act"] for row in listed.json()["results"]] == expected_listed_can_act
         assert decided.status_code == status.HTTP_403_FORBIDDEN, decided.json()
         suggestion.refresh_from_db()
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
+
+    def test_a_viewer_still_lists_a_decided_suggestion(self) -> None:
+        suggestion = self._suggest(self.view.id)
+        self.client.post(f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW})
+        self._restrict("warehouse_view", self.view.id, "viewer")
+
+        listed = self.client.get(f"{self.url}/")
+
+        assert [(row["id"], row["can_act"]) for row in listed.json()["results"]] == [(str(suggestion.id), False)]
 
     def test_pages_do_not_overlap_or_skip_rows_at_the_boundary(self) -> None:
         suggestions = [self._suggest(self._make_view(f"view_{index}").id, score=1.0) for index in range(5)]

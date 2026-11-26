@@ -16,6 +16,7 @@
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
  */
 export type ExternalDataDestinationTypeEnumApi =
     (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
@@ -29,6 +30,7 @@ export const ExternalDataDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 /**
@@ -70,7 +72,8 @@ export interface ExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -133,7 +136,8 @@ export interface PatchedExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type?: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -211,6 +215,50 @@ export interface AddSourcesResponseApi {
     tables_resyncing: number
     /** Tables whose resync did not start. The sources are still attached. */
     resync_failures: ResyncFailureApi[]
+}
+
+export interface DestinationDeliveryFailureApi {
+    /** ID of the sync run that could not deliver to this destination. */
+    job_id: string
+    /** ID of the source the run belongs to. */
+    source_id: string
+    /** Name of the source: its prefix, if any, and its type. */
+    source_name: string
+    /** Type of the source, for example `Stripe` or `MetaAds`. */
+    source_type: string
+    /**
+     * ID of the table the run synced.
+     * @nullable
+     */
+    schema_id: string | null
+    /**
+     * Name of the table the run synced.
+     * @nullable
+     */
+    schema_name: string | null
+    /** Why the delivery failed, as the destination reported it. Stored credentials of the source and of the destination are masked. */
+    error: string
+    /** Whether the destination's own settings caused the failure, for example a wrong password or a missing permission. Configuration errors do not go away until the settings change. */
+    is_configuration_error: boolean
+    /** When the run started. */
+    created_at: string
+    /**
+     * When the run stopped.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * ID that the run's log lines carry, to find the logs of this run.
+     * @nullable
+     */
+    workflow_run_id: string | null
+}
+
+export interface DestinationDeliveryFailuresResponseApi {
+    /** Sync runs that could not deliver to this destination, newest first. At most 50 runs from the last 14 days, from sources you have access to. */
+    results: DestinationDeliveryFailureApi[]
+    /** How many days back the runs go. */
+    window_days: number
 }
 
 /**
@@ -419,6 +467,14 @@ export const IncrementalSyncBlockedReasonEnumApi = {
     DuplicatePrimaryKey: 'duplicate_primary_key',
 } as const
 
+export type WebhookIssueEnumApi = (typeof WebhookIssueEnumApi)[keyof typeof WebhookIssueEnumApi]
+
+export const WebhookIssueEnumApi = {
+    NotRegistered: 'not_registered',
+    MissingInputs: 'missing_inputs',
+    NotRouted: 'not_routed',
+} as const
+
 export interface RowFilterColumnApi {
     /** Column name to use as `column` in a row filter. */
     name: string
@@ -503,6 +559,7 @@ export type ExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
     /** @nullable */
     readonly file_name?: string | null
+    readonly supports_table_discovery?: boolean
 } | null
 
 /**
@@ -530,6 +587,11 @@ export interface ExternalDataSchemaApi {
     readonly live_query_unavailable_reason: string | null
     /** @nullable */
     readonly last_synced_at: string | null
+    /**
+     * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
     /**
      * The latest error that occurred when syncing this schema.
      * @nullable
@@ -627,6 +689,8 @@ export interface ExternalDataSchemaApi {
     readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
     readonly webhook_not_registered: boolean
+    /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+    readonly webhook_issue: WebhookIssueEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -755,6 +819,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
     /** @nullable */
     readonly file_name?: string | null
+    readonly supports_table_discovery?: boolean
 } | null
 
 /**
@@ -782,6 +847,11 @@ export interface PatchedExternalDataSchemaApi {
     readonly live_query_unavailable_reason?: string | null
     /** @nullable */
     readonly last_synced_at?: string | null
+    /**
+     * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+     * @nullable
+     */
+    readonly last_checked_at?: string | null
     /**
      * The latest error that occurred when syncing this schema.
      * @nullable
@@ -879,6 +949,8 @@ export interface PatchedExternalDataSchemaApi {
     readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
     readonly webhook_not_registered?: boolean
+    /** Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route). */
+    readonly webhook_issue?: WebhookIssueEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -1086,6 +1158,15 @@ export interface ExternalDataSourceSerializersApi {
     readonly webhook_not_registered: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
+    /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
+    readonly supports_adding_tables: boolean
+    /**
+     * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+     * @nullable
+     */
+    readonly table_root: string | null
+    /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+    readonly supports_table_discovery: boolean
     /**
      * The name of the file a file upload source imports. Null for other sources or when it is unknown.
      * @nullable
@@ -1322,6 +1403,15 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly webhook_not_registered?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
+    /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
+    readonly supports_adding_tables?: boolean
+    /**
+     * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+     * @nullable
+     */
+    readonly table_root?: string | null
+    /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+    readonly supports_table_discovery?: boolean
     /**
      * The name of the file a file upload source imports. Null for other sources or when it is unknown.
      * @nullable
@@ -1341,6 +1431,51 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly connection_warning?: string | null
     /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
     payload?: SourceUpdatePayloadApi
+}
+
+/**
+ * * `infer` - Infer from the file names
+ * * `csv` - CSV with a header row
+ * * `csv_no_header` - CSV without a header row
+ * * `jsonl` - JSON Lines
+ * * `parquet` - Parquet
+ * * `delta` - Delta table
+ */
+export type ObjectStorageTableFileFormatEnumApi =
+    (typeof ObjectStorageTableFileFormatEnumApi)[keyof typeof ObjectStorageTableFileFormatEnumApi]
+
+export const ObjectStorageTableFileFormatEnumApi = {
+    Infer: 'infer',
+    Csv: 'csv',
+    CsvNoHeader: 'csv_no_header',
+    Jsonl: 'jsonl',
+    Parquet: 'parquet',
+    Delta: 'delta',
+} as const
+
+export interface AddTableRequestApi {
+    /**
+     * Name of the new table in the source. Starts with a letter or underscore, and contains only letters, numbers and underscores. Must not be the name of another table in the source.
+     * @maxLength 128
+     * @pattern ^[a-zA-Z_][a-zA-Z0-9_]*$
+     */
+    name: string
+    /**
+     * Where the table's files are. Use a path inside the folder of the source's files URL, such as `events/`, `events/2026/*.parquet` or `data/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables.
+     * @maxLength 2048
+     */
+    path: string
+    /** The format of the files. `infer` reads each file by its extension, and reads a folder that holds a `_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards.
+     *
+     * * `infer` - Infer from the file names
+     * * `csv` - CSV with a header row
+     * * `csv_no_header` - CSV without a header row
+     * * `jsonl` - JSON Lines
+     * * `parquet` - Parquet
+     * * `delta` - Delta table */
+    file_format?: ObjectStorageTableFileFormatEnumApi
+    /** For CSV files: whether a double quote encloses a field. When false, it is an ordinary character. */
+    csv_allow_double_quotes?: boolean
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
@@ -2162,6 +2297,12 @@ export interface SourceSetupApi {
     description?: string | null
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp */
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
 }
 
 export interface SourceSetupWebhookApi {
@@ -3051,6 +3192,7 @@ export type ExternalDataDestinationsConnectLinkRetrieveParams = {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType
@@ -3076,6 +3218,7 @@ export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
@@ -3089,7 +3232,7 @@ export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
 
 export type ExternalDataSchemasListParams = {
     /**
-     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
      */
     compact?: boolean
     /**
@@ -3169,7 +3312,7 @@ export type ExternalDataSchemasResyncCreate400 = {
 
 export type ExternalDataSourcesListParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean
     /**
@@ -3192,7 +3335,7 @@ export type ExternalDataSourcesListParams = {
 
 export type ExternalDataSourcesRetrieveParams = {
     /**
-     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
      */
     compact?: boolean
     /**

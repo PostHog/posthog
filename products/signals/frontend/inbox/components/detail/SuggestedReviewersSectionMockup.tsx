@@ -19,8 +19,8 @@ export function SuggestedReviewersSectionMockup({
             disabled={false}
             onRemove={onRemove}
             addControl={
-                <LemonButton size="small" type="secondary" icon={<IconPlus />} onClick={onAdd}>
-                    Add Reviewer
+                <LemonButton size="xsmall" type="secondary" icon={<IconPlus />} onClick={onAdd}>
+                    Add
                 </LemonButton>
             }
         />

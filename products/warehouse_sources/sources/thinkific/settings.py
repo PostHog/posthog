@@ -42,8 +42,8 @@ _UPDATED_AT_INCREMENTAL: list[IncrementalField] = [
 THINKIFIC_ENDPOINTS: dict[str, ThinkificEndpointConfig] = {
     "courses": ThinkificEndpointConfig(name="courses", path="/courses"),
     "collections": ThinkificEndpointConfig(name="collections", path="/collections"),
-    # Enrollments is the one endpoint the API documents server-side date filtering for
-    # (query[updated_after] / query[updated_on_or_after] / ...), so it's the only incremental one.
+    # Enrollments and bundle enrollments are the endpoints the API documents server-side date
+    # filtering for (query[updated_after] / query[updated_on_or_after] / ...), so only they are incremental.
     "enrollments": ThinkificEndpointConfig(
         name="enrollments",
         path="/enrollments",
@@ -111,6 +111,49 @@ THINKIFIC_ENDPOINTS: dict[str, ThinkificEndpointConfig] = {
             resolve_field="chapter_id",
             include_from_parent=["course_id"],
             parent_field_renames={"course_id": "course_id"},
+        ),
+    ),
+    "collection_products": ThinkificEndpointConfig(
+        name="collection_products",
+        path="/collections/{collection_id}/products",
+        primary_keys=["collection_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="collections",
+            resolve_param="collection_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "collection_id"},
+        ),
+    ),
+    "custom_profile_field_definitions": ThinkificEndpointConfig(
+        name="custom_profile_field_definitions", path="/custom_profile_field_definitions"
+    ),
+    # The API has no bundle list, so bundle ids come from products whose `productable_type` is
+    # "Bundle" (see `_product_bundle_rows`).
+    "bundle_courses": ThinkificEndpointConfig(
+        name="bundle_courses",
+        path="/bundles/{bundle_id}/courses",
+        primary_keys=["bundle_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="bundle_id",
+            resolve_field="bundle_id",
+            include_from_parent=["bundle_id"],
+            parent_field_renames={"bundle_id": "bundle_id"},
+        ),
+    ),
+    "bundle_enrollments": ThinkificEndpointConfig(
+        name="bundle_enrollments",
+        path="/bundles/{bundle_id}/enrollments",
+        supports_incremental=True,
+        incremental_fields=_UPDATED_AT_INCREMENTAL,
+        primary_keys=["bundle_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="bundle_id",
+            resolve_field="bundle_id",
+            include_from_parent=["bundle_id"],
+            parent_field_renames={"bundle_id": "bundle_id"},
         ),
     ),
 }

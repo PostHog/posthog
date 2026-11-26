@@ -452,18 +452,6 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
-  table "sharded_session_replay_features" {
-    order_by     = ["team_id", "session_id"]
-    partition_by = "toYYYYMM(min_first_timestamp)"
-    settings = {
-      index_granularity = "512"
-    }
-    extend = "_session_replay_features_columns"
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_features"
-      replica_name = "{replica}"
-    }
-  }
   table "sharded_usage_report_events_preagg" {
     order_by     = ["date", "team_id", "person_mode", "lib", "event"]
     partition_by = "date"
@@ -550,7 +538,7 @@ database "posthog" {
     }
   }
   table "sharded_web_bounces_dimensional_preaggregated" {
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type", "session_hosts"]
     primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"

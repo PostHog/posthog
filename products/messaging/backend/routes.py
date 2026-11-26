@@ -3,6 +3,12 @@ from django.urls import URLPattern, re_path
 from posthog.api.routing import RouterRegistry
 
 from products.messaging.backend.presentation.views.attachment_uploads import MessagingAttachmentsViewSet
+from products.messaging.backend.presentation.views.key_scoped import (
+    KeyScopedMessagingAttachmentsViewSet,
+    KeyScopedMessagingEmailsViewSet,
+    KeyScopedMessagingSendViewSet,
+    KeyScopedTopicPreferencesViewSet,
+)
 from products.messaging.backend.presentation.views.message_categories import MessageCategoryViewSet
 from products.messaging.backend.presentation.views.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.presentation.views.message_suppression import MessageSuppressionViewSet
@@ -19,6 +25,7 @@ from products.messaging.backend.presentation.views.topic_preferences import Topi
 from products.messaging.backend.presentation.views.transactional_code_emails import TransactionalCodeEmailViewSet
 from products.messaging.backend.presentation.views.transactional_email_log import TransactionalEmailLogViewSet
 from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
+from products.messaging.backend.presentation.views.workflow_email_log import WorkflowEmailLogViewSet
 
 webhook_urlpatterns: list[URLPattern] = [
     re_path(
@@ -63,6 +70,11 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"transactional_email_log", TransactionalEmailLogViewSet, "project_transactional_email_log", ["team_id"]
     )
+    routers.projects.register(r"workflow_email_log", WorkflowEmailLogViewSet, "project_workflow_email_log", ["team_id"])
+    routers.root.register(r"messaging/send", KeyScopedMessagingSendViewSet, "messaging_send")
+    routers.root.register(r"messaging/attachments", KeyScopedMessagingAttachmentsViewSet, "messaging_attachments")
+    routers.root.register(r"messaging/emails", KeyScopedMessagingEmailsViewSet, "messaging_emails")
+    routers.root.register(r"messaging/preferences", KeyScopedTopicPreferencesViewSet, "messaging_preferences")
     routers.projects.register(
         r"transactional_code_emails",
         TransactionalCodeEmailViewSet,
