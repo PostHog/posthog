@@ -1175,7 +1175,9 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             runs.run_step(self.team.id, run.id, step, attempt=1)
 
         run.refresh_from_db()
-        assert run.progress["contacts"]["warnings"] == [NO_MARKETING_CAMPAIGNS_NOTE]
+        for step in ("contacts", "new_people"):
+            assert run.progress[step]["warnings"] == [NO_MARKETING_CAMPAIGNS_NOTE]
+            assert run.progress[step]["skipped"] is True
         assert not self.people.stored
         assert not self._export_requests()
 

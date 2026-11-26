@@ -51,6 +51,7 @@ from products.messaging.backend.provider_imports.contacts import (
     CONTACT_COUNT_LABELS,
     MAX_CONTACT_BYTES,
     MAX_CONTACT_MEMBERSHIPS,
+    NEW_PEOPLE_STEP,
     TOO_MANY_CONTACTS_MESSAGE,
     ContactCollector,
     ContactList,
@@ -176,7 +177,8 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
 }
 # SendGrid grants no marketing scope at all to a key on an account without Marketing Campaigns, even with full access.
 # A key that was given none on purpose looks the same, so these steps skip with a note instead of refusing the key.
-MARKETING_STEPS = ("single_sends", "lists", "contacts")
+# New people only adds to what contacts reads, so it skips with it.
+MARKETING_STEPS = ("single_sends", "lists", "contacts", NEW_PEOPLE_STEP)
 # With contacts, a new run reads these from the start. Continuing a failed run would skip who opted out since then, and
 # those contacts could get marketing email.
 OPT_OUT_STEPS = ("suppressions", "global_unsubscribes", "group_unsubscribes")
