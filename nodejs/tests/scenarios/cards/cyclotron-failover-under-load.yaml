@@ -39,3 +39,4 @@ measure:
     - name: failback_drain_seconds
     - name: baseline_claims_per_second
     - name: baseline_new_jobs_per_second
+unpaired: it judges no no_loss, so --pair would end both runs unjudged
