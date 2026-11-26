@@ -1,4 +1,6 @@
-export function observeRunUiPerformance(report: (properties: Record<string, number | boolean>) => void): () => void {
+export function observeRunUiPerformance(
+    report: (properties: Record<string, number | boolean | string>) => void
+): () => void {
     const startedAt = performance.now()
     let stoppedAt: number | undefined
     let count = 0
@@ -10,11 +12,13 @@ export function observeRunUiPerformance(report: (properties: Record<string, numb
         typeof PerformanceObserver !== 'undefined' && PerformanceObserver.supportedEntryTypes?.includes('longtask')
     const collect = (entries: PerformanceEntry[]): void => {
         for (const entry of entries) {
-            if (entry.startTime >= startedAt && (stoppedAt === undefined || entry.startTime <= stoppedAt)) {
+            const overlapEnd = Math.min(entry.startTime + entry.duration, stoppedAt ?? Infinity)
+            const overlapDuration = overlapEnd - Math.max(entry.startTime, startedAt)
+            if (overlapDuration > 0) {
                 count++
-                duration += entry.duration
-                maxDuration = Math.max(maxDuration, entry.duration)
-                blockingTime += Math.max(0, entry.duration - 50)
+                duration += overlapDuration
+                maxDuration = Math.max(maxDuration, overlapDuration)
+                blockingTime += Math.max(0, overlapEnd - Math.max(entry.startTime + 50, startedAt))
             }
         }
     }
@@ -39,6 +43,7 @@ export function observeRunUiPerformance(report: (properties: Record<string, numb
                 observer.disconnect()
             }
             report({
+                duration_policy: 'observation_window_overlap',
                 observed_duration_ms: observedDuration,
                 long_task_supported: !!observer,
                 long_task_count: count,
