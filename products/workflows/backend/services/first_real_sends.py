@@ -13,7 +13,6 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.event_usage import groups
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
@@ -26,6 +25,11 @@ WORKFLOW_FIRST_REAL_SEND_EVENT = "workflow first real send"
 FIRST_REAL_SEND_CUTOFF = datetime(2026, 12, 1, tzinfo=UTC)
 FIRST_REAL_SEND_LOOKBACK = timedelta(days=2)
 CANDIDATE_BATCH_SIZE = 1000
+
+
+class FirstRealSendCaptureError(Exception):
+    pass
+
 
 FIRST_BILLABLE_EMAIL_SQL = """
 SELECT team_id, app_source_id, min(timestamp)
@@ -54,12 +58,15 @@ def _first_billable_emails(since: datetime) -> dict[tuple[int, UUID], datetime]:
 def capture_first_real_sends(now: datetime) -> int:
     first_sends = _first_billable_emails(now - FIRST_REAL_SEND_LOOKBACK)
     captured = 0
+    failures: list[FirstRealSendCaptureError] = []
     for batch in batched(first_sends.items(), CANDIDATE_BATCH_SIZE, strict=False):
         try:
             captured += _record_batch(dict(batch))
-        except Exception as error:
-            capture_exception(error)
-    logger.info("workflows_first_real_sends_captured", captured=captured)
+        except FirstRealSendCaptureError as error:
+            failures.append(error)
+    logger.info("workflows_first_real_sends_captured", captured=captured, failed_batches=len(failures))
+    if failures:
+        raise failures[0]
     return captured
 
 
@@ -91,6 +98,16 @@ def _record_batch(first_sends: dict[tuple[int, UUID], datetime]) -> int:
                 recorded.append((flow, team, first_send))
     if not recorded:
         return 0
+    try:
+        _capture(recorded)
+    except Exception as error:
+        hog_flow_ids = [str(flow.id) for flow, _, _ in recorded]
+        logger.exception("workflows_first_real_send_capture_failed", hog_flow_ids=hog_flow_ids)
+        raise FirstRealSendCaptureError(hog_flow_ids) from error
+    return len(recorded)
+
+
+def _capture(recorded: list[tuple[HogFlow, Team, datetime]]) -> None:
     with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
         for flow, team, first_send in recorded:
             capture(
@@ -106,4 +123,3 @@ def _record_batch(first_sends: dict[tuple[int, UUID], datetime]) -> int:
                 },
                 groups=groups(team=team),
             )
-    return len(recorded)
