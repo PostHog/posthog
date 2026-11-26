@@ -21,7 +21,7 @@ import { messageTemplateLogic } from './messageTemplateLogic'
 
 interface MockCanvas {
     edit: (design: Record<string, any>) => void
-    setExportGate: (gate: Promise<void> | null) => void
+    setExportGate: (gate: Promise<void> | null, onStart?: () => void) => void
 }
 
 const mockCanvases: MockCanvas[] = []
@@ -35,6 +35,7 @@ jest.mock('react-email-editor', () => {
                 const listeners: Record<string, () => void> = {}
                 let design: Record<string, any> = {}
                 let exportGate: Promise<void> | null = null
+                let onExportStart: (() => void) | undefined
                 const editor = {
                     loadDesign: (next: Record<string, any>) => {
                         design = next
@@ -50,6 +51,7 @@ jest.mock('react-email-editor', () => {
                                 design,
                             })
                         if (exportGate) {
+                            onExportStart?.()
                             void exportGate.then(deliver)
                         } else {
                             deliver()
@@ -67,8 +69,9 @@ jest.mock('react-email-editor', () => {
                         design = next
                         listeners['design:updated']?.()
                     },
-                    setExportGate: (gate: Promise<void> | null) => {
+                    setExportGate: (gate: Promise<void> | null, onStart?: () => void) => {
                         exportGate = gate
+                        onExportStart = onStart
                     },
                 }
             }, [])
@@ -660,6 +663,10 @@ describe('MessageTemplate', () => {
         const exportGate = new Promise<void>((resolve) => {
             releaseExport = resolve
         })
+        let exportStarted!: () => void
+        const exportArrived = new Promise<void>((resolve) => {
+            exportStarted = resolve
+        })
         let currentServer: Record<string, unknown> = {
             ...PASSWORD_RESET_WITH_DRAFT,
             sensitive: true,
@@ -714,11 +721,18 @@ describe('MessageTemplate', () => {
         await publishArrived
         await waitFor(() => expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'true'))
 
-        canvas!.setExportGate(exportGate)
+        fireEvent.click(screen.getByText('Design'))
+        fireEvent.click(screen.getByText(PASSWORD_RESET_WITH_DRAFT.name))
+        const nameInput = await screen.findByPlaceholderText('Enter name')
+        fireEvent.change(nameInput, { target: { value: 'Edited during publish' } })
+        fireEvent.keyDown(nameInput, { key: 'Enter' })
+
+        canvas!.setExportGate(exportGate, exportStarted)
         act(() => {
             canvas!.edit({ body: { id: 'Canvas edit' } })
             releasePublish()
         })
+        await exportArrived
 
         const publishButton = screen.getByText('Publish').closest('button') as HTMLButtonElement
         await waitFor(() => expect(publishButton).toHaveAttribute('aria-disabled', 'true'))
@@ -728,6 +742,7 @@ describe('MessageTemplate', () => {
 
         await act(async () => releaseExport())
         expect(await screen.findByText(/This template was updated elsewhere/)).toBeInTheDocument()
+        expect(screen.getByText('Edited during publish')).toBeInTheDocument()
         expect(publishBodies).toHaveLength(1)
         expect(currentServer.draft_content).toEqual(newerServerDraft)
     })
