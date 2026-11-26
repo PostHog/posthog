@@ -4,6 +4,7 @@ from itertools import batched
 from uuid import UUID, uuid5
 
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 
@@ -80,16 +81,16 @@ def _record_batch(first_sends: dict[tuple[int, UUID], datetime]) -> int:
     hog_flow_ids_by_team: dict[int, list[UUID]] = defaultdict(list)
     for team_id, hog_flow_id in first_sends:
         hog_flow_ids_by_team[team_id].append(hog_flow_id)
-    candidates = [
-        flow
-        for team_id, hog_flow_ids in hog_flow_ids_by_team.items()
-        for flow in HogFlow.objects.filter(
-            team_id=team_id,
-            pk__in=hog_flow_ids,
+    team_scoped_ids = Q()
+    for team_id, hog_flow_ids in hog_flow_ids_by_team.items():
+        team_scoped_ids |= Q(team_id=team_id, pk__in=hog_flow_ids)
+    candidates = list(
+        HogFlow.objects.filter(
+            team_scoped_ids,
             created_at__gte=FIRST_REAL_SEND_CUTOFF,
             first_real_send_at__isnull=True,
         ).only("id", "team_id", "entry_attempt_id", "origin_product")
-    ]
+    )
     teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({flow.team_id for flow in candidates})
     pending = sorted(
         (

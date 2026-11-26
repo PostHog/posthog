@@ -3,14 +3,16 @@ from uuid import UUID
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import DatabaseError, connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from posthog.models.team.team import Team
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.facade.tasks import capture_workflow_first_real_sends
@@ -111,6 +113,47 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         assert captured_events(scoped_capture) == []
         flow.refresh_from_db()
         assert flow.first_real_send_at == first_send
+
+    @patch(f"{SERVICE}.ph_scoped_capture")
+    def test_one_lookup_reads_the_workflows_of_every_team_and_keeps_each_id_with_its_team(
+        self, scoped_capture: MagicMock
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        flow = self._flow()
+        other_flow = self._flow()
+        unsent_flow = self._flow()
+        HogFlow.objects.filter(pk__in=[other_flow.pk, unsent_flow.pk]).update(team=other_team)
+        self._metric(flow, NOW - timedelta(hours=2))
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source="hog_flow",
+            app_source_id=str(unsent_flow.id),
+            metric_kind="email",
+            metric_name="billable_invocation",
+            timestamp=NOW - timedelta(hours=3),
+        )
+        create_app_metric2(
+            team_id=other_team.pk,
+            app_source="hog_flow",
+            app_source_id=str(other_flow.id),
+            metric_kind="email",
+            metric_name="billable_invocation",
+            timestamp=NOW - timedelta(hours=1),
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            capture_workflow_first_real_sends()
+
+        flow.refresh_from_db()
+        other_flow.refresh_from_db()
+        unsent_flow.refresh_from_db()
+        assert flow.first_real_send_at == (NOW - timedelta(hours=2)).replace(microsecond=0)
+        assert other_flow.first_real_send_at == (NOW - timedelta(hours=1)).replace(microsecond=0)
+        assert unsent_flow.first_real_send_at is None
+        assert sorted(event["properties"]["hog_flow_id"] for event in captured_events(scoped_capture)) == sorted(
+            [str(flow.id), str(other_flow.id)]
+        )
+        assert [query["sql"] for query in queries if query["sql"].startswith('SELECT "posthog_hogflow"')] == [ANY]
 
     @patch(f"{SERVICE}.ph_scoped_capture")
     def test_skips_workflows_created_before_the_cutoff(self, scoped_capture: MagicMock) -> None:
