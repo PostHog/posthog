@@ -980,6 +980,32 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(rerun_logql["result"]["cache"]["hit"], False)
         self.assertEqual(list(self._snuffle_calls(request)), ["http://logs.test/loki/api/v1/query_range"])
 
+    @parameterized.expand([("promql", "sum(up)"), ("logql", '{service_name="api"}')])
+    def test_a_telemetry_target_answers_while_every_worker_could_be_building_hogql(
+        self, language: str, query: str
+    ) -> None:
+        hogql_may_finish = Event()
+
+        def run(team: Any, query: dict, *args: Any, **kwargs: Any) -> Any:
+            if query["kind"] == "HogQLQuery":
+                hogql_may_finish.wait(timeout=10)
+                return {"results": []}
+            return process_query_dict(team, query, *args, **kwargs)
+
+        sql = [
+            {"target": {"refId": f"sql-{n}", "language": "hogql", "query": f"select {n}"}, "time": _LAST_HOUR}
+            for n in range(query_batch_module.WORKERS_PER_BATCH)
+        ]
+        with _snuffle_requests(), patch.object(query_batch_module, "process_query_dict", side_effect=run):
+            response = self._batch([*sql, _telemetry(language, query)])
+            lines = (line for line in cast(Iterator[bytes], response.streaming_content) if line.strip())
+            first = json.loads(next(lines))
+            hogql_may_finish.set()
+            rest = [json.loads(line) for line in lines]
+
+        self.assertEqual((first["refId"], first.get("error")), (language, None))
+        self.assertEqual(sorted(line["refId"] for line in rest), [target["target"]["refId"] for target in sql])
+
     @parameterized.expand([("at_the_limit", 1000, None), ("past_the_limit", 1001, True)])
     def test_log_lines_past_the_limit_are_marked_truncated(
         self, _name: str, returned: int, truncated: bool | None

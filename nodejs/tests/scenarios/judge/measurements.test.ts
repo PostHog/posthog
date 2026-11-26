@@ -121,8 +121,8 @@ const BACKED_UP = { due: 50, oldestDueSeconds: 30 }
 
 type Read = typeof QUIET | 'failed' | 'missed'
 
-const probedQueue = (lag: (second: number) => Read): QueueSample[] =>
-    everySecondOf(0, 1500, 5).flatMap((second): QueueSample[] => {
+const probedQueue = (lag: (second: number) => Read, step = 5): QueueSample[] =>
+    everySecondOf(0, 1500, step).flatMap((second): QueueSample[] => {
         const read = lag(second)
         return read === 'missed'
             ? []
@@ -180,9 +180,13 @@ describe('measurements', () => {
         ])
     })
 
-    it('keeps the largest resident set of each role across its replicas', () => {
-        const samples = [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]
-
+    it.each([
+        ['a few scrapes', [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]],
+        [
+            'more scrapes than one call takes arguments',
+            Array.from({ length: 200_000 }, (_, i) => sample(i * 5, -60, 1, i === 1234 ? 900 : 300)),
+        ],
+    ])('keeps the largest resident set of each role across its replicas over %s', (_story, samples) => {
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
         ])
@@ -552,6 +556,17 @@ describe('measurements', () => {
         )
     })
 
+    it('peaks the oldest due age over more reads than one call takes arguments', () => {
+        const queue = probedQueue((second) => (between(720, 760)(second) ? BACKED_UP : QUIET), 0.002)
+
+        expect(
+            measure(
+                [{ name: 'queue_lag_peak_seconds', params: {} }],
+                evidence({ queue, drive: DRIVE, timeline: [VALVE] })
+            )
+        ).toEqual([{ name: 'queue_lag_peak_seconds', unit: 's', value: 30 }])
+    })
+
     const errors = (
         atSecond: number,
         startedAtS: number,
@@ -798,6 +813,68 @@ describe('measurements', () => {
             { name: 'step_claims_per_second', key: 'fetch_10x', unit: 'jobs/s', value: 53 / 55, incomplete: true },
             { name: 'step_claims_per_second', key: 'fanout_10x', unit: 'jobs/s', value: 1, incomplete: true },
         ])
+    })
+
+    it('rates the baseline from the end of the warm-up, not from the scrape before it, nor across a restart there, counting each lifetime once', () => {
+        const every5s = Array.from({ length: 40 }, (_, i) => i * 5)
+        const sinceWarmUp = (second: number, perSecond: number): number => Math.max(0, second - 160) * perSecond
+        const restartedAt = 162.5
+        const recorded = evidence({
+            samples: [
+                ...every5s.map((second) => ({
+                    ...sample(second, -60, 1),
+                    processed: { email: sinceWarmUp(second, 100) },
+                })),
+                ...every5s
+                    .map((second) => second + 2.5)
+                    .map((second) =>
+                        second < restartedAt
+                            ? { ...sample(second, -60, 1, 100, 1), processed: { email: 500 } }
+                            : {
+                                  ...sample(second, restartedAt, 1, 100, 1),
+                                  processed: { email: 20 + (second - restartedAt) * 100 },
+                              }
+                    ),
+                ...every5s
+                    .map((second) => second + 158)
+                    .filter((second) => second < 200)
+                    .map((second) => ({
+                        ...sample(second, 158, 1, 100, 2),
+                        processed: { email: 50 + (second - 158) * 100 },
+                    })),
+                ...[
+                    { ...sample(156, -60, 1, 100, 3), processed: { email: 500 } },
+                    { ...sample(161, 158, 1, 100, 3), processed: { email: 20 } },
+                    ...every5s
+                        .map((second) => second + 166)
+                        .filter((second) => second < 200)
+                        .map((second) => ({
+                            ...sample(second, 161, 1, 100, 3),
+                            processed: { email: (second - 161) * 100 },
+                        })),
+                ],
+            ],
+            host: every5s.map((second) => ({
+                at: atS(second),
+                busyTicks: sinceWarmUp(second, 50),
+                totalTicks: second * 100,
+            })),
+            queue: every5s.map((second) => ({
+                at: atS(second),
+                ...QUIET,
+                running: 1,
+                inserted: sinceWarmUp(second, 10),
+            })),
+            drive: { startedAt: atS(0), warmedAt: atS(160), endedAt: atS(200) },
+        })
+
+        expect(baselineOf(recorded)).toEqual({
+            seconds: 40,
+            scrapedSeconds: 35,
+            claimsPerSecond: { email: 400 },
+            newJobsPerSecond: 10,
+            hostBusyShare: 0.5,
+        })
     })
 
     it('rates no claims when the role metrics stop early in the baseline', () => {
