@@ -101,10 +101,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
     result_ids = {
         block.node_id
         for block in blocks
-        if block.kind == "cell"
-        and block.display != "source"
-        and block.node_id in sources
-        and sources[block.node_id].tag_name in ("SQLV2", "PythonV2")
+        if block.needs_result and block.node_id in sources and sources[block.node_id].tag_name in ("SQLV2", "PythonV2")
     }
     states = release_cell_states(notebook, result_ids)
     problems: list[str] = []
@@ -113,12 +110,14 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         name = block.title or block.id
         if block.kind == "input" and block.variable not in variables:
             problems.append(f"{name}: choose an existing notebook variable.")
-        if block.kind != "cell":
+        if block.kind != "cell" and not block.needs_query_choices:
             continue
         node_id = block.node_id
         if node_id not in sources:
             problems.append(f"{name}: the source cell is missing.")
-        elif block.display != "source" and node_id in result_ids:
+        elif block.needs_query_choices and sources[node_id].tag_name != "SQLV2":
+            problems.append(f"{name}: choose a native SQL cell for dropdown options.")
+        elif block.needs_result and node_id in result_ids:
             cell = states.get(node_id)
             if not cell or not cell.last_run or cell.status != "done":
                 status = cell.status if cell and cell.status != "done" else "stale"
@@ -127,6 +126,13 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             props = _parse_markdown_component_props(sources[node_id].source)
             if props.get("runId") != cell.last_run["run_id"] or not isinstance(props.get("result"), dict):
                 problems.append(f"{name}: run the preview and wait for the result to save.")
+                continue
+            if block.needs_query_choices and (
+                cell.connection_id
+                or cell.send_raw_query
+                or block.option_column not in props["result"].get("columns", [])
+            ):
+                problems.append(f"{name}: choose a result column from a native SQL cell.")
                 continue
             completed.append(cell.last_run["finished_at"])
     return AppReleaseReview(

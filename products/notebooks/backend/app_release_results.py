@@ -25,10 +25,17 @@ def read_published_run_rows(team_id: int, notebook_id: UUID, run_id: UUID) -> li
     )
 
 
-def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[str, Any]) -> dict[str, list[list[Any]]]:
-    displayed = {
-        block["node_id"] for block in layout["blocks"] if block["kind"] == "cell" and block.get("display") != "source"
+def app_result_node_ids(layout: dict[str, Any]) -> set[str]:
+    return {
+        block["node_id"]
+        for block in layout["blocks"]
+        if (block["kind"] == "cell" and block.get("display") != "source")
+        or (block["kind"] == "input" and block.get("input_kind") == "query_select")
     }
+
+
+def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[str, Any]) -> dict[str, list[list[Any]]]:
+    displayed = app_result_node_ids(layout)
     if not displayed:
         return {}
     run_refs = {

@@ -11,12 +11,14 @@ import { NOTEBOOK_MARKDOWN_REGISTRY } from 'scenes/notebooks/Notebook/markdownNo
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
+import type { AppChoices } from './notebookAppChoices'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
 
 export function NotebookAppBlock({
     block,
     cell,
+    choices,
     stale,
     onSource,
     variables,
@@ -26,6 +28,7 @@ export function NotebookAppBlock({
     renderOutput,
 }: {
     block: NotebookAppBlockApi
+    choices?: AppChoices | null
     cell?: NotebookBlockNode
     stale: boolean
     onSource?: (id: string) => void
@@ -50,6 +53,7 @@ export function NotebookAppBlock({
         return (
             <NotebookAppInput
                 block={block}
+                choices={choices}
                 variable={variables.find((variable) => variable.name === block.variable)}
                 disabled={!canInteract}
                 onChange={(value) => onInput(block.variable || '', value)}

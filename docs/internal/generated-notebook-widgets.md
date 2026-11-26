@@ -14,6 +14,8 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 ## Notebook apps and variables
 
+Choose **Dropdown from query** to fill an input from a native SQL cell. Select the cell and the column that contains the choices. The cell can stay off the app canvas. Reference another input in its SQL to create cascading choices. The dropdown shows up to 100 distinct values from the available rows. A viewer can replace or clear a selection that falls outside the refreshed choices.
+
 To filter on several values, add a **List of text** notebook variable, then bind an app input to it. Choose **Multi-select dropdown** and enter one option per line. The variable holds the selected strings, including an empty list when cleared. For a variable named `regions`, use `WHERE region IN {regions}` in a native SQL cell. To show all regions when the selection is empty, use `WHERE empty({regions}) OR region IN {regions}`. A Python cell receives `regions` as a list.
 
 Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. **Run all** refreshes the notebook's calculations. The preview checks them again after the notebook saves.

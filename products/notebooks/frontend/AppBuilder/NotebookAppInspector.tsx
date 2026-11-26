@@ -7,6 +7,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
+import { NotebookAppChoiceSettings } from './NotebookAppChoiceSettings'
 import { appCellTitle } from './notebookAppLayout'
 
 const SLIDER_FIELDS = [
@@ -163,6 +164,7 @@ export function NotebookAppInspector({
                                 value={block.input_kind ?? 'auto'}
                                 options={[
                                     { value: 'auto', label: 'Match variable type' },
+                                    { value: 'query_select', label: 'Dropdown from query' },
                                     {
                                         value: 'select',
                                         label: variableType === 'list' ? 'Multi-select dropdown' : 'Dropdown',
@@ -176,6 +178,13 @@ export function NotebookAppInspector({
                                 ]}
                                 onChange={(input_kind) => onBlock(block.id, { input_kind })}
                             />
+                            {block.input_kind === 'query_select' && (
+                                <NotebookAppChoiceSettings
+                                    cells={cells}
+                                    block={block}
+                                    onChange={(patch) => onBlock(block.id, patch)}
+                                />
+                            )}
                             {block.input_kind === 'select' && (
                                 <>
                                     <LemonLabel>Options (one per line)</LemonLabel>

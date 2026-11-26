@@ -6,6 +6,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions import Conflict
 
+from products.notebooks.backend.app_release_results import app_result_node_ids
 from products.notebooks.backend.app_releases import read_release
 from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
@@ -48,11 +49,7 @@ def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariab
     overrides.is_valid(raise_exception=True)
     by_name = {var["name"]: var for var in overrides.validated_data}
     variables = build_notebook_variables([by_name.get(var["name"], var) for var in release.variables])
-    displayed = {
-        block["node_id"]
-        for block in release.layout["blocks"]
-        if block["kind"] == "cell" and block.get("display") != "source"
-    }
+    displayed = app_result_node_ids(release.layout)
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)
     by_id = {cell.node_id: cell for cell in cells}

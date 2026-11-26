@@ -26,6 +26,16 @@ class AppBlockSource:
     variable: str = ""
     node_id: str = ""
     display: str = ""
+    input_kind: str = ""
+    option_column: str = ""
+
+    @property
+    def needs_query_choices(self) -> bool:
+        return self.kind == "input" and self.input_kind == "query_select"
+
+    @property
+    def needs_result(self) -> bool:
+        return (self.kind == "cell" and self.display != "source") or self.needs_query_choices
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -102,7 +102,7 @@ const meta: Meta = {
                         published_at: '2026-10-18T12:00:00Z',
                         results_as_of: '2026-10-18T09:00:00Z',
                         title: notebook.title,
-                        layout,
+                        layout: saved.app_published,
                         markdown: getMarkdownNotebookMarkdown(buildContent(appBuilderDemoVariables, true)),
                         variables: appBuilderDemoVariables,
                         has_previous: false,
@@ -299,6 +299,28 @@ export const Published: Story = {
         )
     },
 }
+export const CascadingDropdown: Story = {
+    beforeEach: () => {
+        const report = structuredClone(layout)
+        const week = report.blocks.find((block) => block.variable === 'week')!
+        Object.assign(week, {
+            input_kind: 'query_select',
+            node_id: 'growth-table',
+            option_column: 'week',
+            title: 'Week from results',
+        })
+        report.blocks = report.blocks.filter((block) => block.kind !== 'cell' || block.node_id !== 'growth-table')
+        saved = { ...saved, app_draft: report, app_published: report }
+    },
+    parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Week from results', {}, { timeout: 60000 }))
+        await userEvent.click(await within(document.body).findByText('2026-10-05'))
+        await waitFor(() => expect(canvas.getByLabelText('Week from results')).toHaveTextContent('2026-10-05'))
+    },
+}
+
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {

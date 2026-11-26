@@ -60,6 +60,7 @@ class NotebookAppBlockKind(models.TextChoices):
 class NotebookAppInputKind(models.TextChoices):
     AUTO = "auto", "Automatic"
     SELECT = "select", "Dropdown"
+    QUERY_SELECT = "query_select", "Query dropdown"
     SLIDER = "slider", "Slider"
 
 
@@ -85,6 +86,9 @@ class NotebookAppBlockSerializer(serializers.Serializer):
     input_kind = serializers.ChoiceField(
         choices=NotebookAppInputKind.choices, default="auto", help_text="Control used for an input."
     )
+    option_column = serializers.CharField(
+        max_length=256, allow_blank=True, default="", help_text="Column supplying choices for a query dropdown."
+    )
     options = serializers.ListField(
         child=serializers.CharField(max_length=1000),
         max_length=100,
@@ -107,6 +111,8 @@ class NotebookAppBlockSerializer(serializers.Serializer):
             raise serializers.ValidationError({"node_id": "Choose a notebook cell."})
         if attrs["kind"] == "input" and not attrs["variable"]:
             raise serializers.ValidationError({"variable": "Choose a notebook variable."})
+        if attrs["input_kind"] == "query_select" and attrs["kind"] != "input":
+            raise serializers.ValidationError("Query dropdowns must be input components.")
         if attrs["min"] >= attrs["max"]:
             raise serializers.ValidationError({"max": "Maximum must be greater than minimum."})
         return attrs

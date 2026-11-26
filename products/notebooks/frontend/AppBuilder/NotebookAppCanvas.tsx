@@ -11,6 +11,7 @@ import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/N
 
 import type { NotebookAppLayoutApi } from '../generated/api.schemas'
 import { NotebookAppBlock } from './NotebookAppBlock'
+import { draftChoices, type AppChoices } from './notebookAppChoices'
 
 export function NotebookAppCanvas({
     layout,
@@ -29,6 +30,7 @@ export function NotebookAppCanvas({
     onSource,
     onInput,
     onCellOutput,
+    getQueryChoices = draftChoices,
     renderOutput,
 }: {
     layout: NotebookAppLayoutApi
@@ -47,6 +49,7 @@ export function NotebookAppCanvas({
     onSource?: (id: string) => void
     onInput: (name: string, value: NotebookVariableValue) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
+    getQueryChoices?: (cell: NotebookBlockNode | undefined, column: string) => AppChoices | null
     renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
     const cellsById = useMemo(() => {
@@ -156,6 +159,11 @@ export function NotebookAppCanvas({
                         <NotebookAppBlock
                             block={block}
                             cell={cellsById.get(block.node_id ?? '')}
+                            choices={
+                                block.input_kind === 'query_select'
+                                    ? getQueryChoices(cellsById.get(block.node_id ?? ''), block.option_column ?? '')
+                                    : undefined
+                            }
                             stale={!!staleNodeIds[block.node_id || '']}
                             onSource={!editing ? onSource : undefined}
                             variables={variables}
