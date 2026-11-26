@@ -180,6 +180,60 @@ function RefreshHistory({ status }: { status: NotebookAppRefreshStatusApi }): JS
     )
 }
 
+function scheduleState(status: NotebookAppRefreshStatusApi, active: boolean, hasChecks: boolean): string {
+    if (!active) {
+        return 'Off'
+    }
+    if (status.stale) {
+        return 'Stale'
+    }
+    if (!status.last_success_at) {
+        return 'Waiting for first refresh'
+    }
+    return hasChecks ? 'On schedule' : 'Fresh'
+}
+
+function ScheduleSummary({
+    status,
+    active,
+    hasChecks,
+}: {
+    status: NotebookAppRefreshStatusApi
+    active: boolean
+    hasChecks: boolean
+}): JSX.Element {
+    return (
+        <summary className="cursor-pointer">
+            <strong>{hasChecks ? 'Scheduled refresh and runtime checks' : 'Scheduled SQL refresh'}</strong>
+            <span className="ml-2">
+                <LemonTag type={active && status.stale ? 'warning' : 'default'}>
+                    {scheduleState(status, active, hasChecks)}
+                </LemonTag>
+            </span>
+        </summary>
+    )
+}
+
+function ScheduleTimes({
+    status,
+    active,
+    onReload,
+}: {
+    status: NotebookAppRefreshStatusApi
+    active: boolean
+    onReload: () => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap gap-3 items-center text-secondary">
+            {status.last_success_at && <span>Last successful refresh {localDate(status.last_success_at)}</span>}
+            {active && status.next_due_at && <span>Next refresh {localDate(status.next_due_at)}</span>}
+            <LemonButton size="small" onClick={onReload}>
+                Check status
+            </LemonButton>
+        </div>
+    )
+}
+
 export function RefreshDetails({
     status,
     onSave,
@@ -193,17 +247,9 @@ export function RefreshDetails({
 }): JSX.Element {
     const hasChecks = !!status.checked_node_ids?.length
     const active = status.enabled && status.revision === status.published_revision
-    const state = status.stale ? 'Stale' : status.last_success_at ? 'Fresh' : 'Waiting for first refresh'
     return (
         <details className="border rounded p-3 mb-3">
-            <summary className="cursor-pointer">
-                <strong>{hasChecks ? 'Scheduled refresh and runtime checks' : 'Scheduled SQL refresh'}</strong>
-                <span className="ml-2">
-                    <LemonTag type={active && status.stale ? 'warning' : 'default'}>
-                        {active ? (hasChecks && state === 'Fresh' ? 'On schedule' : state) : 'Off'}
-                    </LemonTag>
-                </span>
-            </summary>
+            <ScheduleSummary status={status} active={active} hasChecks={hasChecks} />
             <div className="flex flex-col gap-3 mt-3">
                 <p className="m-0">
                     Freshness applies to native SQL outputs that use the published inputs. Python, connected SQL,
@@ -231,13 +277,7 @@ export function RefreshDetails({
                         refresh it.
                     </LemonBanner>
                 )}
-                <div className="flex flex-wrap gap-3 items-center text-secondary">
-                    {status.last_success_at && <span>Last successful refresh {localDate(status.last_success_at)}</span>}
-                    {active && status.next_due_at && <span>Next refresh {localDate(status.next_due_at)}</span>}
-                    <LemonButton size="small" onClick={onReload}>
-                        Check status
-                    </LemonButton>
-                </div>
+                <ScheduleTimes status={status} active={active} onReload={onReload} />
                 <strong>Refresh history</strong>
                 <RefreshHistory status={status} />
             </div>
