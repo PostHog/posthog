@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import TypeGuard
 
 from posthog.hogql import ast
 
@@ -55,10 +56,13 @@ def date_moved_by_whole_days(
     if node.op == ast.ArithmeticOperationOp.Add and _is_whole_day_interval(date):
         date, interval = interval, date
     date_type = resolve_type(date)
-    if isinstance(date_type, ast.DateType) and _is_whole_day_interval(interval):
-        return date_type
-    return None
+    if not isinstance(date_type, ast.DateType) or not _is_whole_day_interval(interval):
+        return None
+    amount_types = [resolve_type(amount) for amount in interval.args]
+    return ast.DateType(
+        nullable=date_type.nullable or any(amount_type and amount_type.nullable for amount_type in amount_types)
+    )
 
 
-def _is_whole_day_interval(node: ast.Expr) -> bool:
+def _is_whole_day_interval(node: ast.Expr) -> TypeGuard[ast.Call]:
     return isinstance(node, ast.Call) and node.name.lower() in WHOLE_DAY_INTERVAL_FUNCTIONS
