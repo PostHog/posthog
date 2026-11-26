@@ -11673,6 +11673,43 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         assert schema.deleted is True
         assert unlinked_table.deleted is True
 
+    def test_destroy_cleans_up_a_table_the_sync_linked_while_destroy_waited(self):
+        source, schema, synced_table = self._create_source_mid_first_sync()
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=synced_table.name,
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="persons",
+        )
+        real_assert_can_write_schemas = ExternalDataSourceViewSet._assert_can_write_schemas
+        checks = 0
+
+        def link_table_after_destroy_read_schemas(viewset: Any, schemas: Any) -> None:
+            nonlocal checks
+            checks += 1
+            if checks == 1:
+                ExternalDataSchema.objects.filter(pk=schema.pk).update(table=synced_table)
+            real_assert_can_write_schemas(viewset, schemas)
+
+        with patch.object(
+            ExternalDataSourceViewSet,
+            "_assert_can_write_schemas",
+            autospec=True,
+            side_effect=link_table_after_destroy_read_schemas,
+        ):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        schema.refresh_from_db()
+        synced_table.refresh_from_db()
+        join.refresh_from_db()
+        assert (schema.deleted, schema.table_id) == (True, None)
+        assert synced_table.deleted is True
+        assert synced_table.deleted_at is not None
+        assert join.deleted is True
+
     @parameterized.expand(
         [
             ("deadlock_once_is_retried", psycopg.errors.DeadlockDetected, 1, 204),

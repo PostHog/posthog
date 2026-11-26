@@ -2401,7 +2401,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         )
         return prefix_exists
 
-    def _soft_delete_source_rows(self, instance: ExternalDataSource, schemas: list[ExternalDataSchema]) -> None:
+    def _soft_delete_source_rows(
+        self, instance: ExternalDataSource, schemas: list[ExternalDataSchema]
+    ) -> list[ExternalDataSchema]:
         with transaction.atomic():
             # A sync locks a table row before it writes the schema row. Lock in the same order, each
             # set by id, so that an overlapping sync makes this block wait instead of deadlock. The
@@ -2417,12 +2419,16 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 .order_by("id")
                 .values_list("id", flat=True)
             )
-            list(
-                ExternalDataSchema.objects.select_for_update()
+            # The sync this block waited for can link its schema to a table before it commits, so
+            # re-read the schemas under their lock. A stale `schema.table` of None skips the table's
+            # joins here and its S3 data in `delete_table()` after the commit.
+            schemas = list(
+                ExternalDataSchema.objects.select_for_update(of=("self",))
                 .filter(team_id=self.team_id, id__in=[schema.id for schema in schemas])
+                .select_related("table")
                 .order_by("id")
-                .values_list("id", flat=True)
             )
+            self._assert_can_write_schemas(schemas)
 
             for schema in schemas:
                 if schema.table:
@@ -2453,6 +2459,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             instance.soft_delete()
 
+        return schemas
+
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
@@ -2469,14 +2477,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
         try:
-            self._soft_delete_source_rows(instance, schemas)
+            schemas = self._soft_delete_source_rows(instance, schemas)
         except OperationalError as e:
             if not isinstance(e.__cause__, psycopg.errors.DeadlockDetected):
                 raise
             # A CDC sync locks its schema row before it writes the companion table, which is the
             # reverse of the lock order in `_soft_delete_source_rows`. Postgres rolled the whole
             # block back, so it is safe to run it again once the sync commits.
-            self._soft_delete_source_rows(instance, schemas)
+            schemas = self._soft_delete_source_rows(instance, schemas)
 
         # Best-effort webhook cleanup — soft-deletes are already committed
         try:
