@@ -131,6 +131,12 @@ class SesV2Fake {
             return
         }
         const { Destination, Content } = parseJSON(Buffer.concat(chunks).toString())
+        if (!Destination?.ToAddresses?.length) {
+            response
+                .writeHead(400, { 'content-type': 'application/json', 'x-amzn-errortype': 'BadRequestException' })
+                .end(JSON.stringify({ message: 'Missing final recipients' }))
+            return
+        }
         this.delivered.push({
             to: Destination.ToAddresses,
             subject: Content.Simple.Subject.Data,
