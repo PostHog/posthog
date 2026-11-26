@@ -59,27 +59,28 @@ function retryWaitMs(headers: Record<string, string>, now: Date): number {
 }
 
 async function onMasterInGit(repo: string, remote: string, commit: string): Promise<true> {
-    const git = async (cwd: string, ...args: string[]): Promise<string> =>
-        (
-            await promisify(execFile)('git', args, {
-                cwd,
-                env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-                timeout: GIT_TIMEOUT_MS,
-            })
-        ).stdout.trim()
-    const gitDir = path.resolve(repo, await git(repo, 'rev-parse', '--git-common-dir'))
-    const committedS = Number(await git(repo, 'show', '-s', '--format=%ct', commit))
+    const run = async (cwd: string, env: NodeJS.ProcessEnv, args: string[]): Promise<string> =>
+        (await promisify(execFile)('git', args, { cwd, env, timeout: GIT_TIMEOUT_MS })).stdout.trim()
+    const inRepo = (...args: string[]): Promise<string> => run(repo, process.env, args)
+    const scratchEnv = {
+        ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))),
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_TERMINAL_PROMPT: '0',
+    }
+    const inScratch = (...args: string[]): Promise<string> => run(scratch, scratchEnv, args)
+    const gitDir = path.resolve(repo, await inRepo('rev-parse', '--git-common-dir'))
+    const committedS = Number(await inRepo('show', '-s', '--format=%ct', commit))
     const scratch = await mkdtemp(path.join(os.tmpdir(), 'scenario-origin-'))
     try {
-        await git(scratch, 'init', '--quiet', '--bare')
+        await inScratch('init', '--quiet', '--bare')
         await writeFile(path.join(scratch, 'objects', 'info', 'alternates'), `${path.join(gitDir, 'objects')}\n`)
         await copyFile(path.join(gitDir, 'shallow'), path.join(scratch, 'shallow')).catch((error) => {
             if ((error as { code?: unknown }).code !== 'ENOENT') {
                 throw error
             }
         })
-        await git(
-            scratch,
+        await inScratch(
             'fetch',
             '--quiet',
             '--no-tags',
@@ -87,7 +88,7 @@ async function onMasterInGit(repo: string, remote: string, commit: string): Prom
             remote,
             `+refs/heads/master:${MASTER_REF}`
         )
-        await git(scratch, 'merge-base', '--is-ancestor', commit, MASTER_REF)
+        await inScratch('merge-base', '--is-ancestor', commit, MASTER_REF)
         return true
     } finally {
         await rm(scratch, { recursive: true, force: true })

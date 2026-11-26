@@ -55,6 +55,14 @@ describe('githubOrigin', () => {
     let repos: string
     let remote: string
     let checkout: string
+    let mirrorHome: string
+
+    const checkoutState = (): string =>
+        [
+            gitIn(checkout, 'for-each-ref'),
+            gitIn(checkout, 'config', '--get', 'core.bare'),
+            readFileSync(path.join(checkout, '.git', 'shallow'), 'utf8'),
+        ].join('\n')
 
     const viaApi = (io: OriginIo): ReturnType<typeof githubOrigin> =>
         githubOrigin(io, api, checkout, `file://${repos}/missing.git`)
@@ -116,13 +124,16 @@ describe('githubOrigin', () => {
         mkdirSync(remote)
         mkdirSync(checkout)
         gitIn(remote, 'init', '-q', '-b', 'master')
+        commitIn(remote, 'root', NOW_S - 20 * 24 * 3600)
         commitIn(remote, 'merged', NOW_S - 7200)
         gitIn(remote, 'branch', 'pinned')
         gitIn(remote, 'switch', '-q', '-c', 'side')
         commitIn(remote, 'only on a branch', NOW_S - 3600)
         gitIn(remote, 'switch', '-q', 'master')
         commitIn(remote, 'merged with an older date', NOW_S - 10 * 24 * 3600)
-        gitIn(remote, 'branch', 'backdated')
+        commitIn(remote, 'merged an hour ago', NOW_S - 3600)
+        commitIn(remote, 'merged half an hour ago', NOW_S - 1800)
+        gitIn(remote, 'branch', 'merged')
         commitIn(remote, 'merged later', NOW_S)
         gitIn(checkout, 'init', '-q')
         gitIn(
@@ -134,8 +145,14 @@ describe('githubOrigin', () => {
             `file://${remote}`,
             '+refs/heads/pinned:refs/heads/pinned',
             '+refs/heads/side:refs/heads/side',
-            '+refs/heads/backdated:refs/heads/backdated'
+            '+refs/heads/merged:refs/heads/merged'
         )
+        const mirror = path.join(repos, 'mirror.git')
+        gitIn(repos, 'clone', '-q', '--bare', remote, mirror)
+        gitIn(mirror, 'update-ref', 'refs/heads/master', 'refs/heads/side')
+        mirrorHome = path.join(repos, 'home')
+        mkdirSync(mirrorHome)
+        writeFileSync(path.join(mirrorHome, '.gitconfig'), `[url "file://${mirror}"]\n\tinsteadOf = file://${remote}\n`)
     })
 
     afterAll(() => {
@@ -144,24 +161,46 @@ describe('githubOrigin', () => {
     })
 
     it.each([
-        ['answers from git, without asking GitHub, that a commit master holds is', 'backdated', [], true, 0],
+        ['answers from git, without asking GitHub, that a commit master holds is', 'merged', [], true, 0],
         ['asks GitHub whether a commit behind an older-dated master commit is', 'pinned', [{ status: 200 }], true, 1],
         ['asks GitHub whether a commit git finds only on a branch is', 'side', [], false, 1],
     ])(
         '%s on master, and leaves the shallow checkout as it was',
         async (_story, branch, scriptedAnswers, onMaster, requests) => {
             const commit = gitIn(checkout, 'rev-parse', branch)
-            const state = (): string =>
-                `${gitIn(checkout, 'for-each-ref')}\n${readFileSync(path.join(checkout, '.git', 'shallow'), 'utf8')}`
-            const before = state()
+            const before = checkoutState()
             answers = [...scriptedAnswers]
 
             await expect(githubOrigin(scripted().io, api, checkout, `file://${remote}`).onMaster(commit)).resolves.toBe(
                 onMaster
             )
-            expect({ requests: authorizations.length, state: state() }).toEqual({ requests, state: before })
+            expect({ requests: authorizations.length, state: checkoutState() }).toEqual({ requests, state: before })
         }
     )
+
+    it.each([
+        ['GIT_DIR names the checkout', (): NodeJS.ProcessEnv => ({ GIT_DIR: path.join(checkout, '.git') })],
+        [
+            "the caller's git config rewrites the remote to a mirror whose master holds a branch commit",
+            (): NodeJS.ProcessEnv => ({ HOME: mirrorHome }),
+        ],
+    ])('asks GitHub, and leaves the checkout as it was, when %s', async (_story, inherited) => {
+        const commit = gitIn(checkout, 'rev-parse', 'side')
+        const before = checkoutState()
+        const env = inherited()
+        const saved = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]))
+        Object.assign(process.env, env)
+        try {
+            await expect(githubOrigin(scripted().io, api, checkout, `file://${remote}`).onMaster(commit)).resolves.toBe(
+                false
+            )
+        } finally {
+            Object.entries(saved).forEach(([name, value]) =>
+                value === undefined ? delete process.env[name] : (process.env[name] = value)
+            )
+        }
+        expect({ requests: authorizations.length, state: checkoutState() }).toEqual({ requests: 1, state: before })
+    })
 
     it("asks GitHub's API when git cannot reach the remote", async () => {
         answers = [{ status: 200 }]
