@@ -10233,6 +10233,7 @@ export namespace Schemas {
         rollout_percentage: number;
         variant: string | null;
         aggregation_group_type_index: number | null;
+        description: string | null;
     }>;
     /**
      * A holdout group — a stable slice of users excluded from experiment exposure.
@@ -10474,6 +10475,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10505,6 +10507,7 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10572,6 +10575,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10601,6 +10605,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10629,6 +10634,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -10702,6 +10708,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -11074,6 +11081,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
