@@ -7,7 +7,7 @@ import { promiseResolveReject } from 'lib/utils/async'
 
 import { useMocks } from '~/mocks/jest'
 import * as queryRunner from '~/queries/query'
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import * as notebookApi from '../generated/api'
@@ -82,7 +82,8 @@ describe('published viewer refreshes', () => {
         })
         jest.spyOn(notebookApi, 'notebooksAppQueriesCreate').mockResolvedValue(plans)
         const pending = new Map<string, { signal: AbortSignal; finish: () => void }>()
-        jest.spyOn(queryRunner, 'performQuery').mockImplementation((_query, options, _refresh, id) => {
+        jest.spyOn(queryRunner, 'performQuery').mockImplementation((query, options, _refresh, id) => {
+            expect(query.tags?.productKey).toBe(ProductKey.NOTEBOOKS)
             const { promise, resolve, reject } = promiseResolveReject<HogQLQueryResponse>()
             pending.set(id!, { signal: options!.signal!, finish: () => resolve({ columns: ['n'], results: [[1]] }) })
             options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
