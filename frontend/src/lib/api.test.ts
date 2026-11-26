@@ -446,10 +446,10 @@ describe('API helper', () => {
     })
 
     it('builds the cohort persons list URL on the project route', () => {
-        ApiConfig.setCurrentProjectId(997)
+        ApiConfig.setCurrentProjectId(2)
 
         expect(api.cohorts.determineListUrl(5, { search: 'alice' })).toEqual(
-            '/api/projects/997/cohorts/5/persons?search=alice'
+            '/api/projects/2/cohorts/5/persons?search=alice'
         )
     })
 
