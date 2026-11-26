@@ -153,6 +153,23 @@ class QueryBatchEngine(LabeledStrEnum):
     NEW = "new", "New"
 
 
+class CachedTileStatus(LabeledStrEnum):
+    """What the batched cached-tiles read found for one requested tile."""
+
+    HIT = "hit", "Hit"
+    MISS = "miss", "Miss"
+    FORBIDDEN = "forbidden", "Forbidden"
+    NOT_FOUND = "not_found", "Not found"
+
+
+class DashboardSharingOutcome(LabeledStrEnum):
+    """How one query of a dashboard query stream ran: with another tile's query, alone, or alone after a failed share."""
+
+    SHARED = "shared", "Shared"
+    SEPARATE = "separate", "Separate"
+    FALLBACK = "fallback", "Shared attempt failed"
+
+
 __all__ = [
     "DASHBOARD_GRID_COLUMN_COUNT",
     "DASHBOARD_GRID_COMPACTION_MODES",
@@ -164,8 +181,10 @@ __all__ = [
     "MAX_GROUP_TITLE_LENGTH",
     "MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH",
     "MAX_WIDGETS_BATCH_SIZE",
+    "CachedTileStatus",
     "DashboardAccessMethod",
     "DashboardCreationMode",
+    "DashboardSharingOutcome",
     "DashboardTemplateOrdering",
     "DashboardTemplateScope",
     "DashboardTileBadge",
