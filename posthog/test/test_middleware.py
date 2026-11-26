@@ -2776,12 +2776,23 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session", "posthog.urls", "/api/users/@me/", "request_finished"),
-            ("personal_api_key", "posthog.urls", "/api/users/@me/", "request_finished"),
-            ("session", __name__, "/api/_raising_probe/", "request_failed"),
+            ("session", "posthog.urls", "get", "/api/users/@me/", {}, "request_finished"),
+            ("personal_api_key", "posthog.urls", "get", "/api/users/@me/", {}, "request_finished"),
+            ("session", __name__, "get", "/api/_raising_probe/", {}, "request_failed"),
+            ("session", "posthog.urls", "post", "/logout", {}, "request_finished"),
+            (
+                "session",
+                "posthog.urls",
+                "patch",
+                "/api/users/@me/",
+                {"current_password": APIBaseTest.CONFIG_PASSWORD, "password": "a_new_example_password"},
+                "request_finished",
+            ),
         ]
     )
-    def test_request_log_names_the_credential(self, credential_type: str, urlconf: str, path: str, event: str) -> None:
+    def test_request_log_names_the_credential(
+        self, credential_type: str, urlconf: str, method: str, path: str, data: dict[str, Any], event: str
+    ) -> None:
         if credential_type == "personal_api_key":
             self.client.logout()
             token = generate_random_token_personal()
@@ -2797,7 +2808,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
         self.client.raise_request_exception = False
         with capture_logs() as logs, override_settings(ROOT_URLCONF=urlconf):
-            self.client.get(path)
+            getattr(self.client, method)(path, data)
 
         [entry] = [log for log in logs if log["event"] == event]
         assert (entry["credential_type"], entry["credential_id"]) == (credential_type, expected_id)

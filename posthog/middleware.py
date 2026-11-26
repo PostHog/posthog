@@ -1622,6 +1622,10 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     return session_activity_credential(request, get_original_user_id_from_session(request))
 
 
+def _session_key(request: HttpRequest) -> str | None:
+    return getattr(getattr(request, "session", None), "session_key", None)
+
+
 # Credentials a person holds. A server-minted sandbox token is OAuth too, but it binds a task.
 _MCP_INTENT_CREDENTIAL_TYPES = frozenset({"oauth", "personal_api_key"})
 
@@ -1707,12 +1711,19 @@ class ActivityLoggingMiddleware:
 
         activity_storage.set_ip_address(pop_mcp_client_ip(request) or get_ip_address(request) or None)
 
+        session_key = _session_key(request)
+        session_credential = activity_storage.get_credential()
         try:
             response = self.get_response(request)
             _buffer_mcp_intent(request, response)
         finally:
+            credential = activity_storage.get_credential()
+            # Logout and session rotation change the session key, so the resolver no longer names the
+            # session that authenticated the request. A credential that an authentication class recorded stays.
+            if (credential is None or credential.type == "session") and _session_key(request) != session_key:
+                credential = session_credential
             # django-structlog writes request_finished above this middleware, after the cleanup below.
-            setattr(request, REQUEST_CREDENTIAL_ATTR, activity_storage.get_credential())
+            setattr(request, REQUEST_CREDENTIAL_ATTR, credential)
             # Clean up activity storage after request
             activity_storage.clear_all()
 
