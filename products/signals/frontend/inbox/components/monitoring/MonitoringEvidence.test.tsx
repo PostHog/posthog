@@ -41,7 +41,7 @@ describe('MonitoringEvidence', () => {
     })
 
     it('shows a failed check load and loads the chart on retry', async () => {
-        const report = monitoringRows[3]!
+        const report = monitoringRows[3]! as unknown as SignalReportListApi
         const summary = report.monitoring_summary!
         useMocks({
             get: {
