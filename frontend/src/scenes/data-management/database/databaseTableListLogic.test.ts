@@ -111,37 +111,69 @@ describe('databaseTableListLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(2)
     })
 
-    it.each([
-        {
-            name: 'keeps the loaded tables while the same scope refreshes',
-            reload: (): void => logic.actions.refreshDatabaseSchema(),
-            expectedWhileLoading: ['events'],
-        },
-        {
-            name: 'hides the previous scope tables while another connection loads',
-            reload: (): void => {
-                logic.actions.setConnection('conn-123')
-                logic.actions.loadDatabase()
-            },
-            expectedWhileLoading: [],
-        },
-    ])('$name', async ({ reload, expectedWhileLoading }) => {
-        ;(performQuery as jest.Mock).mockResolvedValueOnce({
-            tables: { events: { name: 'events', type: 'posthog' } },
-            joins: [],
+    describe('tables shown while a schema load is in flight', () => {
+        type PendingQuery = { resolve: (value: unknown) => void; reject: (error: Error) => void }
+        const eventsSchema = { tables: { events: { name: 'events', type: 'posthog' } }, joins: [] }
+        let pending: PendingQuery[]
+
+        beforeEach(async () => {
+            ;(performQuery as jest.Mock).mockResolvedValueOnce(eventsSchema)
+            logic = databaseTableListLogic()
+            logic.mount()
+            await logic.asyncActions.loadDatabase({ force: true })
+            pending = []
+            ;(performQuery as jest.Mock).mockImplementation(
+                () => new Promise((resolve, reject) => pending.push({ resolve, reject }))
+            )
         })
-        logic = databaseTableListLogic()
-        logic.mount()
-        await logic.asyncActions.loadDatabase({ force: true })
-        let resolveReload: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
-        ;(performQuery as jest.Mock).mockImplementation(() => new Promise((resolve) => (resolveReload = resolve)))
 
-        reload()
+        afterEach(async () => {
+            pending.forEach(({ resolve }) => resolve({ tables: {}, joins: [] }))
+            await expectLogic(logic).toFinishAllListeners()
+        })
 
-        expect(logic.values.databaseLoading).toBe(true)
-        expect(logic.values.allTables.map((table) => table.name)).toEqual(expectedWhileLoading)
-        resolveReload?.({ tables: {}, joins: [] })
-        await expectLogic(logic).toFinishAllListeners()
+        it.each([
+            {
+                name: 'keeps the loaded tables while the same scope refreshes',
+                act: async (): Promise<void> => logic.actions.refreshDatabaseSchema(),
+                expectedTables: ['events'],
+            },
+            {
+                name: 'hides the previous scope tables while another connection loads',
+                act: async (): Promise<void> => {
+                    logic.actions.setConnection('conn-123')
+                    logic.actions.loadDatabase()
+                },
+                expectedTables: [],
+            },
+            {
+                name: 'keeps hiding the previous scope tables after a superseded load of that scope settles',
+                act: async (): Promise<void> => {
+                    const staleRefresh = logic.asyncActions.refreshDatabaseSchema()
+                    logic.actions.setConnection('conn-123')
+                    logic.actions.loadDatabase()
+                    pending.shift()?.resolve(eventsSchema)
+                    await staleRefresh
+                },
+                expectedTables: [],
+            },
+            {
+                name: 'keeps hiding the previous scope tables while a failed connection switch retries',
+                act: async (): Promise<void> => {
+                    logic.actions.setConnection('conn-123')
+                    const failedSwitch = logic.asyncActions.loadDatabase()
+                    pending.shift()?.reject(new Error('connection refused'))
+                    await failedSwitch.catch(() => undefined)
+                    logic.actions.refreshDatabaseSchema()
+                },
+                expectedTables: [],
+            },
+        ])('$name', async ({ act, expectedTables }) => {
+            await act()
+
+            expect(pending).toHaveLength(1)
+            expect(logic.values.allTables.map((table) => table.name)).toEqual(expectedTables)
+        })
     })
 
     it('discards a superseded in-flight response so a refreshed post-deletion schema is not overwritten', async () => {
