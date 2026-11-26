@@ -10,6 +10,7 @@ use meep_ui::gpui_kit::component::{
 
 pub(super) struct TopicChatContent {
     topic: TopicId,
+    thread_rows: BTreeMap<ThreadId, usize>,
     session: std::sync::Arc<AgentSession>,
     linked: std::sync::Arc<Vec<Vec<ChatTask>>>,
     receipts: std::sync::Arc<Vec<Vec<Receipt>>>,
@@ -2120,6 +2121,14 @@ impl Desktop {
         {
             let tid = thread.id;
             let tab = super::pages::thread_tab(thread);
+            let label = if tab == Tab::Chat {
+                "Original request".to_owned()
+            } else {
+                let source = thread.messages.first().and_then(Message::reply_target)
+                    .map(|src| self.source(&s.topic, &src))
+                    .unwrap_or_else(|| "the source".into());
+                format!("From {source}")
+            };
             body = body.child(
                 ui::row()
                     .id("came-from")
@@ -2131,16 +2140,7 @@ impl Desktop {
                     .text_color(rgb(ui::theme::color(ui::SECONDARY)))
                     .hover(|s| s.text_color(rgb(ui::theme::color(ui::INK))))
                     .child(Icon::new(Glyph::Inbox).size(px(13.)))
-                    .child(format!(
-                        "From {} · {}",
-                        thread
-                            .messages
-                            .first()
-                            .and_then(Message::reply_target)
-                            .map(|src| self.source(&s.topic, &src))
-                            .unwrap_or_else(|| "the source".into()),
-                        super::pages::short_subject(&thread.subject)
-                    ))
+                    .child(format!("{label} · {}", super::pages::short_subject(&thread.subject)))
                     .child(Icon::new(Glyph::ChevronRight).size(px(11.)))
                     .on_click(cx.listener(move |s, _, w, cx| {
                         s.go(
@@ -3121,6 +3121,7 @@ impl Desktop {
         };
         TopicChatContent {
             topic: id,
+            thread_rows,
             session: std::sync::Arc::new(session),
             linked: std::sync::Arc::new(linked),
             receipts,
@@ -3142,20 +3143,23 @@ impl Desktop {
         let content = self.chat_content.borrow_mut().get(state);
         let session = content.session.clone();
         let linked = content.linked.clone();
-        let receipts = content.receipts.clone();
         let answering = content.answering;
         self.tick_running_chat_tasks(&linked, cx);
         let reduced = cx.reduce_motion();
         self.activity
             .update(cx, |a, cx| a.set_active(answering.is_some(), reduced, cx));
         self.ensure_chat_models(id, w, cx);
+        let request_row = self
+            .chat_request
+            .take()
+            .and_then(|id| content.thread_rows.get(&id).copied());
         let mut stream = scroll("chat-stream").gap(px(12.));
         let virtual_chat =
             !session.messages.is_empty() && !w.is_a11y_active() && !cx.has_active_drag();
         if !virtual_chat && !session.messages.is_empty() {
             for (index, message) in session.messages.iter().enumerate() {
                 let key = format!("{}-{index}", session.id);
-                stream = stream.child(self.transcript_row(
+                let mut row = ui::column().gap(px(12.)).child(self.transcript_row(
                     &session,
                     meep_shell::transcript::TranscriptRow {
                         message,
@@ -3167,8 +3171,9 @@ impl Desktop {
                     cx,
                 ));
                 if !linked[index].is_empty() {
-                    stream = stream.child(self.chat_task_group(id, &linked[index], cx));
+                    row = row.child(self.chat_task_group(id, &linked[index], cx));
                 }
+                stream = stream.child(row);
             }
         } else if session.messages.is_empty() {
             const STARTERS: [(Glyph, &str); 3] = [
@@ -3221,9 +3226,17 @@ impl Desktop {
                 .child(starters)
         }
         let stream = if virtual_chat {
-            self.virtual_topic_chat(state, session, linked, receipts, w, cx)
+            self.virtual_topic_chat(state, &content, request_row, w, cx)
                 .into_any_element()
         } else {
+            stream = stream.track_scroll(&self.content_scroll);
+            if let Some(index) = request_row {
+                let scroll = self.content_scroll.clone();
+                w.on_next_frame(move |w, _| {
+                    scroll.scroll_to_top_of_item(index);
+                    w.refresh();
+                });
+            }
             stream.into_any_element()
         };
         let inset = self.chat_inset(w);
@@ -3352,12 +3365,14 @@ impl Desktop {
     fn virtual_topic_chat(
         &self,
         state: &TopicState,
-        session: std::sync::Arc<AgentSession>,
-        linked: std::sync::Arc<Vec<Vec<ChatTask>>>,
-        receipts: std::sync::Arc<Vec<Vec<Receipt>>>,
+        content: &TopicChatContent,
+        request_row: Option<usize>,
         w: &mut Window,
         cx: &mut Context<Self>,
     ) -> Div {
+        let session = content.session.clone();
+        let linked = content.linked.clone();
+        let receipts = content.receipts.clone();
         let topic = state.topic.id;
         let selecting = gpui_kit::base::TextSelection::has_selection(w, cx);
         let count = if selecting { 1 } else { session.messages.len() };
@@ -3466,7 +3481,7 @@ impl Desktop {
                     cache
                         .list
                         .splice(changed..cache.list.item_count(), count - changed);
-                    if at_end || sent_by_person {
+                    if request_row.is_none() && (at_end || sent_by_person) {
                         cache.list.scroll_to_end();
                         let list = cache.list.clone();
                         w.on_next_frame(move |_, _| list.scroll_to_end());
@@ -3474,7 +3489,7 @@ impl Desktop {
                 } else if cache.running != running && !session.messages.is_empty() {
                     let last = session.messages.len() - 1;
                     cache.list.remeasure_items(last..last + 1);
-                    if at_end {
+                    if request_row.is_none() && at_end {
                         cache.list.scroll_to_end();
                     }
                 }
@@ -3492,14 +3507,22 @@ impl Desktop {
             } else {
                 cache.selection_rows.clear();
             }
-            match cache.list.is_scrolled_to_end() {
-                Some(true) => cache.pinned.set(true),
-                Some(false) | None if cache.pinned.get() && !selecting => {
-                    cache.list.scroll_to_end();
-                    let list = cache.list.clone();
-                    w.on_next_frame(move |_, _| list.scroll_to_end());
+            if let Some(index) = request_row {
+                cache.pinned.set(false);
+                cache.list.scroll_to(ListOffset {
+                    item_ix: index,
+                    offset_in_item: px(0.),
+                });
+            } else {
+                match cache.list.is_scrolled_to_end() {
+                    Some(true) => cache.pinned.set(true),
+                    Some(false) | None if cache.pinned.get() && !selecting => {
+                        cache.list.scroll_to_end();
+                        let list = cache.list.clone();
+                        w.on_next_frame(move |_, _| list.scroll_to_end());
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
             (
                 cache.list.clone(),
@@ -4630,7 +4653,7 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         let mut state = TopicState::new(Topic::new(TopicId(Uuid::new_v4()), "Topic", at));
-        request(&mut state, "Later", at + chrono::Duration::minutes(1));
+        let later = request(&mut state, "Later", at + chrono::Duration::minutes(1));
         let mut cache = TopicChatCache::default();
         let first = cache.get(&state);
         assert_eq!(first.session.messages[0].text, "Later");
@@ -4647,6 +4670,16 @@ mod tests {
             .map(|m| m.text.as_str())
             .collect();
         assert_eq!(texts, ["Earlier", "Later"]);
+        assert_eq!(updated.thread_rows[&later], 1);
+        let thread = &mut state.threads[0];
+        for (key, expected) in [
+            (later.to_string(), Tab::Chat),
+            (format!("fact-review/{later}"), Tab::Facts),
+            (format!("file-review/{later}"), Tab::Files),
+        ] {
+            thread.key = key;
+            assert_eq!(super::super::pages::thread_tab(thread), expected);
+        }
     }
 
     #[test]

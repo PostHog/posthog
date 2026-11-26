@@ -281,6 +281,7 @@ pub(super) struct Desktop {
     pub sending_runs: HashSet<TaskId>,
     pub run_scroll: ScrollHandle,
     pub chat_list: std::cell::RefCell<Option<TopicChatList>>,
+    pub chat_request: std::cell::Cell<Option<ThreadId>>,
     pub chat_content: std::cell::RefCell<super::details::TopicChatCache>,
     pub chat_tick: std::cell::Cell<bool>,
     pub pending_turns: std::collections::HashMap<TaskId, Vec<PendingTurn>>,
@@ -631,6 +632,7 @@ impl Desktop {
             sending_runs: Default::default(),
             run_scroll: ScrollHandle::new(),
             chat_list: std::cell::RefCell::new(None),
+            chat_request: Default::default(),
             chat_content: Default::default(),
             chat_tick: Default::default(),
             pending_turns: Default::default(),
@@ -1048,6 +1050,13 @@ impl Desktop {
                 Page::Topic(topic, tab, Some(Detail::Thread(thread)))
             }
             other => other,
+        };
+        let page = if let Page::Topic(topic, Tab::Chat, Some(Detail::Thread(thread))) = page {
+            self.chat_request.set(Some(thread));
+            Page::Topic(topic, Tab::Chat, None)
+        } else {
+            self.chat_request.set(None);
+            page
         };
         if self.page != page
             && (matches!(self.page, Page::View(_) | Page::NewView)

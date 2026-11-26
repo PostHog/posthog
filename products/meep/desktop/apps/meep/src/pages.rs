@@ -326,6 +326,8 @@ pub(super) fn thread_tab(thread: &Thread) -> Tab {
         Tab::Linked
     } else if thread.key.starts_with("file-review/") {
         Tab::Files
+    } else if thread.is_topic_chat() && !thread.key.starts_with("fact-review/") {
+        Tab::Chat
     } else {
         Tab::Facts
     }
