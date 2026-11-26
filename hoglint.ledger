@@ -412,14 +412,6 @@ export-shape	products.customer_analytics.backend.models.team_customer_analytics_
 export-shape	products.customer_analytics.backend.temporal.WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.customer_analytics.backend.temporal.account_property_sync.ACCOUNT_PROPERTY_SYNC_WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.dashboards.backend.facade.api.InsightTilePlacement	products.dashboards.backend.facade.api	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_debug.DashboardSharingOutcome	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.api	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCompleteEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingErrorEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingStream	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingTileEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.v2.cached_tiles.CachedTileStatus	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.logic.metrics._Unset	products.data_catalog.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.api	export-denied(model)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.models	export-denied(model)	1
@@ -1248,7 +1240,6 @@ facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.cre
 facade-signature	products.dashboards.backend.facade.api	add_insight_to_dashboard	param:query	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	insight_ids_on_dashboard	return	django.db.models.query.QuerySet	1
 facade-signature	products.dashboards.backend.facade.api	plan_insight_tile_placement	param:query	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	read_cached_tiles	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	update_insight_dashboard_membership	param:insight	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.dashboards.backend.facade.api	update_insight_dashboard_membership	param:query	typing.Any	1
 facade-signature	products.data_catalog.backend.facade.api	MetricSearchHit.__init__	field:metric	products.data_catalog.backend.models.metric.Metric	1
