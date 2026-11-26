@@ -29,7 +29,7 @@ const gitIn = (cwd: string, ...args: string[]): string =>
 
 const commitIn = (repo: string, message: string, atS: number): void => {
     writeFileSync(path.join(repo, 'story.txt'), `${message}\n`)
-    gitIn(repo, 'add', 'story.txt')
+    gitIn(repo, 'add', '-f', '--', 'story.txt')
     execFileSync(
         'git',
         [
