@@ -30,7 +30,8 @@ class TileErrorBoundary extends Component<{ panel: ContentPanel; children: React
         if (isChunkLoadError(error)) {
             return
         }
-        posthog.captureException(error, { tag: 'dashboards-v2-panel', componentStack: info.componentStack })
+        // The tag predates the panel rename; saved exception filters match on it, so it stays.
+        posthog.captureException(error, { tag: 'dashboards-v2-widget', componentStack: info.componentStack })
     }
 
     override render(): ReactNode {
