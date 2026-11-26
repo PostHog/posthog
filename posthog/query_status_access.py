@@ -45,6 +45,19 @@ def assert_read_scopes_readable(
         raise PermissionDenied("You don't have access to the data this result was read from.")
 
 
+def read_scopes_readable(
+    read_scopes: Collection[str],
+    team: "Team",
+    principal: "Optional[User | SyntheticUser | SharedLinkUser]",
+    request: Optional[Request] = None,
+) -> bool:
+    try:
+        assert_read_scopes_readable(read_scopes, team, principal, request)
+    except PermissionDenied:
+        return False
+    return True
+
+
 def assert_query_status_readable(
     status: QueryStatus,
     team: "Team",

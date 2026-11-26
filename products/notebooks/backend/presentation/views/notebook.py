@@ -53,7 +53,7 @@ from posthog.models.activity_logging.activity_log import Change, changes_between
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
 from posthog.permissions import request_subject
-from posthog.query_status_access import assert_read_scopes_readable
+from posthog.query_status_access import assert_read_scopes_readable, read_scopes_readable
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -2158,6 +2158,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         self._require_query_access()
 
         cells = build_notebook_cell_state(self.team_id, notebook)
+        for cell in cells:
+            if cell.last_run and not read_scopes_readable(
+                cell.last_run.get("read_scopes") or [], self.team, user, self.request
+            ):
+                cell.last_run.update(row_count=None, columns=None, error=None)
         runtime = (
             KernelRuntime.objects.filter(
                 team_id=self.team_id,
@@ -2382,7 +2387,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response(NotebookRunStatusResponseSerializer(status).data)
 
     def _redact_inaccessible_cell_errors(self, cells: list[dict[str, Any]], user: User | None) -> None:
-        """Blank the error of any cell that ran on a data source this caller cannot reach.
+        """Blank the error of any cell that ran on a data source, or read a gated resource, this caller cannot reach.
 
         The cell-result endpoint gates the whole read on `_require_run_connection_access`,
         because notebook plus query access does not imply source access. This endpoint serves
@@ -2390,8 +2395,26 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         carry the engine's own message — rather than refusing the run. Sources are resolved
         once each, not once per cell.
         """
+        # Only failed cells need their scopes, and only those envelopes are read: this endpoint is
+        # polled and the envelopes run to megabytes.
+        errored_run_ids = [cell["run_id"] for cell in cells if cell.get("error") and cell.get("run_id")]
+        read_scopes_by_run = (
+            {
+                str(run_id): read_scopes or []
+                for run_id, read_scopes in NotebookNodeRun.objects.for_team(self.team_id)
+                .filter(id__in=errored_run_ids)
+                .values_list("id", "envelope__read_scopes")
+            }
+            if errored_run_ids
+            else {}
+        )
         access_by_source: dict[tuple[str, bool], bool] = {}
         for cell in cells:
+            if cell.get("error") and not read_scopes_readable(
+                read_scopes_by_run.get(cell.get("run_id") or "", []), self.team, user, self.request
+            ):
+                cell["error"] = None
+                continue
             connection_id = cell.get("connection_id")
             if not connection_id or not cell.get("error"):
                 continue

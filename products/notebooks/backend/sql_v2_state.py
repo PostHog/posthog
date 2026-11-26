@@ -367,6 +367,9 @@ def annotate_run_state(
                 row_count=envelope.get("row_count"),
                 columns=envelope.get("columns"),
                 error=latest.error or envelope.get("error") or None,
+                # Not part of the response: the view reads it to decide whether this caller may
+                # see the metadata and error, which derive from the rows the run read.
+                read_scopes=envelope.get("read_scopes") or [],
             )
         if latest.status == NotebookNodeRun.Status.RUNNING:
             cell.status = "running"
