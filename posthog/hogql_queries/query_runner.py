@@ -2443,7 +2443,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self._read_cache_entry_freshness(cached_response_candidate.pop(CACHE_ENTRY_FRESHNESS_KEY, None))
             stored_scopes = cached_response_candidate.pop(CACHE_ENTRY_READ_SCOPES_KEY, None)
             legacy_entry = stored_scopes is None
-            read_scopes = stored_scopes or []
+            read_scopes = self._legacy_cache_entry_read_scopes() if legacy_entry else stored_scopes
             if read_scopes and self._denies_cached_read_scopes(read_scopes):
                 # Recomputing raises the access error a fresh run of this query gets.
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
@@ -3749,6 +3749,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     @staticmethod
     def _with_read_scopes(response: dict[str, Any], read_scopes: Collection[str]) -> dict[str, Any]:
         return {**response, CACHE_ENTRY_READ_SCOPES_KEY: sorted(read_scopes)}
+
+    def _legacy_cache_entry_read_scopes(self) -> list[str]:
+        """What an entry stored before read scopes were recorded was computed from, judged from this query.
+
+        Labelling it as reading nothing would let whoever publishes it, such as a notebook run, stamp
+        it ungated for good. An unparseable query could read anything, so it is held to every gated resource.
+        """
+        gated = set(access_controlled_posthog_tables().values())
+        queried = queried_access_controlled_resources(self.query, self.team)
+        return sorted(gated if queried is None else queried & gated)
 
     def _denies_cached_read_scopes(self, read_scopes: Collection[str]) -> bool:
         """True when this run's principal may not read a `posthog.*` table the cached result was computed from."""
