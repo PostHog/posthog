@@ -117,6 +117,8 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID
+from products.workflows.backend.facade.enums import HogFlowOriginProduct
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -3677,6 +3679,18 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             metric_kind="email",
             count=9,
         )
+        broadcast = create_workflow_for_test(
+            team_id=self.org_1_team_2.id, origin_product=HogFlowOriginProduct.BROADCASTS
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            app_source_id=broadcast.id,
+            instance_id="email_node",
+            metric_name="billable_invocation",
+            metric_kind="email",
+            count=4,
+        )
         create_app_metric2(
             team_id=self.org_1_team_2.id,
             app_source="hog_flow",
@@ -3718,8 +3732,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # Test org-level workflow metrics (sum of both teams).
         # Push bills as a destination for now, so it counts toward workflow_billable_invocations
         # while still reporting separately under workflow_push_sent.
-        assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
+        assert org_1_report["workflow_emails_sent_in_period"] == 29  # 10 + 19
         assert org_1_report["workflow_transactional_emails_sent_in_period"] == 9
+        assert org_1_report["workflow_broadcast_emails_sent_in_period"] == 4
         assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
         assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
         assert org_1_report["workflow_billable_invocations_in_period"] == 32  # fetch 8 + 12, push 5 + 7
@@ -3727,19 +3742,21 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # Test team 1 workflow metrics
         assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
         assert org_1_report["teams"]["3"]["workflow_transactional_emails_sent_in_period"] == 0
+        assert org_1_report["teams"]["3"]["workflow_broadcast_emails_sent_in_period"] == 0
         assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
         assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
         assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 13  # fetch 8, push 5
 
         # Test team 2 workflow metrics
-        assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
+        assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 19
         assert org_1_report["teams"]["4"]["workflow_transactional_emails_sent_in_period"] == 9
+        assert org_1_report["teams"]["4"]["workflow_broadcast_emails_sent_in_period"] == 4
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
 
         for counter, expected in (
-            (UsageCounter.WORKFLOW_EMAILS, {3: 10, 4: 15}),
+            (UsageCounter.WORKFLOW_EMAILS, {3: 10, 4: 19}),
             (UsageCounter.WORKFLOW_PUSH, {3: 5, 4: 7}),
             (UsageCounter.WORKFLOW_SMS, {3: 3, 4: 2}),
             (UsageCounter.WORKFLOW_INVOCATIONS, {3: 13, 4: 19}),

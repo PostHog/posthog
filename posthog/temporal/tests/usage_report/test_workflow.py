@@ -49,6 +49,7 @@ from posthog.temporal.usage_report.types import (
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
     AI_OVERAGE_BYTES_QUERY_NAME,
+    BROADCAST_EMAILS_QUERY_NAME,
     BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME,
     LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
     LOGS_DISTINCT_PATTERNS_QUERY_NAME,
@@ -64,6 +65,7 @@ from posthog.temporal.usage_report.workflow import (
     RunUsageReportsWorkflow,
     _dispatched_queries,
     _queries_for_ai_overage_bytes_patch,
+    _queries_for_broadcast_emails_patch,
     _queries_for_business_knowledge_usage_patch,
     _queries_for_local_evaluation_not_modified_patch,
     _queries_for_logs_distinct_patterns_patch,
@@ -108,6 +110,7 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
             LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
         ),
         ("ai_overage_bytes", _queries_for_ai_overage_bytes_patch, AI_OVERAGE_BYTES_QUERY_NAME),
+        ("broadcast_emails", _queries_for_broadcast_emails_patch, BROADCAST_EMAILS_QUERY_NAME),
     ]
 )
 def test_single_query_is_versioned_for_existing_histories(
@@ -117,9 +120,10 @@ def test_single_query_is_versioned_for_existing_histories(
     assert query_name in [spec.name for spec in queries_for_patch(QUERIES, True)]
 
 
-def test_deferred_query_is_known_to_every_worker_but_not_dispatched() -> None:
-    assert AI_OVERAGE_BYTES_QUERY_NAME in QUERY_INDEX
-    assert AI_OVERAGE_BYTES_QUERY_NAME not in [spec.name for spec in _dispatched_queries(QUERIES)]
+@parameterized.expand([(AI_OVERAGE_BYTES_QUERY_NAME,), (BROADCAST_EMAILS_QUERY_NAME,)])
+def test_deferred_query_is_known_to_every_worker_but_not_dispatched(query_name: str) -> None:
+    assert query_name in QUERY_INDEX
+    assert query_name not in [spec.name for spec in _dispatched_queries(QUERIES)]
 
 
 @parameterized.expand(

@@ -20,6 +20,7 @@ def create_workflow_for_test(
     actions: list[dict[str, Any]] | None = None,
     edges: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
+    origin_product: str | None = None,
 ) -> WorkflowSummary:
     """Seed a workflow row. Fields left as None take the model defaults."""
     optional = {"name": name, "trigger": trigger, "actions": actions, "edges": edges}
@@ -27,6 +28,7 @@ def create_workflow_for_test(
         team_id=team_id,
         status=status,
         created_by_id=created_by_id,
+        origin_product=origin_product,
         **{field: value for field, value in optional.items() if value is not None},
     )
     if tags:

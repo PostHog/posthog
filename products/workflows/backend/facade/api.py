@@ -33,6 +33,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowViewAccess,
     WorkflowVisionScanDailyLimits,
 )
+from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.models.hog_flow.hog_flow import (
     MESSAGING_ACTION_TYPES,
@@ -198,6 +199,12 @@ def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
 
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
     return HogFlow.objects.filter(team_id=team_id, id=workflow_id).exists()
+
+
+def get_broadcast_workflow_ids() -> frozenset[str]:
+    """Ids of every broadcast across all teams, for the usage report."""
+    broadcast_ids = HogFlow.objects.filter(origin_product=HogFlowOriginProduct.BROADCASTS).values_list("id", flat=True)
+    return frozenset(str(workflow_id) for workflow_id in broadcast_ids)
 
 
 def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
