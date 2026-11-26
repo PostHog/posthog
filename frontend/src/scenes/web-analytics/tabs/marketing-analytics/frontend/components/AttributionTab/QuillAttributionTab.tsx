@@ -13,11 +13,6 @@ import {
     Popover,
     PopoverContent,
     PopoverTrigger,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     Separator,
     Text,
 } from '@posthog/quill'
@@ -28,7 +23,6 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { MarketingAnalyticsAttributionBreakdown } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import {
@@ -36,10 +30,10 @@ import {
     marketingAttributionLogic,
     unattributedTooltip,
 } from '../../logic/marketingAttributionLogic'
+import { QuillOptionSelect } from '../common/QuillOptionSelect'
 import { QuillTabOptionSwitch } from '../common/QuillTabOptionSwitch'
+import { AttributionResults } from './AttributionResults'
 import type { AttributionBreakdownOption } from './AttributionTab'
-import { AttributionTable } from './AttributionTable'
-import { ConversionPaths } from './ConversionPaths'
 
 export function QuillAttributionTab({
     settingsUrl,
@@ -61,8 +55,6 @@ export function QuillAttributionTab({
         excludeDirectTraffic,
         excludeUnattributed,
         selectedGoalId,
-        query,
-        pathsQuery,
         effectiveLookbackDays,
         effectiveAllowMultipleConversions,
         optionsOpen,
@@ -106,53 +98,23 @@ export function QuillAttributionTab({
                                 <Text size="xs" variant="muted" render={<span />}>
                                     Conversion goal
                                 </Text>
-                                <Select<string>
+                                <QuillOptionSelect
                                     value={selectedGoalId}
-                                    onValueChange={(value) => value && setConversionGoalId(value)}
-                                >
-                                    <SelectTrigger aria-label="Conversion goal">
-                                        <SelectValue>
-                                            {(selected: string | null) =>
-                                                goalOptions.find((option) => option.value === selected)?.label
-                                            }
-                                        </SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {goalOptions.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                    onChange={setConversionGoalId}
+                                    options={goalOptions}
+                                    ariaLabel="Conversion goal"
+                                />
                             </div>
                             <div className="flex items-center gap-2">
                                 <Text size="xs" variant="muted" render={<span />}>
                                     Break down by
                                 </Text>
-                                <Select<MarketingAnalyticsAttributionBreakdown>
+                                <QuillOptionSelect
                                     value={breakdownBy}
-                                    onValueChange={(value) => value && setBreakdownBy(value)}
-                                >
-                                    <SelectTrigger aria-label="Break down by">
-                                        <SelectValue>
-                                            {(selected: MarketingAnalyticsAttributionBreakdown | null) =>
-                                                breakdownOptions.find((option) => option.value === selected)?.label
-                                            }
-                                        </SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {breakdownOptions.map((option) => (
-                                            <SelectItem
-                                                key={option.value}
-                                                value={option.value}
-                                                disabledReason={option.disabledReason}
-                                            >
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                    onChange={setBreakdownBy}
+                                    options={breakdownOptions}
+                                    ariaLabel="Break down by"
+                                />
                             </div>
                         </div>
                     }
@@ -181,26 +143,13 @@ export function QuillAttributionTab({
                                     </Field>
                                     <Field>
                                         <FieldLabel>Lookback window</FieldLabel>
-                                        <Select<number>
+                                        <QuillOptionSelect
                                             value={effectiveLookbackDays}
-                                            onValueChange={(value) => value && onLookbackChange(value)}
-                                        >
-                                            <SelectTrigger aria-label="Lookback window" className="w-full">
-                                                <SelectValue>
-                                                    {(selected: number | null) =>
-                                                        lookbackOptions.find((option) => option.value === selected)
-                                                            ?.label
-                                                    }
-                                                </SelectValue>
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {lookbackOptions.map((option) => (
-                                                    <SelectItem key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                            onChange={onLookbackChange}
+                                            options={lookbackOptions}
+                                            ariaLabel="Lookback window"
+                                            className="w-full"
+                                        />
                                         <FieldDescription>
                                             How far back before each conversion a touchpoint can earn credit. The
                                             default comes from your marketing settings.
@@ -233,10 +182,7 @@ export function QuillAttributionTab({
                         </div>
                     }
                 />
-                <div className="mt-4 flex flex-col gap-4 pb-8">
-                    {query && <AttributionTable query={query} attachTo={marketingAnalyticsLogic} />}
-                    {pathsQuery && <ConversionPaths query={pathsQuery} attachTo={marketingAnalyticsLogic} />}
-                </div>
+                <AttributionResults />
             </div>
         </BindLogic>
     )

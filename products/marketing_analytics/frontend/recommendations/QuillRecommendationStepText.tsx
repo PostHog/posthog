@@ -1,27 +1,12 @@
-import { useActions } from 'kea'
-
 import { IconExternal } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import {
-    MarketingAnalyticsRecommendationRule,
-    MarketingAnalyticsRecommendationStep,
-} from '~/queries/schema/schema-general'
+import { RecommendationStepTextProps, useRecommendationStepLink } from './RecommendationStepText'
 
-import { recommendationsLogic } from './recommendationsLogic'
-import { recommendationStepLink } from './RecommendationStepText'
-
-export function QuillRecommendationStepText({
-    step,
-    rule,
-}: {
-    step: MarketingAnalyticsRecommendationStep
-    rule: MarketingAnalyticsRecommendationRule
-}): JSX.Element {
-    const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
-    const link = recommendationStepLink(step)
+export function QuillRecommendationStepText({ step, rule }: RecommendationStepTextProps): JSX.Element {
+    const link = useRecommendationStepLink(step, rule)
     if (!link) {
         return <span>{step.text}</span>
     }
@@ -33,7 +18,7 @@ export function QuillRecommendationStepText({
                 size="inline"
                 nativeButton={false}
                 render={<LinkPrimitive to={link.url} target="_blank" />}
-                onClick={() => reportRecommendationsActionClicked('open_step_link', 'instructions', rule)}
+                onClick={link.onClick}
                 data-attr={link.dataAttr}
             >
                 {link.linkText}

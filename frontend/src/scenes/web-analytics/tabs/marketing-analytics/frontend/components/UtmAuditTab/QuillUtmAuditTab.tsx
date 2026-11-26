@@ -6,11 +6,6 @@ import {
     Item,
     ItemContent,
     ItemDescription,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     Tabs,
     TabsContent,
     TabsList,
@@ -23,6 +18,7 @@ import {
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import type { HealthTab } from '../../logic/utmAuditLogic'
+import { QuillOptionSelect } from '../common/QuillOptionSelect'
 import { IntegrationSettingsModal } from '../settings/IntegrationSettingsModal'
 import { QuillUtmAuditSettingsTab } from './QuillUtmAuditSettingsTab'
 import { QuillUtmAuditStatCard } from './QuillUtmAuditStatCard'
@@ -63,25 +59,12 @@ export function QuillUtmAuditTab({
                 <Button variant="outline" onClick={onReload} loading={loading}>
                     Reload
                 </Button>
-                <Select<string>
+                <QuillOptionSelect
                     value={sourceFilterValue}
-                    onValueChange={(value) => value && onSourceFilterChange(value)}
-                >
-                    <SelectTrigger aria-label="Integration">
-                        <SelectValue>
-                            {(selected: string | null) =>
-                                sourceFilterOptions.find((option) => option.value === selected)?.label
-                            }
-                        </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                        {sourceFilterOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                    onChange={onSourceFilterChange}
+                    options={sourceFilterOptions}
+                    ariaLabel="Integration"
+                />
             </div>
 
             <Text size="xs" variant="muted" render={<p className="m-0" />}>

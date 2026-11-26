@@ -20,8 +20,7 @@ import {
     unattributedTooltip,
 } from '../../logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
-import { AttributionTable } from './AttributionTable'
-import { ConversionPaths } from './ConversionPaths'
+import { AttributionResults } from './AttributionResults'
 import { QuillAttributionTab } from './QuillAttributionTab'
 
 export interface AttributionBreakdownOption {
@@ -49,8 +48,6 @@ export function AttributionTab(): JSX.Element {
         excludeUnattributed,
         attributableGoals,
         selectedGoalId,
-        query,
-        pathsQuery,
         attribution_window_days,
         effectiveLookbackDays,
         effectiveAllowMultipleConversions,
@@ -223,10 +220,7 @@ export function AttributionTab(): JSX.Element {
                         </div>
                     }
                 />
-                <div className="mt-4 flex flex-col gap-4 pb-8">
-                    {query && <AttributionTable query={query} attachTo={marketingAnalyticsLogic} />}
-                    {pathsQuery && <ConversionPaths query={pathsQuery} attachTo={marketingAnalyticsLogic} />}
-                </div>
+                <AttributionResults />
             </div>
         </BindLogic>
     )

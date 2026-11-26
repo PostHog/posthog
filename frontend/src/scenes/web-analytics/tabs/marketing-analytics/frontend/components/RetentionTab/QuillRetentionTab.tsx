@@ -13,11 +13,6 @@ import {
     Popover,
     PopoverContent,
     PopoverTrigger,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     Separator,
     Text,
 } from '@posthog/quill'
@@ -39,6 +34,7 @@ import {
     MAX_ACQUISITION_PERIOD_DAYS,
     marketingRetentionLogic,
 } from '../../logic/marketingRetentionLogic'
+import { QuillOptionSelect } from '../common/QuillOptionSelect'
 import { QuillTabOptionSwitch } from '../common/QuillTabOptionSwitch'
 
 export function QuillRetentionTab({
@@ -85,25 +81,12 @@ export function QuillRetentionTab({
                                 <Text size="xs" variant="muted" render={<span />}>
                                     Acquired by
                                 </Text>
-                                <Select<MarketingAnalyticsAttributionBreakdown>
+                                <QuillOptionSelect
                                     value={breakdownBy}
-                                    onValueChange={(value) => value && setBreakdownBy(value)}
-                                >
-                                    <SelectTrigger aria-label="Acquired by">
-                                        <SelectValue>
-                                            {(selected: MarketingAnalyticsAttributionBreakdown | null) =>
-                                                breakdownOptions.find((option) => option.value === selected)?.label
-                                            }
-                                        </SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {breakdownOptions.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                    onChange={setBreakdownBy}
+                                    options={breakdownOptions}
+                                    ariaLabel="Acquired by"
+                                />
                             </div>
                         </div>
                     }

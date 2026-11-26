@@ -1,5 +1,6 @@
-import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
+import { Badge, Button } from '@posthog/quill'
 
+import { QuillOptionSelect } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/common/QuillOptionSelect'
 import { SetupSection } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
@@ -19,22 +20,13 @@ export function QuillSetupSectionNav({
     return (
         <>
             <div className="@min-[48rem]/main-content:hidden">
-                <Select<SetupSection> value={activeKey} onValueChange={(next) => next !== null && onSelect(next)}>
-                    <SelectTrigger aria-label="Setup section" className="w-full">
-                        <SelectValue>
-                            {(selected: SetupSection | null) =>
-                                sections.find((section) => section.key === selected)?.label
-                            }
-                        </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                        {sections.map((section) => (
-                            <SelectItem key={section.key} value={section.key}>
-                                {section.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <QuillOptionSelect
+                    value={activeKey}
+                    onChange={onSelect}
+                    options={sections.map(({ key, label }) => ({ value: key, label }))}
+                    ariaLabel="Setup section"
+                    className="w-full"
+                />
             </div>
             <nav className="hidden @min-[48rem]/main-content:flex w-56 shrink-0 flex-col gap-px">
                 {sections.map((section) => {

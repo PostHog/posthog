@@ -8,11 +8,6 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuTrigger,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     Skeleton,
     Text,
     ToggleGroup,
@@ -22,6 +17,7 @@ import {
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 import { urls } from 'scenes/urls'
+import { QuillOptionSelect } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/common/QuillOptionSelect'
 
 import { QuillSearchNotice } from './QuillSearchNotice'
 import { SearchBreakdown, SearchChannel, SearchMetrics } from './searchPerformance'
@@ -159,44 +155,19 @@ export function QuillSearchPerformanceTab({
                                         dataAttr="marketing-search-keyword-filter"
                                     />
                                 )}
-                                <Select<SearchBreakdown>
+                                <QuillOptionSelect
                                     value={breakdown}
-                                    onValueChange={(next) => next !== null && setBreakdown(next)}
-                                >
-                                    <SelectTrigger aria-label="Breakdown" data-attr="marketing-search-breakdown">
-                                        <SelectValue>
-                                            {(selected: SearchBreakdown | null) =>
-                                                breakdownOptions.find((option) => option.value === selected)?.label
-                                            }
-                                        </SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {breakdownOptions.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Select<SearchChannel>
+                                    onChange={setBreakdown}
+                                    options={breakdownOptions}
+                                    ariaLabel="Breakdown"
+                                    dataAttr="marketing-search-breakdown"
+                                />
+                                <QuillOptionSelect
                                     value={channel}
-                                    onValueChange={(next) => next !== null && setChannel(next)}
-                                >
-                                    <SelectTrigger aria-label="Channel">
-                                        <SelectValue>
-                                            {(selected: SearchChannel | null) =>
-                                                channelOptions.find((option) => option.value === selected)?.label
-                                            }
-                                        </SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {channelOptions.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                                {option.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                    onChange={setChannel}
+                                    options={channelOptions}
+                                    ariaLabel="Channel"
+                                />
                                 {readySources.length > 0 && (
                                     <>
                                         <div className="flex-1" />

@@ -9,12 +9,21 @@ import {
 
 import { recommendationsLogic } from './recommendationsLogic'
 
+export interface RecommendationStepTextProps {
+    step: MarketingAnalyticsRecommendationStep
+    rule: MarketingAnalyticsRecommendationRule
+}
+
 export interface RecommendationStepLink {
     before: string
     url: string
     linkText: string
     after: string
     dataAttr: string
+}
+
+export interface TrackedRecommendationStepLink extends RecommendationStepLink {
+    onClick: () => void
 }
 
 export function recommendationStepLink(step: MarketingAnalyticsRecommendationStep): RecommendationStepLink | null {
@@ -33,28 +42,26 @@ export function recommendationStepLink(step: MarketingAnalyticsRecommendationSte
     }
 }
 
-export function RecommendationStepText({
-    step,
-    rule,
-}: {
-    step: MarketingAnalyticsRecommendationStep
+export function useRecommendationStepLink(
+    step: MarketingAnalyticsRecommendationStep,
     rule: MarketingAnalyticsRecommendationRule
-}): JSX.Element {
+): TrackedRecommendationStepLink | null {
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const link = recommendationStepLink(step)
+    return link
+        ? { ...link, onClick: () => reportRecommendationsActionClicked('open_step_link', 'instructions', rule) }
+        : null
+}
+
+export function RecommendationStepText({ step, rule }: RecommendationStepTextProps): JSX.Element {
+    const link = useRecommendationStepLink(step, rule)
     if (!link) {
         return <span>{step.text}</span>
     }
     return (
         <span>
             <span>{link.before}</span>
-            <Link
-                to={link.url}
-                target="_blank"
-                targetBlankIcon
-                onClick={() => reportRecommendationsActionClicked('open_step_link', 'instructions', rule)}
-                data-attr={link.dataAttr}
-            >
+            <Link to={link.url} target="_blank" targetBlankIcon onClick={link.onClick} data-attr={link.dataAttr}>
                 {link.linkText}
             </Link>
             <span>{link.after}</span>
