@@ -23,6 +23,19 @@ from ee.api.test.base import LicensedTestMixin
 
 
 class TestMetricsSqlInsight(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/",
+            {
+                "name": "Services",
+                "filters": {
+                    "metricVariables": [{"name": "service", "source": "textbox"}, {"name": "2xx", "source": "textbox"}]
+                },
+            },
+            format="json",
+        )
+
     @parameterized.expand(
         [
             ("metrics_table", "SELECT now() AS time, count() AS value FROM posthog.metrics", None),
@@ -50,17 +63,6 @@ class TestMetricsSqlInsight(APIBaseTest):
         ]
     )
     def test_sql_over_other_tables_becomes_a_sql_insight(self, _name: str, sql: str, expected: str | None) -> None:
-        self.client.post(
-            f"/api/environments/{self.team.pk}/dashboards/",
-            {
-                "name": "Services",
-                "filters": {
-                    "metricVariables": [{"name": "service", "source": "textbox"}, {"name": "2xx", "source": "textbox"}]
-                },
-            },
-            format="json",
-        )
-
         converted = sql_insight_for_metrics_sql(
             self.team,
             {
