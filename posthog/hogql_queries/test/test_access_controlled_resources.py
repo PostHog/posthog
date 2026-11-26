@@ -138,27 +138,27 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "information_schema_tables",
                 "select certification from system.information_schema.tables",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_relationships",
                 "select reasoning from system.information_schema.relationships",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_metrics",
                 "select name from system.information_schema.metrics",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_certifications",
                 "select notes from system.information_schema.certifications",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_relationship_proposals",
                 "select reasoning from system.information_schema.relationship_proposals",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             # The data-quality information_schema tables partition on warehouse object access, which is
             # what their loaders gate on, and their rows are hidden per-object via the caller's denied
@@ -167,17 +167,17 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "information_schema_data_quality_checks",
                 "select config from system.information_schema.data_quality_checks",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_data_quality_check_runs",
                 "select failed_row_count from system.information_schema.data_quality_check_runs",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_data_quality_health",
                 "select health from system.information_schema.data_quality_health",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),
@@ -352,6 +352,12 @@ class TestQueriedAccessControlledResources(BaseTest):
         result = queried_access_controlled_resources(query, self.team)
         assert result is not None
         assert "tracing" in result
+
+    def test_action_hogql_over_budget_fails_closed(self):
+        self._create_span_action()
+        self._create_span_action()
+        with patch("posthog.hogql_queries.access_controlled_resources._MAX_ACTION_EXPRESSIONS", 1):
+            assert queried_access_controlled_resources(HogQLQuery(query="select 1"), self.team) is None
 
     def test_actions_without_hogql_add_nothing(self):
         create_action(team=self.team, name="plain", steps_json=[{"event": "$pageview"}])

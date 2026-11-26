@@ -59,6 +59,10 @@ _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
 
 _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_tickets"})
 
+# Every fingerprint analyses the HogQL in the project's action steps; past these, it fails closed instead.
+_MAX_ACTION_EXPRESSIONS = 200
+_MAX_ACTION_HOGQL_CHARS = 100_000
+
 # Scopes a system table's rows depend on beyond its own `access_scope`, because its visibility rules
 # read another access-controlled table, or because it declares no scope of its own.
 # `system.activity_logs` limits Canvas rows to the canvases in `system.canvases` (see
@@ -111,7 +115,7 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
-    action_expressions: dict[int, list[str]] = field(default_factory=dict)
+    action_scopes_by_key: dict[tuple[int, frozenset[str]], Optional[set[str]]] = field(default_factory=dict)
 
     def for_next_fingerprint(self) -> "_WarehouseCatalog":
         """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
@@ -123,16 +127,20 @@ class _WarehouseCatalog:
             looked_up_table_names=self.looked_up_table_names,
             view_queries=self.view_queries,
             looked_up_names=self.looked_up_names,
-            action_expressions=self.action_expressions,
+            action_scopes_by_key=self.action_scopes_by_key,
         )
 
-    def action_hogql_expressions(self, project_id: int) -> list[str]:
-        """The HogQL in the project's action steps, read once per shared lookup scope."""
-        if project_id not in self.action_expressions:
+    def action_scopes(self, team: "Team", bypassed_scopes: frozenset[str]) -> Optional[set[str]]:
+        """The scopes the HogQL in the project's action steps reads, analysed once per shared lookup scope.
+        None (fail closed) when the project stores more action HogQL than one fingerprint should analyse."""
+        key = (team.project_id, bypassed_scopes)
+        if key not in self.action_scopes_by_key:
             from products.actions.backend.facade import api as actions_facade  # noqa: PLC0415
 
-            self.action_expressions[project_id] = actions_facade.hogql_step_expressions(project_id=project_id)
-        return self.action_expressions[project_id]
+            expressions = actions_facade.hogql_step_expressions(project_id=team.project_id)
+            self.action_scopes_by_key[key] = _analyse_action_expressions(expressions, team, bypassed_scopes)
+        found = self.action_scopes_by_key[key]
+        return None if found is None else set(found)
 
     def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
@@ -282,7 +290,10 @@ def queried_access_controlled_resources(
         # so the HogQL in every action of the project counts, deleted ones too: an unused one only adds scopes.
         if _enables_test_account_filters(query):
             embedded_sources.append(team.test_account_filters)
-        embedded_sources.append(catalog.action_hogql_expressions(team.project_id))
+        action_scopes = catalog.action_scopes(team, bypassed_scopes)
+        if action_scopes is None:
+            return None
+        embedded_scopes |= action_scopes
     with nullcontext() if _shared_catalogs.get() is not None else shared_warehouse_lookups():
         for embedded_sql in _embedded_hogql(embedded_sources):
             nested = queried_access_controlled_resources(
@@ -355,6 +366,8 @@ def queried_access_controlled_resources(
             # AnalyticsQueryRunner._get_object_access_restrictions.
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
+            # Rows that reference a `posthog.*` product table are hidden from callers denied its resource.
+            scopes |= _posthog_table_scopes()
 
         # The data-quality information_schema tables are gated on warehouse read access, and their
         # rows are hidden per the caller's warehouse-object denials (the loaders drop a
@@ -366,6 +379,7 @@ def queried_access_controlled_resources(
             scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
+            scopes |= _posthog_table_scopes()
 
         # Connection-scoped queries read the external source's upstream data directly. Their tables
         # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the
@@ -467,6 +481,26 @@ def _table_scopes() -> dict[str, str]:
         **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
         **access_controlled_posthog_tables(),
     }
+
+
+def _analyse_action_expressions(
+    expressions: list[str], team: "Team", bypassed_scopes: frozenset[str]
+) -> Optional[set[str]]:
+    if len(expressions) > _MAX_ACTION_EXPRESSIONS or sum(map(len, expressions)) > _MAX_ACTION_HOGQL_CHARS:
+        return None
+    scopes: set[str] = set()
+    for sql in _embedded_hogql(expressions):
+        nested = queried_access_controlled_resources(
+            HogQLQuery(query=sql), team, bypassed_scopes=bypassed_scopes, _nested=True
+        )
+        if nested is None:
+            return None
+        scopes |= nested
+    return scopes
+
+
+def _posthog_table_scopes() -> set[str]:
+    return {scope for name, scope in _table_scopes().items() if name.startswith("posthog.")}
 
 
 def _embedded_hogql(value) -> Iterator[str]:
