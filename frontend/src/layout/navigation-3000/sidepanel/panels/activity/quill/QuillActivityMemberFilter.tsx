@@ -5,14 +5,13 @@ import {
     Button,
     Combobox,
     ComboboxContent,
-    ComboboxEmpty,
     ComboboxInput,
     ComboboxItem,
     ComboboxList,
     ComboboxTrigger,
-    Spinner,
 } from '@posthog/quill'
 
+import { QuillMembersComboboxEmpty } from 'lib/components/QuillMembersComboboxEmpty'
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { fullName } from 'lib/utils/strings'
 
@@ -94,16 +93,7 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
             </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-64">
                 <ComboboxInput placeholder="Search members…" showTrigger={false} />
-                <ComboboxEmpty>
-                    {membersLoading ? (
-                        <span className="flex items-center gap-2">
-                            <Spinner />
-                            Loading members…
-                        </span>
-                    ) : (
-                        'No matching members'
-                    )}
-                </ComboboxEmpty>
+                <QuillMembersComboboxEmpty loading={membersLoading} />
                 <ComboboxList>
                     {(key: string) =>
                         key === ANY_USER ? (
