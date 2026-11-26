@@ -99,6 +99,10 @@ metrics-dashboard-panels-validate runs it.
 - Search metric names with a short search value, not the full list."""
 
 _FINISH = """\
+Before you answer, make sure that metrics-dashboard-panels-validate passed the query of every panel that you \
+mark imported or approximated. Check the panels that you did not check yet. When a check fails, fix the query \
+and check it again, or mark the panel failed.
+
 Finish: return the structured output, with one entry for each panel. Do not create dashboards or insights \
 yourself. PostHog builds the dashboard from your answer and checks every query again."""
 

@@ -25,6 +25,8 @@ export interface HttpRequest {
     timeoutMs?: number
     // The request goes to the PostHog API, so its answer can carry notices (see `Notices.watch`).
     posthog?: boolean
+    // `manual` returns a 3xx to the caller instead of sending the request again to its target.
+    redirect?: RequestRedirect
 }
 
 export interface HttpResponse {
@@ -58,6 +60,7 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
                   : JSON.stringify(request.body),
             timeoutMs: request.timeoutMs ?? REQUEST_TIMEOUT_MS,
             posthogApi: request.posthog === true,
+            redirect: request.redirect,
         })
         text = await response.text()
     } catch (error) {

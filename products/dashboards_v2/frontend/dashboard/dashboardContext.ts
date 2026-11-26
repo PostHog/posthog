@@ -3,10 +3,10 @@ import { createContext, useContext } from 'react'
 import type { TimeRangeController } from '../filters/time/useTimeRangeController'
 import type { FiltersController } from '../filters/useFiltersController'
 import type { MenuAction } from '../menu/menuAction'
-import type { WidgetType } from '../widgets/widgetDefinition'
+import type { PanelType } from '../panels/core/panelDefinition'
 import type { AutoRefreshProps } from './actions/AutoRefreshButton'
 import type { ImageFormat } from './actions/dashboardImage'
-import type { Dashboard, GridTab, SizeOf, Widget } from './document/dashboardTypes'
+import type { Dashboard, GridTab, SizeOf, Panel } from './document/dashboardTypes'
 import type { DashboardEdit, View } from './edits/dashboardEdits'
 
 /** Everything a person can do to a dashboard. A host's `disabledReasonFor` can give each one its own answer. */
@@ -21,8 +21,8 @@ export type DashboardController = {
     dashboard: Dashboard
     /** Unknown or unset shows the first tab. */
     activeTabId: string | null
-    /** The widget types this dashboard can show and add. Keep the array stable between renders, or every tile re-renders. */
-    widgets: WidgetType[]
+    /** The panel types this dashboard can show and add. Keep the array stable between renders, or every tile re-renders. */
+    panels: PanelType[]
     disabledReasonFor: (action: DashboardAction) => string | null
     /**
      * Called with each edit, and with how the person saw the dashboard when they made it. Pass `view` to `applyEdit`,
@@ -31,10 +31,15 @@ export type DashboardController = {
     onEdit: (edit: DashboardEdit, view: View) => void
     onActiveTabChange: (tabId: string) => void
     /**
-     * Receives the full right-click action list of a content tile or a section, after the widget type's own changes, and
-     * returns the list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
+     * Receives what a content tile or a section does to itself, after the panel type's own changes, and returns the
+     * list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `chart-type`.
      */
-    tileActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
+    tileActions?: (actions: MenuAction[], tile: { id: string; panel: Panel }) => MenuAction[]
+    /**
+     * Receives what a person can do to where a tile or a section sits on the dashboard, and returns the list to show.
+     * Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
+     */
+    tilePlacementActions?: (actions: MenuAction[], tile: { id: string; panel: Panel }) => MenuAction[]
     dashboardActions?: (actions: MenuAction[]) => MenuAction[]
     /**
      * Left out, the dashboard shows no refresh button. Each refresh, from the button or the interval picked there, runs
