@@ -167,12 +167,10 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     )
 
     batch_exports_url = "http://batch-exports.example.com:8123/"
-    five_minute_url = "http://five-minute.example.com:8123/"
     with (
         override_settings(
             BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_native_schema else 0,
             CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
-            CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST=five_minute_url,
             CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=None,
         ),
         patch(
@@ -190,12 +188,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         },
     )
     reads_recent_table = expected_table in ("events_recent", "distributed_events_recent", "events_json_recent")
-    if reads_recent_table:
-        expected_url = batch_exports_url
-    elif interval == "every 5 minutes" and not use_native_schema:
-        expected_url = five_minute_url
-    else:
-        expected_url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    expected_url = batch_exports_url if reads_recent_table else settings.CLICKHOUSE_OFFLINE_HTTP_URL
     assert get_client.call_args.kwargs["clickhouse_url"] == expected_url
 
 
@@ -1584,7 +1577,6 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
 
 
 @pytest.mark.parametrize("export_path", ["stage", "producer"])
-@pytest.mark.parametrize("interval_minutes", [5, 60])
 @pytest.mark.parametrize(
     "table,host,database",
     [
@@ -1600,14 +1592,12 @@ async def test_exports_route_compiled_queries_to_their_workload(
     ateam: Team,
     auser: User,
     export_path: str,
-    interval_minutes: int,
     table: str | None,
     host: str,
     database: str,
 ) -> None:
     settings.CLICKHOUSE_DATABASE = "main_db"
     settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
-    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
     settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
     settings.CLICKHOUSE_LOGS_CLUSTER_HOST = "logs.example.com"
     settings.CLICKHOUSE_LOGS_CLUSTER_SECURE = False
@@ -1620,10 +1610,8 @@ async def test_exports_route_compiled_queries_to_their_workload(
     settings.CLICKHOUSE_PASSWORD_FILE = None
 
     start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
-    end = start + dt.timedelta(minutes=interval_minutes)
-    # Only a legacy events export uses the 5 minute node. The test producer keeps the routing it had before.
-    expected_host = "five-minute" if host == "offline" and interval_minutes == 5 and export_path == "producer" else host
-    expected_url = f"http://{expected_host}.example.com:8123/"
+    end = start + dt.timedelta(hours=1)
+    expected_url = f"http://{host}.example.com:8123/"
     request_url = re.compile(r"^" + re.escape(expected_url) + r"\?")
     model = (
         HogQLQueryRecordBatchModel(
@@ -1685,7 +1673,6 @@ async def test_exports_route_compiled_queries_to_their_workload(
             assert json.loads(request.kwargs["params"]["log_comment"])["product"] == "batch_export"
 
 
-@pytest.mark.parametrize("interval_minutes", [5, 60])
 @pytest.mark.parametrize(
     "batch_exports_url,reads_recent_events,expected_host",
     [
@@ -1698,20 +1685,18 @@ async def test_exports_route_compiled_queries_to_their_workload(
 async def test_stage_routes_recent_events_queries_to_batch_exports_cluster(
     settings: "Settings",
     ateam: Team,
-    interval_minutes: int,
     batch_exports_url: str | None,
     reads_recent_events: bool,
     expected_host: str | None,
 ) -> None:
     settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
-    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
     settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
     settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL = batch_exports_url
     settings.CLICKHOUSE_PASSWORD_FILE = None
 
     start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
-    end = start + dt.timedelta(minutes=interval_minutes)
-    expected_host = expected_host or ("five-minute" if interval_minutes == 5 else "offline")
+    end = start + dt.timedelta(hours=1)
+    expected_host = expected_host or "offline"
     expected_url = f"http://{expected_host}.example.com:8123/"
     s3_client = AsyncMock()
     s3_client.__aenter__.return_value = s3_client
@@ -1737,7 +1722,6 @@ async def test_stage_routes_recent_events_queries_to_batch_exports_cluster(
             data_interval_end=end.isoformat(),
             s3_staging_folder_url="https://stage.example.com/",
             reads_recent_events=reads_recent_events,
-            uses_5_min_node=interval_minutes == 5,
         )
 
     assert written_rows == 1

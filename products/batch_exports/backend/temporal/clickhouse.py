@@ -27,7 +27,6 @@ def resolve_clickhouse_endpoint(
     *,
     reads_new_events_table: bool,
     reads_recent_events: bool = False,
-    uses_5_min_node: bool = False,
 ) -> ClickHouseEndpoint:
     """The offline endpoint for a batch export query on the main, events or batch exports cluster.
 
@@ -36,8 +35,6 @@ def resolve_clickhouse_endpoint(
             decides this with `batch_exports_read_new_events_table`, and a HogQL export with its printed context.
             A query that reads no events table, such as a persons or sessions query, passes False.
         reads_recent_events: Whether the query reads a recent events table, which the batch exports cluster stores.
-        uses_5_min_node: Whether the query serves a 5 minute export of the legacy events tables, which reads one node
-            of the main cluster that has no replication lag.
     """
     if reads_recent_events and settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL:
         return ClickHouseEndpoint(
@@ -49,11 +46,6 @@ def resolve_clickhouse_endpoint(
             url=settings.CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL, cluster=settings.CLICKHOUSE_EVENTS_CLUSTER
         )
 
-    if uses_5_min_node and settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST:
-        return ClickHouseEndpoint(
-            url=settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST, cluster=settings.CLICKHOUSE_CLUSTER
-        )
-
     return ClickHouseEndpoint(url=settings.CLICKHOUSE_OFFLINE_HTTP_URL, cluster=settings.CLICKHOUSE_CLUSTER)
 
 
@@ -63,7 +55,6 @@ async def get_batch_exports_client(
     team_id: int,
     reads_new_events_table: bool,
     reads_recent_events: bool = False,
-    uses_5_min_node: bool = False,
     workload: Workload = Workload.OFFLINE,
     **kwargs: typing.Any,
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
@@ -85,7 +76,6 @@ async def get_batch_exports_client(
     endpoint = resolve_clickhouse_endpoint(
         reads_new_events_table=reads_new_events_table,
         reads_recent_events=reads_recent_events,
-        uses_5_min_node=uses_5_min_node,
     )
     async with get_client(
         team_id=team_id, workload=workload, clickhouse_url=endpoint.url, cluster=endpoint.cluster, **kwargs

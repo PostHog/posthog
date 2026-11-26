@@ -462,7 +462,6 @@ async def _stage_query_results(
         query_parameters: dict[str, typing.Any] = {}
         reads_recent_events = False
         reads_new_events_table = False
-        uses_5_min_node = False
     else:
         if full_range[1] is None or inputs.data_interval_end is None:
             raise MissingRequiredInputsError("Fixed batch export models require data_interval_end")
@@ -489,7 +488,6 @@ async def _stage_query_results(
         query_parameters = stage_query.parameters
         reads_recent_events = stage_query.reads_recent_events
         reads_new_events_table = stage_query.reads_new_events_table
-        uses_5_min_node = stage_query.uses_5_min_node
 
     try:
         return await _write_batch_export_record_batches_to_internal_stage(
@@ -505,7 +503,6 @@ async def _stage_query_results(
             run_id=run_id,
             reads_recent_events=reads_recent_events,
             reads_new_events_table=reads_new_events_table,
-            uses_5_min_node=uses_5_min_node,
         )
     except ClickHouseUnknownTableError as e:
         if isinstance(record_batch_model, HogQLQueryRecordBatchModel):
@@ -712,7 +709,6 @@ class _StageQuery:
     parameters: dict[str, typing.Any]
     reads_recent_events: bool
     reads_new_events_table: bool
-    uses_5_min_node: bool
 
 
 async def _get_query(
@@ -741,7 +737,6 @@ async def _get_query(
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
     reads_recent_events = False
     reads_new_events_table = False
-    uses_5_min_node = False
 
     is_backfill = backfill_details is not None
     # The number of partitions controls how many files ClickHouse writes to concurrently.
@@ -814,7 +809,6 @@ async def _get_query(
         query = events_query.query
         extra_query_parameters = events_query.parameters
         reads_recent_events = events_query.reads_recent_events
-        uses_5_min_node = not reads_new_events_table and is_5_min_batch_export(full_range=full_range)
 
     parameters["team_id"] = team_id
 
@@ -832,7 +826,6 @@ async def _get_query(
         parameters=parameters,
         reads_recent_events=reads_recent_events,
         reads_new_events_table=reads_new_events_table,
-        uses_5_min_node=uses_5_min_node,
     )
 
 
@@ -898,12 +891,11 @@ async def _write_batch_export_record_batches_to_internal_stage(
     run_id: str | None = None,
     reads_recent_events: bool = False,
     reads_new_events_table: bool = False,
-    uses_5_min_node: bool = False,
 ) -> int | None:
     """Write record batches to our own internal S3 staging area.
 
-    `reads_recent_events`, `reads_new_events_table` and `uses_5_min_node` describe a raw SQL query. A
-    `RecordBatchModel` gives `reads_new_events_table` itself, and the other two stay False for it.
+    `reads_recent_events` and `reads_new_events_table` describe a raw SQL query. A `RecordBatchModel` gives
+    `reads_new_events_table` itself, and `reads_recent_events` stays False for it.
 
     Returns the number of rows written to the stage, or None if the count couldn't be
     determined.
@@ -971,7 +963,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
         team_id=team_id,
         reads_new_events_table=reads_new_events_table,
         reads_recent_events=reads_recent_events,
-        uses_5_min_node=uses_5_min_node,
         workload=workload,
         # TODO: Strict limits are available in ClickHouse 26.4
         # We should uncomment all of these here to let max_insert_block_size_bytes dictate the size
