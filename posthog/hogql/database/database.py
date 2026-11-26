@@ -842,7 +842,7 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
             definitions.append(view_query["query"])
     if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team):
         return gated
-    if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team.pk):
+    if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team):
         return gated
     return frozenset(scopes & gated)
 
@@ -937,7 +937,36 @@ def _reads_tables_the_walk_cannot_name(
     )
 
 
-def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team_id: int) -> bool:
+def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:
+    """True when a warehouse join or saved expression of the team was changed or removed after `built_at`.
+
+    A build reads the joins and expressions that existed then, which a later walk can no longer see.
+    The join API hard deletes, so its activity log is the only record that a join is gone.
+    """
+    from posthog.models.activity_logging.activity_log import ActivityLog  # noqa: PLC0415
+
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+
+    if (
+        ActivityLog.objects.filter(
+            team_id=team.pk,
+            scope__in=["DataWarehouseJoin", "DataWarehouseExpression"],
+            created_at__gt=built_at,
+        )
+        .exclude(activity="created")
+        .exists()
+    ):
+        return True
+    if DataWarehouseJoin.objects.filter(team_id=team.pk, deleted_at__gt=built_at).exists():
+        return True
+    return (
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .filter(deleted_at__gt=built_at)
+        .exists()
+    )
+
+
+def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team: Team) -> bool:
     """True when the view or a view its definition names was edited, created or deleted after its copy's build began."""
     from django.db.models import Max  # noqa: PLC0415
     from django.db.models.functions import Greatest  # noqa: PLC0415
@@ -950,14 +979,14 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
 
     built_at = (
         DataModelingJob.objects.filter(
-            team_id=team_id, saved_query_id=saved_query_id, status=DataModelingJobStatus.COMPLETED
+            team_id=team.pk, saved_query_id=saved_query_id, status=DataModelingJobStatus.COMPLETED
         )
         .order_by("-last_run_at")
         .values_list("created_at", flat=True)
         .first()
     )
     root = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk, id=saved_query_id)
         .values_list("query_updated_at", "last_run_at")
         .first()
     )
@@ -969,12 +998,14 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
         return True
     if query_updated_at is not None and query_updated_at > built_at:
         return True
+    if _virtual_fields_changed_since(built_at, team):
+        return True
     names = {name.removeprefix("models.") for name in view_names} | set(view_names)
     if not names:
         return False
     # Deleted rows count too: a view removed after the build no longer shows what the copy read through it.
     latest_upstream_change = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name__in=names)
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk, name__in=names)
         .exclude(id=saved_query_id)
         .aggregate(latest=Max(Greatest("created_at", "query_updated_at", "deleted_at")))["latest"]
     )
