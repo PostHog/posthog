@@ -619,6 +619,11 @@ def _is_gitlab_task(task_id: str) -> bool:
     return Task.objects.filter(id=task_id, repository_integration_id__isnull=False).exists()
 
 
+def _run_requires_scoped_git(run_id: str) -> bool:
+    state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first() or {}
+    return bool(state.get("agent_egress_git_reads") or state.get("github_read_access"))
+
+
 def _apply_token_locked(
     sandbox: "SandboxBase",
     repositories: Sequence[str],
@@ -637,6 +642,8 @@ def _apply_token_locked(
     with sandbox_credential_lock(sandbox.id) as acquired:
         if not acquired:
             logger.warning("token_apply_skipped_lock_unavailable", extra={"run_id": run_id, "sandbox_id": sandbox.id})
+            return False
+        if _run_requires_scoped_git(run_id):
             return False
         # A GitLab turn clears GitHub credentials under this same lock, so a task that moved to
         # GitLab is checked here rather than under a task row lock held across the sandbox write.
@@ -688,6 +695,8 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
     for run in runs:
         sandbox_id = (run.state or {}).get("sandbox_id")
         if not sandbox_id:
+            continue
+        if (run.state or {}).get("agent_egress_git_reads") or (run.state or {}).get("github_read_access"):
             continue
         # Only user-authored runs use this integration's rotating token. Bot-authored runs use an
         # installation token, and caller-supplied-token runs are pinned to their own credential —
@@ -814,6 +823,10 @@ class GitHubSandboxCredential:
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
         refresh_agent_egress_git_grant(ctx, sandbox_id=sandbox.id)
+        if ctx.agent_egress_git_reads or (ctx.state or {}).get("agent_egress_git_reads"):
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+            )
         # A run that started on GitHub keeps this credential in its context after the task moves to
         # GitLab, and a GitLab sandbox must not get a GitHub token back.
         if task.repository_integration_id is not None:
@@ -1007,6 +1020,10 @@ class GitHubSandboxCredential:
 
 def build_sandbox_credentials(ctx: "TaskProcessingContext") -> list[SandboxCredential]:
     credentials: list[SandboxCredential] = []
-    if ctx.has_github_credentials:
+    if (
+        ctx.has_github_credentials
+        or ctx.agent_egress_git_reads
+        or (ctx.state or {}).get("agent_egress_git_reads") is True
+    ):
         credentials.append(GitHubSandboxCredential())
     return credentials

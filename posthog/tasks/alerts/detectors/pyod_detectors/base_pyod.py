@@ -15,6 +15,10 @@ class BasePyODDetector(BaseDetector):
     Subclasses only need to implement ``_build_model()`` to return a
     configured PyOD model instance.  The train/test split, reshaping,
     preprocessing and result construction are handled here once.
+
+    The raw score is the model's ``decision_function``. The normalizer fits on
+    the model's training scores, ``decision_scores_``, with min-max by default,
+    as PyOD's ``predict_proba`` does with its ``linear`` method.
     """
 
     MIN_SAMPLES = 10
@@ -50,12 +54,13 @@ class BasePyODDetector(BaseDetector):
         try:
             model = self._build_model(n_samples=len(train_data))
             model.fit(train_data)
-
-            last_point = test_data[-1:]
-            prob = float(model.predict_proba(last_point)[0, 1])
+            fitted = self._fit_normalizer(model.decision_scores_)
+            raw_score = float(model.decision_function(test_data[-1:])[0])
         except (ValueError, np.linalg.LinAlgError):
+            # FitError is a ValueError, so too few training scores is a warm-up too.
             return DetectionResult(is_anomaly=False)
 
+        prob = self._normalize(fitted, raw_score)
         is_anomaly = prob > threshold
 
         return DetectionResult(
@@ -63,7 +68,7 @@ class BasePyODDetector(BaseDetector):
             score=prob,
             triggered_indices=[len(data) - 1] if is_anomaly else [],
             all_scores=[prob],
-            metadata={"raw_score": float(model.decision_function(last_point)[0])},
+            metadata={"raw_score": raw_score, "normalizer": fitted["method"]},
         )
 
     def fit(self, history: np.ndarray) -> DetectorArtifact:
@@ -80,9 +85,10 @@ class BasePyODDetector(BaseDetector):
             model.fit(rows)
         except (ValueError, np.linalg.LinAlgError) as error:
             raise FitError(str(error)) from error
+        fitted = self._fit_normalizer(model.decision_scores_)
         buffer = io.BytesIO()
         joblib.dump(model, buffer)
-        return self._artifact({"n_samples": len(rows)}, model_bytes=buffer.getvalue())
+        return self._artifact({"n_samples": len(rows), "normalizer": fitted}, model_bytes=buffer.getvalue())
 
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
@@ -93,6 +99,7 @@ class BasePyODDetector(BaseDetector):
         model: PyODBaseDetector = joblib.load(io.BytesIO(artifact.model_bytes))
         if rows.ndim == 1:
             rows = rows.reshape(-1, 1)
+        fitted = artifact.params["normalizer"]
         scores: list[float | None] = []
         metadata: list[dict[str, Any]] = []
         for i in range(len(rows)):
@@ -102,11 +109,13 @@ class BasePyODDetector(BaseDetector):
                 metadata.append({})
                 continue
             try:
-                scores.append(float(model.predict_proba(point)[0, 1]))
-                metadata.append({"raw_score": float(model.decision_function(point)[0])})
+                raw_score = float(model.decision_function(point)[0])
             except (ValueError, np.linalg.LinAlgError):
                 scores.append(None)
                 metadata.append({})
+                continue
+            scores.append(self._normalize(fitted, raw_score))
+            metadata.append({"raw_score": raw_score, "normalizer": fitted["method"]})
         return scores, metadata
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
@@ -139,11 +148,13 @@ class BasePyODDetector(BaseDetector):
             try:
                 model = self._build_model(n_samples=len(train_data))
                 model.fit(train_data)
-                prob = float(model.predict_proba(test_point)[0, 1])
+                fitted = self._fit_normalizer(model.decision_scores_)
+                raw_score = float(model.decision_function(test_point)[0])
             except (ValueError, np.linalg.LinAlgError):
                 scores.append(None)
                 continue
 
+            prob = self._normalize(fitted, raw_score)
             scores.append(prob)
 
             if prob > threshold:

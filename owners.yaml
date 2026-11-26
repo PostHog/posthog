@@ -48,9 +48,12 @@ teams:
     team-replay:
         notifications:
             stamphog: false
-    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-managed-warehouse:
+        notifications:
+            mcp_tool_health: '#team-warehouse'
     team-warehouse-sources:
         notifications:
+            mcp_tool_health: '#team-warehouse-pipelines'
             stamphog: false
 rules:
     - match: Dockerfile.llm-analytics

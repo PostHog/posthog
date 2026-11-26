@@ -20,7 +20,7 @@ from posthog.paging import PageRequest
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.facade.api import create_empty_static_cohort
 from products.experiments.backend.facade.contracts import ExperimentBasic, ExperimentCreator, ExperimentListFilters
-from products.experiments.backend.facade.experiments import get_experiment, list_experiments
+from products.experiments.backend.facade.experiments import get_experiment, get_experiment_handle, list_experiments
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -250,6 +250,31 @@ class TestExperimentReadFacade(ExperimentFixtures, APIBaseTest):
         )
 
         self.assertIsNone(get_experiment(team=self.team, experiment_id=experiment.id))
+
+    def _create_deleted(self) -> Experiment:
+        return Experiment.objects.create(
+            team=self.team, name="Deleted", feature_flag=self._flag("deleted-flag"), deleted=True
+        )
+
+    def _create_in_another_project(self) -> Experiment:
+        other_project = Team.objects.create(organization=self.organization, name="Other project")
+        return Experiment.objects.create(
+            team=other_project, name="Elsewhere", feature_flag=self._flag("elsewhere", team=other_project)
+        )
+
+    @parameterized.expand([*((case, True) for case in _CASES), ("deleted", False), ("in_another_project", False)])
+    def test_get_experiment_handle_reads_a_live_experiment_of_the_project_in_one_query(
+        self, case: str, found: bool
+    ) -> None:
+        experiment = getattr(self, f"_create_{case}")()
+
+        with self.assertNumQueries(1):
+            handle = get_experiment_handle(team=self.team, experiment_id=experiment.id)
+
+        self.assertEqual(
+            None if handle is None else (handle.id, handle.team_id),
+            (experiment.id, experiment.team_id) if found else None,
+        )
 
     def test_get_experiment_reads_each_relation_once(self) -> None:
         experiment = self._create_fully_populated()

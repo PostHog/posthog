@@ -81,6 +81,10 @@ from products.experiments.backend.health.checks.metric_event_not_ingested import
     metric_event_not_ingested,
     metric_event_rows,
 )
+from products.experiments.backend.health.checks.metric_uses_feature_flag_called import (
+    metric_uses_feature_flag_called,
+    metric_uses_feature_flag_called_values,
+)
 from products.experiments.backend.health.checks.metrics_not_matured import (
     metrics_not_matured,
     metrics_not_matured_values,
@@ -254,6 +258,17 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         ),
         run=metric_event_not_ingested,
         read_rows=metric_event_rows,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_USES_FEATURE_FLAG_CALLED,
+        name='Metrics on the event "$feature_flag_called"',
+        description=(
+            'Looks for metrics that use the event "$feature_flag_called". PostHog is reducing how long it keeps this '
+            'event, so these metrics can lose their earlier data. Metrics on the event "$experiment_exposure" keep '
+            "working."
+        ),
+        run=metric_uses_feature_flag_called,
+        read=metric_uses_feature_flag_called_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
