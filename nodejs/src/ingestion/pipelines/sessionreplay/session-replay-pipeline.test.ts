@@ -679,7 +679,9 @@ describe('session-replay-pipeline', () => {
             mockCreateApplyEventRestrictionsStep.mockReturnValue(
                 (input: { message: Message; headers: Record<string, string> }) => {
                     if (input.message.offset === 2) {
-                        return Promise.resolve(redirect('overflow', OVERFLOW_OUTPUT, true, false))
+                        return Promise.resolve(
+                            redirect('overflow', OVERFLOW_OUTPUT, { preserveKey: true, awaitAck: false })
+                        )
                     }
                     return Promise.resolve(ok(input))
                 }
@@ -732,7 +734,9 @@ describe('session-replay-pipeline', () => {
                         return Promise.resolve(drop('blocked'))
                     }
                     if (input.message.offset === 3) {
-                        return Promise.resolve(redirect('overflow', OVERFLOW_OUTPUT, true, false))
+                        return Promise.resolve(
+                            redirect('overflow', OVERFLOW_OUTPUT, { preserveKey: true, awaitAck: false })
+                        )
                     }
                     return Promise.resolve(ok(input))
                 }

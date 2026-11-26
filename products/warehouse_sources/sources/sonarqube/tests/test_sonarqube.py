@@ -415,16 +415,26 @@ def _fanout_rows(monkeypatch: Any, manager: _FanoutManager, endpoint: str, **kwa
 
 
 class TestQualityGates:
-    def test_list_is_read_in_one_unpaged_request(self, monkeypatch: Any) -> None:
-        made = _route(
-            monkeypatch,
-            {"/api/qualitygates/list": lambda params: {"qualitygates": [{"name": "Sonar way"}, {"name": "Strict"}]}},
-        )
-
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="quality_gates")
+    @parameterized.expand(
+        [
+            ("quality_gates", "/api/qualitygates/list", "qualitygates"),
+            ("quality_profiles", "/api/qualityprofiles/search", "profiles"),
+            ("languages", "/api/languages/list", "languages"),
+        ]
+    )
+    def test_list_is_read_in_one_unpaged_request(self, endpoint: str, path: str, response_key: str) -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            made = _route(
+                monkeypatch,
+                {path: lambda params: {response_key: [{"name": "Sonar way"}, {"name": "Strict"}]}},
+            )
+            rows = _collect(monkeypatch, _FakeResumableManager(), endpoint=endpoint)
+        finally:
+            monkeypatch.undo()
 
         assert [r["name"] for r in rows] == ["Sonar way", "Strict"]
-        assert made == [("/api/qualitygates/list", {})]
+        assert made == [(path, {})]
 
     def test_project_status_is_read_per_project_and_skips_a_deleted_project(self, monkeypatch: Any) -> None:
         def status(params: dict[str, str]) -> dict:
@@ -746,6 +756,23 @@ class TestProjectRows:
                 {"project": "a", "from": "2026-03-03T12:00:00+0000", "p": "1", "ps": "500"},
             ),
             ("branches_unpaged", "project_branches", "/api/project_branches/list", "branches", None, {"project": "a"}),
+            # The search filtered on a project returns the profile it uses per language, default included.
+            (
+                "quality_profiles_unpaged",
+                "project_quality_profiles",
+                "/api/qualityprofiles/search",
+                "profiles",
+                None,
+                {"project": "a"},
+            ),
+            (
+                "components_paged",
+                "components",
+                "/api/components/tree",
+                "components",
+                None,
+                {"strategy": "all", "component": "a", "p": "1", "ps": "500"},
+            ),
             (
                 "pull_requests_unpaged",
                 "project_pull_requests",
@@ -781,6 +808,39 @@ class TestProjectRows:
 
         assert [params for request_path, params in made if request_path == path] == [expected]
         assert rows == [{"project": "a", "key": "k1", "name": "n1"}]
+
+    def test_group_members_fan_out_over_every_group_page_and_carry_the_group(self, monkeypatch: Any) -> None:
+        def groups(params: dict[str, str]) -> dict:
+            page = int(params["p"])
+            names = [["admins", "gone"], ["devs"]][page - 1]
+            return {"groups": [{"name": n} for n in names], "paging": {"pageIndex": page, "pageSize": 2, "total": 3}}
+
+        def members(params: dict[str, str]) -> dict:
+            if params["name"] == "gone":
+                raise _not_found()
+            page = int(params["p"])
+            total = 2 if params["name"] == "admins" else 1
+            return {
+                "users": [{"login": f"{params['name']}-{page}", "selected": True}],
+                "paging": {"pageIndex": page, "pageSize": 1, "total": total},
+            }
+
+        made = _route(monkeypatch, {"/api/user_groups/search": groups, "/api/user_groups/users": members})
+
+        rows = _fanout_rows(monkeypatch, _FanoutManager(), "user_group_members")
+
+        assert rows == [
+            {"group": "admins", "login": "admins-1", "selected": True},
+            {"group": "admins", "login": "admins-2", "selected": True},
+            {"group": "devs", "login": "devs-1", "selected": True},
+        ]
+        assert [(params["name"], params["p"]) for path, params in made if path == "/api/user_groups/users"] == [
+            ("admins", "1"),
+            ("admins", "2"),
+            ("gone", "1"),
+            ("devs", "1"),
+        ]
+        assert not any(path == _PROJECTS_PATH for path, _ in made)
 
     def test_stops_when_the_server_does_not_serve_the_endpoint(self, monkeypatch: Any) -> None:
         def pull_requests(params: dict[str, str]) -> dict:

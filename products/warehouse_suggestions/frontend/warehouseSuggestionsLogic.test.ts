@@ -25,7 +25,13 @@ import {
 } from './generated/api'
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from './generated/api.schemas'
 import { intervalForSeconds } from './refreshIntervals'
-import { ROW_LEAVE_MS, StripState, SuggestionSurface, warehouseSuggestionsLogic } from './warehouseSuggestionsLogic'
+import {
+    DeprecateAction,
+    ROW_LEAVE_MS,
+    StripState,
+    SuggestionSurface,
+    warehouseSuggestionsLogic,
+} from './warehouseSuggestionsLogic'
 
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
 jest.mock('./generated/api', () => ({
@@ -197,10 +203,10 @@ describe('warehouseSuggestionsLogic', () => {
     }
 
     async function mountLogic(
-        surface: SuggestionSurface = 'models',
+        surface: SuggestionSurface | null = 'models',
         onViewAccepted?: (suggestion: WarehouseSuggestionApi) => void
     ): Promise<void> {
-        logic = warehouseSuggestionsLogic({ surface, onViewAccepted })
+        logic = warehouseSuggestionsLogic({ surface: surface ?? undefined, onViewAccepted })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
     }
@@ -288,6 +294,42 @@ describe('warehouseSuggestionsLogic', () => {
 
         expect(logic.values.surfaceSuggestions).toEqual([])
         finish({ ...MATERIALIZE, status: 'dismissed' })
+    })
+
+    it('dismisses from the dialog with the chosen reason and the trimmed note', async () => {
+        mockDismiss.mockResolvedValue({ ...MATERIALIZE, status: 'dismissed' })
+        await mountLogic()
+
+        logic.actions.openDismissDialog(MATERIALIZE.id)
+        logic.actions.setDismissReason('wrong_estimate')
+        logic.actions.setDismissNote('  The refresh cost is lower  ')
+        logic.actions.confirmDismiss()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockDismiss).toHaveBeenCalledWith(
+            expect.any(String),
+            MATERIALIZE.id,
+            { reason: 'wrong_estimate', note: 'The refresh cost is lower' },
+            MODELS_SURFACE
+        )
+        expect(logic.values.dismissDialogSuggestion).toBeNull()
+    })
+
+    it('keeps the dismiss dialog and its answers when the dismiss fails', async () => {
+        mockDismiss.mockRejectedValue(new Error('network'))
+        await mountLogic()
+
+        logic.actions.openDismissDialog(MATERIALIZE.id)
+        logic.actions.setDismissReason('already_handled')
+        logic.actions.setDismissNote('We cover this elsewhere')
+        logic.actions.confirmDismiss()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({
+            dismissDialogSuggestionId: MATERIALIZE.id,
+            dismissReason: 'already_handled',
+            dismissNote: 'We cover this elsewhere',
+        })
     })
 
     it('shows the new assignee on the row and keeps the row listed', async () => {
@@ -534,7 +576,7 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.incrementalCheck?.key_candidates).toEqual(['day'])
     })
 
-    it.each<[SuggestionSurface, WarehouseSuggestionApi[], string[]]>([
+    it.each<[SuggestionSurface | null, WarehouseSuggestionApi[], string[]]>([
         [
             'models',
             [
@@ -547,12 +589,13 @@ describe('warehouseSuggestionsLogic', () => {
         ],
         ['models', [DEPRECATE, unmaterialize('scan-led', 0, 0)], ['scan-led', DEPRECATE.id]],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
+        [null, [certification('used', 'certify'), materialize('time-big', 2400)], ['time-big', 'used']],
     ])('orders %s suggestions by kind, then by what they are worth', async (surface, results, expectedOrder) => {
         mockList.mockResolvedValue(page(results))
 
         await mountLogic(surface)
 
-        expect(mockList).toHaveBeenCalledWith(expect.any(String), { status: 'proposed', surface })
+        expect(mockList).toHaveBeenCalledWith(expect.any(String), { status: 'proposed', surface: surface ?? undefined })
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
     })
 
@@ -622,6 +665,24 @@ describe('warehouseSuggestionsLogic', () => {
             jest.advanceTimersByTime(ROW_LEAVE_MS)
 
             expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual(['b'])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('drops an accepted view deprecation from the banner count and the list together on the all-kinds instance', async () => {
+        jest.useFakeTimers()
+        try {
+            mockList.mockResolvedValue(page([DEPRECATE, materialize('a', 1800)]))
+            mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted' })
+            await mountLogic(null)
+
+            logic.actions.acceptSuggestion(DEPRECATE.id)
+            await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+
+            expect([logic.values.unusedViewCount, logic.values.surfaceSuggestions.length]).toEqual([0, 1])
+            expect(logic.values.suggestionGroups.map((group) => group.kind)).toEqual(['materialize'])
         } finally {
             jest.useRealTimers()
         }
@@ -868,11 +929,11 @@ describe('warehouseSuggestionsLogic', () => {
         }
     )
 
-    it.each<[string, boolean, boolean, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
+    it.each<[string, boolean, DeprecateAction, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
         [
             'stops refreshing by default',
             false,
-            false,
+            'deprecate',
             undefined,
             { certification_id: 'cert-1', stopped_materialization: true },
             'Marked old_rollup as deprecated and stopped its refreshes.',
@@ -880,7 +941,7 @@ describe('warehouseSuggestionsLogic', () => {
         [
             'keeps refreshing when asked',
             true,
-            false,
+            'deprecate',
             { keep_materialized: true },
             { certification_id: 'cert-1', stopped_materialization: false },
             'Marked old_rollup as deprecated.',
@@ -888,18 +949,26 @@ describe('warehouseSuggestionsLogic', () => {
         [
             'deletes it when asked',
             false,
-            true,
+            'delete',
             { delete_view: true },
             { saved_query_id: 'view-1', stopped_materialization: true },
             'Deleted old_rollup.',
         ],
-    ])('deprecating a materialized view %s', async (_name, keep, deleteView, body, createdAsset, toast) => {
+        [
+            'stops refreshing without marking it deprecated when asked',
+            false,
+            'unmarked',
+            { mark_deprecated: false },
+            { saved_query_id: 'view-1' },
+            "Stopped refreshing old_rollup. It isn't marked deprecated.",
+        ],
+    ])('deprecating a materialized view %s', async (_name, keep, deprecateAction, body, createdAsset, toast) => {
         mockList.mockResolvedValue(page([DEPRECATE]))
         mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted', created_asset: createdAsset })
         await mountLogic('catalog')
         logic.actions.openAcceptConfirm(DEPRECATE.id)
         logic.actions.setKeepMaterialized(keep)
-        logic.actions.setDeleteView(deleteView)
+        logic.actions.setDeprecateAction(deprecateAction)
 
         logic.actions.confirmAccept()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
@@ -909,17 +978,42 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.acceptConfirmSuggestion).toBeNull()
     })
 
-    it.each([
-        ['marks it deprecated for a data catalog editor', true, false],
-        ['deletes it for someone who cannot edit the data catalog', false, true],
-    ])('a view deprecation opens on the choice that %s', async (_name, canEditCatalog, expectedDeleteView) => {
-        jest.mocked(userHasAccess).mockReturnValue(canEditCatalog)
+    it.each<[string, boolean, boolean, DeprecateAction]>([
+        ['marks it deprecated for a data catalog editor', true, true, 'deprecate'],
+        ['leaves it unmarked for someone who cannot edit the data catalog', false, true, 'unmarked'],
+        ['deletes a plain view for someone who cannot edit the data catalog', false, false, 'delete'],
+    ])(
+        'a view deprecation opens on the choice that %s',
+        async (_name, canEditCatalog, materialized, expectedAction) => {
+            jest.mocked(userHasAccess).mockReturnValue(canEditCatalog)
+            const capture = jest.spyOn(posthog, 'capture')
+            const suggestion = { ...DEPRECATE, payload: { ...DEPRECATE.payload, materialized } }
+            mockList.mockResolvedValue(page([suggestion]))
+            await mountLogic()
+
+            logic.actions.openAcceptConfirm(suggestion.id)
+
+            expect(logic.values.deprecateAction).toBe(expectedAction)
+            expect(capture).toHaveBeenCalledWith(
+                'warehouse suggestion confirm opened',
+                expect.objectContaining({ deprecate_action: expectedAction })
+            )
+        }
+    )
+
+    it('reports the choice someone left the deprecate dialog on', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
         mockList.mockResolvedValue(page([DEPRECATE]))
         await mountLogic()
-
         logic.actions.openAcceptConfirm(DEPRECATE.id)
+        logic.actions.setDeprecateAction('unmarked')
 
-        expect(logic.values.deleteView).toBe(expectedDeleteView)
+        logic.actions.closeAcceptConfirm()
+
+        expect(capture).toHaveBeenCalledWith(
+            'warehouse suggestion confirm cancelled',
+            expect.objectContaining({ deprecate_action: 'unmarked' })
+        )
     })
 
     it('reloads the list when an accept finds the view or table deleted', async () => {

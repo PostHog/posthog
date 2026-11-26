@@ -56,6 +56,7 @@ For a model without a `.team` foreign key (`ProductTeamModel`), read `organizati
 
 A receiver that is not imported in `ready()` connects only where something else imports the module.
 That is the silent failure this convention exists to prevent.
+Each product owns this wiring in its `apps.py`; core keeps no list of product receivers, following [#93107](https://github.com/PostHog/posthog/pull/93107).
 
 ## Step 5 - Bulk writes
 
@@ -83,6 +84,24 @@ When the model is routed in `products/db_routing.yaml`:
 - Bookkeeping fields go in `field_exclusions` (dropped from the diff).
 - Secrets go in `field_with_masked_contents` (the change is recorded, the values are not).
 - User-facing names go in `field_name_overrides`.
+
+Put them in a data only module next to the model, so the team that owns the model owns its tuning:
+
+```python
+# products/<name>/backend/activity_log_config.py
+FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
+```
+
+Product configs must use exactly `products/<name>/backend/activity_log_config.py`; other names and locations will not load by convention.
+For a core model, put the config beside it so it inherits the model's owners. If the ownership rule lists explicit files, add the config to its `match` list.
+Installed product apps discover their config automatically.
+If the product narrows its `backend:contract-check` inputs, add `backend/activity_log_config.py` to those inputs in the product's `turbo.json`.
+For a core model, add an import and a `MODULES` entry in `posthog/models/activity_logging/activity_log_config_registry.py`.
+The registry is intentionally unowned so the model team can register its config without a review from the activity-log owners.
+A config module holds no imports: `activity_log.py` merges it at `django.setup()`.
+Use only `FIELD_EXCLUSIONS`, `FIELD_NAME_OVERRIDES`, `FIELD_WITH_MASKED_CONTENTS`, and `SIGNAL_EXCLUSIONS`; omit unused settings.
+Shared scopes and scopes without clear model ownership keep their tuning in `activity_log.py`.
+`posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks that configs load from the expected paths, use supported settings, and share an owner with their models.
 
 ## Step 8 - Describer (optional)
 

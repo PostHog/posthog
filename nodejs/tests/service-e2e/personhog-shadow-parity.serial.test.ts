@@ -148,8 +148,6 @@ describe('personhog shadow parity (e2e)', () => {
         const result = await routing.createPerson(
             DateTime.utc(),
             properties,
-            {},
-            {},
             teamId,
             null,
             isIdentified,
@@ -398,8 +396,6 @@ describe('personhog shadow parity (e2e)', () => {
             await pod.createPerson(
                 DateTime.utc(),
                 { plan: 'free' },
-                {},
-                {},
                 teamId,
                 null,
                 false,
@@ -434,8 +430,6 @@ describe('personhog shadow parity (e2e)', () => {
             await pod.createPerson(
                 DateTime.utc(),
                 { plan: 'free' },
-                {},
-                {},
                 teamId,
                 null,
                 false,

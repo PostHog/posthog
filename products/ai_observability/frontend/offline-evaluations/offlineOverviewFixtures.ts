@@ -10,6 +10,10 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
         kind: index === 1 ? 'boolean' : 'numeric',
         archived: false,
         current_version: 2,
+        calculation: 'reported',
+        composition: null,
+        input_scorers: [],
+        dependent_composite_count: 0,
         current_version_id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, '0')}`,
         config:
             index === 1
@@ -22,6 +26,8 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
         created_by: null,
         created_at: '2026-09-01T12:00:00Z',
         updated_by: null,
+        created_by_project_key_id: null,
+        updated_by_project_key_id: null,
         updated_at: '2026-09-20T12:00:00Z',
         team: 997,
     })
@@ -61,6 +67,8 @@ export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPoint
             experiment,
             summary: {
                 scorer: {
+                    calculation: 'reported',
+                    composition: null,
                     id: scorer.current_version_id!,
                     definition_id: scorer.id,
                     name: scorer.name,
@@ -75,6 +83,7 @@ export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPoint
                 result_count: 100,
                 status_counts: { ok: 95, error: 3, skipped: 2, not_applicable: 0 },
                 missing_result_count: 0,
+                not_requested_count: 0,
                 distinct_case_count: 50,
                 items_with_case_key_count: 100,
                 items_without_case_key_count: 0,

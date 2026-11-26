@@ -3,25 +3,34 @@
 A GitHub issue reaches the inbox two ways: the GitHub source ingests it as a signal, or a scout
 reads it and files a report itself. Only the first carried the issue's identity, so a scout's report
 never commented on the issue, and the issue's own signal later grouped by embedding alone and often
-opened a second report. A scout now names the issue when it files the report, and this module is the
-one place that writes and reads that record:
+opened a second report. A scout now names the issue when it files the report, grouping records the
+issue of each GitHub issue signal on the report the signal lands on, and this module is the one place
+that writes and reads that record:
 
 - `append_source_issues` writes one row per new issue and, after commit, starts the GitHub
   writeback for a report that is visible in the inbox.
 - `open_report_for_source_issue` is the exact match grouping tries before embedding similarity.
+- `lock_source_issues` and `reported_source_issue` let a new scout report refuse an issue that an
+  open report already names, atomically across concurrent filings.
 - `source_issues_by_report` is what the writeback and the report serializer read.
+- `source_issue_author_reviewers` names the members who filed the issues, so the scout report tools
+  can route the report to them.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Collection, Sequence
 
-from django.db import transaction
+from django.db import connection, transaction
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.artefact_schemas import SourceIssue
+from products.signals.backend.artefact_schemas import ReportLink, SourceIssue, SuggestedReviewerEntry
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -29,6 +38,12 @@ from products.signals.backend.models import (
     SignalReportGithubComment,
     SignalTeamConfig,
 )
+from products.signals.backend.pr_owner_assignments import github_identity_source
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+
+logger = logging.getLogger(__name__)
+
+AUTHOR_LOOKUP_EGRESS_SOURCE = "signals_reviewers"
 
 # A report in one of these states no longer takes new signals by exact issue match. A GitHub issue
 # that comes back after its report closed falls through to embedding matching, as it did before.
@@ -102,7 +117,7 @@ def schedule_source_issue_writeback(*, team_id: int, report_id: str, signals: li
     Scout reports skip research, so the inbox notification workflow that comments for a researched
     report never runs for them. Grouping also calls this with the issue's signal when that signal
     joins the report, and the per-issue claim in the writeback keeps that from posting a second
-    comment. The task re-checks the team opt-in and the report status itself.
+    comment, also when another open report of the team already commented on the issue. The task re-checks the team opt-in and the report status itself.
     """
     from products.signals.backend.github_writeback import COMMENT_STATUSES  # noqa: PLC0415 - it imports this module
 
@@ -165,3 +180,121 @@ def open_report_for_source_issue(*, team_id: int, url: str) -> SignalReport | No
         .order_by("created_at")
         .first()
     )
+
+
+# A new report may name an issue that an open report names already only when it links that report
+# with one of these kinds. Each one says the new report is separate work. A `duplicate_of` link says
+# the opposite, so it is not on the list.
+SEPARATE_REPORT_LINK_KINDS = frozenset(
+    {
+        ReportLinkKind.FOLLOW_UP_OF,
+        ReportLinkKind.PART_OF,
+        ReportLinkKind.DEPENDS_ON,
+        ReportLinkKind.RECURRENCE_OF,
+    }
+)
+
+
+def lock_source_issues(*, team_id: int, issues: Sequence[SourceIssue]) -> None:
+    """Hold a lock per issue until the caller's transaction ends.
+
+    Two filings that name one issue then check for an open report one after the other, so the second
+    sees the report the first committed. The locks are taken in URL order, so two filings that name
+    the same issues in a different order cannot deadlock.
+    """
+    with connection.cursor() as cursor:
+        for url in sorted({issue.url for issue in issues}):
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-source-issue:{team_id}:{url}"]
+            )
+
+
+def reported_source_issue(
+    *, team_id: int, issues: Sequence[SourceIssue], links: Sequence[ReportLink]
+) -> tuple[SourceIssue, SignalReport] | None:
+    """The first issue that an open report already names, and that report.
+
+    An issue does not count when the new report `links` its open report with a kind in
+    `SEPARATE_REPORT_LINK_KINDS`. A closed report does not count either, as in
+    `open_report_for_source_issue`.
+    """
+    linked_report_ids = {link.report_id for link in links if link.kind in SEPARATE_REPORT_LINK_KINDS}
+    for issue in issues:
+        report = open_report_for_source_issue(team_id=team_id, url=issue.url)
+        if report is not None and str(report.id) not in linked_report_ids:
+            return issue, report
+    return None
+
+
+def _issue_author(
+    team_id: int, issue: SourceIssue, integrations: dict[str, GitHubIntegration | None]
+) -> tuple[str, int] | None:
+    """The author's lowercased login and immutable GitHub user id, or None for a bot or an unreadable issue."""
+    if issue.repository not in integrations:
+        integrations[issue.repository] = GitHubIntegration.first_for_team_repository(
+            team_id, issue.repository, source=AUTHOR_LOOKUP_EGRESS_SOURCE, priority=Priority.NORMAL
+        )
+    github = integrations[issue.repository]
+    if github is None:
+        return None
+    response = github.api_request(
+        "GET",
+        f"/repos/{issue.repository}/issues/{issue.number}",
+        endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+        retry_transient=False,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    user = payload.get("user") if isinstance(payload, dict) else None
+    if not isinstance(user, dict) or user.get("type") == "Bot":
+        return None
+    login = user.get("login")
+    github_id = user.get("id")
+    if not isinstance(login, str) or not login.strip() or login.lower().endswith("[bot]"):
+        return None
+    if not isinstance(github_id, int) or isinstance(github_id, bool):
+        return None
+    return login.strip().lower(), github_id
+
+
+def source_issue_author_reviewers(*, team_id: int, issues: Sequence[SourceIssue]) -> list[SuggestedReviewerEntry]:
+    """The organization members who filed these GitHub issues, as reviewer entries in issue order.
+
+    A member matches only when the GitHub account they linked has the author's user id as well as the
+    login. Anyone can file an issue in a public repository, and a login a member gave up can be
+    registered by someone else, so the login alone would route the report to the wrong person.
+
+    Best effort: an issue no team installation can read, a failed or shed GitHub call, a bot author,
+    and an author outside the team's organization each add no one, and none of them fails the
+    report write. Costs one GitHub call per issue, so call it before the report transaction opens.
+    """
+    integrations: dict[str, GitHubIntegration | None] = {}
+    authors: dict[str, tuple[int, SourceIssue]] = {}
+    for issue in issues:
+        try:
+            author = _issue_author(team_id, issue, integrations)
+        except Exception:
+            logger.warning(
+                "signals.source_issue_author_lookup_failed",
+                extra={"team_id": team_id, "repository": issue.repository, "number": issue.number},
+                exc_info=True,
+            )
+            continue
+        if author is not None:
+            login, github_id = author
+            authors.setdefault(login, (github_id, issue))
+    members = resolve_org_github_login_to_users(team_id, authors) if authors else {}
+    entries: list[SuggestedReviewerEntry] = []
+    for login, (github_id, issue) in authors.items():
+        member = members.get(login)
+        identity = github_identity_source(member, login) if member is not None else None
+        if member is None or identity is None or identity[1] != github_id:
+            continue
+        entries.append(
+            SuggestedReviewerEntry(
+                github_login=login,
+                user_uuid=str(member.uuid),
+                reason=f"Filed the source issue {issue.repository}#{issue.number}.",
+            )
+        )
+    return entries

@@ -2,7 +2,7 @@ import re
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Self
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -25,8 +25,8 @@ from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_sche
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.api import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    DETECTOR_PAUSED_ERROR_CODES,
+    DETECTOR_UNAVAILABLE_ERROR_CODES,
     first_subscriber_id,
 )
 from products.alerts.backend.facade.destinations import (
@@ -48,7 +48,8 @@ from products.alerts.backend.insight_alert_state_machine import (
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.api import enabled_native_configurations
+from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, AlertDelivery, SourceKind
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import (
@@ -74,10 +75,6 @@ INVESTIGATION_SUMMARY_TEASER_MAX_CHARS = 500
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
 _SUMMARY_MARKDOWN = MarkdownIt("commonmark")
-
-# How long the insight stack keeps evaluating an alert after the platform takes it over, so the two
-# stacks' checks can be compared. It sends nothing for the alert in that time.
-PLATFORM_SHADOW = timedelta(days=7)
 
 # TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
 # but the URL must stay resolvable while people scroll back to the message; 30 days matches
@@ -116,16 +113,14 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
+    # The Trends runner returns a calendar heatmap as one aggregated value with an empty `data` list.
+    ChartDisplayType.CALENDAR_HEATMAP,
 }
 
 
-def evaluated_by_insight_stack_q(now: datetime) -> Q:
-    """The alerts the insight stack still checks: every alert it owns, and a platform-owned alert inside its shadow."""
-    # A platform-owned row with no cutover time has no shadow to finish, so it is not evaluated.
-    return ~(
-        Q(owner=PlatformAlertOwner.PLATFORM.value)
-        & (Q(owner_changed_at__isnull=True) | Q(owner_changed_at__lt=now - PLATFORM_SHADOW))
-    )
+def evaluated_by_insight_stack_q() -> Q:
+    """The alerts the insight stack still checks: only the ones it owns. The platform checks the rest."""
+    return ~Q(owner=PlatformAlertOwner.PLATFORM.value)
 
 
 def due_insight_alerts_q(now: datetime) -> Q:
@@ -135,7 +130,7 @@ def due_insight_alerts_q(now: datetime) -> Q:
         & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
         & (Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
         & Q(insight__deleted=False)
-        & evaluated_by_insight_stack_q(now)
+        & evaluated_by_insight_stack_q()
     )
 
 
@@ -190,7 +185,7 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
     (alert_check_offset), so alerts that share an interval do not all run at its start.
 
     every 15 minutes alerts -> 1 to 3 minutes after each quarter hour
-    hourly alerts -> 2 to 13 minutes after each hour
+    hourly alerts -> 2 to 57 minutes after each hour
     daily alerts -> in the 1am hour of the team's timezone
     weekly alerts -> in the 3am hour on Monday, in the team's timezone
     monthly alerts -> in the 4am hour on the first day of the month, in the team's timezone
@@ -449,9 +444,9 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "insight_name": alert.insight.name,
             "next_check_at": alert.next_check_at,
             # The template drops its "review the alert settings" advice for this code, because
-            # a check the AI detector could not complete is not something the owner can fix.
-            "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-            "detector_paused": error.get("code") == LLM_DETECTOR_PAUSED_ERROR_CODE,
+            # a check the AI or forecast detector could not complete is not something the owner can fix.
+            "detector_unavailable": error.get("code") in DETECTOR_UNAVAILABLE_ERROR_CODES,
+            "detector_paused": error.get("code") in DETECTOR_PAUSED_ERROR_CODES,
         },
     )
     if not email_sent:
@@ -553,19 +548,60 @@ def render_alert_insight_chart(
         return None
 
 
-def _threshold_lines(alerts: Collection[AlertConfiguration]) -> list[dict[str, Any]]:
+@frozen
+class _DrawnThreshold:
+    name: str
+    condition: dict[str, Any]
+    threshold: dict[str, Any] | None
+
+    @classmethod
+    def of_alert(cls, alert: AlertConfiguration) -> Self:
+        return cls(
+            name=alert.name,
+            condition=alert.condition,
+            threshold=alert.threshold.configuration if alert.threshold else None,
+        )
+
+
+def _threshold_lines(thresholds: Collection[_DrawnThreshold]) -> list[dict[str, Any]]:
     lines: list[dict[str, Any]] = []
-    for insight_alert in alerts:
-        if insight_alert.threshold is None or insight_alert.condition.get("type") != "absolute_value":
+    for drawn in thresholds:
+        if drawn.threshold is None or drawn.condition.get("type") != "absolute_value":
             continue
-        threshold_config = insight_alert.threshold.configuration
-        if threshold_config.get("type") != "absolute":
+        if drawn.threshold.get("type") != "absolute":
             continue
-        for side, value in (threshold_config.get("bounds") or {}).items():
+        for side, value in (drawn.threshold.get("bounds") or {}).items():
             if side in {"upper", "lower"} and value is not None:
-                label = f"{insight_alert.name} {side} threshold"
+                label = f"{drawn.name} {side} threshold"
                 lines.append({"label": label, "value": value, "borderColor": "#d14343", "displayLabel": False})
     return lines
+
+
+def _thresholds_drawn_on_chart(alert: AlertConfiguration) -> list[_DrawnThreshold]:
+    """The threshold of every enabled alert on the alert's insight, the insight stack's first and then the
+    platform's, each oldest first, and the alert's own."""
+    rows = (
+        AlertConfiguration.objects.filter(team_id=alert.team_id, insight_id=alert.insight_id, enabled=True)
+        .exclude(owner=PlatformAlertOwner.PLATFORM)
+        .select_related("threshold")
+        .order_by("created_at", "id")
+    )
+    drawn = {row.id: _DrawnThreshold.of_alert(row) for row in rows}
+    platform = enabled_native_configurations(
+        team_ids=[alert.team_id],
+        source_kind=SourceKind.INSIGHT,
+        source_config_key="insight_id",
+        values=[alert.insight_id],
+        owned_copies=True,
+    )
+    for configuration in reversed(platform):
+        condition = configuration.source_config.get(SOURCE_CONDITION_KEY) or {}
+        drawn[configuration.public_id] = _DrawnThreshold(
+            name=configuration.name, condition=condition.get("comparison") or {}, threshold=condition.get("threshold")
+        )
+    # A disabled alert is in neither read, but still draws the line it fired on.
+    drawn.setdefault(alert.id, _DrawnThreshold.of_alert(alert))
+    return list(drawn.values())
 
 
 def render_alert_insight_chart_or_raise(
@@ -585,13 +621,7 @@ def render_alert_insight_chart_or_raise(
             )
         ):
             return None
-        rows = (
-            AlertConfiguration.objects.filter(team_id=alert.team_id, insight_id=alert.insight_id, enabled=True)
-            .select_related("threshold")
-            .order_by("created_at", "id")
-        )
-        # An alert built from its platform alert is not one of the rows, so its own threshold is added.
-        alert_threshold_lines = _threshold_lines([*rows, *([alert] if alert._state.adding else [])])
+        alert_threshold_lines = _threshold_lines(_thresholds_drawn_on_chart(alert))
         asset, content = exports.render_png_export(
             team=alert.team,
             created_by=render_user,

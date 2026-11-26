@@ -53,6 +53,10 @@ class PostHogConfig(AppConfig):
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
         import posthog.checks  # noqa: F401, PLC0415
+        import posthog.proxy_signal_handlers  # noqa: F401, PLC0415
+        import posthog.user_analytics_deletion  # noqa: F401, PLC0415
+        import posthog.request_log_signal_handlers  # noqa: F401, PLC0415
+        import posthog.workos_radar_signal_handlers  # noqa: F401, PLC0415
         import posthog.models.file_system.signal_handlers  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
@@ -79,8 +83,7 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
-        posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
-        posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.enable_full_ai_capture = True  # ty: ignore[invalid-assignment]
         # Retained trial data still needs privacy when new launches are disabled.
         before_send = default_before_send(
             private_scout_capture=settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE,
@@ -89,10 +92,8 @@ class PostHogConfig(AppConfig):
         if before_send is not None:
             posthoganalytics.before_send = before_send  # ty: ignore[invalid-assignment]
 
-        # Config for the SDK's `client.metrics` API. The pinned SDK version predates
-        # the metrics API and ignores this attr; once posthoganalytics is bumped to
-        # >=7.23 it's picked up by setup(), so metrics get a real service.name
-        # instead of 'unknown_service'.
+        # Config for the SDK's `client.metrics` API, picked up by setup() so metrics
+        # get a real service.name instead of 'unknown_service'.
         posthoganalytics.metrics = {  # ty: ignore[invalid-assignment]
             # Same fallback as the OTel trace resource (otel_instrumentation.py) —
             # metrics and traces from one process must share a service identity.

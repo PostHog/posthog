@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { PENDING_MAX_CONTEXT_KEY } from './maxLogic'
+import { stashPendingMaxContext } from './maxLogic'
 import { MaxOpenContext, convertToMaxUIContext } from './utils'
 
 export interface UseOpenAiReturn {
@@ -23,15 +23,7 @@ export function useOpenAi(): UseOpenAiReturn {
 
     const openAi = (initialPrompt?: string, context?: MaxOpenContext): void => {
         if (context) {
-            try {
-                const storedContext = {
-                    context: convertToMaxUIContext(context),
-                    timestamp: Date.now(),
-                }
-                sessionStorage.setItem(PENDING_MAX_CONTEXT_KEY, JSON.stringify(storedContext))
-            } catch {
-                // sessionStorage unavailable, silently fail, agent will handle it
-            }
+            stashPendingMaxContext(convertToMaxUIContext(context))
         }
         newInternalTab(urls.ai(undefined, initialPrompt))
     }

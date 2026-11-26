@@ -175,16 +175,18 @@ describe("buildAppServerArgs", () => {
     expect(args).toContain('mcp_oauth_credentials_store="file"');
   });
 
-  it("renders configOverrides bare for numbers and quoted for strings", () => {
+  it("renders configOverrides bare for numbers and booleans and quoted for strings", () => {
     const args = buildAppServerArgs({
       binaryPath: "/bundle/codex",
       configOverrides: {
         auto_compact_token_limit: 16000,
+        "features.apps": false,
         model_verbosity: "low",
       },
     });
 
     expect(args).toContain("auto_compact_token_limit=16000");
+    expect(args).toContain("features.apps=false");
     expect(args).toContain('model_verbosity="low"');
   });
 

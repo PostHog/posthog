@@ -84,7 +84,7 @@ pub struct Ref<'a> {
     pub kind: RefKind,
     /// Positive, because a PostHog team id starts at 1.
     pub team_id: i64,
-    /// The UTC month of the write, as `YYYY-MM`.
+    /// The key month of the session that holds the reference, as `YYYY-MM`.
     pub key_month: &'a str,
     pub hash: &'a str,
 }

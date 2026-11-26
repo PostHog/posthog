@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 from requests.exceptions import HTTPError
@@ -13,6 +14,7 @@ from products.warehouse_sources.sources.braze.braze import (
     _canvas_series_rows,
     _details_row,
     _format_modified_after,
+    _normalize_items,
     _series_rows,
     _series_windows,
     validate_credentials,
@@ -35,6 +37,8 @@ from products.warehouse_sources.sources.sdk.testing import (
 BASE_URL = "https://rest.iad-01.braze.com"
 
 HOST_SAFE_PATCH = "products.warehouse_sources.sources.braze.braze._is_host_safe"
+
+NOW = datetime(2026, 3, 10, 15, 30, tzinfo=UTC)
 
 
 def _driver(url: str = BASE_URL) -> SourceDriver:
@@ -155,6 +159,72 @@ class TestGetRows:
         # No request is made once the host is rejected.
         assert isinstance(result.raised, BrazeHostNotAllowedError)
         assert result.requests == []
+
+
+class TestEmailListRequests:
+    @pytest.mark.parametrize(
+        "endpoint, should_use_incremental_field, last_value, expected_start, expected_sort",
+        [
+            ("email_unsubscribes", False, None, "2011-01-01", "asc"),
+            ("email_unsubscribes", True, None, "2011-01-01", "asc"),
+            ("email_unsubscribes", True, "2026-03-04T02:58:14Z", "2026-03-04", "asc"),
+            ("email_hard_bounces", True, datetime(2026, 3, 4, 23, 0, tzinfo=UTC), "2026-03-04", None),
+            # A watermark on the end day still has to leave a range Braze accepts.
+            ("email_hard_bounces", True, "2026-03-10T00:00:00Z", "2026-03-09", None),
+        ],
+    )
+    def test_sends_the_date_range_on_every_page(
+        self, endpoint, should_use_incremental_field, last_value, expected_start, expected_sort
+    ):
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(
+                endpoint,
+                [
+                    _response({"emails": [{"email": "first@example.com"}]}),
+                    _response({"emails": [{"email": "second@example.com"}]}),
+                    _response({"emails": []}),
+                ],
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=last_value,
+            )
+
+        assert result.raised is None
+        assert [row["email"] for row in result.rows] == ["first@example.com", "second@example.com"]
+        assert result.params("start_date") == [expected_start] * 3
+        assert result.params("end_date") == ["2026-03-10"] * 3
+        assert result.params("offset") == [None, "500", "1000"]
+        assert result.params("limit") == ["500"] * 3
+        assert result.params("sort_direction") == [expected_sort] * 3
+
+    def test_resume_keeps_the_range_its_offsets_were_counted_in(self):
+        # A day later the range would hold more rows, so the saved offset would point elsewhere.
+        with time_machine.travel(NOW + timedelta(days=1), tick=False):
+            result = _driver().run(
+                "email_unsubscribes",
+                [_response({"emails": [{"email": "first@example.com"}]}), _response({"emails": []})],
+                resume_state=BrazeResumeConfig(cursor=500, end_date="2026-03-10"),
+            )
+
+        assert result.raised is None
+        assert result.params("offset") == ["500", "1000"]
+        assert result.params("end_date") == ["2026-03-10", "2026-03-10"]
+        assert result.saved_states == [BrazeResumeConfig(cursor=1000, end_date="2026-03-10")]
+
+    @pytest.mark.parametrize(
+        "endpoint, field, value, expected",
+        [
+            ("email_hard_bounces", "hard_bounced_at", "2019-01-15 12:00:00 +0000", "2019-01-15T12:00:00Z"),
+            ("email_hard_bounces", "hard_bounced_at", "2019-01-15 14:00:00 +0200", "2019-01-15T12:00:00Z"),
+            ("email_hard_bounces", "hard_bounced_at", "not a time", "not a time"),
+            ("email_hard_bounces", "hard_bounced_at", None, None),
+            ("email_unsubscribes", "unsubscribed_at", "2016-08-25 15:24:32 +0000", "2016-08-25T15:24:32Z"),
+            ("email_unsubscribes", "unsubscribed_at", "2020-01-28T17:45:00Z", "2020-01-28T17:45:00Z"),
+        ],
+    )
+    def test_email_times_are_rewritten_to_iso(self, endpoint, field, value, expected):
+        rows = _normalize_items(BRAZE_ENDPOINTS[endpoint], [{"email": "a@example.com", field: value}, "stray"])
+
+        assert rows == [{"email": "a@example.com", field: expected}]
 
 
 class TestBrazeSourceResponse:

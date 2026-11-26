@@ -5,12 +5,14 @@ import { LemonBadge, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
+import { workflowLogic } from '../../workflowLogic'
 import {
     HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH,
     HOG_FLOW_EDITOR_MODES,
     HogFlowEditorMode,
     hogFlowEditorLogic,
 } from '../hogFlowEditorLogic'
+import { isEmailStep } from '../steps/email/emailStepVariants'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
@@ -20,6 +22,7 @@ import { HogFlowEditorPanelSelectedStep } from './HogFlowEditorPanelSelectedStep
 import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
+import { ViewOnlyArea } from './ViewOnlyArea'
 
 export interface HogFlowEditorPanelProps {
     onClose?: () => void
@@ -29,6 +32,7 @@ export interface HogFlowEditorPanelProps {
 export function HogFlowEditorPanel({ onClose, view }: HogFlowEditorPanelProps = {}): JSX.Element | null {
     const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { isViewOnly } = useValues(workflowLogic)
 
     const variablesCount = workflow?.variables?.length || 0
     const width = panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH
@@ -108,18 +112,27 @@ export function HogFlowEditorPanel({ onClose, view }: HogFlowEditorPanelProps = 
                 ) : (
                     <>
                         {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
-                            <HogFlowEditorPanelSelectedStep />
+                            <ViewOnlyArea>
+                                <HogFlowEditorPanelSelectedStep />
+                            </ViewOnlyArea>
                         )}
-                        {mode === 'build' && (
-                            <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
+                        {mode === 'build' && selectedNode && <HogFlowEditorPanelBuildDetail />}
+                        {mode === 'variables' && (
+                            <ViewOnlyArea>
+                                <HogFlowEditorPanelVariables />
+                            </ViewOnlyArea>
                         )}
-                        {mode === 'variables' && <HogFlowEditorPanelVariables />}
-                        {mode === 'test' &&
-                            (selectedNode?.data?.type === 'function_email' ? (
-                                <EmailActionTestContent />
+                        {mode === 'build' &&
+                            !selectedNode &&
+                            (isViewOnly ? (
+                                <p className="m-0 p-3 text-secondary" data-attr="workflow-editor-panel-view-only">
+                                    Select a step to see its settings.
+                                </p>
                             ) : (
-                                <HogFlowEditorPanelTest />
+                                <HogFlowEditorPanelBuild />
                             ))}
+                        {mode === 'test' &&
+                            (isEmailStep(selectedNode?.data) ? <EmailActionTestContent /> : <HogFlowEditorPanelTest />)}
                         {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
                         {mode === 'logs' && <HogFlowEditorPanelLogs />}
                     </>

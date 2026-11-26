@@ -23,6 +23,7 @@ import type { IntervalType } from '~/types'
 
 import { addCrossProjectTileLogic } from './addCrossProjectTileLogic'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { CrossProjectDashboardRefreshAction } from './CrossProjectDashboardRefreshAction'
 import { QuillCrossProjectDashboardLayoutActions } from './QuillCrossProjectDashboardLayoutActions'
 
 const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
@@ -65,6 +66,7 @@ export function QuillCrossProjectDashboardActions(): JSX.Element | null {
                     ))}
                 </SelectContent>
             </Select>
+            <CrossProjectDashboardRefreshAction />
             <QuillCrossProjectDashboardLayoutActions />
             <Button variant="primary" onClick={requestOpenModal} data-attr="cross-project-add-tile">
                 <IconPlus />

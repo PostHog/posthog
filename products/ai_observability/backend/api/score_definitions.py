@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, F, Prefetch, Q, QuerySet, prefetch_related_objects
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
@@ -13,16 +13,16 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PageLinksSerializer, page_link
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.models.activity_logging.activity_log import Change
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.permissions import AccessControlPermission
 
@@ -33,17 +33,71 @@ from products.ai_observability.backend.api.resource_tags import (
     ResourceTagsReadSerializer,
     ResourceTagsWriteSerializer,
 )
+from products.ai_observability.backend.composite_scorers import CompositeConfigSerializer, CompositeScorers
 from products.ai_observability.backend.models.score_definitions import (
     ScoreDefinition,
+    ScoreDefinitionInput,
     ScoreDefinitionVersion,
     StaleScoreDefinitionVersion,
+)
+from products.ai_observability.backend.presentation.project_keys import (
+    AIObservabilityProjectKeyMixin,
+    attribution_user,
+    log_project_key_activity,
+    project_key_id,
 )
 from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
 from products.ai_observability.backend.resource_tags import ResourceTags
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
 
+class CompositeInputReadSerializer(serializers.Serializer):
+    alias = serializers.CharField(help_text="Input name in the formula.")
+    scorer_version_id = serializers.UUIDField(source="input_version_id", help_text="Pinned immutable input version.")
+    definition_id = serializers.UUIDField(source="input_version.definition_id", help_text="Input scorer definition.")
+    name = serializers.CharField(source="input_version.definition.name", help_text="Input scorer name.")
+    kind = serializers.ChoiceField(
+        source="input_version.definition.kind", choices=ScoreDefinition.Kind.choices, help_text="Input value kind."
+    )
+    version = serializers.IntegerField(source="input_version.version", help_text="Pinned input version number.")
+    config = ScoreDefinitionConfigField(
+        source="input_version.config", read_only=True, help_text="Scoring rules of the pinned input version."
+    )
+    latest_version_id = serializers.UUIDField(
+        source="input_version.definition.current_version_id",
+        allow_null=True,
+        help_text="Current input version. Updating requires a new composite version.",
+    )
+    latest_version = serializers.IntegerField(
+        source="input_version.definition.current_version.version",
+        allow_null=True,
+        help_text="Current input version number.",
+    )
+
+
 class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSerializer):
+    input_scorers = CompositeInputReadSerializer(
+        source="current_version.inputs",
+        many=True,
+        read_only=True,
+        help_text="Pinned inputs and their latest versions. Empty for reported scorers.",
+    )
+    dependent_composite_count = serializers.IntegerField(
+        read_only=True,
+        default=0,
+        help_text="Accessible active composite scorers whose current version depends on a version of this scorer.",
+    )
+    calculation = serializers.ChoiceField(
+        choices=ScoreDefinition.Calculation.choices,
+        read_only=True,
+        help_text="Whether results are reported by the caller or calculated from other item scores.",
+    )
+    composition = CompositeConfigSerializer(
+        source="current_version.composition",
+        read_only=True,
+        allow_null=True,
+        help_text="Formula and exact input versions for a composite scorer.",
+    )
     short_name = serializers.CharField(
         read_only=True, allow_blank=True, help_text="Optional compact label for table headers and other compact views."
     )
@@ -80,20 +134,35 @@ class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSer
             "description",
             "tags",
             "kind",
+            "calculation",
+            "composition",
+            "input_scorers",
+            "dependent_composite_count",
             "archived",
             "current_version",
             "current_version_id",
             "config",
             "created_by",
+            "created_by_project_key_id",
             "created_at",
             "updated_at",
             "updated_by",
+            "updated_by_project_key_id",
             "team",
         ]
         read_only_fields = fields
 
 
 class ScoreDefinitionVersionSerializer(serializers.ModelSerializer):
+    calculation = serializers.ChoiceField(
+        source="definition.calculation",
+        choices=ScoreDefinition.Calculation.choices,
+        read_only=True,
+        help_text="How this scorer's results are produced.",
+    )
+    composition = CompositeConfigSerializer(
+        read_only=True, allow_null=True, help_text="Immutable formula and input versions, or null for reported scores."
+    )
     id = serializers.UUIDField(read_only=True, help_text="UUID identifying this exact immutable version.")
     definition_id = serializers.UUIDField(read_only=True, help_text="Scorer definition that owns this version.")
     version = serializers.IntegerField(read_only=True, help_text="Immutable version number within this scorer.")
@@ -106,7 +175,18 @@ class ScoreDefinitionVersionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ScoreDefinitionVersion
-        fields = ["id", "definition_id", "version", "kind", "config", "created_at", "created_by"]
+        fields = [
+            "id",
+            "definition_id",
+            "version",
+            "kind",
+            "calculation",
+            "composition",
+            "config",
+            "created_at",
+            "created_by",
+            "created_by_project_key_id",
+        ]
         read_only_fields = fields
 
 
@@ -135,9 +215,15 @@ class ScoreDefinitionVersionQuerySerializer(StrictQuerySerializer):
 
 
 def _score_definition_version_page(
-    definition: ScoreDefinition, *, limit: int, cursor: tuple[int, UUID] | None = None
+    definition: ScoreDefinition,
+    *,
+    limit: int,
+    cursor: tuple[int, UUID] | None = None,
+    allowed_versions: QuerySet[ScoreDefinitionVersion] | None = None,
 ) -> CursorPage[ScoreDefinitionVersion]:
     versions = definition.versions.select_related("definition", "created_by").order_by("-version", "id")
+    if allowed_versions is not None:
+        versions = versions.filter(id__in=allowed_versions)
     count = versions.count()
     if cursor is not None:
         number, version_id = cursor
@@ -151,7 +237,29 @@ def _score_definition_version_page(
     )
 
 
+class CompositeValidationSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices, help_text="Expected formula output kind.")
+    composition = CompositeConfigSerializer(help_text="Formula and pinned input versions to validate without saving.")
+    config = ScoreDefinitionConfigField(
+        required=False, help_text="Output configuration to check literal categories and composite scoring rules."
+    )
+
+
+class CompositeValidationResponseSerializer(serializers.Serializer):
+    valid = serializers.BooleanField(help_text="Whether the formula and any supplied output configuration are valid.")
+
+
 class ScoreDefinitionCreateSerializer(ResourceTagsWriteSerializer):
+    calculation = serializers.ChoiceField(
+        choices=ScoreDefinition.Calculation.choices,
+        default=ScoreDefinition.Calculation.REPORTED,
+        help_text="Reported or composite. This cannot be changed after creation.",
+    )
+    composition = CompositeConfigSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Required for composite scorers: expression and exact input versions.",
+    )
     name = serializers.CharField(max_length=255, help_text="Human-readable scorer name.")
     short_name = serializers.CharField(
         max_length=40, required=False, allow_blank=True, help_text="Optional compact label. Blank uses the full name."
@@ -209,6 +317,11 @@ class ScoreDefinitionMetadataSerializer(ResourceTagsWriteSerializer):
 
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
+    composition = CompositeConfigSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Required for a composite scorer. Creates a new immutable formula and input selection.",
+    )
     short_name = serializers.CharField(
         max_length=40, required=False, allow_blank=True, help_text="Updated compact label, saved with this version."
     )
@@ -240,6 +353,14 @@ class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
+    calculation = django_filters.ChoiceFilter(
+        choices=ScoreDefinition.Calculation.choices, help_text="Filter reported or composite scorers."
+    )
+    input_definition_id = django_filters.UUIDFilter(
+        field_name="current_version__inputs__input_version__definition_id",
+        distinct=True,
+        help_text="Find current composite scorers that depend on this input scorer.",
+    )
     created_by = django_filters.NumberFilter(field_name="created_by_id", help_text="Filter by the creator's user ID.")
     search = django_filters.CharFilter(
         method="filter_search",
@@ -278,7 +399,7 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
 
 
 class ScoreDefinitionViewSet(
-    TeamAndOrgViewSetMixin,
+    AIObservabilityProjectKeyMixin,
     AccessControlViewSetMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
@@ -287,7 +408,8 @@ class ScoreDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "llm_analytics"
-    scope_object_read_actions = ["list", "retrieve", "versions", "retrieve_version"]
+    scope_object_read_actions = ["list", "retrieve", "versions", "retrieve_version", "validate_composition"]
+    psak_allowed_actions = [*scope_object_read_actions, "create", "partial_update", "new_version"]
     permission_classes = [AccessControlPermission]
     serializer_class = ScoreDefinitionSerializer
     queryset = ScoreDefinition.objects.all()
@@ -295,12 +417,54 @@ class ScoreDefinitionViewSet(
     filterset_class = ScoreDefinitionFilter
     http_method_names = ["get", "post", "patch", "head", "options"]
 
+    def _input_prefetch(self) -> Prefetch:
+        return Prefetch(
+            "current_version__inputs",
+            queryset=ScoreDefinitionInput.objects.for_team(self.team_id, canonical=True)
+            .select_related("input_version__definition__current_version")
+            .order_by("alias"),
+        )
+
+    def _visible_definitions(self) -> QuerySet[ScoreDefinition]:
+        definitions = ScoreDefinition.objects.filter(team_id=self.team_id)
+        return self.filter_visible_to_caller(definitions)
+
+    def _get_locked_definition(self) -> ScoreDefinition:
+        # The current version determines which inputs the caller must be allowed to see.
+        get_object_or_404(
+            ScoreDefinition.objects.filter(team_id=self.team_id).select_for_update().values_list("pk", flat=True),
+            pk=self.kwargs["pk"],
+        )
+        return self.get_object()
+
     def safely_get_queryset(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
+        accessible = self._visible_definitions()
         queryset = (
             queryset.filter(team_id=self.team_id)
+            .filter(
+                Q(current_version__isnull=True)
+                | Q(current_version__in=CompositeScorers.accessible_versions(accessible, team_id=self.team_id))
+            )
             .select_related("current_version", "created_by", "updated_by")
+            .prefetch_related(self._input_prefetch())
+            .annotate(
+                dependent_composite_count=Count(
+                    "versions__dependents__composite_version__definition",
+                    distinct=True,
+                    filter=Q(
+                        versions__dependents__composite_version__definition__in=accessible,
+                        versions__dependents__composite_version__in=CompositeScorers.accessible_versions(
+                            accessible, team_id=self.team_id
+                        ),
+                        versions__dependents__composite_version__definition__archived=False,
+                        versions__dependents__composite_version__definition__current_version_id=F(
+                            "versions__dependents__composite_version_id"
+                        ),
+                    ),
+                )
+            )
             .order_by("name", "id")
         )
 
@@ -310,7 +474,7 @@ class ScoreDefinitionViewSet(
             if archived_param not in {"true", "false", "1", "0"}:
                 queryset = queryset.filter(archived=False)
         elif self.action in {"versions", "retrieve_version"}:
-            queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+            queryset = queryset.filter(id__in=accessible.values("id"))
 
         if self.action == "list":
             tag_query = ResourceTagFilterSerializer(data=self.request.query_params)
@@ -328,6 +492,7 @@ class ScoreDefinitionViewSet(
             "scorer_id": str(definition.id),
             "scorer_name": definition.name,
             "scorer_kind": definition.kind,
+            "calculation": definition.calculation,
             "has_description": bool(definition.description),
             "archived": definition.archived,
             "version": current_version,
@@ -337,21 +502,38 @@ class ScoreDefinitionViewSet(
     def _create_definition(self, validated_data: dict[str, Any]) -> ScoreDefinition:
         definition_data = dict(validated_data)
         config = definition_data.pop("config")
+        composition = definition_data.pop("composition", None)
+        CompositeScorers.validate(
+            composition=composition,
+            calculation=definition_data["calculation"],
+            kind=definition_data["kind"],
+            config=config,
+            team_id=self.team_id,
+            user_access_control=self.reference_access_control,
+        )
         tags = definition_data.pop("tags", [])
         definition_data.pop("archived", None)
         definition_data["description"] = definition_data.get("description") or ""
 
+        user = attribution_user(self.request)
+        key_id = project_key_id(self.request)
         definition = ScoreDefinition.objects.create(
             team=self.team,
-            created_by=cast(User, self.request.user),
+            created_by=user,
+            created_by_project_key_id=key_id,
             **definition_data,
         )
-        definition.create_new_version(config=config, created_by=cast(User, self.request.user))
+        definition.create_new_version(
+            config=config, composition=composition, created_by=user, created_by_project_key_id=key_id
+        )
         ResourceTags.set(definition, tags)
+        log_project_key_activity(
+            self.request, team=self.team, scope="ScoreDefinition", item_id=definition.pk, activity="created"
+        )
         return definition
 
     @transaction.atomic
-    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> None:
+    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[str]:
         definition_data = dict(validated_data)
         changed_fields: list[str] = []
         if "tags" in definition_data:
@@ -369,11 +551,17 @@ class ScoreDefinitionViewSet(
                 changed_fields.append(field)
 
         if not changed_fields:
-            return
+            return []
 
-        definition.updated_by = cast(User, self.request.user)
+        definition.updated_by = attribution_user(self.request)
+        definition.updated_by_project_key_id = project_key_id(self.request)
         definition.save(
-            update_fields=[*[field for field in changed_fields if field != "tags"], "updated_at", "updated_by"]
+            update_fields=[
+                *[field for field in changed_fields if field != "tags"],
+                "updated_at",
+                "updated_by",
+                "updated_by_project_key_id",
+            ]
         )
         event_properties: dict[str, str | bool | int | list[str]] = {
             **self._event_properties(definition),
@@ -391,19 +579,55 @@ class ScoreDefinitionViewSet(
                 request=self.request,
             )
         )
+        return changed_fields
+
+    def _audit_scorer_edit(
+        self, definition: ScoreDefinition, fields: list[str], previous_editor_id: int | None
+    ) -> None:
+        if not fields:
+            return
+        changes = [Change(type="ScoreDefinition", action="changed", field=field) for field in fields]
+        if previous_editor_id is not None:
+            changes.append(
+                Change(type="ScoreDefinition", action="changed", field="updated_by", before=previous_editor_id)
+            )
+        log_project_key_activity(
+            self.request,
+            team=self.team,
+            scope="ScoreDefinition",
+            item_id=definition.pk,
+            activity="updated",
+            changes=changes,
+        )
 
     @transaction.atomic
-    def _create_definition_version(
-        self, definition: ScoreDefinition, validated_data: dict[str, Any]
-    ) -> ScoreDefinition:
+    def _create_definition_version(self, request: Request) -> ScoreDefinition:
+        definition = self._get_locked_definition()
+        serializer = ScoreDefinitionNewVersionSerializer(
+            data=request.data,
+            context={**self.get_serializer_context(), "score_definition_kind": definition.kind},
+        )
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
+        composition = validated_data.get("composition")
+        CompositeScorers.validate(
+            composition=composition,
+            calculation=definition.calculation,
+            kind=definition.kind,
+            config=validated_data["config"],
+            team_id=self.team_id,
+            user_access_control=self.reference_access_control,
+        )
+        previous_editor_id = definition.updated_by_id
         definition.create_new_version(
             config=validated_data["config"],
-            created_by=cast(User, self.request.user),
+            created_by=attribution_user(self.request),
+            created_by_project_key_id=project_key_id(self.request),
             base_version=validated_data.get("base_version"),
+            composition=composition,
         )
-        # create_new_version holds the row lock until commit. Reload so the metadata comparison sees writes made after get_object().
         definition.refresh_from_db()
-        self._update_definition_metadata(
+        changed_fields = self._update_definition_metadata(
             definition,
             {
                 field: validated_data[field]
@@ -411,6 +635,7 @@ class ScoreDefinitionViewSet(
                 if field in validated_data
             },
         )
+        self._audit_scorer_edit(definition, ["current_version", *changed_fields], previous_editor_id)
         return definition
 
     @extend_schema(
@@ -460,17 +685,37 @@ class ScoreDefinitionViewSet(
             request=request,
         )
 
+        prefetch_related_objects([definition], self._input_prefetch())
         return Response(self.get_serializer(definition).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
         request_serializer=ScoreDefinitionMetadataSerializer,
         responses={200: OpenApiResponse(response=ScoreDefinitionSerializer)},
     )
+    @transaction.atomic
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        definition = self.get_object()
-        self._update_definition_metadata(definition, dict(request.validated_data))
+        definition = self._get_locked_definition()
+        previous_editor_id = definition.updated_by_id
+        changed_fields = self._update_definition_metadata(definition, dict(request.validated_data))
+        self._audit_scorer_edit(definition, changed_fields, previous_editor_id)
 
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)
+
+    @validated_request(
+        request_serializer=CompositeValidationSerializer,
+        responses={200: CompositeValidationResponseSerializer},
+    )
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def validate_composition(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        CompositeScorers.validate(
+            composition=request.validated_data["composition"],
+            calculation=ScoreDefinition.Calculation.COMPOSITE,
+            kind=request.validated_data["kind"],
+            config=request.validated_data.get("config"),
+            team_id=self.team_id,
+            user_access_control=self.reference_access_control,
+        )
+        return Response(CompositeValidationResponseSerializer({"valid": True}).data)
 
     @validated_request(
         query_serializer=ScoreDefinitionVersionQuerySerializer,
@@ -480,7 +725,12 @@ class ScoreDefinitionViewSet(
     @action(detail=True, methods=["get"], pagination_class=None)
     def versions(self, request: ValidatedRequest, **kwargs: object) -> Response:
         definition = self.get_object()
-        page = _score_definition_version_page(definition, **request.validated_query_data)
+        accessible = self._visible_definitions()
+        page = _score_definition_version_page(
+            definition,
+            allowed_versions=CompositeScorers.accessible_versions(accessible, team_id=self.team_id),
+            **request.validated_query_data,
+        )
         data = ScoreDefinitionVersionPageSerializer(page).data
         data["next"] = page_link(request, "cursor", page.next_cursor)
         return Response(data)
@@ -497,7 +747,13 @@ class ScoreDefinitionViewSet(
             identity = serializers.UUIDField().run_validation(version_id)
         except serializers.ValidationError as error:
             raise serializers.ValidationError({"version_id": error.detail}) from error
-        version = definition.versions.select_related("definition", "created_by").filter(id=identity).first()
+        accessible = self._visible_definitions()
+        version = (
+            CompositeScorers.accessible_versions(accessible, team_id=self.team_id)
+            .select_related("definition", "created_by")
+            .filter(definition=definition, id=identity)
+            .first()
+        )
         if version is None:
             raise NotFound("Scorer version not found.")
         return Response(ScoreDefinitionVersionSerializer(version).data)
@@ -510,15 +766,8 @@ class ScoreDefinitionViewSet(
         required_scopes=["llm_analytics:write"],
     )
     def new_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        definition = self.get_object()
-        serializer = ScoreDefinitionNewVersionSerializer(
-            data=request.data,
-            context={**self.get_serializer_context(), "score_definition_kind": definition.kind},
-        )
-        serializer.is_valid(raise_exception=True)
-
         try:
-            definition = self._create_definition_version(definition, dict(serializer.validated_data))
+            definition = self._create_definition_version(request)
         except StaleScoreDefinitionVersion as err:
             return Response(
                 {
@@ -536,4 +785,5 @@ class ScoreDefinitionViewSet(
             request=request,
         )
 
+        prefetch_related_objects([definition], self._input_prefetch())
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)

@@ -1,20 +1,9 @@
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { buildMarkdownNotebookContent, convertNotebookContentToMarkdown } from './Notebook/markdownNotebookV2'
 import { CreatePostHogWidgetNodeOptions } from './types'
 
 export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
-
-export function isKernelUiEnabled(featureFlags: FeatureFlagsSet): boolean {
-    return !!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]
-}
-
-// Jupyter mode lays out the sandbox-kernel cells, so it needs them available too.
-export function isJupyterModeAvailable(featureFlags: FeatureFlagsSet): boolean {
-    return isKernelUiEnabled(featureFlags)
-}
 
 export function defaultNotebookContent(title?: string, content?: JSONContent[]): JSONContent {
     const initialContent = [

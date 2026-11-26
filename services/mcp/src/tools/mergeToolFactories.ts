@@ -1,9 +1,11 @@
+import { withCasingAliases } from '@/tools/casing-aliases'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
 /**
  * Merge codegen and hand-written tool factories. Hand-written entries win on key
  * collision. Use this helper at every merge site rather than inlining a spread, so
- * the sites cannot drift apart.
+ * the sites cannot drift apart. Every merged tool also accepts each param in its
+ * other casing (see `withCasingAliases`).
  *
  * The arguments are named rather than positional because both maps have the same
  * type. A swapped positional call would invert precedence with no type error, and
@@ -22,6 +24,9 @@ export function mergeToolFactories({
     const merged: Record<string, () => ToolBase<ZodObjectAny>> = { ...handwritten, ...generated }
     for (const [name, factory] of Object.entries(handwritten)) {
         merged[name] = factory
+    }
+    for (const [name, factory] of Object.entries(merged)) {
+        merged[name] = () => withCasingAliases(factory())
     }
     return merged
 }

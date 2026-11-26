@@ -5,7 +5,7 @@ holds what every gateway call site shares: which scopes carry gateway access, an
 the message a blocked identity sees.
 """
 
-from posthog.scopes import PRIVILEGED_SCOPES
+from posthog.scopes.exposure import PRIVILEGED_SCOPES
 
 # Wider than the two privileged names: the legacy gateway authenticates a bare
 # `*`, which an app with an empty ceiling is still granted verbatim.

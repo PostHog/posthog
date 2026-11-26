@@ -13,6 +13,32 @@ import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/co
 import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
 
+export function confirmRemoveUrl(index: number, onRemove: (index: number) => void): void {
+    LemonDialog.open({
+        title: <>Remove URL</>,
+        description: 'Are you sure you want to remove this URL?',
+        primaryButton: {
+            status: 'danger',
+            children: 'Remove',
+            onClick: () => onRemove(index),
+        },
+        secondaryButton: {
+            children: 'Cancel',
+        },
+    })
+}
+
+export function applyAiRegex(regex: string, addUrl: (urlTriggerConfig: UrlTriggerConfig) => void): void {
+    try {
+        addUrl({
+            url: regex,
+            matching: 'regex',
+        })
+    } catch {
+        lemonToast.error('Failed to apply regex')
+    }
+}
+
 export function UrlConfig({
     logic,
     logicProps,
@@ -221,20 +247,7 @@ function UrlConfigRow({
                     icon={<IconTrash />}
                     tooltip="Remove URL"
                     center
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: <>Remove URL</>,
-                            description: 'Are you sure you want to remove this URL?',
-                            primaryButton: {
-                                status: 'danger',
-                                children: 'Remove',
-                                onClick: () => onRemove(index),
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
-                    }}
+                    onClick={() => confirmRemoveUrl(index, onRemove)}
                     disabledReason={restrictedReason}
                 >
                     Remove
@@ -289,18 +302,7 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <AiRegexHelper
-                        onApply={(regex) => {
-                            try {
-                                addUrl({
-                                    url: regex,
-                                    matching: 'regex',
-                                })
-                            } catch {
-                                lemonToast.error('Failed to apply regex')
-                            }
-                        }}
-                    />
+                    <AiRegexHelper onApply={(regex) => applyAiRegex(regex, addUrl)} />
                     <AiRegexHelperButton />
                 </div>
 

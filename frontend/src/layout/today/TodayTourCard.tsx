@@ -17,7 +17,7 @@ import {
 } from '@posthog/quill'
 
 import { TodayTourPoint } from './todayTourGeometry'
-import { TODAY_TOUR_STEPS, TodayTourStep, todayTourLogic } from './todayTourLogic'
+import { TodayTourStep, todayTourLogic } from './todayTourLogic'
 import { TodayTourTimer } from './TodayTourTimer'
 
 const TOUR_STEP_MS = 8000
@@ -28,6 +28,7 @@ const CURSOR_LIFT_PX = 20
 interface TodayTourCardProps {
     step: TodayTourStep
     stepIndex: number
+    stepCount: number
     /** The cursor's tip. The card shows beside it, and grows out of it. */
     anchor: TodayTourPoint
     /** Survives the card, which is remounted for each step, so keyboard focus can return to Next. */
@@ -35,7 +36,7 @@ interface TodayTourCardProps {
 }
 
 /** One step of the tour, next to the tour's cursor. It moves on by itself on a timer, paused while hovered. */
-export function TodayTourCard({ step, stepIndex, anchor, refocusNextRef }: TodayTourCardProps): JSX.Element {
+export function TodayTourCard({ step, stepIndex, stepCount, anchor, refocusNextRef }: TodayTourCardProps): JSX.Element {
     const { nextTourStep, endTour } = useActions(todayTourLogic)
     // Moving the whole page on a timer is the kind of motion this setting asks to avoid, so the tour waits for Next.
     const reducedMotion = useReducedMotion()
@@ -127,7 +128,7 @@ export function TodayTourCard({ step, stepIndex, anchor, refocusNextRef }: Today
                     </CardHeader>
                     <CardFooter className="justify-between gap-2">
                         <Text size="xs" variant="muted">
-                            {`${stepIndex + 1} of ${TODAY_TOUR_STEPS.length}`}
+                            {`${stepIndex + 1} of ${stepCount}`}
                         </Text>
                         <div className="flex items-center gap-2">
                             {!reducedMotion && (
@@ -138,7 +139,7 @@ export function TodayTourCard({ step, stepIndex, anchor, refocusNextRef }: Today
                                 />
                             )}
                             <Button ref={nextButtonRef} variant="primary" onClick={goNext} data-attr="today-tour-next">
-                                {stepIndex === TODAY_TOUR_STEPS.length - 1 ? 'Done' : 'Next'}
+                                {stepIndex === stepCount - 1 ? 'Done' : 'Next'}
                             </Button>
                         </div>
                     </CardFooter>

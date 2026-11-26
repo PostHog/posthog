@@ -69,7 +69,7 @@ from products.tasks.backend.facade.contracts import (
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
+from products.tasks.backend.facade.model_catalogue import ModelChoice, uncataloged_runtime_adapter
 from products.tasks.backend.facade.profiles import (
     RunOptionsCaller,
     SourceKind,
@@ -331,17 +331,6 @@ def build_task_run_artifact_size_error(
         return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit for PDFs in cloud runs"
 
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
-
-
-class AgentDefinitionSerializer(serializers.Serializer):
-    """Serializer for agent definitions"""
-
-    id = serializers.CharField()
-    name = serializers.CharField()
-    agent_type = serializers.CharField()
-    description = serializers.CharField()
-    config = serializers.DictField(default=dict)
-    is_active = serializers.BooleanField(default=True)
 
 
 class TaskRunUpdateSerializer(serializers.Serializer):
@@ -688,6 +677,31 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="When the latest person turn from `last_client` arrived.",
     )
+    repository_integration = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.",
+    )
+    status = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatus.choices,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken "
+            "by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet."
+        ),
+    )
+    status_reason = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatusReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why the task stopped. Set only when `status` is `idle` or `done`.",
+    )
+    status_detail = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Message shown next to `status_reason`, such as the error from a failed run.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -721,6 +735,10 @@ class TaskSerializer(DataclassSerializer):
             "client_provenance",
             "last_client",
             "last_client_at",
+            "repository_integration",
+            "status",
+            "status_reason",
+            "status_detail",
         ]
 
 
@@ -805,6 +823,14 @@ def normalized_repository_name(value: str) -> str:
     return value.lower()
 
 
+def normalized_gitlab_project_path(value: str) -> str:
+    parts = value.split("/")
+    if len(parts) < 2 or not all(parts):
+        raise serializers.ValidationError("Repository must be the full GitLab project path, such as group/project")
+
+    return value.lower()
+
+
 def require_unique_repositories(repositories: list[str]) -> list[str]:
     if len(set(repositories)) != len(repositories):
         raise serializers.ValidationError("Repositories must be unique")
@@ -840,7 +866,11 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+        help_text=(
+            "Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). "
+            "For GitLab, set `repository_integration` and use the full project path, which can include "
+            "nested groups (e.g. `acme/platform/api`)."
+        ),
     )
     repositories = serializers.ListField(
         child=serializers.CharField(max_length=255),
@@ -853,6 +883,15 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
+    )
+    repository_integration = IntegrationReferenceField(
+        kinds=["gitlab"],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. "
+            "Leave `github_integration` and `github_user_integration` empty."
+        ),
     )
     # UserIntegration is scoped to request.user in validate_github_user_integration.
     github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
@@ -1036,11 +1075,22 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
+    def _targets_repository_integration(self) -> bool:
+        initial_data = getattr(self, "initial_data", {})
+        if "repository_integration" in initial_data:
+            return initial_data["repository_integration"] not in (None, "")
+        return (
+            getattr(self.instance, "repository_integration", getattr(self.instance, "repository_integration_id", None))
+            is not None
+        )
+
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
             return value
 
+        if self._targets_repository_integration():
+            return normalized_gitlab_project_path(value)
         return normalized_repository_name(value)
 
     def validate_repositories(self, value: list[str]) -> list[str]:
@@ -1072,22 +1122,46 @@ class TaskWriteSerializer(serializers.Serializer):
             if legacy != (repositories[0] if repositories else None):
                 raise serializers.ValidationError({"repositories": "Conflicts with repository"})
         repositories = attrs.get("repositories")
-        plural_repositories = repositories
         if repositories is None and "repository" in attrs:
-            repositories = [attrs["repository"]] if attrs["repository"] else []
-        if plural_repositories and attrs.get("github_integration") is None:
-            instance_integration = getattr(self.instance, "github_integration", None)
-            if instance_integration is None:
-                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
-        integration = attrs.get("github_integration") or getattr(self.instance, "github_integration", None)
-        if repositories and integration:
-            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
-                self.context["team"].id, integration.id, repositories
+            current_repositories = getattr(self.instance, "repositories", None) or []
+            repositories = (
+                current_repositories
+                if len(current_repositories) > 1
+                else ([attrs["repository"]] if attrs["repository"] else [])
             )
-            if inaccessible:
-                raise serializers.ValidationError(
-                    {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
+        if repositories is None:
+            repositories = getattr(self.instance, "repositories", None) or (
+                [self.instance.repository] if self.instance and self.instance.repository else []
+            )
+        gitlab = attrs.get("repository_integration", getattr(self.instance, "repository_integration", None))
+        github = attrs.get("github_integration", getattr(self.instance, "github_integration", None))
+        github_user = attrs.get("github_user_integration", getattr(self.instance, "github_user_integration", None))
+        repository_fields_changed = not attrs.keys().isdisjoint(
+            {"repository", "repositories", "repository_integration", "github_integration", "github_user_integration"}
+        )
+        if gitlab and (github or github_user):
+            raise serializers.ValidationError(
+                {"repository_integration": "Set either a GitHub integration or a GitLab integration, not both."}
+            )
+        if gitlab and repository_fields_changed:
+            if isinstance(gitlab, int):
+                gitlab = self.fields["repository_integration"].run_validation(gitlab)
+            self._validate_gitlab_task({**attrs, "repository_integration": gitlab}, repositories)
+        elif repository_fields_changed:
+            repositories = [normalized_repository_name(repository) for repository in repositories]
+            if repositories and "repositories" in attrs and not github:
+                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
+            if repositories and github:
+                integration_id = github if isinstance(github, int) else github.id
+                inaccessible = tasks_facade.inaccessible_repositories_via_integration(
+                    self.context["team"].id, integration_id, repositories
                 )
+                if inaccessible:
+                    raise serializers.ValidationError(
+                        {
+                            "repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"
+                        }
+                    )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
@@ -1129,7 +1203,28 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"repository": "Signal report tasks resolve their repository server-side."}
             )
+        # Task keeps a plain id for this connection, and create and update set the fields by name.
+        if "repository_integration" in attrs:
+            repository_integration = attrs.pop("repository_integration")
+            attrs["repository_integration_id"] = repository_integration.id if repository_integration else None
         return attrs
+
+    def _validate_gitlab_task(self, attrs: dict[str, Any], repositories: list[str]) -> None:
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not tasks_facade.gitlab_tasks_enabled(self.context["team"], user):
+            raise serializers.ValidationError(
+                {"repository_integration": "Coding tasks in GitLab projects aren't available for your account yet."}
+            )
+        if attrs.get("github_integration") is not None or attrs.get("github_user_integration") is not None:
+            raise serializers.ValidationError(
+                {"repository_integration": "Set either a GitHub integration or a GitLab integration, not both."}
+            )
+        if len(repositories) != 1:
+            raise serializers.ValidationError({"repository": "Choose one GitLab project for this task."})
+        error = tasks_facade.gitlab_repository_error(attrs["repository_integration"], repositories[0])
+        if error is not None:
+            raise serializers.ValidationError({"repository": error})
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1245,6 +1340,19 @@ class TaskSourceRequestSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
+    warm_submission_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.",
+    )
+    warm_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.",
+    )
+
     start_run = serializers.BooleanField(
         required=False,
         default=False,
@@ -1512,6 +1620,9 @@ class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
 
 
 class TaskRunErrorResponseSerializer(serializers.Serializer):
+    id = serializers.JSONField(
+        required=False, help_text="Message ID to reuse as the JSON-RPC id when retrying delivery"
+    )
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
@@ -1544,10 +1655,6 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
     )
-
-
-class AgentListResponseSerializer(serializers.Serializer):
-    results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
 
 
 class TaskRunAppendLogRequestSerializer(serializers.Serializer):
@@ -2465,6 +2572,18 @@ class TaskSummarySerializer(DataclassSerializer):
         help_text="ID of the user who created the task, or null for system-created tasks.",
     )
     latest_run = TaskRunSummarySerializer(allow_null=True, required=False)
+    status = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatus.choices,
+        allow_null=True,
+        required=False,
+        help_text="Where the task is now: queued, running, idle or done. Null on older tasks not filled in yet.",
+    )
+    status_reason = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatusReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why the task stopped. Set only when `status` is `idle` or `done`.",
+    )
 
     class Meta:
         dataclass = TaskSummaryDTO
@@ -2477,6 +2596,8 @@ class TaskSummarySerializer(DataclassSerializer):
             "updated_at",
             "origin_product",
             "latest_run",
+            "status",
+            "status_reason",
         ]
 
 
@@ -2500,8 +2621,8 @@ class SandboxCustomImageListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text=(
-            "Return 403 unless tasks from this origin product can run on custom images. "
-            "Leave it out to only check that custom images are enabled."
+            "The list is empty when tasks from this origin product cannot run on custom images. "
+            "Leave it out to list every image you can see."
         ),
     )
 
@@ -2555,6 +2676,11 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
+    )
+    task_status = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskStatus.choices,
+        help_text="Filter tasks by their own status: queued, running, idle or done.",
     )
     pr_state = serializers.ChoiceField(
         required=False,
@@ -3477,6 +3603,7 @@ class TaskCommentEntrySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Comment id.")
     content = serializers.CharField(help_text="Byte-bounded comment body chunk.")
     content_truncated = serializers.BooleanField(help_text="Whether this comment body has more content.")
+    content_offset = serializers.IntegerField(help_text="Byte offset where this body chunk starts.")
     content_next_offset = serializers.IntegerField(
         allow_null=True,
         help_text="Byte offset for the next body chunk, or null when complete.",
@@ -3551,16 +3678,31 @@ class ModelChoiceSerializer(DataclassSerializer):
             "flatters either. Null for a model the catalogue quotes no rate for."
         ),
     )
+    context_window = serializers.IntegerField(
+        required=False, help_text="Largest context window the model accepts, in tokens."
+    )
+    allowed = serializers.BooleanField(
+        required=False,
+        help_text="Whether the project's plan may run this model. A free plan may run only the free-tier models.",
+    )
 
     class Meta:
         dataclass = ModelChoice
-        fields = ["runtime_adapter", "model", "display_name", "supported_efforts", "cost_multiplier"]
+        fields = [
+            "runtime_adapter",
+            "model",
+            "display_name",
+            "supported_efforts",
+            "cost_multiplier",
+            "context_window",
+            "allowed",
+        ]
 
 
 class ModelCatalogueResponseSerializer(serializers.Serializer):
     models = ModelChoiceSerializer(
         many=True,
-        help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+        help_text="Every model a PostHog Code run may use, read from the PostHog model catalog.",
     )
 
 
@@ -4030,13 +4172,9 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or next(
-                (
-                    RuntimeAdapter(choice.runtime_adapter)
-                    for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-                    if choice.model == attrs["model"]
-                ),
-                None,
+            uncataloged_adapter = uncataloged_runtime_adapter(attrs["model"])
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or (
+                RuntimeAdapter(uncataloged_adapter) if uncataloged_adapter else None
             )
             if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
@@ -4452,6 +4590,11 @@ class WarmTaskResponseSerializer(serializers.Serializer):
     )
     run_id = serializers.UUIDField(
         help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
+    )
+
+    permission_mode_mutable = serializers.BooleanField(
+        default=False,
+        help_text="The server can negotiate the final permission mode before activating an explicitly targeted warm run.",
     )
 
 
@@ -5060,6 +5203,7 @@ class SandboxCustomImageWriteSerializer(serializers.Serializer):
     repository = serializers.CharField(
         required=False,
         allow_null=True,
+        allow_blank=True,
         default=None,
         max_length=255,
         help_text="Optional 'org/repo' the builder session clones so it can verify the image "

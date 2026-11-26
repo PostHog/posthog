@@ -8,8 +8,8 @@ Building a config does not schedule or run a calculation.
 A config does not pin the events and warehouse rows, the definitions a metric references (actions,
 cohorts, warehouse tables, property types), the team's HogQL modifiers, or the clock that the maturity
 filters read. The same config can therefore give a different result later. Equality and the key also leave out
-which event the `experiment-exposure-event` flag picks as the default exposure event, so a result stays
-reusable for its window when that flag changes for the team.
+which event `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF` picks as the default exposure event, so a result stays
+reusable for its window when that setting changes.
 
 The settings factories reset a value that the calculation ignores to its default: the CUPED lookback without
 CUPED, and the sequential tuning parameter without sequential testing. So such a value does not split equal
@@ -74,9 +74,16 @@ from products.experiments.backend.metric_resolution import (
     saved_metric_links,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment, metric_display_rank
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    exposure_flag_key,
+    get_experiment_rule,
+    metric_display_rank,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.stats.frequentist.method import DEFAULT_SEQUENTIAL_TUNING_PARAMETER
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, ExperimentRuleError
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -98,12 +105,9 @@ KEY_VERSIONS = (1, CALCULATION_KEY_VERSION)
 # two keys.
 _KEY_FLOAT_DIGITS = 12
 
-# Stands for the default exposure event in the key. The `experiment-exposure-event` flag picks that event, and each
-# process evaluates the flag locally (`resolve_default_exposure_event`). A key that hashed the picked event would
-# change at each rollout step of the flag, and two processes that evaluate the flag differently would file and look
-# up the results of one experiment under two keys. A stored result therefore stays reusable for its window when the
-# flag changes. To make results computed with the old default event stop counting for reuse when the new event
-# ships to every team, treat the switch as an engine change and bump CALCULATION_KEY_VERSION.
+# Stands for the default exposure event in the key, so that setting or moving
+# `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF` does not re-key every affected experiment. To stop reusing results
+# computed with the old event, bump CALCULATION_KEY_VERSION.
 _DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
@@ -167,9 +171,29 @@ def _canonical(value: Any) -> Any:
     raise TypeError(f"Cannot hash a {type(value).__name__} into a calculation key")
 
 
-def _variant_keys(feature_flag: "FeatureFlag", excluded_variants: tuple[str, ...]) -> tuple[str, ...]:
-    keys = (variant.get("key") for variant in feature_flag.variants if isinstance(variant, dict))
+def _variant_keys(variants: list[Any], excluded_variants: tuple[str, ...]) -> tuple[str, ...]:
+    keys = (variant.get("key") for variant in variants if isinstance(variant, dict))
     return tuple(key for key in keys if isinstance(key, str) and key not in excluded_variants)
+
+
+def settings_rule(experiment: Experiment) -> ExperimentRuleConfig | None:
+    """The rule of a rule-linked experiment, or None for a legacy experiment, whose settings read the flag.
+
+    Settings always resolve (see `from_configuration`), so a rule that cannot be read gives a rule without
+    variants. The query runner rejects such an experiment.
+    """
+    if not experiment.is_rule_linked:
+        return None
+    try:
+        return get_experiment_rule(experiment)
+    except (ExperimentRuleError, ConfigFormatError):
+        return ExperimentRuleConfig(
+            variants=[],
+            rollout_percentage=None,
+            assign_variant_by=None,
+            holdout=None,
+            rule_id=str(experiment.feature_flag_rule_id),
+        )
 
 
 def team_experiments_configs(team_ids: Collection[int]) -> dict[int, TeamExperimentsConfig]:
@@ -184,10 +208,10 @@ def team_experiments_configs(team_ids: Collection[int]) -> dict[int, TeamExperim
 
 
 def _resolve_exposure(
-    exposure_criteria: dict[str, Any] | None, team: "Team", start_date: datetime | None
+    exposure_criteria: dict[str, Any] | None, start_date: datetime | None
 ) -> ExposureQueryParams | None:
     try:
-        return get_exposure_config_params_for_builder(exposure_criteria, team, start_date)
+        return get_exposure_config_params_for_builder(exposure_criteria, start_date)
     except (pydantic.ValidationError, ExposedHogQLError):
         # The builder refuses a warehouse-native exposure, which has no ClickHouse query params.
         return None
@@ -294,8 +318,8 @@ class ExperimentCalculationSettings:
     variants: tuple[str, ...]
     baseline: str
     excluded_variants: tuple[str, ...]
-    # What the query runner resolves from the stored exposure criteria. The `experiment-exposure-event` flag picks its
-    # default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
+    # What the query runner resolves from the stored exposure criteria. `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF`
+    # picks its default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
     # criteria do not parse or name a warehouse-native exposure. The query runner rejects such an experiment.
     exposure: ExposureQueryParams | None = field(compare=False)
     # The stored exposure criteria as `normalize_exposure` returns them.
@@ -335,19 +359,27 @@ class ExperimentCalculationSettings:
         excluded_variants: list[str] | None,
         team_config: TeamExperimentsConfig | None = None,
         key_version: int | None = None,
+        rule: ExperimentRuleConfig | None = None,
     ) -> "ExperimentCalculationSettings":
         """Settings from explicit values, for a caller that holds a configuration that is not saved yet.
 
         Stored configuration never makes this raise, because the experiment read and write paths build
         settings to stamp the metric keys. A configuration the query runner rejects still resolves.
         Without `team_config`, this reads the team's experiment settings with one query. Without `key_version`,
-        `resolve_calculation_key_version` decides it.
+        `resolve_calculation_key_version` decides it. `rule` is the rule of a rule-linked experiment. Without
+        it, the variants and the aggregation come from the flag's own config, as for every legacy experiment.
         """
         config = team_config or team_experiments_configs([team.id])[team.id]
         stats_config = stats_config if isinstance(stats_config, dict) else None
         excluded = tuple(sorted(set(excluded_variants or [])))
-        variants = _variant_keys(feature_flag, excluded)
-        exposure = _resolve_exposure(exposure_criteria, team, start_date)
+        aggregation_group_type_index: int | None
+        if rule is None:
+            variants = _variant_keys(feature_flag.variants, excluded)
+            aggregation_group_type_index = feature_flag.aggregation_group_type_index
+        else:
+            variants = _variant_keys(rule.variants, excluded)
+            aggregation_group_type_index = rule.assign_variant_by
+        exposure = _resolve_exposure(exposure_criteria, start_date)
         test_account_filters = team.test_account_filters
         stats: BayesianSettings | FrequentistSettings
         if resolve_stats_method(stats_config) == "frequentist":
@@ -365,8 +397,8 @@ class ExperimentCalculationSettings:
         return cls(
             team_id=team.id,
             start_date=start_date,
-            feature_flag_key=feature_flag.key_without_tombstone(),
-            aggregation_group_type_index=feature_flag.aggregation_group_type_index,
+            feature_flag_key=exposure_flag_key(feature_flag, rule),
+            aggregation_group_type_index=aggregation_group_type_index,
             variants=variants,
             baseline=get_baseline_variant_key(stats_config, list(variants)),
             excluded_variants=excluded,
@@ -409,6 +441,7 @@ class ExperimentCalculationSettings:
             excluded_variants=experiment.excluded_variants,
             team_config=team_config,
             key_version=key_version,
+            rule=settings_rule(experiment),
         )
 
     def build_metric_config(

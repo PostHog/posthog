@@ -79,7 +79,9 @@ export const DEFAULT_EXTENSIONS = [
 ]
 
 export const serializationOptions: { textSerializers?: Record<string, TextSerializer> } = {
-    textSerializers: { [RichContentNodeType.Mention]: ({ node }) => `@member:${node.attrs.id}` },
+    textSerializers: {
+        [RichContentNodeType.Mention]: ({ node }) => `@${node.attrs.kind ?? 'member'}:${node.attrs.id}`,
+    },
 }
 
 export function RichContentPreview({

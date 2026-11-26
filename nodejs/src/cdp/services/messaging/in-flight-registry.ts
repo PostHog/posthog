@@ -108,6 +108,18 @@ export function deferralDelayMs(earlierDeferrals: number, random: () => number =
 
 const sendCalls = new AsyncLocalStorage<Set<Promise<unknown>>>()
 
+export function settledBeforeAbort<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const abort = (): void => reject(signal.reason)
+        promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+        if (signal.aborted) {
+            abort()
+        } else {
+            signal.addEventListener('abort', abort, { once: true })
+        }
+    })
+}
+
 export function holdUntilSettled(call: Promise<unknown>): void {
     const calls = sendCalls.getStore()
     if (!calls) {

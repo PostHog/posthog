@@ -41,6 +41,10 @@ function swallowEvent(event: Event): void {
     event.stopPropagation()
 }
 
+function travelledLikeClick(press: { x: number; y: number }, clientX: number, clientY: number): boolean {
+    return Math.hypot(clientX - press.x, clientY - press.y) <= CLICK_TRAVEL_LIMIT_PX
+}
+
 export function getTilePickUp(
     event: MouseEvent,
     press: { x: number; y: number } | null,
@@ -50,7 +54,7 @@ export function getTilePickUp(
     if (!press || event.button !== 0 || event.detail > 1) {
         return null
     }
-    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK_TRAVEL_LIMIT_PX) {
+    if (!travelledLikeClick(press, event.clientX, event.clientY)) {
         return null
     }
     const target = event.target instanceof Element ? event.target : null
@@ -81,6 +85,7 @@ export function carryTile({
     const offsetY = clientY - gridRect.top
     let carrying = true
     let awaitingHeldRelease = held
+    let heldPressTravelled = false
     let pointerX = clientX
     let pointerY = clientY
 
@@ -96,6 +101,9 @@ export function carryTile({
     function trackPointer(event: MouseEvent): void {
         pointerX = event.clientX
         pointerY = event.clientY
+        if (awaitingHeldRelease && !travelledLikeClick({ x: clientX, y: clientY }, pointerX, pointerY)) {
+            heldPressTravelled = true
+        }
     }
 
     function followScroll(): void {
@@ -114,8 +122,10 @@ export function carryTile({
         }
         window.addEventListener('click', swallowEvent, { capture: true, once: true })
         window.setTimeout(() => window.removeEventListener('click', swallowEvent, { capture: true }), 0)
-        if (awaitingHeldRelease) {
-            // Letting go of the held press keeps the tile moving, so react-grid-layout must not see this release.
+        trackPointer(event)
+        if (awaitingHeldRelease && !heldPressTravelled) {
+            // A press released in place is a click, so the tile keeps moving and react-grid-layout must not see
+            // this release. A press that travelled was a drag, so this release drops the tile.
             awaitingHeldRelease = false
             swallowEvent(event)
             onHeldRelease?.()

@@ -17,14 +17,21 @@ from django.db.models import OuterRef, Q, QuerySet, Subquery
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SavedQuerySchedule, SuspensionMarker
+from products.data_modeling.backend.facade.contracts import (
+    NodeIdentity,
+    PlanFloorClamp,
+    SavedQueryFrequencyBounds,
+    SavedQueryNodeState,
+    SavedQuerySchedule,
+    SuspensionMarker,
+    TargetBounds,
+    TargetOption,
+)
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     ClampedCadence,
     InvalidTarget,
-    TargetBounds,
-    TargetOption,
     all_source_floor_bounds,
     all_source_floors,
     ancestors_of,
@@ -40,6 +47,7 @@ from products.data_modeling.backend.logic.freshness import (
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import is_node_suspended, merged_suspension_state
+from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
 from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -53,25 +61,13 @@ _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
 _ANCHOR_MINUTES_KEY = "anchor_minutes"
 _PINNED_KEY = "pinned"
+_PLAN_CLAMP_KEY = "plan_clamp"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
 _WAREHOUSE_TABLE_ID_KEY = "warehouse_table_id"
 _ORIGIN_POSTHOG = "posthog"
 _ORIGIN_WAREHOUSE = "warehouse"
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class NodeIdentity:
-    """What a node is in access-control terms, so a caller can decide whether to name it.
-
-    All three empty means the node predates the origin stamp, and a caller that redacts should
-    treat it as withheld rather than guess.
-    """
-
-    saved_query_id: str | None  # views, materialized views and endpoints, under `warehouse_view`
-    warehouse_table_id: str | None  # imported source tables, under `warehouse_table`
-    is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
 
 
 def parse_warehouse_table_id(properties: Mapping[str, Any] | None) -> uuid.UUID | None:
@@ -96,6 +92,10 @@ def node_identity(node: Node) -> NodeIdentity:
         warehouse_table_id=str(table_id) if table_id else None,
         is_posthog_table=properties.get(_ORIGIN_KEY) == _ORIGIN_POSTHOG,
     )
+
+
+def nodes_declared_finer_than(interval: timedelta) -> QuerySet[Node]:
+    return Node.objects.filter(properties__system__frequency__target_seconds__lt=int(interval.total_seconds()))
 
 
 def get_declared_target(node: Node) -> timedelta | None:
@@ -164,6 +164,7 @@ def node_states_by_saved_query(
                 engine: SuspensionMarker(at=marker["at"], reason=marker["reason"], job_id=marker["job_id"])
                 for engine, marker in merged_suspension_state(nodes).items()
             },
+            plan_clamp=plan_floor_clamp_from_properties(node.properties for node in nodes),
         )
         for query_id, nodes in nodes_by_query.items()
     }
@@ -185,9 +186,51 @@ def stage_declared_target(node: Node, target: timedelta | None) -> None:
     if target is None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
         frequency.pop(_PINNED_KEY, None)
+        frequency.pop(_PLAN_CLAMP_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
     node.properties = properties
+
+
+def stage_plan_floor_clamp(node: Node, *, plan_floor: timedelta, at: datetime) -> None:
+    """Set the target to the plan floor and record the cadence it replaced, so the rewrite can be undone.
+
+    A node rewritten again keeps the first cadence it replaced, which is the one a person chose.
+    """
+    earlier = get_plan_floor_clamp(node.properties)
+    previous = earlier.previous_target if earlier is not None else get_declared_target(node)
+    stage_declared_target(node, plan_floor)
+    frequency = node.properties[_SYSTEM_KEY][_FREQUENCY_KEY]
+    frequency[_PLAN_CLAMP_KEY] = {
+        "previous_target_seconds": int(previous.total_seconds()) if previous is not None else None,
+        "plan_floor_seconds": int(plan_floor.total_seconds()),
+        "at": at.isoformat(),
+    }
+
+
+def drop_plan_floor_clamp(node: Node) -> None:
+    (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).pop(_PLAN_CLAMP_KEY, None)
+
+
+def get_plan_floor_clamp(properties: Mapping[str, Any] | None) -> PlanFloorClamp | None:
+    clamp = (properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY)
+    if not clamp:
+        return None
+    previous_seconds = clamp["previous_target_seconds"]
+    return PlanFloorClamp(
+        previous_target=timedelta(seconds=previous_seconds) if previous_seconds is not None else None,
+        plan_floor=timedelta(seconds=clamp["plan_floor_seconds"]),
+        at=datetime.fromisoformat(clamp["at"]),
+    )
+
+
+def plan_floor_clamp_from_properties(properties: Iterable[Mapping[str, Any] | None]) -> PlanFloorClamp | None:
+    return next((clamp for props in properties if (clamp := get_plan_floor_clamp(props)) is not None), None)
+
+
+def get_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> PlanFloorClamp | None:
+    nodes = Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).only("properties")
+    return plan_floor_clamp_from_properties(node.properties for node in nodes)
 
 
 def set_declared_pin(node: Node, pinned: bool) -> None:
@@ -314,6 +357,7 @@ class FrequencyGraph:
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    plan_floor: timedelta | None  # finest cadence the team's plan lets a view be set to
     managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
     stand_ins: dict[str, str]  # stand-in source id -> the node that sets its interval
 
@@ -325,6 +369,7 @@ class FrequencyGraph:
             declared_targets=self.declared_targets,
             source_intervals=self.source_intervals,
             pinned=self.pinned,
+            plan_floor=self.plan_floor,
         )
 
         def real(blocker: str | None) -> str | None:
@@ -433,22 +478,10 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         best_effort_source_ids=best_effort,
         names=names,
         identities=identities,
+        plan_floor=read_plan_refresh_floor(dag.team_id),
         managed_node_ids=managed_node_ids,
         stand_ins=stand_ins,
     )
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class SavedQueryFrequencyBounds:
-    """A saved query's selectable cadences, plus what a caller needs to name the blockers."""
-
-    bounds: TargetBounds
-    names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
-    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
-    best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
-    max_data_age: timedelta
-    speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
-    pinned: bool
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -470,6 +503,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     best_effort: set[str] = set()
     speeds_up: dict[timedelta, set[str]] = {}
     data_ages: list[timedelta] = []
+    pinned_views: set[str] = set()
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
         # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
@@ -480,6 +514,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         per_dag.append(graph.target_bounds(str(node.id)))
         names.update(graph.names)
         identities.update(graph.identities)
+        pinned_views |= graph.pinned
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
         ancestors = ancestors_of(str(node.id), graph.edges)
         best_effort |= graph.best_effort_source_ids & ancestors
@@ -488,14 +523,16 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
             speeds_up.setdefault(cadence, set()).update(sped_up)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
+    bounds = intersect_target_bounds(per_dag)
     return SavedQueryFrequencyBounds(
-        bounds=intersect_target_bounds(per_dag),
+        bounds=bounds,
         names=names,
         identities=identities,
         best_effort_source_ids=best_effort,
         max_data_age=max(data_ages),
         speeds_up=speeds_up,
         pinned=any(get_declared_pin(node) for node in nodes),
+        floor_pinned=bounds.floor is not None and bounds.floor.blocker in pinned_views,
     )
 
 

@@ -38,6 +38,14 @@ ENDPOINT_CONFIG: dict[str, KommoEndpoint] = {
         incremental_param="filter[updated_at][from]",
         params={"with": "contacts,loss_reason,source", "order[updated_at]": "asc"},
     ),
+    # Incoming leads have no updated_at and leave the list once accepted or declined, so a full
+    # refresh is the only way to keep the table matching the current queue.
+    "IncomingLeads": KommoEndpoint(
+        path=f"{API_BASE_PATH}/leads/unsorted",
+        data_selector="_embedded.unsorted",
+        primary_key=["uid"],
+        params={"order[created_at]": "asc"},
+    ),
     "Contacts": KommoEndpoint(
         path=f"{API_BASE_PATH}/contacts",
         data_selector="_embedded.contacts",

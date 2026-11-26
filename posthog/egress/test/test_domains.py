@@ -8,7 +8,7 @@ from posthog.egress.transport.transport import AsyncEgressClient, RecordedEgress
 
 _EGRESS_ROOT = Path(posthog.egress.__file__).parent
 
-_FLAT_DOMAINS = {"google_workspace"}
+_FLAT_DOMAINS = {"google_workspace", "workos_radar"}
 
 
 def _domain_dirs() -> list[Path]:

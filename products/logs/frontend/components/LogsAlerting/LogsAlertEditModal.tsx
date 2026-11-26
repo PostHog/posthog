@@ -10,14 +10,16 @@ import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/co
 import { AlertSummaryParts } from 'products/alerts/frontend/components/alertSummary'
 import { SnoozeButton } from 'products/alerts/frontend/components/SnoozeButton'
 import { EditAlertTab, EditAlertTabs } from 'products/alerts/frontend/views/EditAlertModal/EditAlertTabs'
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
 import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
+import { logsAlertDestinationsLogicProps } from './logsAlertDestinations'
+import { buildLogsAlertEditSummary } from './logsAlertEditorModel'
 import { LogsAlertEventHistoryContent } from './LogsAlertEventHistory'
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 import { logsAlertingLogic } from './logsAlertingLogic'
-import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertRegroupConfirmModal } from './LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
@@ -44,34 +46,16 @@ function LogsAlertEditModalContent({
     onClose: () => void
 }): JSX.Element {
     const formLogicProps = { alert, onSubmitSuccess: onClose }
-    const notificationLogicProps = { alertId: alert.id }
+    const notificationLogicProps = logsAlertDestinationsLogicProps(alert.id)
     const { isAlertFormSubmitting, alertFormChanged, alertFormErrors, alertForm } = useValues(
         logsAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
-    const { destinationGroups } = useValues(logsAlertNotificationLogic(notificationLogicProps))
+    const { destinations } = useValues(platformAlertDestinationsLogic(notificationLogicProps))
     const { snoozingAlertIds } = useValues(logsAlertingLogic)
     const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(logsAlertingLogic)
     const nameError = alertFormErrors.name as string | undefined
-    const filterParts: string[] = []
-    if (alertForm.severityLevels.length > 0) {
-        filterParts.push(`${alertForm.severityLevels.join(', ')} logs`)
-    }
-    if (alertForm.serviceNames.length > 0) {
-        filterParts.push(`from ${alertForm.serviceNames.join(', ')}`)
-    }
-    if (alertForm.filterGroup.values.length > 0) {
-        const attributeCount = alertForm.filterGroup.values.length
-        filterParts.push(`${attributeCount} ${attributeCount === 1 ? 'attribute filter' : 'attribute filters'}`)
-    }
-    const summary: AlertSummaryParts = {
-        fires: `count ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in the last ${alertForm.windowMinutes} minutes`,
-        cadence: '',
-        notifies: destinationGroups.length
-            ? `${destinationGroups.length} ${destinationGroups.length === 1 ? 'destination' : 'destinations'}`
-            : '',
-        filters: filterParts.join(' '),
-    }
+    const summary: AlertSummaryParts = buildLogsAlertEditSummary(alertForm, destinations)
     const tabs: EditAlertTab[] = [
         {
             key: 'monitor',
@@ -184,7 +168,7 @@ function LogsAlertEditModalContent({
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
-            <BindLogic logic={logsAlertNotificationLogic} props={notificationLogicProps}>
+            <BindLogic logic={platformAlertDestinationsLogic} props={notificationLogicProps}>
                 <Form
                     logic={logsAlertFormLogic}
                     props={formLogicProps}

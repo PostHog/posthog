@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -6,11 +6,7 @@ import pytest
 import requests
 
 from products.warehouse_sources.sources.culture_amp._config import CultureAmpSourceConfig
-from products.warehouse_sources.sources.culture_amp.culture_amp import (
-    CultureAmpResumeConfig,
-    _format_timestamp,
-    validate_credentials,
-)
+from products.warehouse_sources.sources.culture_amp.culture_amp import CultureAmpResumeConfig, validate_credentials
 from products.warehouse_sources.sources.culture_amp.settings import CULTURE_AMP_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.sources.culture_amp.source import CultureAmpSource
 from products.warehouse_sources.sources.sdk.testing import (
@@ -39,20 +35,6 @@ def _driver() -> SourceDriver:
     return SourceDriver(
         CultureAmpSource(), CultureAmpSourceConfig(client_id="cid", client_secret="sec", account_id="entity-1")
     )
-
-
-class TestFormatTimestamp:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
-            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
-            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
-            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
-        ],
-    )
-    def test_formats(self, value, expected):
-        assert _format_timestamp(value) == expected
 
 
 class TestValidateCredentials:

@@ -1,10 +1,11 @@
 import uuid
 import base64
 import dataclasses
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -15,11 +16,12 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.response import Response
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.contracts import ActionNotFound
 from products.actions.backend.facade.testing import create_action, update_action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
@@ -41,8 +43,8 @@ from products.autoresearch.backend.presentation.views.serializers import (
     PopulationDefinitionField,
     ValidationWarningSerializer,
 )
-from products.autoresearch.backend.testing import TeamScopedTestMixin
-from products.tasks.backend.models import Task  # tach-ignore
+from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_run_spend
+from products.tasks.backend.models import Task
 
 MOCK_VALIDATION_OK = ValidationResult(
     can_proceed=True,
@@ -84,10 +86,6 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         )
         self._flag_patcher.start()
         self.addCleanup(self._flag_patcher.stop)
-        for gate in ("code_access_required_response", "usage_limit_response"):
-            gate_patcher = patch(f"{_VIEWS}.{gate}", return_value=None)
-            gate_patcher.start()
-            self.addCleanup(gate_patcher.stop)
 
     def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
         defaults = {
@@ -292,7 +290,14 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 completed_at=now - timedelta(minutes=minutes_ago),
                 metrics={"prediction_date": prediction_date, "per_model": {str(champion.pk): {"realized_auc": auc}}},
             )
-        live = AutoresearchTrainingRun.objects.create(pipeline=preliminary, status="running", iteration_budget=8)
+        live_task_id, live_task_run_id = uuid.uuid4(), uuid.uuid4()
+        live = AutoresearchTrainingRun.objects.create(
+            pipeline=preliminary,
+            status="running",
+            iteration_budget=8,
+            task_id=live_task_id,
+            task_run_id=live_task_run_id,
+        )
         for number, holdout, description in [(0, 0.72, "baseline"), (1, 0.69, "try fewer features")]:
             AutoresearchIteration.objects.create(
                 pipeline=preliminary,
@@ -338,6 +343,9 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 2,
                 [],
                 {
+                    "task_id": str(live_task_id),
+                    "task_run_id": str(live_task_run_id),
+                    "task_url": f"/tasks/{live_task_id}",
                     "iteration_budget": 8,
                     "experiment_count": 2,
                     "best_holdout_score": 0.72,
@@ -360,12 +368,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             pipeline=busy, training_run=busy_run, iteration_number=0, recipe_hash="b", recipe_snapshot={}, status="kept"
         )
         with CaptureQueriesContext(connection) as more_queries:
-            self.client.get(f"{self.base_url}/")
+            more_resp = self.client.get(f"{self.base_url}/")
 
         def autoresearch_queries(captured: CaptureQueriesContext) -> int:
             return sum('"autoresearch_' in q["sql"] for q in captured.captured_queries)
 
         assert autoresearch_queries(more_queries) == autoresearch_queries(queries)
+        busy_live = next(row for row in more_resp.json()["results"] if row["name"] == "Busy")["live_training_run"]
+        assert {k: busy_live[k] for k in ("task_id", "task_run_id", "task_url")} == {
+            "task_id": None,
+            "task_run_id": None,
+            "task_url": None,
+        }
         assert {name: row["coverage"] for name, row in by_name.items()} == {
             "Validated": coverage,
             "Preliminary": None,
@@ -757,6 +771,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
+            ("unexpected", RuntimeError("boom"), "unavailable"),
+        ]
+    )
+    def test_validate_reports_why_the_check_did_not_run(self, _name: str, exc: Exception, expected_code: str):
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows", side_effect=exc):
+            resp = self.client.post(f"{self.base_url}/validate/", {"target_event": "$signup"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is False
+        assert data["error_code"] == expected_code
+        assert data["error"]
+
+    @parameterized.expand(
+        [
             ("missing_target", {}),
             ("list_shaped_target_definition", {"target_event": "$signup", "target_definition": [1]}),
         ]
@@ -836,6 +865,40 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         with_action = self.create_personal_api_key_with_scopes([*scopes, "action:read"])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
         assert self.client.post(f"{self.base_url}/{path}", body, format="json").status_code == ok_status
+
+    @parameterized.expand(
+        [
+            ("validate", "validate/", False, status.HTTP_400_BAD_REQUEST),
+            ("create", "", False, status.HTTP_400_BAD_REQUEST),
+            ("update_keeping_the_stored_action", "", True, status.HTTP_200_OK),
+        ]
+    )
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_action_targets_need_viewer_access_to_the_action(
+        self, _name: str, path: str, stored: bool, expected_status: int, _mock: MagicMock
+    ):
+        action = create_action(
+            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}], created_by=self.user
+        )
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        body = {"name": "Action Pipeline", "target_definition": {"type": "action", "action_id": action.id}}
+        if stored:
+            created = self.client.post(f"{self.base_url}/", body, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+        self.client.force_login(self._create_user("member@example.com"))
+
+        if stored:
+            resp = self.client.patch(f"{self.base_url}/{created.json()['id']}/", body, format="json")
+        else:
+            resp = self.client.post(f"{self.base_url}/{path}", body, format="json")
+
+        assert resp.status_code == expected_status, resp.json()
 
     @parameterized.expand(
         [
@@ -940,8 +1003,16 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 
-    def test_start_training(self):
+    @parameterized.expand(
+        [
+            ("standard_organization", None, "none"),
+            ("startup_program_organization", "Startup", "none"),
+            ("prepaid_credits_organization", None, "active"),
+        ]
+    )
+    def test_start_training(self, _name: str, startup_program_label: str | None, prepaid_credit_state: str):
         pipeline = self._make_pipeline(iterations_per_run=8)
+        funding = MagicMock(startup_program_label=startup_program_label, prepaid_credit_state=prepaid_credit_state)
 
         # The run must not exist before the call: the endpoint rejects pipelines that
         # already have a live run, so the mock creates it the way run_training would.
@@ -955,10 +1026,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 kickoff_reason=kickoff_reason,
             )
 
-        with patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training):
+        with (
+            patch("ee.billing.billing_manager.BillingManager.get_funding_status", return_value=funding),
+            patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training),
+        ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_200_OK, resp.content
         data = resp.json()
         assert data["status"] == "running"
         assert data["iteration_budget"] == 8
@@ -1011,19 +1085,29 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("code_access_required_response", Response(status=403), status.HTTP_403_FORBIDDEN),
-            ("usage_limit_response", Response(status=429), status.HTTP_429_TOO_MANY_REQUESTS),
-            ("is_sandbox_origin_request", True, status.HTTP_403_FORBIDDEN),
+            ("organization_deactivated", "organization_deactivated"),
+            ("outside_the_rollout", "permission_denied"),
+            ("sandbox_origin", "permission_denied"),
         ]
     )
-    def test_start_training_is_refused_by_the_launch_gates(self, gate: str, gate_result: Any, gate_status: int):
+    def test_start_training_is_refused_by_the_launch_gate(self, refusal: str, expected_code: str):
         pipeline = self._make_pipeline()
+        if refusal == "organization_deactivated":
+            self.organization.is_active = False
+            self.organization.save()
         with (
-            patch(f"{_VIEWS}.{gate}", return_value=gate_result),
+            patch(
+                "products.autoresearch.backend.access.posthoganalytics.feature_enabled",
+                return_value=refusal != "outside_the_rollout",
+            ),
+            patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=refusal == "sandbox_origin"),
             patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
         ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
-        assert resp.status_code == gate_status
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        body = resp.json()
+        assert body["code"] == expected_code
+        assert body["detail"]
         mock_run_training.assert_not_called()
 
     def test_validate_online_with_a_deleted_target_action_returns_400(self):
@@ -1139,6 +1223,45 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             assert body["next_slot_at"] is None
         mock_run_training.assert_not_called()
 
+    @parameterized.expand([("budget_used", None), ("training_turned_off", 0)])
+    @time_machine.travel(datetime(2026, 11, 10, 12, tzinfo=UTC), tick=False)
+    def test_start_training_at_the_monthly_budget_returns_429(self, _name: str, budget: int | None):
+        other_pipeline = self._make_pipeline(name="Other pipeline")
+        task_run_id = uuid.uuid4()
+        AutoresearchTrainingRun.objects.create(
+            pipeline=other_pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=5,
+            task_id=uuid.uuid4(),
+            task_run_id=task_run_id,
+            agent_runtime_adapter="claude",
+        )
+        pipeline = self._make_pipeline()
+        payload = {"default_team_config": {"max_training_spend_usd_per_month": budget}} if budget is not None else None
+        with (
+            patch(
+                "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload", return_value=payload
+            ),
+            fake_task_run_spend({task_run_id: (django_timezone.now(), 100_000_000, 250_000)}),
+            patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS, resp.content
+        body = resp.json()
+        assert {key: body[key] for key in ("code", "spent_usd", "limit_usd", "resets_at")} == {
+            "code": "training_budget_reached",
+            "spent_usd": 100.25,
+            "limit_usd": 100 if budget is None else 0,
+            "resets_at": "2026-12-01T00:00:00Z",
+        }
+        if budget is None:
+            assert body["detail"] == (
+                "This project has used $100.25 of its $100 monthly training budget. "
+                "Training can start again on December 1 (UTC)."
+            )
+        mock_run_training.assert_not_called()
+
     def _make_live_pipelines(self, statuses: list[AutoresearchPipeline.Status]) -> None:
         for index, pipeline_status in enumerate(statuses):
             self._make_pipeline(name=f"Existing {index}", status=pipeline_status)
@@ -1234,22 +1357,34 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
         assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
 
+    @time_machine.travel(datetime(2026, 11, 10, 12, tzinfo=UTC), tick=False)
     def test_limits_report_usage_against_each_limit(self):
         live = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
         self._make_pipeline(status=AutoresearchPipeline.Status.DRAFT)
         self._make_pipeline(status=AutoresearchPipeline.Status.PAUSED)
         started_at = django_timezone.now() - timedelta(hours=3)
+        task_run_id = uuid.uuid4()
         AutoresearchTrainingRun.objects.create(
-            pipeline=live, status=AutoresearchTrainingRun.Status.COMPLETED, iteration_budget=5, task_id=uuid.uuid4()
+            pipeline=live,
+            status=AutoresearchTrainingRun.Status.COMPLETED,
+            iteration_budget=5,
+            task_id=uuid.uuid4(),
+            task_run_id=task_run_id,
         )
         AutoresearchTrainingRun.objects.filter(pipeline=live).update(created_at=started_at)
         # An externally opened run does not use a sandbox, so it does not count.
         AutoresearchTrainingRun.objects.create(
             pipeline=live, status=AutoresearchTrainingRun.Status.COMPLETED, iteration_budget=5
         )
-        with patch(
-            "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
-            return_value={"default_team_config": {"max_training_runs_per_day": 1, "max_live_pipelines": 2}},
+        with (
+            patch(
+                "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
+                return_value={
+                    "default_team_config": {"max_training_runs_per_day": 1, "max_live_pipelines": 2},
+                    "team_configs": {str(self.team.pk): {"max_training_spend_usd_per_month": 40}},
+                },
+            ),
+            fake_task_run_spend({task_run_id: (started_at, 12_500_000, 250_000)}),
         ):
             resp = self.client.get(f"{self.base_url}/limits/")
 
@@ -1261,9 +1396,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "max_iterations_per_run": 10,
             "max_live_pipelines": 2,
             "live_pipelines": 1,
+            "max_training_spend_usd_per_month": 40,
+            "training_spend_usd": 12.75,
+            "training_spend_resets_at": "2026-12-01T00:00:00Z",
             "max_training_runs_per_day_source": "default",
             "max_iterations_per_run_source": "code",
             "max_live_pipelines_source": "default",
+            "max_training_spend_usd_per_month_source": "project",
         }
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────

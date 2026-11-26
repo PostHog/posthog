@@ -1,11 +1,15 @@
+import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { getEdgeId } from '../../edgeId'
 import type { HogFlow } from '../../types'
 import { MiniFlow } from './MiniFlow'
 import { TILE_SIZE } from './tileCanvasLayout'
+import { tileCanvasLogic } from './tileCanvasLogic'
 import type { PathGroup } from './tileCanvasModel'
+import { reachedAfterTriggerText } from './timeFromTrigger'
 import { useKeepInView } from './useKeepInView'
 
 /** A closed peek renders no mini flow, so a stack of hidden steps costs nothing until someone looks inside. */
@@ -35,6 +39,8 @@ export function StackPeek({
     const ref = useRef<HTMLDivElement>(null)
     const shift = useKeepInView(ref, open)
     const hasOpened = useHasOpened(open)
+    const { timesFromTrigger } = useValues(tileCanvasLogic)
+    const reachedAfter = reachedAfterTriggerText(timesFromTrigger.edges.get(getEdgeId(group.entryEdge)))
     return (
         <div
             ref={ref}
@@ -49,12 +55,15 @@ export function StackPeek({
                 borderColor: color,
             }}
         >
-            <div className="mb-3 flex items-center gap-1.5 whitespace-nowrap text-[11px]">
-                <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
-                <span className="font-semibold" style={{ color }}>
-                    {group.label}
-                </span>
-                <span className="text-secondary">{group.memberIds.length} steps, click to open</span>
+            <div className="mb-3 flex flex-col gap-0.5 whitespace-nowrap text-[11px]">
+                <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
+                    <span className="font-semibold" style={{ color }}>
+                        {group.label}
+                    </span>
+                    <span className="text-secondary">{group.memberIds.length} steps, click to open</span>
+                </div>
+                {reachedAfter && <div className="pl-3.5 text-secondary">{reachedAfter}</div>}
             </div>
             <div className="px-1 pt-1">
                 {hasOpened && (

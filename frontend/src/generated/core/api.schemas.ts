@@ -441,6 +441,11 @@ export interface IdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name: string | null
 }
 
 export interface PaginatedIdentityProviderConfigListApi {
@@ -542,6 +547,11 @@ export interface PatchedIdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name?: string | null
 }
 
 export interface SCIMTokenResponseApi {
@@ -728,6 +738,123 @@ export interface OrganizationNotificationLockBulkUpdateApi {
 }
 
 /**
+ * * `not_a_partner` - Not a provisioning partner
+ * * `in_review` - In review
+ * * `waiting_for_staff` - Waiting for PostHog staff
+ * * `changes_requested` - Changes requested
+ * * `declined` - Declined
+ * * `on` - On
+ * * `off` - Off
+ * * `blocked` - Blocked
+ */
+export type PartnerProvisioningStatusEnumApi =
+    (typeof PartnerProvisioningStatusEnumApi)[keyof typeof PartnerProvisioningStatusEnumApi]
+
+export const PartnerProvisioningStatusEnumApi = {
+    NotAPartner: 'not_a_partner',
+    InReview: 'in_review',
+    WaitingForStaff: 'waiting_for_staff',
+    ChangesRequested: 'changes_requested',
+    Declined: 'declined',
+    On: 'on',
+    Off: 'off',
+    Blocked: 'blocked',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `accepted` - Accepted
+ * * `declined` - Declined
+ * * `changes_requested` - Changes requested
+ * * `rejected` - Blocked
+ * * `needs_human` - Needs staff review
+ */
+export type ProvisioningReviewStatusEnumApi =
+    (typeof ProvisioningReviewStatusEnumApi)[keyof typeof ProvisioningReviewStatusEnumApi]
+
+export const ProvisioningReviewStatusEnumApi = {
+    Pending: 'pending',
+    Accepted: 'accepted',
+    Declined: 'declined',
+    ChangesRequested: 'changes_requested',
+    Rejected: 'rejected',
+    NeedsHuman: 'needs_human',
+} as const
+
+/**
+ * * `registered` - Registered
+ * * `automated_review` - Automated review
+ * * `staff_decision` - PostHog staff decision
+ * * `staff_message` - Message from PostHog staff
+ * * `partner_note` - Note from the partner
+ */
+export type PartnerReviewEventKindEnumApi =
+    (typeof PartnerReviewEventKindEnumApi)[keyof typeof PartnerReviewEventKindEnumApi]
+
+export const PartnerReviewEventKindEnumApi = {
+    Registered: 'registered',
+    AutomatedReview: 'automated_review',
+    StaffDecision: 'staff_decision',
+    StaffMessage: 'staff_message',
+    PartnerNote: 'partner_note',
+} as const
+
+export interface PartnerReviewEventApi {
+    /** When it happened. */
+    readonly at: string
+    /** registered: the app registered for provisioning. automated_review: the automated review decided. staff_decision: PostHog staff decided. staff_message: PostHog staff changed their message. partner_note: an admin of the app's organization sent a note.
+     *
+     * * `registered` - Registered
+     * * `automated_review` - Automated review
+     * * `staff_decision` - PostHog staff decision
+     * * `staff_message` - Message from PostHog staff
+     * * `partner_note` - Note from the partner */
+    readonly kind: PartnerReviewEventKindEnumApi
+    /** The review status the event left. Null for registrations and notes.
+     *
+     * * `pending` - Pending
+     * * `accepted` - Accepted
+     * * `declined` - Declined
+     * * `changes_requested` - Changes requested
+     * * `rejected` - Blocked
+     * * `needs_human` - Needs staff review */
+    readonly status: ProvisioningReviewStatusEnumApi | null
+    /** What PostHog staff wrote to the app's owners, or the text of the note. Empty when there is none. */
+    readonly message: string
+    /** The email of the admin who sent a note. Empty for every other event. */
+    readonly author: string
+}
+
+/**
+ * The review an app went through to become a provisioning partner, as its owners see it.
+ *
+ * The verdict's internal reason and the evidence stay with PostHog staff: they describe what the
+ * review checks, which would teach an abusive app what to fake.
+ */
+export interface PartnerReviewApi {
+    /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. changes_requested: PostHog staff asked for changes or more information, so send a review note. declined: not approved, and a review note asks for another review. rejected: provisioning is blocked, and only PostHog staff can lift it.
+     *
+     * * `pending` - Pending
+     * * `accepted` - Accepted
+     * * `declined` - Declined
+     * * `changes_requested` - Changes requested
+     * * `rejected` - Blocked
+     * * `needs_human` - Needs staff review */
+    readonly status: ProvisioningReviewStatusEnumApi
+    /** When the app registered for provisioning. */
+    readonly opened_at: string
+    /**
+     * When the current decision was made. Null while pending.
+     * @nullable
+     */
+    readonly decided_at: string | null
+    /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing, or wrote it while the app was linked to another organization. */
+    readonly partner_message: string
+    /** What happened on the review, oldest first: decisions, messages from PostHog staff, and notes. */
+    readonly timeline: readonly PartnerReviewEventApi[]
+}
+
+/**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
 export interface OrganizationOAuthApplicationApi {
@@ -739,6 +866,20 @@ export interface OrganizationOAuthApplicationApi {
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
     is_verified?: boolean
+    /** True when the app registered itself from a client ID metadata document (CIMD). */
+    readonly is_cimd_client: boolean
+    /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+     *
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `changes_requested` - Changes requested
+     * * `declined` - Declined
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked */
+    readonly provisioning_status: PartnerProvisioningStatusEnumApi
+    readonly provisioning_review: PartnerReviewApi | null
     readonly created: string
     readonly updated: string
 }
@@ -750,6 +891,116 @@ export interface PaginatedOrganizationOAuthApplicationListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationOAuthApplicationApi[]
+}
+
+/**
+ * * `none` - Public client, PKCE only
+ * * `client_secret_post` - Client secret
+ * * `private_key_jwt` - Signs with a private key
+ */
+export type PartnerAuthenticationEnumApi =
+    (typeof PartnerAuthenticationEnumApi)[keyof typeof PartnerAuthenticationEnumApi]
+
+export const PartnerAuthenticationEnumApi = {
+    None: 'none',
+    ClientSecretPost: 'client_secret_post',
+    PrivateKeyJwt: 'private_key_jwt',
+} as const
+
+/**
+ * * `this_organization` - Linked to this organization
+ * * `other_region` - Linked to an organization in another region
+ * * `not_linked` - Not linked
+ */
+export type OrganizationLinkStateEnumApi =
+    (typeof OrganizationLinkStateEnumApi)[keyof typeof OrganizationLinkStateEnumApi]
+
+export const OrganizationLinkStateEnumApi = {
+    ThisOrganization: 'this_organization',
+    OtherRegion: 'other_region',
+    NotLinked: 'not_linked',
+} as const
+
+export interface RegisteredPartnerDetailsApi {
+    /** The app's name, as of its last metadata refresh. */
+    readonly client_name: string
+    /** The homepage in the document saved when the review opened. Empty when it had none. */
+    readonly client_uri: string
+    /** The app's logo, as of its last metadata refresh. */
+    readonly logo_uri: string
+    /** The terms of service in the document saved when the review opened. Empty when it had none. */
+    readonly tos_uri: string
+    /** The privacy policy in the document saved when the review opened. Empty when it had none. */
+    readonly policy_uri: string
+    /** Contact emails in the document saved when the review opened. */
+    readonly contacts: readonly string[]
+    /** Where PostHog sends people after they sign in, as of the last metadata refresh. */
+    readonly redirect_uris: readonly string[]
+    /** Where the app publishes the public keys it signs with. Empty for a public client. */
+    readonly jwks_uri: string
+    /** How the app authenticates: none (public client), client_secret_post, or private_key_jwt.
+     *
+     * * `none` - Public client, PKCE only
+     * * `client_secret_post` - Client secret
+     * * `private_key_jwt` - Signs with a private key */
+    readonly authentication: PartnerAuthenticationEnumApi
+    /** Every scope the app can ask people to grant. */
+    readonly scopes: readonly string[]
+    /** Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default. */
+    readonly uses_default_scopes: boolean
+    /** Whether PostHog refuses the app's provisioning requests because it has no private key to sign them with. */
+    readonly needs_signing_key: boolean
+    /** Whether the app can create PostHog accounts once provisioning is on. */
+    readonly can_create_accounts: boolean
+    /** Whether the app can create projects and resources once provisioning is on. */
+    readonly can_provision_resources: boolean
+    /** Whether a verification token links the app to this organization, to one in another region, or to none.
+     *
+     * * `this_organization` - Linked to this organization
+     * * `other_region` - Linked to an organization in another region
+     * * `not_linked` - Not linked */
+    readonly organization_link: OrganizationLinkStateEnumApi
+    /** The metadata document saved when the review opened, as formatted JSON. Empty when PostHog kept none. */
+    readonly metadata_document: string
+}
+
+/**
+ * One application, with what PostHog read from its metadata document.
+ */
+export interface OrganizationOAuthApplicationDetailApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 2048 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    /** True when the app registered itself from a client ID metadata document (CIMD). */
+    readonly is_cimd_client: boolean
+    /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+     *
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `changes_requested` - Changes requested
+     * * `declined` - Declined
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked */
+    readonly provisioning_status: PartnerProvisioningStatusEnumApi
+    readonly provisioning_review: PartnerReviewApi | null
+    readonly created: string
+    readonly updated: string
+    readonly registration: RegisteredPartnerDetailsApi
+}
+
+export interface PartnerReviewNoteApi {
+    /**
+     * What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.
+     * @maxLength 4000
+     */
+    note: string
 }
 
 /**
@@ -1581,6 +1832,8 @@ export interface MarketingAnalyticsEventConversionGoalApi {
         | null
     response?: MarketingAnalyticsEventConversionGoalApiResponse
     schema_map: MarketingAnalyticsEventConversionGoalApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -1632,6 +1885,8 @@ export interface MarketingAnalyticsActionConversionGoalApi {
         | null
     response?: MarketingAnalyticsActionConversionGoalApiResponse
     schema_map: MarketingAnalyticsActionConversionGoalApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -1688,6 +1943,8 @@ export interface MarketingAnalyticsWarehouseConversionGoalApi {
     schema_map: MarketingAnalyticsWarehouseConversionGoalApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -1807,6 +2064,13 @@ export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
     id: string
 }
 
+export interface TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi {
+    /** Organization role whose members inherit these properties. */
+    role_id: string
+    /** Ordered account properties shown to members of this role. */
+    pinned_properties: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1825,6 +2089,8 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
     /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
     default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+    /** Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write. */
+    role_default_pinned_properties?: TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi[]
 }
 
 /**
@@ -1877,6 +2143,8 @@ export interface TeamWorkflowsConfigApi {
     email_utm_tags_enabled?: boolean
     /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
     email_utm_params?: EmailUtmParamsApi
+    /** Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default. */
+    email_workflow_run_link_tag_enabled?: boolean
     /**
      * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
      * @minimum 0
@@ -1933,17 +2201,29 @@ export interface TeamFeatureFlagPolicyConfigApi {
     /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
     require_tags?: boolean
     /**
-     * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+     * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
      * @maxItems 1000
      * @items.maxLength 2000
      */
     blocked_hosts?: string[]
     /**
-     * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+     * IP addresses or CIDR ranges to block from /flags requests, up to 100. The widest ranges are /8 for IPv4 and /16 for IPv6.
      * @maxItems 1000
      * @items.maxLength 2000
      */
     blocked_ips?: string[]
+    /**
+     * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    allowed_hosts?: string[]
+    /**
+     * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    allowed_ips?: string[]
 }
 
 /**
@@ -2931,6 +3211,46 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
+/**
+ * * `off` - Off
+ * * `serving` - Serving
+ */
+export type RealtimeCohortsAccessEnumApi =
+    (typeof RealtimeCohortsAccessEnumApi)[keyof typeof RealtimeCohortsAccessEnumApi]
+
+export const RealtimeCohortsAccessEnumApi = {
+    Off: 'off',
+    Serving: 'serving',
+} as const
+
+export interface TeamRealtimeCohortsApi {
+    /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+     *
+     * * `off` - Off
+     * * `serving` - Serving */
+    access: RealtimeCohortsAccessEnumApi
+    /**
+     * How many cohorts in this project have realtime on. Null when `access` is `off`.
+     * @nullable
+     */
+    cohorts_used: number | null
+    /**
+     * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+     * @nullable
+     */
+    max_cohorts: number | null
+}
+
+/**
+ * * `issue_summaries` - Issue Summaries
+ */
+export type ErrorTrackingAIFeatureEnumApi =
+    (typeof ErrorTrackingAIFeatureEnumApi)[keyof typeof ErrorTrackingAIFeatureEnumApi]
+
+export const ErrorTrackingAIFeatureEnumApi = {
+    IssueSummaries: 'issue_summaries',
+} as const
+
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
 
 export const FlagEvaluationsModeEnumApi = {
@@ -3723,10 +4043,6 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token: string | null
-    /** @nullable */
-    readonly secret_api_token_backup: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
@@ -3772,8 +4088,14 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
-    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnumApi[]
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
@@ -4619,10 +4941,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token?: string | null
-    /** @nullable */
-    readonly secret_api_token_backup?: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
@@ -4668,8 +4986,14 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
-    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts?: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An organization whose every project reads the native JSON events table reads as 2. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations?: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
@@ -4950,7 +5274,7 @@ export type DataDeletionRequestCreateApiVariables = {
 }
 
 export interface DataDeletionRequestCreateApi {
-    /** HogQL query that selects one event UUID column. */
+    /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
     query: string
     /** Variables referenced by the HogQL query. */
     variables?: DataDeletionRequestCreateApiVariables
@@ -4976,7 +5300,7 @@ export type DataDeletionRequestInputApiVariables = {
 }
 
 export interface DataDeletionRequestInputApi {
-    /** HogQL query that selects one event UUID column. */
+    /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
     query: string
     /** Variables referenced by the HogQL query. */
     variables?: DataDeletionRequestInputApiVariables
@@ -5210,6 +5534,11 @@ export interface PatchedFileSystemApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface FileSystemMoveRequestApi {
+    /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
+    new_path: string
 }
 
 export interface FileSystemHomeFolderApi {
@@ -5830,7 +6159,7 @@ export interface UploadedMediaStartUploadApi {
      */
     name: string
     /**
-     * Library to add this image to once uploaded, e.g. 'email'.
+     * Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those.
      * @maxLength 100
      */
     purpose: string
@@ -6370,13 +6699,24 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
+export interface OrganizationExternalProjectLinkApi {
+    readonly id: string
+    /** Name shown for the project in the project switcher. */
+    readonly name: string
+    /** Full URL of the project on the other PostHog instance. */
+    readonly url: string
+}
+
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
 
 export interface OrganizationApi {
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug: string
@@ -6428,6 +6768,11 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked: boolean | null
     /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
@@ -6485,6 +6830,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly ip_restrictions_warning: string | null
+    /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+    readonly external_project_links: readonly OrganizationExternalProjectLinkApi[]
 }
 
 /**
@@ -7555,9 +7902,30 @@ export type FileSystemListParams = {
      */
     offset?: number
     /**
+     * Only entries under this folder path, at any depth, such as 'Experiments/Q4'.
+     */
+    parent?: string
+    /**
+     * Only the entry at exactly this path.
+     */
+    path?: string
+    /**
+     * Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree.
+     */
+    ref?: string
+    /**
      * A search term.
      */
     search?: string
+    /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string
+    /**
+     * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
+     */
+    type?: string
 }
 
 export type FileSystemDestroyParams = {
@@ -7752,7 +8120,7 @@ export const UploadedMediaListPurpose = {
 } as const
 
 /**
- * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.
  */
 export type UploadedMediaCreateBodyPurpose =
     (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
@@ -7761,12 +8129,13 @@ export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
     Experiment: 'experiment',
+    Conversations: 'conversations',
 } as const
 
 export type UploadedMediaCreateBody = {
     /** Image file. Must be under 4MB and a real, decodable image. */
     image: Blob
-    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists. */
     purpose?: UploadedMediaCreateBodyPurpose
 }
 

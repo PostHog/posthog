@@ -29,6 +29,23 @@ pub struct Upvalue {
 
 pub type UpvalueCell = Rc<RefCell<Upvalue>>;
 
+// The derived drop recurses once for each closure in a chain of closed upvalues, and a stack overflow ends the process.
+impl Drop for Upvalue {
+    fn drop(&mut self) {
+        let mut pending: Vec<HogValue> = self.value.take().into_iter().collect();
+        while let Some(value) = pending.pop() {
+            let HogValue::Lit(HogLiteral::Closure(closure)) = value else {
+                continue;
+            };
+            for cell in closure.captures {
+                if let Some(mut upvalue) = Rc::into_inner(cell).map(RefCell::into_inner) {
+                    pending.extend(upvalue.value.take());
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Num {
     Integer(i64),
@@ -66,10 +83,32 @@ pub enum Callable {
     Stl(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Closure {
     pub captures: Vec<UpvalueCell>,
     pub callable: Callable,
+}
+
+// A closure can capture an upvalue that holds the same closure, so captures compare by identity and print as a count.
+impl std::fmt::Debug for Closure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Closure")
+            .field("callable", &self.callable)
+            .field("captures", &self.captures.len())
+            .finish()
+    }
+}
+
+impl PartialEq for Closure {
+    fn eq(&self, other: &Self) -> bool {
+        self.callable == other.callable
+            && self.captures.len() == other.captures.len()
+            && self
+                .captures
+                .iter()
+                .zip(&other.captures)
+                .all(|(a, b)| Rc::ptr_eq(a, b))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -328,7 +367,52 @@ impl HogValue {
     }
 }
 
+/// Every value takes a slot where it is held, so none is free. The Node VM also charges 8 for a null, a boolean and a container.
+const MIN_VALUE_BYTES: usize = 8;
+
 impl HogLiteral {
+    pub fn is_container(&self) -> bool {
+        matches!(
+            self,
+            HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
+        )
+    }
+
+    /// The work of one equality test with `rhs`, in bytes. A nested container compares by its heap reference, so only the top level counts.
+    pub(crate) fn compare_work(&self, rhs: &HogLiteral) -> usize {
+        const PAIR: usize = std::mem::size_of::<HogValue>();
+        let pair = |a: &HogValue, b: &HogValue| match (a, b) {
+            (HogValue::Lit(HogLiteral::String(a)), HogValue::Lit(HogLiteral::String(b)))
+                if a.len() == b.len() =>
+            {
+                PAIR + a.len()
+            }
+            _ => PAIR,
+        };
+        match (self, rhs) {
+            (HogLiteral::String(a), HogLiteral::String(b)) if a.len() == b.len() => a.len(),
+            (HogLiteral::String(text), HogLiteral::Number(_) | HogLiteral::Boolean(_))
+            | (HogLiteral::Number(_) | HogLiteral::Boolean(_), HogLiteral::String(text)) => {
+                text.len()
+            }
+            (HogLiteral::Array(a), HogLiteral::Array(b))
+            | (HogLiteral::Tuple(a), HogLiteral::Tuple(b))
+                if a.len() == b.len() =>
+            {
+                a.iter()
+                    .zip(b)
+                    .fold(0, |work, (a, b)| work.saturating_add(pair(a, b)))
+            }
+            (HogLiteral::Object(a), HogLiteral::Object(b)) if a.len() == b.len() => {
+                a.iter().fold(0, |work, (key, value)| {
+                    work.saturating_add(key.len())
+                        .saturating_add(b.get(key).map_or(PAIR, |other| pair(value, other)))
+                })
+            }
+            _ => 0,
+        }
+    }
+
     pub fn type_name(&self) -> &str {
         match self {
             HogLiteral::String(_) => "String",
@@ -343,18 +427,20 @@ impl HogLiteral {
         }
     }
 
-    // Size of the literal, in bytes. If it's a non-primitive type, returns the size of all values, but
-    // if a value is on the heap, returns the size of the reference. This underestimates the size slightly,
-    // because it doesn't account for the enum discriminant, and it gets the size of callables wrong by ignoring
-    // the length of the callable's name, but is close enough for most purposes.
+    // What the heap limit charges for the literal, in bytes, which is not the allocated size. A shared string costs one pointer whatever its length. A null, a boolean, a number and a container cost 8 bytes, where a value slot takes 32.
+    // A container adds the charge of each value it holds, and a value on the heap costs its reference. A callable costs a fixed size, without the length of its name.
     pub fn size(&self) -> usize {
         match self {
-            HogLiteral::String(s) => s.len(),
-            HogLiteral::Number(_) => std::mem::size_of::<f64>(),
-            HogLiteral::Boolean(_) => std::mem::size_of::<bool>(),
-            HogLiteral::Array(a) | HogLiteral::Tuple(a) => a.iter().map(|v| v.size()).sum(),
-            HogLiteral::Object(o) => o.iter().map(|(k, v)| k.len() + v.size()).sum(),
-            HogLiteral::Null => std::mem::size_of::<()>(),
+            // A shared string is one allocation that every copy points at, so a copy costs a pointer.
+            HogLiteral::String(HogStr::Shared(_)) => std::mem::size_of::<Arc<str>>(),
+            HogLiteral::String(HogStr::Owned(s)) => s.len().max(MIN_VALUE_BYTES),
+            HogLiteral::Number(_) | HogLiteral::Boolean(_) | HogLiteral::Null => MIN_VALUE_BYTES,
+            HogLiteral::Array(a) | HogLiteral::Tuple(a) => {
+                MIN_VALUE_BYTES + a.iter().map(|v| v.size()).sum::<usize>()
+            }
+            HogLiteral::Object(o) => {
+                MIN_VALUE_BYTES + o.iter().map(|(k, v)| k.len() + v.size()).sum::<usize>()
+            }
             HogLiteral::Callable(_) => std::mem::size_of::<Callable>(),
             HogLiteral::Closure(c) => {
                 std::mem::size_of::<Closure>()
@@ -425,6 +511,16 @@ impl HogLiteral {
             return Ok((self.clone(), rhs.clone()));
         }
 
+        let scalar = |v: &HogLiteral| {
+            matches!(
+                v,
+                HogLiteral::Number(_) | HogLiteral::Boolean(_) | HogLiteral::String(_)
+            )
+        };
+        if !scalar(self) || !scalar(rhs) {
+            return fail();
+        }
+
         #[allow(clippy::enum_glob_use)] // It's just handy here
         use HogLiteral::*;
 
@@ -451,6 +547,9 @@ impl HogLiteral {
     fn equals(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
         // Coercion runs first, so a numeric string equals a number. Membership (`in`, `has`,
         // `indexOf`) compares elements through here and inherits that, unlike the reference VMs.
+        if self.type_name() == rhs.type_name() {
+            return Ok((self == rhs).into());
+        }
         let Ok((lhs, rhs)) = self.coerce_types(rhs) else {
             return Ok(false.into()); // If we can't coerce types, they are not equal
         };
@@ -551,14 +650,15 @@ pub(crate) fn boolean_text_equals(a: &HogLiteral, b: &HogLiteral) -> Option<bool
     }
 }
 
-/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, three concerns in order:
 ///
-/// TWO ENTRY POINTS, and only one of them is opt-in, so weigh both before you edit this. The
-/// `compare_op` opcode path reaches this only when the context sets
+/// TWO ENTRY POINTS, and neither is fully opt-in, so weigh both before you edit this. The
+/// `compare_op` opcode path reaches this for every pair of arrays, on every consumer, and for all
+/// other operands only when the context sets
 /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons),
-/// today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`) keeps
-/// the strict ordering path where operands other than numbers and numeric arrays error, so this
-/// coercion of ORDERING operands does NOT change their opcode behavior. The named functions
+/// today just the realtime-cohort evaluator. A strict consumer (e.g. `cymbal`) still errors on a
+/// non-number, non-array operand, so the coercion rules in step 3 do NOT change its opcode
+/// behavior, but the temporal check and the array arm do. The named functions
 /// `less`/`greater`/`lessOrEquals`/`greaterOrEquals` are the ungated entry point: they reach this
 /// through [`compare_fn`](crate::stl) on every consumer, so an edit here moves them everywhere. It
 /// says nothing about equality:
@@ -568,7 +668,9 @@ pub(crate) fn boolean_text_equals(a: &HogLiteral, b: &HogLiteral) -> Option<bool
 ///
 /// 1. A temporal comparison ([`temporal_seconds_pair`]) orders by epoch seconds to match ClickHouse
 ///    and the Python/TS reference VMs; see the [`crate::stl`] module note.
-/// 2. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
+/// 2. Two arrays order lexicographically by their numeric elements ([`compare_numeric_arrays`]), the
+///    shape `sortableSemver` returns.
+/// 3. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
 ///    coerces to a Number only when the *other* operand is a Number, Bool↔Number maps to `1`/`0`,
 ///    and both-strings compare lexicographically. This is deliberately *not* routed through
 ///    [`HogLiteral::coerce_types`] (the `Eq` contract, which remaps both-strings and must stay put).
@@ -582,7 +684,7 @@ pub fn compare_values(
         return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
     }
 
-    use HogLiteral::{Boolean, Null, Number, String as HString};
+    use HogLiteral::{Array, Boolean, Null, Number, String as HString};
     match (a, b) {
         // SQL semantics, shared with the Node and Python VMs: a null on either side is no match.
         // `compare_op` answers a null operand before it calls here, so this arm is what the named
@@ -601,10 +703,45 @@ pub fn compare_values(
             Num::binary_op(op, &bool_to_num(str_is_true(s)), &bool_to_num(*y))
         }
         (HString(x), HString(y)) => Ok(string_order(op, x, y).into()),
+        (Array(x), Array(y)) => {
+            Ok(ordering_matches(op, compare_numeric_arrays(x, y, heap)?).into())
+        }
         _ => Err(VmError::CannotCoerce(
             a.type_name().to_string(),
             b.type_name().to_string(),
         )),
+    }
+}
+
+/// Lexicographic order of two numeric arrays, a shorter prefix sorting first, as ClickHouse orders
+/// the arrays `sortableSemver` returns. An element that is not a number is an error.
+fn compare_numeric_arrays(
+    a: &[HogValue],
+    b: &[HogValue],
+    heap: &VmHeap,
+) -> Result<Ordering, VmError> {
+    for value in a.iter().chain(b) {
+        let _: &Num = value.deref(heap)?.try_as()?;
+    }
+
+    for (a_value, b_value) in a.iter().zip(b) {
+        let a_num: &Num = a_value.deref(heap)?.try_as()?;
+        let b_num: &Num = b_value.deref(heap)?.try_as()?;
+        let ordering = a_num.compare(b_num);
+        if ordering != Ordering::Equal && a_num != b_num {
+            return Ok(ordering);
+        }
+    }
+    Ok(a.len().cmp(&b.len()))
+}
+
+fn ordering_matches(op: NumOp, ordering: Ordering) -> bool {
+    match op {
+        NumOp::Gt => ordering.is_gt(),
+        NumOp::Gte => ordering.is_ge(),
+        NumOp::Lt => ordering.is_lt(),
+        NumOp::Lte => ordering.is_le(),
+        _ => unreachable!("ordering comparison requires a comparison operation"),
     }
 }
 
@@ -952,13 +1089,23 @@ impl Num {
             }
 
             match op {
-                NumOp::Add => Ok((a.saturating_add(b)).into()),
-                NumOp::Sub => Ok((a.saturating_sub(b)).into()),
-                NumOp::Mul => Ok((a.saturating_mul(b)).into()),
+                // The reference VM's numbers are doubles, so a result past i64 continues as a float.
+                NumOp::Add => Ok(a
+                    .checked_add(b)
+                    .map_or(((a as f64) + (b as f64)).into(), Into::into)),
+                NumOp::Sub => Ok(a
+                    .checked_sub(b)
+                    .map_or(((a as f64) - (b as f64)).into(), Into::into)),
+                NumOp::Mul => Ok(a
+                    .checked_mul(b)
+                    .map_or(((a as f64) * (b as f64)).into(), Into::into)),
                 // `/` is float division in the reference VMs (JS `/`, Python true division), even
                 // for two integers: 3 / 2 is 1.5, not 1. Use `intDiv` for integer division.
                 NumOp::Div => Ok(((a as f64) / (b as f64)).into()),
-                NumOp::Mod => Ok((a % b).into()),
+                // `i64::MIN % -1` overflows. JavaScript gives -0 there, which the float path returns.
+                NumOp::Mod => Ok(a
+                    .checked_rem(b)
+                    .map_or(((a as f64) % (b as f64)).into(), Into::into)),
                 NumOp::Gt => Ok((a > b).into()),
                 NumOp::Lt => Ok((a < b).into()),
                 NumOp::Gte => Ok((a >= b).into()),

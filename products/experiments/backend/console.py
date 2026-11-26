@@ -283,7 +283,7 @@ class ExperimentsTool(ConsoleTool):
     key = "experiments"
     title = "Experiments"
     owner = EXPERIMENTS
-    group = "Data"
+    group = "Product data"
     description = "One team's experiments, with metric repairs, legacy engine migration and recalculations."
 
     def page(self, request: HttpRequest) -> Page:
@@ -519,7 +519,7 @@ class ExperimentRecalculationsTool(ConsoleTool):
     key = "experiment-recalculations"
     title = "Experiment recalculations"
     owner = EXPERIMENTS
-    group = "Data"
+    group = "Product data"
     description = "Metrics recalculation runs across teams, and controls for a stuck run."
 
     def page(self, request: HttpRequest) -> Page:

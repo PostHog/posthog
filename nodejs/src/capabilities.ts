@@ -1,4 +1,4 @@
-import { isDevEnv } from '~/common/utils/env-utils'
+import { isCloud, isDevEnv, isProdEnv } from '~/common/utils/env-utils'
 
 import { CommonConfig } from './common/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
@@ -15,6 +15,9 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
     cdpApi: true,
+    // Beside the API, because local dev answers sends from Kafka and every group that serves them must also consume them.
+    cdpIntakeTransactionalEmail: true,
+    cdpIntakeWorkflowWebhook: true,
     cdpSesWebhooks: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
@@ -28,7 +31,10 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
-    cdpCyclotronV2Janitor: isDevEnv(),
+    // PostHog Cloud runs the janitor as its own deployment. A self-hosted install has only this
+    // process, and without a janitor nothing deletes finished jobs or recovers jobs that a crash
+    // left running, so the Cyclotron database grows without limit.
+    cdpCyclotronV2Janitor: isDevEnv() || (isProdEnv() && !isCloud()),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
     cdpCohortMembershipTriggers: true,
@@ -124,6 +130,14 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_ses_webhooks:
             return {
                 cdpSesWebhooks: true,
+            }
+        case PluginServerMode.cdp_intake_transactional_email:
+            return {
+                cdpIntakeTransactionalEmail: true,
+            }
+        case PluginServerMode.cdp_intake_workflow_webhook:
+            return {
+                cdpIntakeWorkflowWebhook: true,
             }
         case PluginServerMode.cdp_cyclotron_worker:
             return {
@@ -222,7 +236,6 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
         case PluginServerMode.ai_research_v4_image_fetch:
         case PluginServerMode.ai_research_v4_image_fetch_retry:
-        case PluginServerMode.ai_research_v4_parquet_sink:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

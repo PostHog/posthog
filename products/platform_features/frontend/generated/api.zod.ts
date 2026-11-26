@@ -22,7 +22,7 @@ export const createBodyIpRestrictionsItemMax = 64
 export const createBodyIpRestrictionsMax = 100
 
 export const CreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(createBodyNameMax),
+    name: zod.string().max(createBodyNameMax).describe('Name of the organization.'),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod
@@ -119,7 +119,7 @@ export const updateBodyIpRestrictionsItemMax = 64
 export const updateBodyIpRestrictionsMax = 100
 
 export const UpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(updateBodyNameMax),
+    name: zod.string().max(updateBodyNameMax).describe('Name of the organization.'),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod
@@ -216,7 +216,7 @@ export const partialUpdateBodyIpRestrictionsItemMax = 64
 export const partialUpdateBodyIpRestrictionsMax = 100
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    name: zod.string().max(partialUpdateBodyNameMax).optional().describe('Name of the organization.'),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod
@@ -312,6 +312,15 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
+})
+
+export const OrganizationPersonalApiKeysRollAllBody = /* @__PURE__ */ zod.object({
+    skip_rolled_since: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            "Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned."
+        ),
 })
 
 /**

@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -13,7 +16,7 @@ import { ActivityScope } from '~/types'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
-import { evaluationReportLogic } from './evaluationReportLogic'
+import { draftFromReport, effectiveCooldownMinutes, evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, DEFAULT_JUDGE_PROMPT, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { takeBackfillStart } from './pendingBackfillStarts'
@@ -2359,6 +2362,46 @@ return result`,
     })
 
     describe('saveEvaluation report persistence', () => {
+        it('preserves an enabled report when renaming an evaluation after AI approval is revoked', async () => {
+            const savedReport = { ...mockEvaluationReport }
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': { results: [savedReport] },
+                },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': async ({ request }) => ({
+                        ...mockEvaluation,
+                        ...((await request.json()) as Partial<EvaluationConfig>),
+                    }),
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': async ({ request }) =>
+                        Object.assign(savedReport, await request.json()),
+                },
+            })
+            const reportLogic = evaluationReportLogic({ evaluationId: mockEvaluation.id })
+            logic = llmEvaluationLogic({ evaluationId: mockEvaluation.id })
+            logic.mount()
+            reportLogic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(reportLogic).toFinishAllListeners()
+                expect(reportLogic.values.activeReport?.enabled).toBe(true)
+                organizationLogic.actions.loadCurrentOrganizationSuccess({
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: false,
+                })
+                expect(reportLogic.values.draftReportsEnabled).toBe(false)
+
+                logic.actions.setEvaluationName('Renamed')
+                logic.actions.saveEvaluation()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.originalEvaluation?.name).toBe('Renamed')
+                expect(savedReport.enabled).toBe(true)
+            } finally {
+                reportLogic.unmount()
+            }
+        })
+
         it('does not create an evaluation when the report threshold is invalid', async () => {
             let evaluationCreateCount = 0
             useMocks({
@@ -2523,23 +2566,38 @@ return result`,
         })
     })
 
+    describe('report cooldown', () => {
+        it.each([
+            { name: 'keeps a saved gap the hours field rounds, until someone edits it', hours: 2, expected: 90 },
+            { name: 'uses the edited hours once someone changes them', hours: 3, expected: 180 },
+        ])('$name', ({ hours, expected }) => {
+            const savedReport = { ...mockEvaluationReport, frequency: 'every_n' as const, cooldown_minutes: 90 }
+            const draft = { ...draftFromReport(savedReport), cooldownHours: hours }
+            expect(effectiveCooldownMinutes(savedReport, draft)).toBe(expected)
+        })
+    })
+
     describe('report destinations', () => {
         it.each([
-            { name: 'a new evaluation reports daily', evaluationId: 'new', frequency: 'scheduled' },
-            {
-                name: 'a saved evaluation without a report keeps the older baseline, so it shows no unsaved change',
-                evaluationId: 'saved-eval',
-                frequency: 'every_n',
-            },
-        ])('$name', ({ evaluationId, frequency }) => {
-            const reportLogic = evaluationReportLogic({ evaluationId })
-            reportLogic.mount()
-            try {
-                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: 'daily' })
-            } finally {
-                reportLogic.unmount()
+            { name: 'a new evaluation', evaluationId: 'new' },
+            { name: 'a saved evaluation without a report', evaluationId: 'saved-eval' },
+        ])(
+            '$name starts every 100 results, at most once a day, like the report the backend creates',
+            ({ evaluationId }) => {
+                const reportLogic = evaluationReportLogic({ evaluationId })
+                reportLogic.mount()
+                try {
+                    expect(reportLogic.values.configDraft).toMatchObject({
+                        frequency: 'every_n',
+                        triggerThreshold: 100,
+                        cooldownHours: 24,
+                    })
+                    expect(reportLogic.values.isConfigDirty).toBe(false)
+                } finally {
+                    reportLogic.unmount()
+                }
             }
-        })
+        )
 
         it('keeps an emptied destination open until it is removed, then clears it', () => {
             const reportLogic = evaluationReportLogic({ evaluationId: 'new' })

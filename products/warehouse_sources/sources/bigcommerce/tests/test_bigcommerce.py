@@ -234,7 +234,9 @@ class TestBigCommerceSourceResumeBehavior:
         assert result.params("page") == ["4", None, "5"]
         assert result.rows == [{"id": 3, "order_id": 102}]
 
-    @parameterized.expand([("order_products", "products"), ("order_shipments", "shipments")])
+    @parameterized.expand(
+        [("order_products", "products"), ("order_shipments", "shipments"), ("order_coupons", "coupons")]
+    )
     def test_v2_order_children_page_until_short_page(self, endpoint: str, child_path: str) -> None:
         full_page = [{"id": child_id, "order_id": 101} for child_id in range(PAGE_SIZE)]
         result = self._driver().run(
@@ -263,6 +265,36 @@ class TestBigCommerceSourceResumeBehavior:
         ]
         assert result.params("page") == ["1", "1", "2", "1", "1", "2"]
         assert [row["id"] for row in result.rows] == list(range(PAGE_SIZE + 1))
+        assert result.saved_states == [BigCommerceResumeConfig(page=1, order_index=i) for i in (1, 2, 3)]
+
+    def test_product_reviews_fan_out_over_product_pages_and_page_reviews(self) -> None:
+        result = self._driver().run(
+            "product_reviews",
+            [
+                ScriptedResponse(json=_v3_page([{"id": 11}, {"id": 12}, {"id": 13}], current_page=1, total_pages=2)),
+                ScriptedResponse(json=_v3_page([{"id": 1, "product_id": 11}], current_page=1, total_pages=2)),
+                ScriptedResponse(json=_v3_page([{"id": 2, "product_id": 11}], current_page=2, total_pages=2)),
+                # Product with no reviews.
+                ScriptedResponse(status=204),
+                # Product deleted after the product listing was read.
+                ScriptedResponse(status=404, json={"status": 404, "title": "Product not found"}),
+                ScriptedResponse(json=_v3_page([], current_page=2, total_pages=1)),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == [
+            "/stores/store123/v3/catalog/products",
+            "/stores/store123/v3/catalog/products/11/reviews",
+            "/stores/store123/v3/catalog/products/11/reviews",
+            "/stores/store123/v3/catalog/products/12/reviews",
+            "/stores/store123/v3/catalog/products/13/reviews",
+            "/stores/store123/v3/catalog/products",
+        ]
+        assert result.params("page") == ["1", "1", "2", "1", "1", "2"]
+        assert result.params("limit") == [str(PAGE_SIZE)] * 6
+        assert result.params("include_fields") == ["date_modified", None, None, None, None, "date_modified"]
+        assert [(row["product_id"], row["id"]) for row in result.rows] == [(11, 1), (11, 2)]
         assert result.saved_states == [BigCommerceResumeConfig(page=1, order_index=i) for i in (1, 2, 3)]
 
     def test_order_statuses_is_read_in_one_request(self) -> None:

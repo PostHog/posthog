@@ -29,6 +29,7 @@ import type { Logger } from "../../../utils/logger";
 import { tryParsePartialJson } from "../../../utils/partial-json";
 import { classifyAgentError } from "../../error-classification";
 import { type EnrichedReadCache, registerHookCallback } from "../hooks";
+import { memoryFileFromPath } from "../memory-reads";
 import { traceIdFromHookStderr } from "../session/traceparent-hook";
 import type {
   Session,
@@ -788,6 +789,16 @@ export async function handleSystemMessage(
       // Skip empty recalls — they're the dominant source of UI clutter on
       // memory-heavy turns and carry no signal (no paths, no content).
       if (!isSynthesis && message.memories.length === 0) break;
+      for (const memory of message.memories) {
+        const memoryFile = memoryFileFromPath(memory.path);
+        if (!memoryFile) continue;
+        await client.extNotification(POSTHOG_NOTIFICATIONS.MEMORY_READ, {
+          sessionId,
+          ...memoryFile,
+          tool: "memory_recall",
+          toolCallId: message.uuid,
+        });
+      }
       const locations = isSynthesis
         ? []
         : message.memories.map((m) => ({ path: m.path }));
@@ -890,6 +901,7 @@ export async function handleSystemMessage(
           _meta: {
             claudeCode: {
               toolName: message.tool_name,
+              failureReason: "permission_denied",
               toolResponse: {
                 decisionReasonType: message.decision_reason_type,
                 decisionReason: message.decision_reason,
@@ -1373,7 +1385,10 @@ export async function handleUserAssistantMessage(
   // Pass the raw MCP tool result (contains content, structuredContent, _meta)
   // so it can be forwarded as-is to the renderer for MCP Apps
   const mcpToolUseResult =
-    message.type === "user" && message.tool_use_result != null
+    message.type === "user" &&
+    typeof message.tool_use_result === "object" &&
+    message.tool_use_result !== null &&
+    !Array.isArray(message.tool_use_result)
       ? (message.tool_use_result as Record<string, unknown>)
       : undefined;
 

@@ -62,6 +62,12 @@ export const WarehouseSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread.'
         ),
+    mark_deprecated: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Deprecate only: false to stop a materialized view's refreshes and delete its stored table without marking it deprecated in the data catalog. If the view is still unread 30 days later, the deprecate suggestion is shown again. Refused with a 400 when the view is not materialized, or with keep_materialized or delete_view. Refused with a 409 when another view, a sync, a destination or a workflow reads it, or when it reads a direct-connection source."
+        ),
 })
 
 export const WarehouseSuggestionsAssignCreateBody = /* @__PURE__ */ zod.object({
@@ -77,10 +83,12 @@ export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
 
 export const WarehouseSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object({
     reason: zod
-        .enum(['not_useful', 'not_now', 'other'])
-        .describe('\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other')
+        .enum(['not_useful', 'not_now', 'wrong_estimate', 'already_handled', 'not_owner', 'other'])
         .describe(
-            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other'
+            '\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
+        )
+        .describe(
+            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
         ),
     note: zod
         .string()
@@ -93,7 +101,8 @@ export const WarehouseSuggestionsSurfaceMoreCreateBody = /* @__PURE__ */ zod.obj
     surface: zod
         .enum(['models', 'catalog'])
         .describe('\* `models` - Models\n\* `catalog` - Data catalog')
+        .optional()
         .describe(
-            'Page to show more suggestions on. Only the kinds that page shows are picked.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+            'Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })

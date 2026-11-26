@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, path } from 'kea'
+import { MakeLogicType, actions, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -50,10 +50,20 @@ export interface fixSQLErrorsLogicActions {
     }
 }
 
-export type fixSQLErrorsLogicType = MakeLogicType<fixSQLErrorsLogicValues, fixSQLErrorsLogicActions>
+export interface FixSQLErrorsLogicProps {
+    tabId: string
+}
+
+export type fixSQLErrorsLogicType = MakeLogicType<
+    fixSQLErrorsLogicValues,
+    fixSQLErrorsLogicActions,
+    FixSQLErrorsLogicProps
+>
 
 export const fixSQLErrorsLogic = kea<fixSQLErrorsLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'fixSQLErrorsLogic']),
+    props({ tabId: 'default' } as FixSQLErrorsLogicProps),
+    key((props) => props.tabId),
     actions({
         fixErrors: (query: string, error?: string, connectionId?: string) => ({ query, error, connectionId }),
     }),

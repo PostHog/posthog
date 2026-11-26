@@ -87,6 +87,9 @@ describe("ResumeSaga", () => {
       ).mockResolvedValue([
         createUserMessage("Hello"),
         createAgentChunk("Hi there!"),
+        createNotification(POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP, {
+          droppedCount: 1,
+        }),
         createUserMessage("Help me"),
         createAgentChunk("Sure, "),
         createAgentChunk("I can help."),
@@ -143,6 +146,50 @@ describe("ResumeSaga", () => {
         content: [{ type: "text", text: "New prompt" }],
       });
       expect(result.data.conversation[1].role).toBe("assistant");
+    });
+
+    it("restores injected references from prompts after the last compaction", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      const reference = (chunkId: string) => ({
+        type: "text",
+        text: [
+          '<posthog_reference_context selection_id="s">',
+          JSON.stringify({
+            id: chunkId,
+            kind: "business_knowledge",
+            document_id: "doc",
+          }),
+          "</posthog_reference_context>",
+        ].join("\n"),
+        _meta: { ui: { hidden: true } },
+      });
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createNotification("session/prompt", {
+          prompt: [{ type: "text", text: "First" }, reference("before")],
+        }),
+        createNotification(POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY, {}),
+        createNotification("session/prompt", {
+          prompt: [{ type: "text", text: "Second" }, reference("after")],
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.injectedReferences).toEqual([
+        "business_knowledge:after",
+      ]);
     });
 
     it("merges consecutive text chunks", async () => {
@@ -522,6 +569,17 @@ describe("ResumeSaga", () => {
           runStarted("session-new"),
         ],
         expected: "session-new",
+      },
+      {
+        name: "skips a session log gap marker after run_started",
+        entries: () => [
+          runStarted("session-abc"),
+          createUserMessage("Hello"),
+          createNotification(POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP, {
+            droppedCount: 3,
+          }),
+        ],
+        expected: "session-abc",
       },
       {
         name: "returns null when no run_started notification is present",

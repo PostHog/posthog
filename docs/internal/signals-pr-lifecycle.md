@@ -1,15 +1,35 @@
 # Report completion and late PR attachments
 
+## Monitoring a pull request
+
+`POST /api/projects/{project_id}/signals/monitor_pr/` and the `inbox-monitor-pr` MCP tool accept a GitHub `pr_url` and an optional team-visible `note` (up to 4,000 characters) to steer what the research agent measures; without a note, the agent chooses the key impact metric from the code change and available project data. The PR must come from a branch in a repository registered with the project's GitHub integrations (fork PRs are refused), and an already-merged PR must fall within the 90-day monitoring horizon. The project needs AI data processing approval and the `signals-monitor-pr`, `signals-report-monitoring`, and `signals-report-metrics` flags. The caller needs Inbox and task write access plus analytics read scopes.
+
+The endpoint returns an accepted report while a read-only sandbox (restricted to GitHub and sandbox service hosts) starts on the repository's default branch and researches the server-fetched PR diff on the canonical project team. Like initial signal-driven report research, the linked research task run carries no prior check-query context and is readable to project members with task read access. Both the report's claim and reviewer assignment belong to the initiating user, regardless of who authored the PR, and research persists only the structured metric and check definitions (the optional note is per-attempt steering context for the research task, not stored as a report artefact). Repeating the request for that user, project, and PR returns the same report; deleted, failed, or unmeasured (`pending_input` or restored `potential` without checks) PR research reports can be started again within the daily per-user, per-PR, and project report limits. While initial repository discovery is still syncing or if dispatch fails, the API returns a retryable 503 (preserving GitHub 429 `Retry-After` delays when rate-limited).
+
+Research validates that the initiating user can read the selected metric query before creating one primary metric and a monitoring check. An already-merged PR enters Monitoring from its verified merge timestamp. An open or draft PR remains Ready until it merges, using the existing GitHub webhook and linked-PR state refresh lifecycle. A PR closed without merging follows the existing dismissal path. When research cannot identify a measurable metric, the report waits for input. Failed research remains visible as Failed on both the report and its linked task run. Neither case silently resolves on merge. The existing check horizon and monitoring execution rules apply.
+
+On the Self-driving **Monitoring** tab, a collapsible right-side **Pull requests** panel (gated by `signals-monitor-pr`) lists up to 50 recent PRs authored by the caller’s personal connected GitHub account across repositories registered with the project’s GitHub installations, newest-created first. Client-side filters narrow the list by monitoring state (`All`, `Unmonitored`, `Monitored`) and GitHub PR state (`Any state`, `Open`, `Merged`), where Monitored includes research and waiting for merge on the caller’s own request. Each row links directly to GitHub; open and merged unmonitored PRs start monitoring in one click, monitored PRs link straight to their report (or offer retry when research failed or awaits instrumentation), and closed unmerged or expired (>90-day) PRs disable Monitor and Retry.
+
+## Report completion
+
+Implementations started in the app send each pull request link to the report's saved Slack notification threads when task output or an opened GitHub webhook records the PR. Each output callback queues one batch of at most 50 valid PR URLs. A new report thread or report merge also queues existing implementation PRs after commit. Delivery follows implementation associations after report merges and excludes deleted reports. Delivery runs on a worker after commit, with bounded Slack timeouts and retries with backoff for transient failures. Rate-limit retries honor Slack's Retry-After header. Tasks with a Slack conversation mapping for the PR's run keep their existing notification path for that destination. Saved-thread delivery reserves only that run's primary PR for the mapped sender. Secondary PR links also reach the mapped destination. Both senders record successful delivery by Slack destination and PR URL, so a follow-up run does not cause an older batch to repeat a message. A mapping from an earlier run does not suppress an app rerun's notification. Mapped PR cards accept HTTPS GitHub PR URLs from the task's repositories or HTTPS GitLab merge request URLs from its connected project. GitLab repository comparisons ignore case. When a task starts without a repository, the sender verifies its PR through the run's authenticated GitHub connection. Each report thread records the PR URLs it receives, so retries skip successful sends. Personal channels require a saved reviewer with current project and Inbox access. Shared personal channels remain eligible while at least one saved reviewer has access. Direct messages require a saved PostHog recipient or linked Slack account with that access, plus Slack eligibility. Legacy channel threads without saved recipient scope receive updates only when they match the configured project channel or identify a scout report. The assignment side-effect gate applies to enrolled reports. Saved integrations can belong to another environment in the report's project. Disconnected workspaces do not receive updates. Report messages without a saved destination or an identifiable DM recipient cannot receive these updates.
+
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 
 Research completion activities update a report only while its locked status is `IN_PROGRESS`. The failure activity also handles `CANDIDATE` reports when admission fails before research starts. Status changes made during research, including archive, snooze, close, and resolve, remain in effect. Retries preserve completed transitions, including a return to `CANDIDATE` when new signals require more research.
 
 Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. The report list API's `view=monitoring` returns the same reports. Review and merge continues to show reports with an open implementation PR.
 
+A move from Monitoring to Resolved or Closed sets `monitoring_ended_at`, including resolving an archived Monitoring report. Archiving only pauses Monitoring and leaves it unset, and reopening clears it with `monitoring_started_at`. The list API's `view=monitoring_recent` returns the Monitoring reports plus the resolved and closed reports whose Monitoring ended in the last 14 days. Each of those carries a `monitoring_outcome`: `resolved` when every check passed, `resolved_by_assessment` when a report-level assessment decided, `resolved_manually` when a person resolved it, `resolved_unverified` when every check was cancelled, or `closed`. `follow_up` is the report grouping placed that attempt's `monitoring_unresolved` signal in. Their `monitoring_summary.checks` lists each check's final state. The `connected` list parameter keeps the reports the user claimed (`assigned`) or is a suggested reviewer on (`suggested_reviewer`), whichever matches.
+
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
 
 PR-driven resolutions emit `signal_report_status_changed` with `resolution_reason=pr_merged`, including when attaching an already-merged PR completes a report. `dismissal_reason` remains reserved for feedback supplied with the transition. Outcome queries should prefer `resolution_reason` and fall back to `dismissal_reason`; a missing reason alone does not imply that no PR merged.
+
+A PR-driven transition keeps `actor_kind=system` and credits one person in `actor_user_uuid` and `actor_distinct_id`: the person who claimed the report, else the person who attached the PR, else the org member whose linked GitHub account merged the PR, else the creator of the PR's task. `actor_user_source` names which one applied, and the event is sent with that person's `distinct_id`. The merger is credited only when the login maps to an active member of the organization whose linked GitHub account has the merger's GitHub id. A link that carries no id, such as the login of the person who connected the team's GitHub integration, does not count. A `task_creator` credit can name the reviewer an auto-started task ran as, so a count of people who acted should leave that source out.
+
+A Monitoring attempt saves the person who completed the implementation. When verification moves the report to Resolved or Closed, that transition keeps `actor_kind=system` and credits the saved person. A restarted attempt keeps the person of the attempt it replaces.
 
 PR-driven dismissals emit `dismissal_cause=pr_closed_without_merge` when all linked implementation PRs are closed without a merge. This also covers reconciliation after attaching an already-closed PR. Dismissal queries should prefer `dismissal_cause` and fall back to `dismissal_reason`, which remains the caller's feedback. The cause identifies automatic reconciliation, not who closed the PR or why they closed it.
 
@@ -277,6 +297,22 @@ A confirmed public source does not restrict destination visibility, so an unavai
 The restricted candidate list governs both the prompt and validation of the agent's result.
 A single permitted repository is selected without running the agent, and re-research reuses a stored non-null repository selection.
 
+A person can change the report's repository with `PUT /api/projects/:id/signals/reports/:report_id/repository/`.
+The repository must be one the project's own GitHub installation reaches and that is not archived.
+The change appends an attributed `repo_selection` artefact, so the work log keeps the earlier selection.
+The new row keeps the earlier row's `research_context`.
+It keeps the earlier `autostart_eligible` only when that row named a repository, and is otherwise not autostart eligible, so it changes where work goes without granting or withdrawing an automatic pull request.
+Selecting the current repository adds no row.
+
+A person can change the report's actionability, its already-addressed value, or both with `PUT /api/projects/:id/signals/reports/:report_id/actionability/`.
+The change appends an attributed `actionability_judgment` artefact that keeps the value the request omits, and later research runs keep it.
+A new actionability moves a `ready` or `pending_input` report: `requires_human_input` to `pending_input`, and `immediately_actionable` or `not_actionable` to `ready`.
+A report in any other status keeps its status, and a change to already addressed alone moves no report.
+The change does not re-evaluate autostart, so it does not open a pull request by itself.
+Setting the current values adds no row.
+
+The report detail response returns each decision (repository, priority, actionability, already addressed) under `decisions`, with the stored reason and who set it.
+
 The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
@@ -304,7 +340,9 @@ The report remains readable and supports discussion, assignment, resolution, and
 
 Report access checks share pending and recent results by project, installation, and repository for up to 30 seconds. Explicit retries invalidate the project cache. A pending request is canceled when its last report reader leaves or after 30 seconds, allowing stalled checks to be retried; temporary failures are not cached. The backend still checks live access before creating an implementation task.
 
-Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+When a report has no selected repository, Implement first lets the backend resolve one. If resolution fails, Implement shows Select repository and opens a repository picker. A retry waits for a selection. The chosen repository is saved in the report's work log before the implementation starts, so the backend keeps responsibility for repository resolution and live access checks. The selection does not enable automatic implementation. This recovery applies to report details and triage, including projects outside the GitHub-optional pilot.
+
+Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the implementation action available for reports with a selected repository; the backend remains responsible for checking repository access.
 
 Outside the pilot, Implement with PostHog opens the same GitHub connection flow when the project has no GitHub installation, or only installations marked unavailable. Reports reach such projects without onboarding, for example from Replay Vision scanners, scanner scouts, and scout findings, because those sources need no `SignalSourceConfig`. Report tasks push only with the project's own GitHub integration, so without one the backend refuses the task. The check reads only the project's integration list and does not probe repositories.
 
@@ -448,6 +486,20 @@ A human-authored snapshot alone does not prove approval of the complete list.
 Incomplete history stops automatic changes until a person confirms the current list through the API.
 
 ### Write contract
+
+Reviewer attribution records who wrote the artefact and does not grant permission to start implementation.
+Each reviewer version carries separate, server-owned implementation authorization.
+Research, custom-agent, and scout workers authorize automatic selection of an eligible reviewer, subject to the existing autonomy and repository checks.
+Stack layers inherit the parent reviewer version, authorization, and reviewer corrections.
+After creation, each layer keeps its own reviewer state. Later plan edits do not replace an existing layer's reviewers or corrections.
+Reports filed by a person and their stack layers require an explicit implementation request.
+Reviewer API writes authorize only the authenticated caller, even when the write is attributed to a task.
+Sandbox API writes do not grant permission to start implementation.
+An ineligible caller never falls back to a named reviewer or another member.
+Startup reads the authorization and reviewer content from the same version, including on deferred retries.
+Unchanged automatic proposals preserve the current version's authorization.
+Research and scout proposals that retain an existing reviewer also preserve that authorization when they add reviewers or update their evidence.
+Older reviewer versions without authorization pause until a person authorizes a reviewer edit or explicitly requests implementation.
 
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
 This is the only API response that includes correction state.
@@ -646,6 +698,7 @@ Triage warns before a verdict closes an open implementation PR.
 New failed reports consume a daily inbox slot when they first become visible.
 Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
 Signal admission checks the daily report limit before billable processing. Accepted signals finish buffering, report generation, and automatic implementation even if the limit is reached meanwhile. This can take the day's count above the configured limit; new work remains blocked. The configured limit, visibility-based count, and project-local day boundary are unchanged.
+Provider 400 errors containing `specified API usage limits` in the signal safety filter skip activity retries. The buffer carries the failed signals into a fresh run and pauses for 15 minutes before trying again, so the pause does not consume the previous run's one-hour timeout. Safe signals in the same batch still proceed to grouping. Before each safety-filter attempt, the buffer drops the entire batch if its oldest signal has waited more than seven days, including newer signals in that batch. Each signal retains its first buffer arrival time across retries and fresh runs; signals from older workflow histories start aging when the buffer first records that time. Expired signals increment `signals_dropped_total` with stage `buffer` and reason `expired`. Other failures keep their existing retry behavior. Processing resumes on the next retry after the provider limit is raised or resets; a lower error count alone does not confirm recovery.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 
@@ -699,6 +752,10 @@ When a report has a linked task run, the View task button opens it in the PostHo
 The button fits its label, including when it appears below the Solution section.
 
 Trial-funded background runs require the PostHog AI gateway.
+The free trial does not add an enabled-scout count limit or pause scouts when it starts.
+Scouts keep the standard project count limit, and setup permits up to five selections.
+Trial spend and report limits still apply.
+Eligible free-trial scout runs use GPT-5.6 Luna on the Flex queue.
 Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
 They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
 Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.

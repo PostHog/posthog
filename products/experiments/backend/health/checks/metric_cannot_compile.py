@@ -19,11 +19,13 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import HealthContext, MetricCompileFailure
 from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     CheckOutcome,
+    CheckValues,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -60,6 +62,22 @@ _MAX_EVIDENCE_MESSAGE_LENGTH = 300
 _ELEMENT_LABELS = {"selector": "CSS selector", "tag_name": "tag name", "href": "link target", "text": "text"}
 
 
+def metric_compile_values(ctx: HealthContext) -> CheckValues:
+    compiles = ctx.metric_compiles
+    if (
+        ctx.archived
+        or compiles is None
+        or compiles.exposure_query_fails
+        or compiles.metric_count in (0, compiles.warehouse_native_count)
+    ):
+        return {}
+    return {
+        ExperimentHealthValueKey.METRIC_COUNT: compiles.metric_count,
+        ExperimentHealthValueKey.INVALID_METRIC_COUNT: len(compiles.failures),
+        ExperimentHealthValueKey.UNCHECKED_METRIC_COUNT: compiles.unknown_count + compiles.no_access_count,
+    }
+
+
 def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
@@ -68,6 +86,8 @@ def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:
         return not_checked("Couldn't check because the metric queries couldn't be built")
     if compiles.metric_count == 0:
         return no_calculated_metric(ctx)
+    if compiles.warehouse_native_count == compiles.metric_count:
+        return not_applicable("Doesn't run on metrics from a warehouse-native query")
     if compiles.exposure_query_fails:
         return not_checked("Couldn't check because the exposure criteria can't be built into a query")
     if not compiles.failures:

@@ -12,8 +12,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import type { TeamPublicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
+import {
+    confirmTrainingWithoutCheck,
+    firstRunCheckProblem,
+    needsFirstRunCheck,
+    runFirstRunCheck,
+    trainingStartRefusal,
+} from './firstRunCheck'
 import {
     autoresearchDestroy,
     autoresearchList,
@@ -53,10 +61,10 @@ export interface autoresearchLogicActions {
         status: ProductSetupStatus
     } // productSetupStatusLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     deletePipeline: (
@@ -91,6 +99,9 @@ export interface autoresearchLogicActions {
         id: string
     }
     pipelineUpdated: (pipeline: AutoresearchPipelineApi) => {
+        pipeline: AutoresearchPipelineApi
+    }
+    requestTraining: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
     }
     resumePipeline: (pipeline: AutoresearchPipelineApi) => {
@@ -156,6 +167,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         deletePipeline: (id: string, name: string) => ({ id, name }),
         pausePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         resumePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
+        requestTraining: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         startTraining: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
         modelCardOpened: (id: string) => ({ id }),
         setPipelineMutating: (id: string, mutating: boolean) => ({ id, mutating }),
@@ -332,6 +344,37 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 actions.setPipelineMutating(pipeline.id, false)
             }
         },
+        requestTraining: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
+            if (!needsFirstRunCheck(pipeline)) {
+                actions.startTraining(pipeline)
+                return
+            }
+            if (!values.currentTeamId || values.mutatingPipelineIds[pipeline.id]) {
+                return
+            }
+            actions.setPipelineMutating(pipeline.id, true)
+            let problem: string | null
+            let errorCode: string | null = null
+            try {
+                const validation = await runFirstRunCheck(String(values.currentTeamId), pipeline)
+                problem = firstRunCheckProblem(validation)
+                errorCode = validation.error_code
+            } catch {
+                problem = "Couldn't check this model."
+            } finally {
+                actions.setPipelineMutating(pipeline.id, false)
+            }
+            if (!problem) {
+                actions.startTraining(pipeline)
+                return
+            }
+            const checkProperties = { pipeline_id: pipeline.id, source: 'list', error_code: errorCode }
+            posthog.capture('autoresearch model training check failed', checkProperties)
+            confirmTrainingWithoutCheck(problem, () => {
+                posthog.capture('autoresearch model training check overridden', checkProperties)
+                actions.startTraining(pipeline)
+            })
+        },
         startTraining: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
             if (!values.currentTeamId || values.mutatingPipelineIds[pipeline.id]) {
                 return
@@ -343,12 +386,14 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 lemonToast.success(`Started training "${pipeline.name}"`)
                 actions.loadPipelines()
             } catch (error: any) {
+                const refusal = trainingStartRefusal(error)
                 posthog.capture('autoresearch model action failed', {
                     action: 'train',
                     pipeline_id: pipeline.id,
                     status: error?.status,
+                    ...(refusal.code ? { error_code: refusal.code } : {}),
                 })
-                lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to start training')
+                lemonToast.error(refusal.reason ?? 'Failed to start training')
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)
             }

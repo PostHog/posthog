@@ -1,7 +1,7 @@
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.clickhouse.query_tagging import FlagCallsRead
     from posthog.models import Team, User
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes.catalog import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -123,6 +123,7 @@ class HogQLContext:
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
     referenced_saved_query_ids: set[str] = field(default_factory=set)
+    materialized_saved_query_ids: set[str] = field(default_factory=set)
     referenced_warehouse_table_ids: set[str] = field(default_factory=set)
     directly_read_ids: set[str] = field(default_factory=set)
     view_body_depth: int = 0
@@ -153,6 +154,8 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+    # True while clickhouse_property_resolution visits a SELECT that reads ai_events, or a SELECT nested in one.
+    reads_ai_events: bool = False
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
     # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
@@ -173,10 +176,13 @@ class HogQLContext:
     # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
     # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
     events_retention_months: Optional[int] = None
-    # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
-    # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
-    # HogQLQueryModifier, so a query can't disable enforcement.
+    # Backend-only switch for the events-retention floor and the flag_evaluations coverage floor. It defaults on.
+    # Server-side paths that must act on all rows regardless of retention, such as the GDPR data-deletion mutation
+    # path, set it False. It is deliberately not a HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+    # The time this query derives the flag_evaluations coverage start from. flag_calls_now() sets it on first use.
+    # The swap, the union and the printer's coverage floor therefore pick the same UTC day. clear_reads() resets it.
+    _flag_calls_now: Optional[datetime] = field(default=None, init=False, compare=False, repr=False)
     # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
     # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
     rewrite_flag_calls_to_flag_evaluations: bool = True
@@ -189,6 +195,12 @@ class HogQLContext:
     flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
     # The flag-call rewrites that this query applied. `read_tags` reports them to ClickHouse.
     flag_calls_read: set["FlagCallsRead"] = field(default_factory=set)
+    # Set when a swapped scan reads a `$feature/<key>` property with no `flag_key` predicate, so ClickHouse parses the
+    # JSON of every flag call. The printer then caps `max_memory_usage` in the top-level settings instead of refusing
+    # the query. A caller that sends settings outside the query must apply the cap itself.
+    cap_flag_call_memory: bool = False
+    # Set when the resolver gives a lazy table a copy of a join predicate. `take_join_filters` skips its walk without it.
+    holds_join_filters: bool = field(default=False, compare=False, repr=False)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.
@@ -227,9 +239,14 @@ class HogQLContext:
             or self._reads_native_events_with_flag_evaluations()
         )
 
+    def flag_calls_now(self) -> datetime:
+        if self._flag_calls_now is None:
+            self._flag_calls_now = datetime.now(UTC)
+        return self._flag_calls_now
+
     def flag_calls_only_in_flag_evaluations(self) -> bool:
-        """Whether this query reads flag calls only from `posthog.flag_evaluations`, as mode 2 does. The events table
-        that the query reads holds no new flag calls then, so a read that flag_evaluations cannot answer fails."""
+        """Whether this query reads flag calls only from `posthog.flag_evaluations`, as mode 2 does. A read that
+        flag_evaluations cannot answer fails, and does not fall back to the events table."""
         database = self.database
         return database is not None and (
             database.organization_flag_calls_only_in_flag_evaluations
@@ -237,11 +254,16 @@ class HogQLContext:
         )
 
     def reads_flag_calls_with_union(self) -> bool:
-        """Whether flag calls that a mixed query reads come from events and flag_evaluations together."""
+        """Whether flag calls that a mixed query reads come from events and flag_evaluations together.
+
+        A query whose flag calls are only in flag_evaluations reads the union, unless FLAG_EVALUATIONS_UNION_DISABLED
+        is on. On READ_FLAG_EVALUATIONS, a query reads the union only when the organization's hogql-flag-calls-union
+        flag is on.
+        """
         database = self.database
-        return (
-            database is not None and database.flag_calls_union_enabled and self.reads_flag_calls_from_flag_evaluations()
-        )
+        if database is None or not database.flag_calls_union_enabled:
+            return False
+        return database.flag_calls_union_opted_in or self.flag_calls_only_in_flag_evaluations()
 
     def _reads_native_events_with_flag_evaluations(self) -> bool:
         database = self.database
@@ -299,9 +321,11 @@ class HogQLContext:
 
     def clear_reads(self) -> None:
         self.referenced_saved_query_ids.clear()
+        self.materialized_saved_query_ids.clear()
         self.referenced_warehouse_table_ids.clear()
         self.directly_read_ids.clear()
         self.flag_calls_read.clear()
+        self._flag_calls_now = None
 
     def read_tags(self) -> dict[str, list[str] | None]:
         reads_warehouse_object = bool(self.referenced_saved_query_ids or self.referenced_warehouse_table_ids)

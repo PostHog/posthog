@@ -114,4 +114,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "configured": "The configuration status of the device hosting the Service.",
         },
     },
+    "user_invites": {
+        "description": "Open (not yet accepted) invites for users to join the tailnet, with the role each invite grants. The invite link is not synced.",
+        "docs_url": "https://tailscale.com/api#tag/userinvites",
+        "columns": {
+            "id": "The unique identifier for the invite.",
+            "role": "The tailnet user role to assign to the invited user upon accepting the invite.",
+            "tailnetId": "The ID of the tailnet to which the user was invited.",
+            "inviterId": "The ID of the user who created the invite.",
+            "email": "The email to which the invite was sent; empty if the invite was not emailed.",
+            "lastEmailSentAt": "The last time the invite was attempted to be sent to the email address.",
+        },
+    },
+    "device_invites": {
+        "description": "Invites that share a device with a user outside its tailnet, and whether each was accepted. The invite link is not synced.",
+        "docs_url": "https://tailscale.com/api#tag/deviceinvites",
+        "columns": {
+            "id": "The unique identifier for the invite.",
+            "created": "The creation time of the invite.",
+            "tailnetId": "The ID of the tailnet to which the shared device belongs.",
+            "deviceId": "The numeric ID of the device being shared. Join to devices on `id`.",
+            "sharerId": "The ID of the user who created the share invite.",
+            "multiUse": "Whether the invite can be accepted more than once.",
+            "allowExitNode": "Whether the invited user can use the device as an exit node.",
+            "email": "The email to which the invite was sent; empty if the invite was not emailed.",
+            "lastEmailSentAt": "The last time the invite was attempted to be sent to the email address.",
+            "accepted": "Whether the share invite has been accepted.",
+            "acceptedBy": "The user who accepted the share invite, when it has been accepted.",
+        },
+    },
+    "device_posture_attributes": {
+        "description": "Posture attributes of each device in the tailnet (OS, client version, custom attributes) used by posture rules in the policy file. Join to devices on `deviceId` = `id`.",
+        "docs_url": "https://tailscale.com/api#tag/devices",
+        "columns": {
+            "deviceId": "The legacy identifier of the device, matching `id` in devices.",
+            "nodeId": "The preferred identifier of the device, matching `nodeId` in devices.",
+            "attributes": "All posture attributes of the device as key-value pairs, such as `node:os` or `custom:` attributes.",
+            "expiries": "The expiry time of each posture attribute that has one.",
+        },
+    },
 }

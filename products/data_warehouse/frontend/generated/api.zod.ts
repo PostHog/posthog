@@ -1588,15 +1588,50 @@ export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
  * Point a table made from an uploaded file at a new upload, then import it with one full refresh. Upload the new file with upload_file first. The table keeps its id and its name, and its rows are replaced when the sync finishes. The old file is deleted only after that sync succeeds. The sync bills its rows like any other import.
  * @summary Replace the file of a table made from an uploaded file
  */
+export const warehouseTablesReplaceFileCreateBodyNotebookCellRegExp = new RegExp(
+    '^[A-Za-z0-9_-]{1,12}\/[^\\u0000-\\u001f\\u007f]{1,128}$'
+)
+
 export const WarehouseTablesReplaceFileCreateBody = /* @__PURE__ */ zod.object({
-    upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
-    filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+    notebook_cell: zod
+        .string()
+        .regex(warehouseTablesReplaceFileCreateBodyNotebookCellRegExp)
+        .optional()
+        .describe(
+            'Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.'
+        ),
     file_format: zod
         .enum(['csv', 'json', 'parquet'])
         .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
         .describe(
             "How the uploaded file is read: 'csv', 'json', or 'parquet'.\n\n\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet"
         ),
+    upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
+    filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+})
+
+/**
+ * Replace the rows of a file-upload table with the file in this request.
+ */
+export const warehouseTablesReplaceWithFileCreateBodyNotebookCellRegExp = new RegExp(
+    '^[A-Za-z0-9_-]{1,12}\/[^\\u0000-\\u001f\\u007f]{1,128}$'
+)
+
+export const WarehouseTablesReplaceWithFileCreateBody = /* @__PURE__ */ zod.object({
+    notebook_cell: zod
+        .string()
+        .regex(warehouseTablesReplaceWithFileCreateBodyNotebookCellRegExp)
+        .optional()
+        .describe(
+            'Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.'
+        ),
+    file_format: zod
+        .enum(['csv', 'json', 'parquet'])
+        .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
+        .describe(
+            "How the uploaded file is read: 'csv', 'json', or 'parquet'.\n\n\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet"
+        ),
+    file: zod.instanceof(File),
 })
 
 /**
@@ -1705,6 +1740,31 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Create a warehouse table from the file in this request.
+ */
+export const warehouseTablesCreateFromFileCreateBodyNotebookCellRegExp = new RegExp(
+    '^[A-Za-z0-9_-]{1,12}\/[^\\u0000-\\u001f\\u007f]{1,128}$'
+)
+
+export const WarehouseTablesCreateFromFileCreateBody = /* @__PURE__ */ zod.object({
+    notebook_cell: zod
+        .string()
+        .regex(warehouseTablesCreateFromFileCreateBodyNotebookCellRegExp)
+        .optional()
+        .describe(
+            'Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.'
+        ),
+    file_format: zod
+        .enum(['csv', 'json', 'parquet'])
+        .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
+        .describe(
+            "How the uploaded file is read: 'csv', 'json', or 'parquet'.\n\n\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet"
+        ),
+    file: zod.instanceof(File),
+    table_name: zod.string().describe('Name the resulting table is queried by in HogQL.'),
+})
+
+/**
  * Turn a previously uploaded file into a warehouse table with a FileUpload source.
  *
  * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
@@ -1717,15 +1777,26 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
  * sync imports the file and turns the same table row into a managed table.
  * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
+export const warehouseTablesCreateFromUploadCreateBodyNotebookCellRegExp = new RegExp(
+    '^[A-Za-z0-9_-]{1,12}\/[^\\u0000-\\u001f\\u007f]{1,128}$'
+)
+
 export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({
-    upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
-    filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+    notebook_cell: zod
+        .string()
+        .regex(warehouseTablesCreateFromUploadCreateBodyNotebookCellRegExp)
+        .optional()
+        .describe(
+            'Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.'
+        ),
     file_format: zod
         .enum(['csv', 'json', 'parquet'])
         .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
         .describe(
             "How the uploaded file is read: 'csv', 'json', or 'parquet'.\n\n\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet"
         ),
+    upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
+    filename: zod.string().describe('Sanitized filename returned by upload_file.'),
     table_name: zod.string().describe('Name the resulting table is queried by in HogQL.'),
 })
 
@@ -1834,9 +1905,7 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
 /**
  * Store an uploaded file for a new warehouse table and FileUpload source.
  *
- * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
- * this returns an `upload_id` the caller passes back to build the table. The file is written under
- * a team-scoped prefix, so a table can only ever read back its own team's uploads.
+ * Returns an upload ID for a subsequent create or replacement.
  * @summary Upload a file for a new warehouse table and FileUpload source
  */
 export const WarehouseTablesUploadFileCreateBody = /* @__PURE__ */ zod.object({

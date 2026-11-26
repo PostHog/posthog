@@ -12,6 +12,7 @@ from products.ai_observability.backend.api import (
     ClusteringJobViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
+    EvalSuggestionViewSet,
     EvaluationBackfillViewSet,
     EvaluationConfigViewSet,
     EvaluationDirectoryViewSet,
@@ -30,19 +31,28 @@ from products.ai_observability.backend.api import (
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
-    TaggerViewSet,
     TraceReviewViewSet,
 )
+from products.ai_observability.backend.presentation.views.session_people import SessionPeopleViewSet
+from products.ai_observability.backend.presentation.views.session_previews import SessionPreviewsViewSet
+from products.ai_observability.backend.presentation.views.session_resource import SESSION_LOOKUP
+from products.ai_observability.backend.presentation.views.session_turns import SessionTurnsViewSet
+from products.ai_observability.backend.presentation.views.sessions import SessionViewSet
 from products.ai_observability.backend.presentation.views.trace_clusters import TraceClustersViewSet
 from products.ai_observability.backend.presentation.views.trace_evaluations import TraceEvaluationsViewSet
 from products.ai_observability.backend.presentation.views.trace_exports import TraceExportViewSet
 from products.ai_observability.backend.presentation.views.trace_feedback import TraceFeedbackViewSet
+from products.ai_observability.backend.presentation.views.trace_metrics import TraceMetricsViewSet
 from products.ai_observability.backend.presentation.views.trace_nodes import TraceNodeViewSet
+from products.ai_observability.backend.presentation.views.trace_people import TracePeopleViewSet
+from products.ai_observability.backend.presentation.views.trace_previews import TracePreviewsViewSet
 from products.ai_observability.backend.presentation.views.trace_pull_request import TracePullRequestViewSet
 from products.ai_observability.backend.presentation.views.trace_resource import TRACE_LOOKUP
 from products.ai_observability.backend.presentation.views.trace_review import TraceReviewStatusViewSet
 from products.ai_observability.backend.presentation.views.trace_search import TraceSearchViewSet
+from products.ai_observability.backend.presentation.views.trace_sentiment import TraceSentimentViewSet
 from products.ai_observability.backend.presentation.views.trace_summary import TraceSummaryViewSet
+from products.ai_observability.backend.presentation.views.trace_turns import TraceTurnsViewSet
 from products.ai_observability.backend.presentation.views.traces import TraceViewSet
 
 
@@ -68,6 +78,27 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_ai_observability_instrumentation_checklist",
         ["team_id"],
     )
+    # Registered before the sessions, so that the session route does not read "previews" and "people" as a session id.
+    for prefix, viewset, basename in [
+        ("previews", SessionPreviewsViewSet, "project_ai_observability_session_previews"),
+        ("people", SessionPeopleViewSet, "project_ai_observability_session_people"),
+    ]:
+        routers.projects.register(rf"ai_observability/sessions/{prefix}", viewset, basename, ["team_id"])
+    sessions_router = routers.projects.register(
+        r"ai_observability/sessions", SessionViewSet, "project_ai_observability_sessions", ["team_id"]
+    )
+    sessions_router.register(
+        "turns", SessionTurnsViewSet, "project_ai_observability_session_turns", ["team_id", SESSION_LOOKUP]
+    )
+    # Registered before the traces, so that the trace route does not read "previews" and the others as a trace id.
+    for prefix, viewset, basename in [
+        ("previews", TracePreviewsViewSet, "project_ai_observability_trace_previews"),
+        ("metrics", TraceMetricsViewSet, "project_ai_observability_trace_metrics"),
+        ("people", TracePeopleViewSet, "project_ai_observability_trace_people"),
+        ("sentiment", TraceSentimentViewSet, "project_ai_observability_trace_sentiment"),
+        ("turns", TraceTurnsViewSet, "project_ai_observability_trace_turns"),
+    ]:
+        routers.projects.register(rf"ai_observability/traces/{prefix}", viewset, basename, ["team_id"])
     traces_router = routers.projects.register(
         r"ai_observability/traces",
         TraceViewSet,
@@ -109,12 +140,14 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id", "evaluation_id"],
     )
     routers.projects.register(
+        r"evaluation_suggestions", EvalSuggestionViewSet, "project_evaluation_suggestions", ["team_id"]
+    )
+    routers.projects.register(
         r"evaluation_directories",
         EvaluationDirectoryViewSet,
         "project_evaluation_directories",
         ["team_id"],
     )
-    routers.projects.register(r"taggers", TaggerViewSet, "project_taggers", ["team_id"])
     routers.projects.register(r"evaluation_runs", EvaluationRunViewSet, "project_evaluation_runs", ["team_id"])
     routers.projects.register(
         r"llm_analytics/text_repr", AIObservabilityTextReprViewSet, "project_llm_analytics_text_repr", ["team_id"]

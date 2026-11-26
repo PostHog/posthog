@@ -27,6 +27,7 @@ import posthoganalytics
 
 from posthog.utils import get_machine_id
 
+from products.data_warehouse.backend.facade import api as data_warehouse_api
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -42,6 +43,7 @@ logger = structlog.get_logger(__name__)
 
 SELF_MANAGED_LAG_REASON = "critical_lag_self_managed"
 AUTO_DROPPED_LAG_REASON = "auto_dropped_critical_lag"
+_SCHEDULE_LOOKUP_TIMEOUT = dt.timedelta(seconds=10)
 
 # Markers that report a lost slot or publication. A recreated slot resolves them. Billing and a
 # customer-owned slot's lag have causes of their own, so their markers stay.
@@ -59,6 +61,7 @@ def mark_cdc_broken(
     *,
     pause: bool = True,
     create_visibility_jobs: bool = True,
+    notify: bool = True,
     **extra: typing.Any,
 ) -> None:
     """Move a CDC source into the broken state.
@@ -68,7 +71,8 @@ def mark_cdc_broken(
     schedule is paused — left on for PostHog-managed breakage (the slot is gone, retrying is futile)
     and turned off for self-managed critical lag, whose customer-owned slot may still recover.
     ``create_visibility_jobs`` is turned off by callers inside a run (the extraction activity),
-    which already record their own FAILED job rows. ``extra`` keys (e.g. ``lag_mb``) are merged
+    which already record their own FAILED job rows. ``notify`` turned off sends no failure digest and
+    no in-app notification, for a team that is not meant to hear about it. ``extra`` keys (e.g. ``lag_mb``) are merged
     into the persisted ``cdc_broken`` marker.
     """
     log = logger.bind(source_id=str(source.id), team_id=source.team_id, reason=reason)
@@ -115,12 +119,13 @@ def mark_cdc_broken(
     # Breakage often originates outside a run (the lag sweeper), so no FAILED job row exists.
     # The failure digest email needs one: its schema query requires a failed job newer than the
     # last notification, and the daily catch-up selects teams by recent failed jobs.
-    if newly_broken:
+    if newly_broken and notify:
         if create_visibility_jobs:
             _create_failure_visibility_jobs(source, newly_broken, message, log)
         _schedule_failure_digest(source, log)
 
-    _notify(source, message, log)
+    if notify:
+        _notify(source, message, log)
     _capture(source, reason, paused=pause, log=log)
 
     log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
@@ -164,6 +169,29 @@ def tables_wait_for_repair(source: ExternalDataSource) -> bool:
         .exclude(sync_type_config__cdc_broken__has_key="slot_kept")
         .exists()
     )
+
+
+def restore_missing_extraction_schedule(source: ExternalDataSource) -> bool:
+    """Recreate the extraction schedule of a source that has syncing CDC tables but no schedule.
+
+    Without the schedule nothing reads the slot, while the tables' own load jobs keep succeeding,
+    so nothing else notices. Returns whether the schedule was recreated.
+    """
+    has_syncing_tables = (
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
+    # A marker that waits for repair keeps the schedule paused on purpose. Capture would only fail
+    # against the lost slot, so Repair CDC recreates the schedule instead.
+    if not has_syncing_tables or tables_wait_for_repair(source):
+        return False
+    if data_warehouse_api.cdc_extraction_schedule_exists(str(source.id), timeout=_SCHEDULE_LOOKUP_TIMEOUT):
+        return False
+    data_warehouse_api.sync_cdc_extraction_schedule(source)
+    return True
 
 
 def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:

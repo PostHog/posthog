@@ -5,7 +5,8 @@ import json
 import pytest
 
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
-from posthog.temporal.ai_observability.message_utils import (
+
+from products.ai_observability.backend.facade.evaluation_runtime import (
     extract_text_from_messages,
     format_tool_definitions,
     last_message_text,

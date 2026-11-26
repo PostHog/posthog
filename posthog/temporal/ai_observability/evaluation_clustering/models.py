@@ -3,8 +3,10 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from posthog.dataclasses import frozen
 
-@dataclass
+
+@frozen
 class SamplerActivityInputs:
     """Inputs for the per-job sample_and_embed activity.
 
@@ -20,6 +22,7 @@ class SamplerActivityInputs:
     window_end: str  # ISO
     max_samples: int
     event_filters: list[dict[str, Any]] = field(default_factory=list)
+    job_scope: str = ""
 
 
 @dataclass

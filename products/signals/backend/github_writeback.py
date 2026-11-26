@@ -13,8 +13,8 @@ filed, without waiting for that signal. A report can name any issue URL, so a so
 comment only when the team's GitHub source syncs issues from its repository. Integration coverage
 alone is not enough, because an organization-wide GitHub App installation can reach repositories
 the team never connected. The rest of the path still applies: the team opted in, one of the team's
-own GitHub integrations covers the repository, GitHub says the issue is open and unlocked, and each
-(report, issue) pair gets one comment at most.
+own GitHub integrations covers the repository, GitHub says the issue is open and unlocked, and an
+issue gets one comment at most from the team's open reports.
 
 The comment carries one line for the report's status. The first comment goes out when the report
 becomes visible in the inbox, and a later status change edits that comment instead of posting again.
@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import timedelta
 
+from django.db import connection, transaction
 from django.utils import timezone
 
 import structlog
@@ -38,7 +39,7 @@ from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
-from products.signals.backend.source_issues import source_issues_by_report
+from products.signals.backend.source_issues import CLOSED_REPORT_STATUSES, source_issues_by_report
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 
 logger = structlog.get_logger(__name__)
@@ -137,7 +138,11 @@ def _post_to_issue(
     marker: str,
     integrations: dict[str, GitHubIntegration | None],
 ) -> bool:
-    """Comment on one issue, once per (report, issue). Returns whether a comment went out.
+    """Comment on one issue unless another open report owns it. Returns whether a comment went out.
+
+    A report of the team that holds a claim on the issue and is not closed owns it, so another
+    report posts nothing and logs both report ids. When the owner closes, its comment keeps the
+    "no further work" line, and the next open report that settles can post its own comment.
 
     Pending claims survive uncertain POST outcomes. After the lease expires, a later settle checks
     for the stable comment marker before it retries. The lease exceeds the activity timeout.
@@ -149,14 +154,40 @@ def _post_to_issue(
     # so the raw spelling would let a case-only rename claim a second row and comment twice.
     repository = ref.repository.lower()
 
-    # for_team scopes the lookup; get_or_create still needs team_id in the defaults, because a
-    # queryset filter does not propagate into the row it creates.
-    claim, created = SignalReportGithubComment.objects.for_team(team_id).get_or_create(
-        report_id=report_id,
-        repository=repository,
-        number=ref.number,
-        defaults={"team_id": team_id},
-    )
+    # The lock makes the owner check and the claim one step, so two reports that settle at the same
+    # time cannot both see no owner. The claim then holds the issue while the POST is in flight.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"signals-github-comment:{team_id}:{repository}#{ref.number}"],
+            )
+        owner_id = (
+            SignalReportGithubComment.objects.for_team(team_id)
+            .filter(repository=repository, number=ref.number)
+            .exclude(report_id=report_id)
+            .exclude(report__status__in=CLOSED_REPORT_STATUSES)
+            .values_list("report_id", flat=True)
+            .first()
+        )
+        if owner_id is not None:
+            logger.info(
+                "signals.github_writeback_skipped_owned_issue",
+                report_id=report_id,
+                owner_report_id=str(owner_id),
+                team_id=team_id,
+                repository=repository,
+                number=ref.number,
+            )
+            return False
+        # for_team scopes the lookup; get_or_create still needs team_id in the defaults, because a
+        # queryset filter does not propagate into the row it creates.
+        claim, created = SignalReportGithubComment.objects.for_team(team_id).get_or_create(
+            report_id=report_id,
+            repository=repository,
+            number=ref.number,
+            defaults={"team_id": team_id},
+        )
     if claim.commented_at is not None:
         return False
 

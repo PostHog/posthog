@@ -22,6 +22,8 @@ import type {
     FlakinessOverviewApi,
     LiftOnMergeInputApi,
     MarkToleratedInputApi,
+    NoRunNeededInputApi,
+    NoRunNeededResultApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
     PaginatedRunListApi,
@@ -811,5 +813,27 @@ export const visualReviewRunsCountsRetrieve = async (
     return apiMutator<ReviewStateCountsApi>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisualReviewRunsSkipCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/skip/`
+}
+
+/**
+ * Report that CI decided a commit needs no visual run, so the required commit status passes.
+ *
+ * Does nothing when a run of the commit and run type exists, or when the repo reads its baselines from the YAML file.
+ */
+export const visualReviewRunsSkipCreate = async (
+    projectId: string,
+    noRunNeededInputApi: NoRunNeededInputApi,
+    options?: RequestInit
+): Promise<NoRunNeededResultApi> => {
+    return apiMutator<NoRunNeededResultApi>(getVisualReviewRunsSkipCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(noRunNeededInputApi),
     })
 }

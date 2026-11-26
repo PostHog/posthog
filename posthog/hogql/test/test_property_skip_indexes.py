@@ -40,6 +40,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument, CHQueryErrorNoCommonType
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 
 from products.event_definitions.backend.models import PropertyDefinition
@@ -454,13 +455,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         self._seed()
         self._materialize_with(is_nullable=True, create_minmax_index=True)
         query, values = self._filter_to_sql(self._filter(PropertyOperator.LT, datetime(2024, 1, 15, 10, 30)))
-        with self.assertRaises(Exception) as ctx:
+        with self.assertRaises((CHQueryErrorIllegalTypeOfArgument, CHQueryErrorNoCommonType)):
             sync_execute(query, values)
-        # ClickHouse: ``No operation less between String and DateTime64``.
-        message = str(ctx.exception).lower()
-        assert "supertype" in message or "no operation" in message, (
-            f"Expected a type-mismatch error from ClickHouse, got: {ctx.exception}"
-        )
 
     def test_mat_col_lt_typed_numeric_property(self) -> None:
         # ``property_type=Numeric`` → PropertySwapper wraps in ``toFloat(col)`` — comparison works (``less(toFloat(col), 5)``) but the Call hides the column from minmax.
@@ -652,8 +648,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             # Sentinel-aware IN path bails when ``''`` / ``'null'`` is in the value set (non-nullable mat cols store both as sentinels), so the bloom filter doesn't fire.
             ("in_with_sentinel", PropertyOperator.IN_, ["5", ""], False),
-            # Range rewrite emits ``less(col, 'mango') AND notEquals(col, '') AND notEquals(col, 'null')``; ClickHouse considers each AND-ed clause against every applicable index — minmax fires on ``less``, bloom filter fires on the sentinel ``notEquals`` clauses (granules with no ``''`` / ``'null'`` rows trivially satisfy them). Non-numeric bound: numeric text coerces and skips the rewrite.
-            ("lt", PropertyOperator.LT, "mango", True),
+            # Range rewrite emits ``less(col, 'mango') AND notEquals(col, '') AND notEquals(col, 'null')``. A bloom filter cannot exclude a granule for ``notEquals``, because it only answers "the value may be present", so only minmax on ``less`` prunes. Non-numeric bound: numeric text coerces and skips the rewrite.
+            ("lt", PropertyOperator.LT, "mango", False),
         ]
     )
     def test_mat_col_non_nullable_bloom_filter(

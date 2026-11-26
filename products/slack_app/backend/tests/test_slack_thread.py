@@ -1,7 +1,10 @@
+import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -9,13 +12,25 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
+from products.slack_app.backend.models import SlackChannel, SlackSettings
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
+    PROGRESS_MESSAGE_HEADERS,
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
     SlackThreadHandler,
     _format_task_error,
 )
+
+
+@pytest.fixture(autouse=True)
+def _shared_channel_check_without_a_database(request):
+    # The database-free classes cannot read the approvals the shared-channel check needs.
+    if request.cls is not None and issubclass(request.cls, TestCase):
+        yield
+        return
+    with patch.object(SlackThreadHandler, "_shared_channel_turned_off", return_value=False):
+        yield
 
 
 def _streamed_text(mock_client: MagicMock) -> str:
@@ -169,7 +184,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         handler = SlackThreadHandler(context)
 
         handler.post_or_update_progress(
-            "In progress...", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
+            "Paws on the keyboard", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
         )
 
         mock_client.chat_postMessage.assert_called_once()
@@ -210,6 +225,93 @@ class TestSlackThreadHandler(SimpleTestCase):
         handler.delete_progress()
 
         mock_client.chat_delete.assert_not_called()
+
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_progress_header_stays_the_same_across_updates_of_one_run(self, mock_get_client, _mock_find_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        headers = set()
+        for stage in ("Waking up the hedgehog", "Paws on the keyboard", "Cloning repository"):
+            handler = SlackThreadHandler(context)
+            handler.task_run_id = "run-abc"
+            handler.post_or_update_progress(stage, task_url=None)
+            headers.add(mock_client.chat_postMessage.call_args.kwargs["text"].split("\n")[0])
+
+        assert len(headers) == 1
+        assert headers <= set(PROGRESS_MESSAGE_HEADERS)
+
+    @parameterized.expand(
+        [(f"header_{i}", f"{header}\nPaws on the keyboard") for i, header in enumerate(PROGRESS_MESSAGE_HEADERS)]
+        + [("card_posted_before_copy_change", "*Working on task...* :hourglass_flowing_sand:\nStage: In progress...")]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_delete_progress_finds_the_progress_card(self, _name, card_text, mock_get_client):
+        mock_client = MagicMock()
+        mock_client.auth_test.return_value = {"user_id": "UBOT"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [
+                {"user": "U123", "ts": "1234.5678", "text": "<@UBOT> fix the login bug"},
+                {"user": "UBOT", "ts": "1234.9999", "text": card_text},
+            ]
+        }
+        mock_get_client.return_value = mock_client
+
+        context = SlackThreadContext(
+            team_id=1,
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+        )
+        SlackThreadHandler(context).delete_progress()
+
+        mock_client.chat_delete.assert_called_once_with(channel="C001", ts="1234.9999")
+
+    @patch("products.tasks.backend.facade.api.update_task_run_state")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stored_progress_ts_is_deleted_without_searching_the_thread(self, mock_get_client, mock_update_state):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        SlackThreadHandler(context, RunFooter(run_id="run-1", progress_message_ts="1234.9999")).delete_progress()
+
+        mock_client.conversations_replies.assert_not_called()
+        mock_client.chat_delete.assert_called_once_with(channel="C001", ts="1234.9999")
+        mock_update_state.assert_called_once_with("run-1", remove_keys=["slack_progress_message_ts"])
+
+    @parameterized.expand(
+        [
+            ("no_card_yet", None, None, 1),
+            (
+                "stored_card_was_deleted",
+                "1234.1111",
+                SlackApiError("gone", {"ok": False, "error": "message_not_found"}),
+                0,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.update_task_run_state")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_progress_card_ts_is_stored_and_reused(
+        self, _name, stored_ts, update_error, expected_searches, mock_get_client, mock_update_state
+    ):
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.return_value = {"ok": True, "ts": "1234.9999"}
+        mock_client.chat_update.side_effect = [update_error, None] if update_error else None
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(team_id=1, integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context, RunFooter(run_id="run-1", progress_message_ts=stored_ts))
+
+        handler.post_or_update_progress("Waking up the hedgehog", task_url=None)
+        handler.post_or_update_progress("Paws on the keyboard", task_url=None)
+
+        assert mock_client.conversations_replies.call_count == expected_searches
+        mock_client.chat_postMessage.assert_called_once()
+        assert mock_client.chat_update.call_args.kwargs["ts"] == "1234.9999"
+        mock_update_state.assert_called_once_with("run-1", updates={"slack_progress_message_ts": "1234.9999"})
 
     @parameterized.expand(
         [
@@ -261,14 +363,14 @@ class TestSlackThreadHandler(SimpleTestCase):
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["channel"] == "C001"
         assert kwargs["thread_ts"] == "1234.5678"
-        assert "Pull request opened" in kwargs["text"]
+        assert "Hedgehog shipped a PR" in kwargs["text"]
         assert [_button_texts(block) for block in _action_blocks(kwargs)] == [["View PR"]]
         assert _context_texts(kwargs) == ["<https://posthog.com/task/1|View session>"]
 
     @parameterized.expand(
         [
-            ("closed", False, "<@U456> *Pull request closed without merging*", True),
-            ("merged", True, "<@U456> *Pull request merged* :tada:", False),
+            ("closed", False, "<@U456> *PR closed, the hedgehog lets it go* :fallen_leaf:", True),
+            ("merged", True, "<@U456> *Merged! The hedgehog is proud* :tada:", False),
         ]
     )
     @patch.object(SlackThreadHandler, "_get_integration", return_value=Integration(config={}, integration_id="T1"))
@@ -321,7 +423,7 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         mock_client.chat_postMessage.assert_called_once()
         kwargs = mock_client.chat_postMessage.call_args.kwargs
-        assert kwargs["text"] == f"*Task Failed* :x:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
+        assert kwargs["text"] == f"*The hedgehog hit a snag* :hedgehog: :boom:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
         assert kwargs["blocks"][1]["text"]["text"] == UPSTREAM_PROVIDER_FAILURE_MESSAGE
         assert "retry" in kwargs["blocks"][2]["text"]["text"]
         assert _action_blocks(kwargs) == []
@@ -463,8 +565,8 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> *Pull request opened* :rocket:"),
-            ("none_means_no_tag", None, "*Pull request opened* :rocket:"),
+            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> *Hedgehog shipped a PR* :hedgehog: :rocket:"),
+            ("none_means_no_tag", None, "*Hedgehog shipped a PR* :hedgehog: :rocket:"),
         ]
     )
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -992,4 +1094,46 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
             RunFooter(run_id="run-1"),
         )
         handler.post_pr_opened("https://example.com/pr/1", None, reply_target_slack_user_id="U123")
-        assert post.call_args.args[0] == "*Pull request opened* :rocket:"
+        assert post.call_args.args[0] == "*Hedgehog shipped a PR* :hedgehog: :rocket:"
+
+
+class TestSharedChannelTurnedOffMidRun(BaseTest):
+    @parameterized.expand(
+        [
+            ("relayed_answer_switch_off", lambda h: h.post_thread_message("here is the answer"), False, False),
+            ("relayed_answer_switch_on", lambda h: h.post_thread_message("here is the answer"), True, True),
+            ("progress_switch_off", lambda h: h.post_or_update_progress("planning"), False, False),
+            ("status_stream_switch_off", lambda h: h.start_status_stream(first_markdown_text="thinking"), False, False),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_run_stops_posting_once_an_admin_turns_shared_channels_off(
+        self, _name, post, switch_on, posts, mock_get_client, _mock_find_progress
+    ) -> None:
+        # The run passed the check when it started, in an approved Slack Connect channel.
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SHARED", sensitive_config={"access_token": "xoxb"}
+        )
+        SlackChannel.objects.create(slack_workspace_id="T_SHARED", slack_channel_id="C_EXT", approved_at=timezone.now())
+        SlackSettings.objects.create(slack_workspace_id="T_SHARED", external_channels_enabled=switch_on)
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": [{"ts": "1700000000.000100"}]}
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(
+            SlackThreadContext(
+                team_id=self.team.id,
+                integration_id=integration.id,
+                channel="C_EXT",
+                thread_ts="1700000000.000100",
+                mentioning_slack_user_id="U123",
+            )
+        )
+
+        with patch(
+            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced", return_value=True
+        ):
+            post(handler)
+
+        sent = mock_client.chat_postMessage.called or mock_client.chat_startStream.called
+        assert sent is posts

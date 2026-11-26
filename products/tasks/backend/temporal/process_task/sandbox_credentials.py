@@ -2,6 +2,7 @@
 
 import shlex
 import logging
+import textwrap
 import contextlib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -16,8 +17,10 @@ from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, GITLAB_HOST, SANDBOX_REPOSITORIES_ROOT
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
-from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
+from products.tasks.backend.logic.services.agent_egress_git_worker import refresh_agent_egress_git_grant
+from products.tasks.backend.logic.services.agentsh import ENV_FILE, GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import (
@@ -51,6 +54,8 @@ _GITHUB_REFRESH_INTERVAL_BY_PREFIX: dict[str, float] = {
 }
 DEFAULT_REFRESH_INTERVAL_SECONDS: float = 20 * 60
 CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS = 15
+GITHUB_REMOTE_SCRUB_TIMEOUT_SECONDS = 60
+DEFAULT_SANDBOX_HOME = "/root"
 
 
 def github_refresh_interval_seconds(token: str) -> float:
@@ -60,11 +65,14 @@ def github_refresh_interval_seconds(token: str) -> float:
     return DEFAULT_REFRESH_INTERVAL_SECONDS
 
 
-def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str | None) -> bool:
+def set_git_remote_token(
+    sandbox: "SandboxBase", repository: str, github_token: str | None, *, gitlab_token: str | None = None
+) -> bool:
     """Rewrite ``origin`` with the current credential state; git re-reads it on every operation."""
-    org, repo = repository.lower().split("/")
-    repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-    if github_token:
+    repo_path = f"{SANDBOX_REPOSITORIES_ROOT}/{repository.lower()}"
+    if gitlab_token:
+        remote_url = f"https://oauth2:{gitlab_token}@{GITLAB_HOST}/{repository.lower()}.git"
+    elif github_token:
         remote_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
     else:
         remote_url = f"https://github.com/{repository}.git"
@@ -156,6 +164,387 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
     return remote_cleared and env_cleared
 
 
+def clear_github_remotes_from_sandbox(sandbox: "SandboxBase") -> bool:
+    """Remove GitHub credentials from the restored workspace and effective Git config sources."""
+    script = textwrap.dedent("""\
+        import glob
+        import os
+        import re
+        import shlex
+        import subprocess
+        import sys
+        from urllib.parse import urlsplit
+
+        root = os.path.realpath(sys.argv[1])
+        env_file = sys.argv[2]
+        default_home = sys.argv[3]
+        git = "/usr/bin/git"
+        git_env = {
+            "HOME": default_home,
+            "PATH": "/usr/bin:/bin",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
+        github_host_pattern = re.compile(
+            rb"(?i)(?<![a-z0-9-])(?:[a-z0-9-]+\\.)*github\\.com\\.?(?=[:/?#=]|\\.extraheader(?:=|$)|$)"
+        )
+        credential_url_pattern = re.compile(rb"(?i)[a-z][a-z0-9+.-]*://([^/@\\s]+)@([^/?#\\s]+)")
+        config_paths = []
+        queued_configs = set()
+        visited_configs = set()
+        credential_files = set()
+        repository_roots = set()
+
+        def fail(error):
+            raise error
+
+        def read_env_file():
+            try:
+                with open(env_file, "rb") as handle:
+                    raw = handle.read()
+            except FileNotFoundError:
+                return {}, b""
+            values = {}
+            entries = []
+            for entry in raw.split(b"\\0"):
+                if not entry:
+                    continue
+                key, separator, value = entry.partition(b"=")
+                if separator:
+                    values[os.fsdecode(key)] = os.fsdecode(value)
+                    entries.append((key, value))
+            return values, b"\\0".join(key + b"=" + value for key, value in entries) + (b"\\0" if entries else b"")
+
+        def expand_path(value, base):
+            value = os.path.expanduser(value)
+            if not os.path.isabs(value):
+                value = os.path.join(base, value)
+            return os.path.abspath(value)
+
+        def add_config(path):
+            if not path:
+                return
+            path = os.path.abspath(path)
+            if not os.path.exists(path):
+                return
+            if not os.path.isfile(path):
+                raise RuntimeError("Git config path is not a file")
+            real_path = os.path.realpath(path)
+            if real_path not in queued_configs and real_path not in visited_configs:
+                queued_configs.add(real_path)
+                config_paths.append(path)
+
+        def github_host(host):
+            host = host.lower().rstrip(".")
+            return host == "github.com" or host.endswith(".github.com")
+
+        def has_github_host(value):
+            return github_host_pattern.search(value) is not None
+
+        def has_github_credentials(value):
+            for match in credential_url_pattern.finditer(value):
+                authority = match.group(2).split(b"/", 1)[0]
+                host = authority.rsplit(b"@", 1)[-1].split(b":", 1)[0].decode("ascii", "ignore")
+                if github_host(host) and not (value[match.start() :].lower().startswith(b"ssh://git@")):
+                    return True
+            return False
+
+        def strip_github_userinfo(value):
+            match = re.match(rb"(?i)^([a-z][a-z0-9+.-]*://)([^/@\\s]+@)([^/?#\\s]+)(.*)$", value)
+            if not match:
+                return value
+            scheme, userinfo, authority, suffix = match.groups()
+            host = authority.split(b":", 1)[0].decode("ascii", "ignore")
+            if not github_host(host):
+                return value
+            if scheme.lower() == b"ssh://" and userinfo.lower() == b"git@":
+                return value
+            return scheme + authority + suffix
+
+        def is_helper_key(key):
+            key = key.lower()
+            return key == b"credential.helper" or (key.startswith(b"credential.") and key.endswith(b".helper"))
+
+        def is_github_helper_key(key):
+            lower_key = key.lower()
+            if not is_helper_key(lower_key):
+                return False
+            if lower_key == b"credential.helper" or b"*" in lower_key:
+                return True
+            scope = lower_key[len(b"credential.") : -len(b".helper")]
+            return has_github_host(scope)
+
+        def add_store_path(path, config_path, homes):
+            path = os.path.expanduser(path)
+            if os.path.isabs(path):
+                credential_files.add(os.path.abspath(path))
+                return
+            bases = [os.path.dirname(config_path), root, *repository_roots, *homes]
+            credential_files.update(os.path.abspath(os.path.join(base, path)) for base in bases)
+
+        def collect_helper_store(value, config_path, homes):
+            try:
+                parts = shlex.split(os.fsdecode(value))
+            except ValueError:
+                return False
+            if not parts or os.path.basename(parts[0]) not in ("store", "git-credential-store"):
+                return False
+            store_path = None
+            index = 1
+            while index < len(parts):
+                part = parts[index]
+                if part.startswith("--file="):
+                    store_path = part.partition("=")[2]
+                    break
+                if part == "--file" and index + 1 < len(parts):
+                    store_path = parts[index + 1]
+                    break
+                index += 1
+            if store_path:
+                add_store_path(store_path, config_path, homes)
+            else:
+                credential_files.update(os.path.join(home, ".git-credentials") for home in homes)
+            return True
+
+        def collect_gitdir(path):
+            path = os.path.realpath(path)
+            pending = [path]
+            seen = set()
+            while pending:
+                gitdir = pending.pop()
+                if gitdir in seen:
+                    continue
+                seen.add(gitdir)
+                if not os.path.isdir(gitdir):
+                    raise RuntimeError("Git checkout points to a missing git directory")
+                add_config(os.path.join(gitdir, "config"))
+                add_config(os.path.join(gitdir, "config.worktree"))
+                common_file = os.path.join(gitdir, "commondir")
+                if os.path.isfile(common_file):
+                    with open(common_file, "rb") as handle:
+                        common = os.fsdecode(handle.read().strip())
+                    if common:
+                        pending.append(expand_path(common, gitdir))
+                for child_name in ("modules", "worktrees"):
+                    child_root = os.path.join(gitdir, child_name)
+                    if os.path.isdir(child_root):
+                        for child in os.scandir(child_root):
+                            if child.is_dir(follow_symlinks=True):
+                                pending.append(child.path)
+
+        def collect_gitfile(path, worktree):
+            with open(path, "rb") as handle:
+                value = os.fsdecode(handle.read().strip())
+            if not value.lower().startswith("gitdir:"):
+                raise RuntimeError("Invalid .git file in restored workspace")
+            gitdir = expand_path(value.partition(":")[2].strip(), worktree)
+            collect_gitdir(gitdir)
+
+        git_prefix_path = [None]
+
+        def add_include(config_path, value):
+            include = os.fsdecode(value)
+            if not include:
+                return
+            prefix_marker = "%(prefix)/"
+            if include.startswith(prefix_marker):
+                if git_prefix_path[0] is None:
+                    result = subprocess.run([git, "--exec-path"], cwd="/", env=git_env, capture_output=True)
+                    result.check_returncode()
+                    git_exec_path = os.path.realpath(os.fsdecode(result.stdout.strip()))
+                    git_prefix_path[0] = os.path.dirname(os.path.dirname(git_exec_path))
+                include = os.path.join(git_prefix_path[0], include[len(prefix_marker) :])
+            include_path = expand_path(include, os.path.dirname(config_path))
+            matches = glob.glob(include_path) if glob.has_magic(include_path) else [include_path]
+            for match in matches:
+                add_config(match)
+
+        def run_git_config(config_path, *args):
+            result = subprocess.run(
+                [git, "config", "--file", config_path, "--no-includes", *args],
+                cwd="/",
+                env=git_env,
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, result.args)
+            return result.stdout
+
+        def read_config(config_path):
+            output = run_git_config(config_path, "--null", "--list")
+            entries = []
+            for entry in output.split(b"\\0"):
+                if entry:
+                    key, _, value = entry.partition(b"\\n")
+                    entries.append((key, value))
+            return entries
+
+        def config_include(key):
+            key = key.lower()
+            return key.endswith(b".path") and (key.startswith(b"include.") or key.startswith(b"includeif."))
+
+        def sanitize_config(config_path, entries, homes):
+            remove_keys = set()
+            rewritten = {}
+            for key, value in entries:
+                lower_key = key.lower()
+                if config_include(key):
+                    add_include(config_path, value)
+                if is_helper_key(key):
+                    is_store_helper = collect_helper_store(value, config_path, homes)
+                    if is_github_helper_key(key) and not (lower_key == b"credential.helper" and is_store_helper):
+                        remove_keys.add(key)
+                if lower_key == b"http.extraheader" or (
+                    lower_key.startswith(b"http.")
+                    and lower_key.endswith(b".extraheader")
+                    and (has_github_host(key) or b"*" in key)
+                ):
+                    remove_keys.add(key)
+                if lower_key.startswith(b"url.") and lower_key.endswith((b".insteadof", b".pushinsteadof")):
+                    if has_github_host(key) or has_github_host(value) or has_github_credentials(key) or has_github_credentials(value):
+                        remove_keys.add(key)
+                if (lower_key.startswith(b"remote.") and lower_key.endswith((b".url", b".pushurl"))) or (
+                    lower_key.startswith(b"submodule.") and lower_key.endswith(b".url")
+                ):
+                    rewritten.setdefault(key, []).append(strip_github_userinfo(value))
+
+            for key in remove_keys:
+                run_git_config(config_path, "--unset-all", os.fsdecode(key))
+            for key, values in rewritten.items():
+                original_values = [original for entry_key, original in entries if entry_key == key]
+                if values == original_values:
+                    continue
+                run_git_config(config_path, "--unset-all", os.fsdecode(key))
+                for value in values:
+                    run_git_config(config_path, "--add", os.fsdecode(key), os.fsdecode(value))
+
+        def scrub_credential_file(path):
+            path = os.path.realpath(path)
+            if not os.path.isfile(path):
+                return
+            with open(path, "rb") as handle:
+                raw = handle.read()
+            lines = raw.splitlines(keepends=True)
+            kept = []
+            changed = False
+            for line in lines:
+                candidate = line.strip()
+                try:
+                    host = urlsplit(os.fsdecode(candidate)).hostname
+                except ValueError:
+                    host = None
+                if (host and github_host(host)) or (not host and b"github.com" in candidate.lower()):
+                    changed = True
+                else:
+                    kept.append(line)
+            if changed:
+                temporary = path + ".credential-scrub"
+                with open(temporary, "wb") as handle:
+                    handle.write(b"".join(kept))
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, path)
+
+        persisted_env, cleaned_env = read_env_file()
+        homes = {os.path.realpath(default_home)}
+        for value in (persisted_env.get("HOME"), os.environ.get("HOME")):
+            if value:
+                homes.add(os.path.realpath(expand_path(value, default_home)))
+        xdg_dirs = set()
+        for value in (persisted_env.get("XDG_CONFIG_HOME"), os.environ.get("XDG_CONFIG_HOME")):
+            if value:
+                xdg_dirs.add(os.path.realpath(expand_path(value, default_home)))
+        xdg_dirs.update(os.path.join(home, ".config") for home in homes)
+        for home in homes:
+            add_config(os.path.join(home, ".gitconfig"))
+            add_config(os.path.join(home, ".config", "git", "config"))
+            credential_files.add(os.path.join(home, ".git-credentials"))
+        for xdg_dir in xdg_dirs:
+            add_config(os.path.join(xdg_dir, "git", "config"))
+            credential_files.add(os.path.join(xdg_dir, "git", "credentials"))
+        add_config("/etc/gitconfig")
+        for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
+            value = persisted_env.get(name) or os.environ.get(name)
+            if value and value != "/dev/null":
+                add_config(expand_path(value, default_home))
+        gh_config_dirs = {os.path.join(xdg, "gh") for xdg in xdg_dirs}
+        for value in (persisted_env.get("GH_CONFIG_DIR"), os.environ.get("GH_CONFIG_DIR")):
+            if value:
+                gh_config_dirs.add(expand_path(value, default_home))
+
+        if os.path.isdir(root):
+            for directory, dirs, files in os.walk(root, topdown=True, onerror=fail):
+                if ".git" in dirs:
+                    repository_roots.add(directory)
+                    collect_gitdir(os.path.join(directory, ".git"))
+                    dirs.remove(".git")
+                if ".git" in files:
+                    repository_roots.add(directory)
+                    collect_gitfile(os.path.join(directory, ".git"), directory)
+                if ".gitmodules" in files:
+                    add_config(os.path.join(directory, ".gitmodules"))
+                if "HEAD" in files and "config" in files and {"objects", "refs"}.issubset(dirs):
+                    repository_roots.add(directory)
+                    collect_gitdir(directory)
+                    dirs[:] = [name for name in dirs if name in ("modules", "worktrees")]
+
+        while config_paths:
+            config_path = config_paths.pop()
+            real_path = os.path.realpath(config_path)
+            if real_path in visited_configs:
+                continue
+            visited_configs.add(real_path)
+            sanitize_config(config_path, read_config(config_path), homes)
+
+        for path in credential_files:
+            scrub_credential_file(path)
+        for directory in gh_config_dirs:
+            hosts_file = os.path.join(directory, "hosts.yml")
+            if os.path.lexists(hosts_file):
+                os.remove(os.path.realpath(hosts_file))
+
+        kept_env = []
+        for entry in cleaned_env.split(b"\\0"):
+            if not entry:
+                continue
+            key = entry.partition(b"=")[0]
+            if key in (b"GH_TOKEN", b"GITHUB_TOKEN") or key.startswith(b"GIT_CONFIG_"):
+                continue
+            kept_env.append(entry)
+        cleaned_env = b"\\0".join(kept_env) + (b"\\0" if kept_env else b"")
+        try:
+            with open(env_file, "rb") as handle:
+                original_env = handle.read()
+        except FileNotFoundError:
+            original_env = b""
+        if cleaned_env != original_env and os.path.exists(env_file):
+            target = os.path.realpath(env_file)
+            temporary = target + ".credential-scrub"
+            with open(temporary, "wb") as handle:
+                handle.write(cleaned_env)
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, target)
+    """)
+    command = (
+        f"/usr/bin/python3 -I -c {shlex.quote(script)} "
+        f"{shlex.quote(DEFAULT_SANDBOX_WORKING_DIR)} {shlex.quote(ENV_FILE)} {shlex.quote(DEFAULT_SANDBOX_HOME)}"
+    )
+    result = sandbox.execute(command, timeout_seconds=GITHUB_REMOTE_SCRUB_TIMEOUT_SECONDS)
+    if result.exit_code != 0:
+        logger.warning(
+            "Failed to scrub GitHub credentials from sandbox config",
+            extra={"sandbox_id": sandbox.id, "stderr": result.stderr},
+        )
+        return False
+    return True
+
+
+def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
+    """Clear GitHub credentials while retaining GitLab remote URLs."""
+    configs_cleared = clear_github_remotes_from_sandbox(sandbox)
+    env_cleared = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
+    return configs_cleared and env_cleared
+
+
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
     """Whether a persisted legacy loop run's owner may still receive credentials."""
     if (state or {}).get("loop_id") is None:
@@ -226,12 +615,23 @@ def sandbox_credential_lock(sandbox_id: str) -> Iterator[bool]:
         yield acquired
 
 
+def _is_gitlab_task(task_id: str) -> bool:
+    return Task.objects.filter(id=task_id, repository_integration_id__isnull=False).exists()
+
+
+def _run_requires_scoped_git(run_id: str) -> bool:
+    state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first() or {}
+    return bool(state.get("agent_egress_git_reads") or state.get("github_read_access"))
+
+
 def _apply_token_locked(
     sandbox: "SandboxBase",
     repositories: Sequence[str],
     token: str,
     run_id: str,
     permitted_session_user_id: int | None,
+    *,
+    task_id: str,
 ) -> bool:
     """Apply a token only while the sandbox's session still belongs to the permitted identity.
 
@@ -242,6 +642,13 @@ def _apply_token_locked(
     with sandbox_credential_lock(sandbox.id) as acquired:
         if not acquired:
             logger.warning("token_apply_skipped_lock_unavailable", extra={"run_id": run_id, "sandbox_id": sandbox.id})
+            return False
+        if _run_requires_scoped_git(run_id):
+            return False
+        # A GitLab turn clears GitHub credentials under this same lock, so a task that moved to
+        # GitLab is checked here rather than under a task row lock held across the sandbox write.
+        if _is_gitlab_task(task_id):
+            logger.info("token_apply_skipped_gitlab_task", extra={"run_id": run_id, "sandbox_id": sandbox.id})
             return False
         rebound_actor = _actor_rebound_away_from(sandbox.id, permitted_session_user_id)
         if rebound_actor is not None:
@@ -275,6 +682,7 @@ class LiveSandbox(NamedTuple):
     sandbox_id: str
     repository: str | None
     owner_id: int | None
+    task_id: str
 
 
 def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveSandbox]:
@@ -282,10 +690,13 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
     runs = TaskRun.objects.filter(
         status=TaskRun.Status.IN_PROGRESS,
         task__github_user_integration_id=user_integration_id,
+        task__repository_integration_id__isnull=True,
     ).select_related("task", "task__team")
     for run in runs:
         sandbox_id = (run.state or {}).get("sandbox_id")
         if not sandbox_id:
+            continue
+        if (run.state or {}).get("agent_egress_git_reads") or (run.state or {}).get("github_read_access"):
             continue
         # Only user-authored runs use this integration's rotating token. Bot-authored runs use an
         # installation token, and caller-supplied-token runs are pinned to their own credential —
@@ -296,13 +707,28 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
             continue
         if (run.state or {}).get("github_token_scope"):
             continue
+        state = run.state or {}
+        if is_slack_interaction_state(state) and "slack_actor_user_id" in state:
+            actor_user_id = state["slack_actor_user_id"]
+            if (
+                not isinstance(actor_user_id, int)
+                or isinstance(actor_user_id, bool)
+                or actor_user_id != run.task.created_by_id
+            ):
+                # This integration belongs to the task creator. Never propagate their rotating
+                # token into a Slack run that another member is steering.
+                continue
+        elif is_slack_interaction_state(state):
+            # An unstamped Slack run has no durable proof that its current actor is the creator.
+            # Keep the owner token out until a follow-up persists its actor before delivery.
+            continue
         if _loop_owner_credentials_revoked(run.task, run.state):
             continue
         # This loop carries the owner's token; skip a sandbox a per-message transition rebound to
         # a different actor, or re-applying it would resurrect the owner's identity for that actor.
         if _actor_rebound_away_from(sandbox_id, run.task.created_by_id) is not None:
             continue
-        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.task.created_by_id))
+        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.task.created_by_id, str(run.task_id)))
     return rows
 
 
@@ -316,7 +742,12 @@ def _propagate_user_token(user_integration_id: int, token: str) -> int:
             # Re-check the actor binding under the per-sandbox lock: the filter above is not atomic
             # with this write, so a transition could have rebound the sandbox in between.
             if sandbox.is_running() and _apply_token_locked(
-                sandbox, [live.repository] if live.repository else [], token, live.run_id, live.owner_id
+                sandbox,
+                [live.repository] if live.repository else [],
+                token,
+                live.run_id,
+                live.owner_id,
+                task_id=live.task_id,
             ):
                 applied += 1
         except Exception:
@@ -391,6 +822,17 @@ class GitHubSandboxCredential:
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
+        refresh_agent_egress_git_grant(ctx, sandbox_id=sandbox.id)
+        if ctx.agent_egress_git_reads or (ctx.state or {}).get("agent_egress_git_reads"):
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+            )
+        # A run that started on GitHub keeps this credential in its context after the task moves to
+        # GitLab, and a GitLab sandbox must not get a GitHub token back.
+        if task.repository_integration_id is not None:
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+            )
         # A read-only run must stay read-only for its whole lifetime: without this guard the
         # periodic refresh would resolve the full credential path (the team integration is
         # attached to every task) and silently swap the downscoped token for the write-capable
@@ -511,7 +953,9 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        applied = _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
+        applied = _apply_token_locked(
+            sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id, task_id=ctx.task_id
+        )
         return CredentialRefreshOutcome(
             self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(token)
         )
@@ -536,14 +980,18 @@ class GitHubSandboxCredential:
                 )
             # An installation token is the team's, not a person's, so it may only land in the
             # owner's own session, never in that of someone whose personal token just failed.
-            applied = _apply_token_locked(sandbox, ctx.repositories, fallback, ctx.run_id, task.created_by_id)
+            applied = _apply_token_locked(
+                sandbox, ctx.repositories, fallback, ctx.run_id, task.created_by_id, task_id=ctx.task_id
+            )
             return CredentialRefreshOutcome(
                 self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(fallback)
             )
         if token and _loop_owner_credentials_revoked(task, ctx.state):
             token = None
         applied = (
-            _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
+            _apply_token_locked(
+                sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id, task_id=ctx.task_id
+            )
             if token
             else False
         )
@@ -572,6 +1020,10 @@ class GitHubSandboxCredential:
 
 def build_sandbox_credentials(ctx: "TaskProcessingContext") -> list[SandboxCredential]:
     credentials: list[SandboxCredential] = []
-    if ctx.has_github_credentials:
+    if (
+        ctx.has_github_credentials
+        or ctx.agent_egress_git_reads
+        or (ctx.state or {}).get("agent_egress_git_reads") is True
+    ):
         credentials.append(GitHubSandboxCredential())
     return credentials

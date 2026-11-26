@@ -13,9 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
-import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
-import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { listTransactionalTemplates } from '../listTransactionalTemplates'
 import {
     DELIVERY_WEBHOOK_EVENTS,
     DELIVERY_WEBHOOK_LIST_FILTER_GROUPS,
@@ -44,8 +43,6 @@ export const DELIVERY_WEBHOOK_LIST_PROPS = {
     forceFilterGroups: DELIVERY_WEBHOOK_LIST_FILTER_GROUPS,
     type: 'destination' as const,
 }
-
-const TEMPLATES_PAGE_SIZE = 100
 
 const withoutFinalPeriod = (message: string): string => message.replace(/\.+$/, '')
 
@@ -217,22 +214,13 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             [] as TransactionalEmailOption[],
             {
                 loadTransactionalEmailOptions: async () => {
-                    const projectId = String(values.currentTeamId)
-                    const templates: MessageTemplateApi[] = []
-                    let offset = 0
-                    let hasMore = true
-                    while (hasMore) {
-                        const page = await messagingTemplatesList(projectId, { limit: TEMPLATES_PAGE_SIZE, offset })
-                        templates.push(...page.results.filter((template) => template.transactional_hog_flow_id))
-                        offset += page.results.length
-                        hasMore = !!page.next && page.results.length > 0
-                    }
+                    const transactional = await listTransactionalTemplates(String(values.currentTeamId))
                     const nameCounts = new Map<string, number>()
-                    for (const { name } of templates) {
+                    for (const { name } of transactional) {
                         nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
                     }
-                    return templates.map((template) => ({
-                        key: template.transactional_hog_flow_id!,
+                    return transactional.map((template) => ({
+                        key: template.transactional_hog_flow_id,
                         label:
                             nameCounts.get(template.name)! > 1
                                 ? `${template.name} (${template.id.slice(-8)})`

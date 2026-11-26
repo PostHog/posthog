@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -12,7 +12,6 @@ from products.warehouse_sources.sources.sdk import (
     Endpoint,
     EndpointResource,
     IncrementalConfig,
-    IncrementalFieldType,
     PageNumberPaginator,
     Resource,
     RESTAPIConfig,
@@ -29,6 +28,12 @@ DEEPGRAM_BASE_URL = "https://api.deepgram.com/v1"
 
 # The requests log caps `limit` at 1000; use the max to minimise round trips.
 REQUESTS_PAGE_SIZE = 1000
+
+# Deepgram keeps request logs for 90 days. A requests log call with no `start` asks for the range
+# from the project's first request, and Deepgram rejects that call with HTTP 400. So each requests
+# sync sends an explicit `start`/`end` window. The window stops one day short of the 90-day limit, so
+# that clock skew between us and Deepgram cannot move `start` out of the retained range.
+REQUESTS_LOG_LOOKBACK = timedelta(days=89)
 
 # Parent (projects) list is the fan-out seed for every project-scoped endpoint.
 _PARENT_RESOURCE = "projects"
@@ -79,6 +84,9 @@ class DeepgramResumeConfig:
     # progress plus the in-progress project's requests-log page). Retained as a single blob so the shape
     # can evolve without a state-format migration.
     fanout_state: dict[str, Any] | None = None
+    # The requests log `start`/`end` window of the interrupted run. A resumed run reuses it, because a
+    # recomputed window moves `start` forward and shifts which rows each saved page offset points at.
+    requests_window: dict[str, str] | None = None
     # Legacy fields from the hand-rolled resume format. Kept (with defaults) so an old saved state still
     # parses via ``dataclass(**saved)``; a run resumed from one starts fan-out fresh (a re-read the merge
     # dedupes) rather than mis-mapping the old positional scope onto the new state.
@@ -124,6 +132,33 @@ def _format_start_date(value: Any) -> str:
     else:
         return str(value)[:10]
     return min(resolved, today).isoformat()
+
+
+def _as_utc_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            return _as_utc_datetime(datetime.fromisoformat(value))
+        except ValueError:
+            return None
+    return None
+
+
+def _requests_window(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> dict[str, str]:
+    """The `start`/`end` filter for one requests log sync.
+
+    `start` is the incremental cursor, but never earlier than the retained log range. `end` is fixed
+    at the job start, so that requests made during the page walk cannot shift rows between pages.
+    """
+    now = datetime.now(UTC).replace(microsecond=0)
+    start = now - REQUESTS_LOG_LOOKBACK
+    cursor = _as_utc_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
+    if cursor is not None and cursor > start:
+        start = cursor
+    return {"start": _format_start_value(start), "end": _format_start_value(now)}
 
 
 def _redact_url_userinfo(url: str) -> str:
@@ -259,19 +294,17 @@ def _make_child_map(
 def _incremental_config(
     config: DeepgramEndpointConfig, should_use_incremental_field: bool, db_incremental_field_last_value: Any
 ) -> IncrementalConfig | None:
-    """Server-side `start` filter for an incremental endpoint, only when we have a cursor to filter on.
+    """Server-side `start` filter for the usage and billing aggregates, only when we have a cursor.
 
-    No filter on a first (full) sync. The persisted watermark is formatted (and future-clamped) the
-    way the endpoint's `start` expects: whole seconds for the requests log, whole days for the usage
-    and billing aggregates.
+    No filter on a first (full) sync. The persisted watermark is formatted (and future-clamped) to the
+    whole days those endpoints expect. The requests log builds its own window in `_requests_window`.
     """
     if not should_use_incremental_field or db_incremental_field_last_value is None:
         return None
-    cursor = config.incremental_fields[0]
     return {
         "start_param": "start",
-        "cursor_path": cursor["field"],
-        "convert": _format_start_date if cursor["field_type"] == IncrementalFieldType.Date else _format_start_value,
+        "cursor_path": config.incremental_fields[0]["field"],
+        "convert": _format_start_date,
     }
 
 
@@ -304,7 +337,10 @@ def _projects_parent_resource() -> EndpointResource:
 
 
 def _child_resource(
-    endpoint: str, config: DeepgramEndpointConfig, incremental: IncrementalConfig | None
+    endpoint: str,
+    config: DeepgramEndpointConfig,
+    incremental: IncrementalConfig | None,
+    requests_window: dict[str, str] | None,
 ) -> EndpointResource:
     params: dict[str, Any] = {
         _PARENT_ID_FIELD: {"type": "resolve", "resource": _PARENT_RESOURCE, "field": _PARENT_ID_FIELD},
@@ -316,6 +352,7 @@ def _child_resource(
     }
     if config.paginated:
         params["limit"] = REQUESTS_PAGE_SIZE
+        params.update(requests_window or {})
         endpoint_config["paginator"] = DeepgramRequestsPaginator()
     else:
         endpoint_config["paginator"] = SinglePagePaginator()
@@ -329,11 +366,13 @@ def _child_resource(
     }
 
 
-def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list[str | EndpointResource]:
+def _resources_for(
+    endpoint: str, incremental: IncrementalConfig | None, requests_window: dict[str, str] | None
+) -> list[str | EndpointResource]:
     config = DEEPGRAM_ENDPOINTS[endpoint]
     if config.is_project_list:
         return [_projects_resource()]
-    return [_projects_parent_resource(), _child_resource(endpoint, config, incremental)]
+    return [_projects_parent_resource(), _child_resource(endpoint, config, incremental, requests_window)]
 
 
 def deepgram_source(
@@ -346,11 +385,17 @@ def deepgram_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = DEEPGRAM_ENDPOINTS[endpoint]
-    incremental = (
-        _incremental_config(config, should_use_incremental_field, db_incremental_field_last_value)
-        if config.supports_incremental
-        else None
-    )
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    # The requests log takes its `start` from the window, so it gets no framework incremental config.
+    requests_window: dict[str, str] | None = None
+    incremental: IncrementalConfig | None = None
+    if config.paginated:
+        requests_window = (resume.requests_window if resume is not None else None) or _requests_window(
+            should_use_incremental_field, db_incremental_field_last_value
+        )
+    elif config.supports_incremental:
+        incremental = _incremental_config(config, should_use_incremental_field, db_incremental_field_last_value)
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -361,20 +406,18 @@ def deepgram_source(
             "auth": DeepgramTokenAuth(api_key),
         },
         "resource_defaults": {},
-        "resources": _resources_for(endpoint, incremental),
+        "resources": _resources_for(endpoint, incremental, requests_window),
     }
 
-    initial_paginator_state: dict[str, Any] | None = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.fanout_state is not None:
-            initial_paginator_state = resume.fanout_state
+    initial_paginator_state = resume.fanout_state if resume is not None else None
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Save AFTER a page is yielded so a crash re-yields the last page (merge dedupes) rather than
         # skipping it. A ``None`` state means no page remains — nothing to persist.
         if state is not None:
-            resumable_source_manager.save_state(DeepgramResumeConfig(fanout_state=state))
+            resumable_source_manager.save_state(
+                DeepgramResumeConfig(fanout_state=state, requests_window=requests_window)
+            )
 
     resources = rest_api_resources(
         rest_config,

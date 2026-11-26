@@ -118,8 +118,6 @@ class Person(_message.Message):
         "uuid",
         "team_id",
         "properties",
-        "properties_last_updated_at",
-        "properties_last_operation",
         "created_at",
         "version",
         "is_identified",
@@ -131,8 +129,6 @@ class Person(_message.Message):
     UUID_FIELD_NUMBER: _ClassVar[int]
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PROPERTIES_FIELD_NUMBER: _ClassVar[int]
-    PROPERTIES_LAST_UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
-    PROPERTIES_LAST_OPERATION_FIELD_NUMBER: _ClassVar[int]
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
@@ -143,8 +139,6 @@ class Person(_message.Message):
     uuid: str
     team_id: int
     properties: bytes
-    properties_last_updated_at: bytes
-    properties_last_operation: bytes
     created_at: int
     version: int
     is_identified: bool
@@ -157,8 +151,6 @@ class Person(_message.Message):
         uuid: _Optional[str] = ...,
         team_id: _Optional[int] = ...,
         properties: _Optional[bytes] = ...,
-        properties_last_updated_at: _Optional[bytes] = ...,
-        properties_last_operation: _Optional[bytes] = ...,
         created_at: _Optional[int] = ...,
         version: _Optional[int] = ...,
         is_identified: bool = ...,

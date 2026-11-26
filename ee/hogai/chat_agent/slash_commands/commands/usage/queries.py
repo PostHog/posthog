@@ -76,31 +76,59 @@ def _get_billing_config_payload() -> dict | None:
     return None
 
 
-def get_ai_free_tier_credits(team_id: int) -> int:
-    """
-    Get the AI free tier credits limit for a team.
-    Falls back to DEFAULT_FREE_TIER_CREDITS if not configured.
-    """
+def _get_free_tier_credits_override(team_id: int) -> int | None:
     region = get_instance_region()
     if not region:
-        return DEFAULT_FREE_TIER_CREDITS
+        return None
 
     payload = _get_billing_config_payload()
     if not payload:
-        return DEFAULT_FREE_TIER_CREDITS
+        return None
 
     region_config = payload.get(region)
     if not region_config or not isinstance(region_config, dict):
-        return DEFAULT_FREE_TIER_CREDITS
+        return None
 
     team_id_str = str(team_id)
     if team_id_str in region_config:
         try:
             return int(region_config[team_id_str])
         except (ValueError, TypeError):
-            return DEFAULT_FREE_TIER_CREDITS
+            return None
 
-    return DEFAULT_FREE_TIER_CREDITS
+    return None
+
+
+def _get_free_plan_credits_from_organization(team: "Team") -> int | None:
+    organization = team.organization
+    if organization.has_active_subscription is not False:
+        return None
+
+    usage = organization.usage
+    if not isinstance(usage, dict):
+        return None
+
+    ai_credits = usage.get("ai_credits")
+    if not isinstance(ai_credits, dict):
+        return None
+
+    limit = ai_credits.get("limit")
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        return None
+
+    return limit
+
+
+def get_ai_free_tier_credits(team: "Team") -> int:
+    """
+    Get the AI free tier credits limit for a team.
+    Falls back to the organization's free plan allowance, then to DEFAULT_FREE_TIER_CREDITS.
+    """
+    override = _get_free_tier_credits_override(team.id)
+    if override is not None:
+        return override
+
+    return _get_free_plan_credits_from_organization(team) or DEFAULT_FREE_TIER_CREDITS
 
 
 def get_ga_launch_date() -> datetime:

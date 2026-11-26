@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -6,7 +8,7 @@ import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, AvailableFeature } from '~/types'
 
 import type { HogFlowApi, HogFlowBatchJobApi, HogFlowScheduleApi } from '../generated/api.schemas'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
@@ -203,5 +205,89 @@ describe('BroadcastSummary', () => {
             )
             expect(happened).toBe(allowed)
         }
+    )
+
+    it.each([
+        { opened: 'by clicking the History tab', activityLink: false },
+        { opened: 'from a copied activity link', activityLink: true },
+    ])(
+        'shows past versions read-only and each change with where it came from, opened $opened',
+        async ({ activityLink }) => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                resource_access_control: {
+                    ...priorAppContext?.resource_access_control,
+                    [AccessControlResourceType.ActivityLog]: AccessControlLevel.Viewer,
+                },
+            } as AppContext
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/:id/': {
+                        ...sentBroadcast(AccessControlLevel.Editor, []),
+                        version: 2,
+                    },
+                    '/api/projects/:team_id/hog_flows/:id/batch_jobs/': [],
+                    '/api/projects/:team_id/hog_flows/:id/revisions/': {
+                        count: 2,
+                        next: null,
+                        previous: null,
+                        results: [
+                            { version: 2, created_by: null, created_at: '2026-10-20T09:00:00Z' },
+                            { version: 1, created_by: null, created_at: '2026-10-19T09:00:00Z' },
+                        ],
+                    },
+                    '/api/projects/:team_id/activity_log/': {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [
+                            {
+                                id: 'activity-1',
+                                activity: 'updated',
+                                scope: 'HogFlow',
+                                item_id: BROADCAST_ID,
+                                created_at: '2026-10-20T09:00:00Z',
+                                client: 'mcp',
+                                user: { first_name: 'Ada', last_name: '', email: 'ada@example.com' },
+                                detail: { name: 'October newsletter', changes: [] },
+                            },
+                        ],
+                    },
+                },
+            })
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                available_product_features: [{ key: AvailableFeature.AUDIT_LOGS, name: 'Audit logs' }],
+            })
+            if (activityLink) {
+                router.actions.push(`/broadcasts/${BROADCAST_ID}`, { activity: 'activity-1' })
+            }
+            const props = { id: BROADCAST_ID }
+
+            render(
+                <Provider>
+                    <BindLogic logic={broadcastWizardLogic} props={props}>
+                        <BindLogic logic={broadcastPreviewLogic} props={props}>
+                            <BindLogic logic={broadcastTestSendLogic} props={props}>
+                                <BroadcastSummary />
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </Provider>
+            )
+
+            if (!activityLink) {
+                await act(async () => {
+                    fireEvent.click(await screen.findByText('History'))
+                })
+            }
+
+            expect(await screen.findByText('v2')).toBeInTheDocument()
+            expect(screen.getByText('v1')).toBeInTheDocument()
+            // The first activity row waits on a one-time dynamic import of every product's describers.
+            expect(await screen.findByText('via MCP', undefined, { timeout: 10000 })).toBeInTheDocument()
+            expect(screen.queryByText('Restore as draft')).not.toBeInTheDocument()
+        },
+        15000
     )
 })

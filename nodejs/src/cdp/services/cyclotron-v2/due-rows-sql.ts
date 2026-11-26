@@ -22,6 +22,7 @@ const CLAIM_RETURNING = `RETURNING
     cyclotron_jobs.person_id,
     cyclotron_jobs.action_id,
     cyclotron_jobs.cancel_requested_at,
+    cyclotron_jobs.pending_wake,
     cyclotron_jobs.lock_id`
 
 const priorityClassesCte = (queueName: string): string => `priority_classes AS (
@@ -93,6 +94,17 @@ FROM queue_classes c
 CROSS JOIN LATERAL (
     SELECT COUNT(*) AS count FROM cyclotron_jobs j
     WHERE j.status = 'available' AND j.queue_name = c.queue_name AND j.priority = c.priority AND j.scheduled <= NOW()
+) due`
+
+export const cappedQueueDepthSql = (limit: number): string => `WITH RECURSIVE ${QUEUE_CLASSES_CTE}
+SELECT COALESCE(SUM(due.count), 0) AS count
+FROM queue_classes c
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS count FROM (
+        SELECT 1 FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = c.queue_name AND j.priority = c.priority AND j.scheduled <= NOW()
+        LIMIT ${Math.max(1, Math.floor(limit))}
+    ) capped
 ) due`
 
 export const QUEUE_DEPTHS_SQL = `WITH RECURSIVE ${QUEUE_CLASSES_CTE}

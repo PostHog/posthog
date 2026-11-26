@@ -8,6 +8,7 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { dayjs } from 'lib/dayjs'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { UniversalFiltersGroup } from '~/types'
@@ -24,6 +25,7 @@ import {
     formatBytes,
 } from './logsFilterVolumePreview'
 import { logsFilterVolumePreviewLogic } from './logsFilterVolumePreviewLogic'
+import { QuillLogsFilterVolumeSparkline } from './QuillLogsFilterVolumeSparkline'
 
 export interface LogsFilterVolumeSparklineRenderInfo extends LogsFilterPreviewSeriesData {
     points: LogsFilterPreviewPoint[] | null
@@ -55,8 +57,8 @@ function bucketInterval(bucketSeconds: number): TimeInterval {
 
 /**
  * Live preview of the log volume a filter group matches over the last 24h, broken down by service.
- * Shared by the drop-rule and retention-rule editors — one request serves both metrics, since each
- * row carries `count` and `bytes_uncompressed`.
+ * Shared by the drop-rule and retention-rule editors. The request ranks by `metric`, and a row
+ * carries `bytes_uncompressed` only when `metric` is `bytes`.
  */
 export function LogsFilterVolumeSparkline({
     filterGroup,
@@ -71,6 +73,7 @@ export function LogsFilterVolumeSparkline({
     const { filterPreview, filterPreviewLoading } = useValues(logic)
     const { setPreviewRequest, refreshFilterPreview } = useActions(logic)
     const theme = useChartTheme()
+    const quillSurface = useQuillSurface()
 
     const hasFilters = filterGroup.values.length > 0
 
@@ -131,6 +134,33 @@ export function LogsFilterVolumeSparkline({
         [seriesData.bucketSeconds, JSON.stringify(goalLines ?? null), formatValue]
     )
 
+    const chart = (
+        <TimeSeriesBarChart
+            series={series}
+            labels={seriesData.labels}
+            theme={theme}
+            config={config}
+            dataAttr="logs-filter-volume-preview"
+        />
+    )
+
+    if (quillSurface) {
+        return (
+            <QuillLogsFilterVolumeSparkline
+                lookback={lookback}
+                metric={metric}
+                hasFilters={hasFilters}
+                loading={filterPreviewLoading}
+                failed={!filterPreview}
+                empty={series.length === 0}
+                formattedTotal={formattedTotal}
+                chart={chart}
+                caption={caption}
+                onRetry={refreshFilterPreview}
+            />
+        )
+    }
+
     return (
         <div className="mt-3 flex flex-col gap-1">
             <div className="flex items-center justify-between text-xs text-muted">
@@ -160,13 +190,7 @@ export function LogsFilterVolumeSparkline({
                         No logs match these filters in the last {lookback}
                     </div>
                 ) : (
-                    <TimeSeriesBarChart
-                        series={series}
-                        labels={seriesData.labels}
-                        theme={theme}
-                        config={config}
-                        dataAttr="logs-filter-volume-preview"
-                    />
+                    chart
                 )}
             </div>
             {caption}

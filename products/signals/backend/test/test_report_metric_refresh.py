@@ -459,3 +459,34 @@ class TestReportMetricQueryShapes(APIBaseTest):
         saved = SignalReport.objects.get(id=report.id).metrics
         assert saved[0]["value"] == 17
         assert saved[1]["value"] == 21
+
+    @parameterized.expand([("one_source", 1, 3.0), ("three_sources", 3, 12.0)])
+    def test_skips_a_metric_the_remaining_budget_would_starve(
+        self, _name: str, source_count: int, budget_seconds: float
+    ) -> None:
+        metric = _metric(kind="custom")
+        metric["query"] = trends_metric_query(
+            series=[
+                {"kind": "EventsNode", "event": f"event-{index}", "math": "total"} for index in range(source_count)
+            ],
+            date_from="-14d",
+        )
+        if source_count > 1:
+            metric["query"]["source"]["trendsFilter"] = {"formula": "+".join("ABC"[:source_count])}
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", metrics=[metric]
+        )
+        policy = type("ReadablePolicy", (), {"may_read_snapshot": lambda self, metric: True})()
+
+        with (
+            patch(
+                "products.signals.backend.report_metric_refresh.REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS",
+                budget_seconds,
+            ),
+            patch("products.signals.backend.report_metric_refresh.run_cached_trends_query") as run_query,
+        ):
+            summary = refresh_report_metric_snapshots(team=self.team, reports=[report], policy=policy)
+
+        run_query.assert_not_called()
+        assert (summary.refreshed, summary.skipped, summary.failed) == (0, 1, 0)
+        assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17

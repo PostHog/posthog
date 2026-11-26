@@ -24,7 +24,7 @@ from rest_framework.settings import api_settings
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
-from posthog.api.event_definition_generators.golang import GolangGenerator
+from posthog.api.event_definition_generators.golang import GolangGenerator, GoSDK
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import (
     TypeScriptGenerator,
@@ -77,6 +77,7 @@ from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.facade.api import batch_definition_metadata_copies
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
@@ -425,6 +426,19 @@ class TypeScriptDefinitionsQuerySerializer(serializers.Serializer):
     )
 
 
+class GolangDefinitionsQuerySerializer(serializers.Serializer):
+    sdk = serializers.ChoiceField(
+        choices=GoSDK.choices,
+        default=GoSDK.POSTHOG_GO,
+        required=False,
+        help_text=(
+            "The posthog-go major the package imports. `posthog-go` imports `github.com/posthog/posthog-go` (1.x). "
+            "`posthog-go-v2` imports `github.com/posthog/posthog-go/v2` (2.x). "
+            "A package built for one major does not compile against the other."
+        ),
+    )
+
+
 class GeneratedDefinitionsSerializer(serializers.Serializer):
     content = serializers.CharField(help_text="The generated module, ready to write to a file.")
     event_count = serializers.IntegerField(help_text="How many events the module types.")
@@ -436,6 +450,14 @@ class GeneratedDefinitionsSerializer(serializers.Serializer):
         choices=TypeScriptSDK.choices,
         required=False,
         help_text="TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.",
+    )
+
+
+class GeneratedGolangDefinitionsSerializer(GeneratedDefinitionsSerializer):
+    sdk = serializers.ChoiceField(
+        choices=GoSDK.choices,
+        required=False,
+        help_text="The posthog-go major the package imports. Clients check it to detect a PostHog that ignores `sdk`.",
     )
 
 
@@ -992,8 +1014,10 @@ class EventDefinitionViewSet(
         # One transaction for the whole batch: if any event fails part-way the write rolls back
         # entirely, so the caller never has to reason about a half-applied set. Activity logs are
         # transaction-aware and defer to commit, so they roll back with it too.
-        with transaction.atomic():
-            for obj_id in validated_ids:
+        # The saves go in id order, the order in which the metadata copy locks the rows, so a backfill
+        # batch and this edit can't deadlock. They copy to the metadata table in one statement.
+        with transaction.atomic(), batch_definition_metadata_copies():
+            for obj_id in sorted(validated_ids):
                 if obj_id not in found_ids:
                     continue
                 if bool(verified_by_id.get(obj_id, False)) == verified:
@@ -1226,10 +1250,13 @@ class EventDefinitionViewSet(
         generator = TypeScriptTypesGenerator() if sdk == TypeScriptSDK.NONE else TypeScriptGenerator()
         return self._generate_definitions(generator, extra={"sdk": sdk})
 
-    @extend_schema(responses={200: GeneratedDefinitionsSerializer})
+    @extend_schema(parameters=[GolangDefinitionsQuerySerializer], responses={200: GeneratedGolangDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="golang", required_scopes=["event_definition:read"])
     def golang_definitions(self, *args, **kwargs):
-        return self._generate_definitions(GolangGenerator())
+        query = GolangDefinitionsQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        sdk = GoSDK(query.validated_data["sdk"])
+        return self._generate_definitions(GolangGenerator(sdk), extra={"sdk": sdk.value})
 
     @extend_schema(responses={200: GeneratedDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="python", required_scopes=["event_definition:read"])

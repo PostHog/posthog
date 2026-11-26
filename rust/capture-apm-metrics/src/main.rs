@@ -10,15 +10,18 @@ use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post,
 use capture::metrics_middleware::track_metrics;
 use capture_apm_metrics::config::Config;
 use capture_apm_metrics::k8s_resource_attributes::K8sResourceAttributes;
+use capture_apm_metrics::label_cardinality::LabelCardinality;
 use capture_apm_metrics::management;
 use capture_apm_metrics::prometheus;
-use capture_apm_metrics::series_label_gate::{spawn_redis_writer, CacheLimits, SeriesLabelGate};
+use capture_apm_metrics::series_label_gate::{
+    metrics_bucket_overrides, spawn_redis_writer, CacheLimits, SeriesLabelGate,
+};
 use capture_apm_metrics::service::{export_metrics_http, MetricsService};
 use capture_logs::authorizer::Authorizer;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::options_handler;
-use common_metrics::setup_metrics_routes;
+use common_metrics::setup_metrics_routes_with_overrides;
 use common_redis::{Client, CompressionConfig, RedisClient, RedisValueFormat};
 use std::future::ready;
 use std::net::SocketAddr;
@@ -148,6 +151,17 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     gate
 }
 
+fn start_label_cardinality(config: &Config) -> Arc<LabelCardinality> {
+    let settings = config.label_cardinality_settings();
+    info!(
+        "Label cardinality detector in {:?} mode (limit {} values, new-series share {})",
+        settings.mode, settings.value_limit, settings.min_new_share
+    );
+    let detector = LabelCardinality::new(settings);
+    detector.spawn_pruner();
+    detector
+}
+
 fn main() {
     // Without this, the first TLS handshake to Valkey panics the task that made it.
     rustls::crypto::aws_lc_rs::default_provider()
@@ -237,9 +251,11 @@ async fn run(
             "/_liveness",
             get(move || ready(health_registry.get_status())),
         );
-    let management_router = setup_metrics_routes(management_router);
+    let management_router =
+        setup_metrics_routes_with_overrides(management_router, &metrics_bucket_overrides());
 
     let series_label_gate = start_series_label_gate(&config).await;
+    let label_cardinality = start_label_cardinality(&config);
     let token_dropper =
         TokenDropper::new(&config.base.drop_events_by_token.clone().unwrap_or_default());
     let authorizer = Authorizer::new(Arc::new(token_dropper));
@@ -249,9 +265,11 @@ async fn run(
         config.base.max_request_body_size_bytes,
         config.remote_write_max_expanded_bytes,
         series_label_gate,
+        label_cardinality,
         Arc::new(K8sResourceAttributes::from_token_list(
             &config.remote_write_k8s_resource_attribute_tokens,
         )),
+        config.prometheus_keep_stale_markers,
     );
     let http_bind = format!("{}:{}", config.base.host, config.base.port);
     info!("Listening on {}", http_bind);

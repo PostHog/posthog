@@ -44,6 +44,13 @@ class TestSourceForPipeline:
         assert captured["resumable_source_manager"] is manager
 
 
+class TestGetSchemas:
+    def test_only_the_reach_table_starts_deselected(self) -> None:
+        schemas = ZendeskSellSource().get_schemas(MagicMock(), team_id=1)
+
+        assert [schema.name for schema in schemas if not schema.should_sync_default] == ["sequence_enrollments"]
+
+
 class TestCanonicalDescriptions:
     def test_descriptions_key_off_known_endpoints(self) -> None:
         descriptions = ZendeskSellSource().get_canonical_descriptions()

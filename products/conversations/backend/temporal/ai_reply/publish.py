@@ -15,6 +15,9 @@ def channel_allows_bot_reply(*, ticket: Ticket, ticket_type: str) -> bool:
     """
     if ticket_type not in PUBLISHABLE_TICKET_TYPES:
         return False
+    # The AI reads a forwarded ticket's forwarded email, which can carry internal mail, so a person sends replies.
+    if (ticket.anonymous_traits or {}).get("email_forwarded") is True:
+        return False
     settings_dict = ticket.team.conversations_settings or {}
     modes = settings_dict.get("ai_reply_modes") or {}
     channel_modes = modes.get(ticket.channel_source) or {}

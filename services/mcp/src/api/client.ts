@@ -86,10 +86,13 @@ function waitUnlessAborted(ms: number, signal: AbortSignal | null | undefined): 
 // safe, so the agent does not have to guess if a write applied.
 const API_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
 
-// Endpoints that run analytics queries can legitimately take minutes, so they keep a
-// wide bound. It still ends a request that never answers.
+// Endpoints that run analytics queries, chains of model calls (manifest drafting) or a CDC
+// repair inside the request can legitimately take minutes, so they keep a wide bound. A CDC
+// repair that the client abandons keeps running on the server, and the agent cannot tell if the
+// replication slot was recreated. The wide bound still ends a request that never answers.
 const LONG_RUNNING_API_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
-const LONG_RUNNING_API_PATH = /\/(query|run_insights|mcp_tools\/execute_sql)\/$|\/(max_tools|autoresearch)\//
+const LONG_RUNNING_API_PATH =
+    /\/(query|run_insights|mcp_tools\/execute_sql|external_data_sources\/draft_custom_manifest|external_data_sources\/[^/]+\/repair_cdc)\/$|\/(max_tools|autoresearch)\//
 
 function apiRequestTimeoutMs(url: string): number {
     return LONG_RUNNING_API_PATH.test(url.split('?')[0]!) ? LONG_RUNNING_API_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS
@@ -1145,13 +1148,15 @@ export class ApiClient {
 
             getHealth: async ({
                 experimentId,
+                atLaunch = false,
                 signal,
             }: {
                 experimentId: number
+                atLaunch?: boolean
                 signal?: AbortSignal
             }): Promise<Result<Schemas.ExperimentHealth>> => {
                 return this.fetchJson<Schemas.ExperimentHealth>(
-                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/${atLaunch ? '?at_launch=true' : ''}`,
                     { signal }
                 )
             },
@@ -1748,6 +1753,7 @@ export class ApiClient {
                 warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                 has_next?: boolean
                 next_cursor?: string | null
+                hasMore?: boolean | null
             }> => {
                 return this.request<{
                     results: unknown
@@ -1757,6 +1763,7 @@ export class ApiClient {
                     warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                     has_next?: boolean
                     next_cursor?: string | null
+                    hasMore?: boolean | null
                 }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,

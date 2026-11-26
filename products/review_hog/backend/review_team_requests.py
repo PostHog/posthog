@@ -152,7 +152,7 @@ class ReviewTeamRequest:
         if not requester.members:
             self._reply(github, NO_PROJECT_MESSAGE)
             return "no_project"
-        members = members_with_resource_access(requester.members, users, resource="review_hog", level="editor")
+        members = members_with_resource_access(requester.members, users, resource="code_review", level="editor")
         if not members:
             self._reply(github, ACCESS_DENIED_MESSAGE)
             return "access_denied"

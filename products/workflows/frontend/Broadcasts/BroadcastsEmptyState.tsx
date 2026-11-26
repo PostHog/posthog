@@ -9,6 +9,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ImportFromAnotherToolPrompt } from '../OptOuts/ImportFromAnotherToolPrompt'
 import { onboardingWizardUrl } from '../setupGuide/wizard/onboardingWizardSteps'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
@@ -70,6 +71,11 @@ export function BroadcastsEmptyState(): JSX.Element {
                     New broadcast
                 </LemonButton>
             </div>
+            <ImportFromAnotherToolPrompt
+                entryPoint="broadcasts"
+                linkText="Import your audiences and templates."
+                dataAttr="broadcasts-empty-state-import"
+            />
         </div>
     )
 }

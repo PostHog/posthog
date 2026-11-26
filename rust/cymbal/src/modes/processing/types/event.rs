@@ -24,6 +24,12 @@ pub struct AnyEvent {
 }
 
 impl AnyEvent {
+    pub fn drop_adaptive_ingestion_properties(&mut self) {
+        if let Some(properties) = self.properties.as_object_mut() {
+            properties.retain(|key, _| !key.starts_with("$adaptive_ingestion_"));
+        }
+    }
+
     pub fn drop_code_variables(&mut self) {
         self.for_each_frame(|frame| {
             frame.remove("code_variables");
@@ -56,6 +62,31 @@ impl AnyEvent {
             for frame in frames.iter_mut().filter_map(Value::as_object_mut) {
                 apply(frame);
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ProcessOutcome {
+    Ok(AnyEvent),
+    /// The reason is a `drop` reason in the response contract, so keep the set small and fixed.
+    Dropped(&'static str),
+    Failed {
+        code: &'static str,
+        message: String,
+    },
+    Retry {
+        code: &'static str,
+        message: String,
+    },
+}
+
+impl ProcessOutcome {
+    pub fn unprocessed(code: &'static str, message: String, retriable: bool) -> Self {
+        if retriable {
+            Self::Retry { code, message }
+        } else {
+            Self::Failed { code, message }
         }
     }
 }

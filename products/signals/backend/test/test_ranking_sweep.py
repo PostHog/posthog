@@ -20,7 +20,13 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import scorer, sweep
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.ranking.model_store import ModelLoadError
-from products.signals.backend.ranking.overrides import NO_OVERRIDES, RankingOverrides, parse_overrides
+from products.signals.backend.ranking.overrides import (
+    NO_OVERRIDES,
+    AutoPromotionInterval,
+    RankingOverrides,
+    parse_overrides,
+    read_auto_promotion_interval,
+)
 from products.signals.backend.ranking.scorer import NO_VECTOR, ReportScoringOutcome, ScoringError
 from products.signals.backend.ranking.sweep import ScoringCandidate, reports_due_for_scoring, score_inbox_reports
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
@@ -457,4 +463,62 @@ class TestParseOverrides(SimpleTestCase):
     def test_parse_overrides(self, _name: str, payload: Any, expected: RankingOverrides, warning: str | None) -> None:
         with patch("products.signals.backend.ranking.overrides.logger") as logger:
             assert parse_overrides(payload, now=NOW) == expected
+        assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])
+
+
+class TestReadAutoPromotionInterval(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("flag_disabled", None, AutoPromotionInterval(days=3, source="setting"), None),
+            ("empty", {}, AutoPromotionInterval(days=3, source="setting"), None),
+            ("valid", {"interval_days": 1}, AutoPromotionInterval(days=1, source="flag"), None),
+            ("json_string", '{"interval_days": 7}', AutoPromotionInterval(days=7, source="flag"), None),
+            ("zero_turns_it_off", {"interval_days": 0}, AutoPromotionInterval(days=0, source="flag"), None),
+            (
+                "negative",
+                {"interval_days": -1},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "boolean",
+                {"interval_days": True},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "numeric_string",
+                {"interval_days": "1"},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "unknown_key",
+                {"interval_days": 1, "expires_at": EXPIRES},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "not_an_object",
+                [1],
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "lookup_failed",
+                ConnectionError("flags unreachable"),
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_lookup_failed",
+            ),
+        ]
+    )
+    def test_read_auto_promotion_interval(
+        self, _name: str, payload: Any, expected: AutoPromotionInterval, warning: str | None
+    ) -> None:
+        lookup = {"side_effect": payload} if isinstance(payload, Exception) else {"return_value": payload}
+        with (
+            patch("products.signals.backend.ranking.overrides.posthoganalytics.get_feature_flag_payload", **lookup),
+            patch("products.signals.backend.ranking.overrides.logger") as logger,
+        ):
+            assert read_auto_promotion_interval(3) == expected
         assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])

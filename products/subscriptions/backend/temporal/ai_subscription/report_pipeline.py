@@ -1,4 +1,4 @@
-import uuid
+import re
 import asyncio
 import contextlib
 import dataclasses
@@ -62,12 +62,15 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     COMPARE_WINDOW_START_PLACEHOLDER,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
+    LLM_REASONING_EFFORT,
     WINDOW_BOUND_PLACEHOLDERS,
     WINDOW_FILTER_PLACEHOLDERS,
     WINDOW_PLACEHOLDERS,
     WINDOW_START_PLACEHOLDER,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_trace,
+    ai_subscription_llm_tracing,
     build_enriched_prompt,
     build_frozen_prompt,
     get_ai_query_plan_status,
@@ -87,6 +90,16 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
+
+_PROMPT_DATE_BOUND_RE = re.compile(
+    r"\b(?:today|yesterday|now)\s*\(\s*\)|[-+]\s*INTERVAL\s+\d+\s+(?:SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|QUARTER|YEAR)S?\b",
+    re.IGNORECASE,
+)
+
+
+def _prompt_sets_own_date_bounds(prompt: Optional[str]) -> bool:
+    return prompt is not None and _PROMPT_DATE_BOUND_RE.search(prompt) is not None
+
 
 # Wall-clock bounds for the in-band LLM + HogQL pipeline. The caller's outer deadline (Temporal
 # activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
@@ -288,16 +301,19 @@ async def generate_ai_report(
 
     initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
-    with slo_operation(
-        spec=SloSpec(
-            distinct_id=str(user.distinct_id),
-            area=SloArea.ANALYTIC_PLATFORM,
-            operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
-            team_id=team.id,
-            resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
-        ),
-        properties={"window_start": window.start_literal, "window_end": window.end_literal},
-    ) as slo:
+    with (
+        ai_subscription_llm_trace(),
+        slo_operation(
+            spec=SloSpec(
+                distinct_id=str(user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
+                team_id=team.id,
+                resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
+            ),
+            properties={"window_start": window.start_literal, "window_end": window.end_literal},
+        ) as slo,
+    ):
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
             if ai_query_plan is not None:
@@ -405,6 +421,8 @@ async def generate_ai_report(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
             no_rows_count=execution.no_rows_count,
+            coverage_complete=spec.coverage_complete,
+            prompt_sets_own_date_bounds=_prompt_sets_own_date_bounds(prompt),
         )
         query_plan_status = resolve_ai_query_plan_status(
             initial_status=initial_query_plan_status,
@@ -448,6 +466,8 @@ def _plan_to_freeze(
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
     no_rows_count: int = 0,
+    coverage_complete: bool = True,
+    prompt_sets_own_date_bounds: bool = False,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -475,6 +495,12 @@ def _plan_to_freeze(
             trace_correlation_id=trace_correlation_id,
             total_steps=total_steps,
         )
+        return None
+    if prompt_sets_own_date_bounds:
+        logger.warning("ai_report.prompt_sets_own_date_bounds_not_frozen", trace_correlation_id=trace_correlation_id)
+        return None
+    if not coverage_complete:
+        logger.warning("ai_report.plan_coverage_incomplete_not_frozen", trace_correlation_id=trace_correlation_id)
         return None
     if chart_failure_count:
         logger.warning(
@@ -554,13 +580,10 @@ async def _synthesize(
     trace_correlation_id: Optional[Union[int, str]],
     source_urls: tuple[str, ...] = (),
 ) -> str:
-    posthog_properties: dict[str, Union[str, int]] = {
-        "feature": "ai_subscription",
-        "stage": "synthesis",
-        "trace_id": str(uuid.uuid4()),
-    }
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
+        team=team, user=user, stage="synthesis", trace_correlation_id=trace_correlation_id
+    )
 
     report_schema = to_strict_json_schema(ReportDocument)
     allowed_urls: list[str] = []
@@ -578,6 +601,7 @@ async def _synthesize(
         report_schema["$defs"]["ReportText"]["properties"]["items"]["items"] = {"$ref": "#/$defs/ReportTextItem"}
     chat = MaxChatOpenAI(
         model=DEFAULT_SYNTHESIS_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
@@ -599,6 +623,7 @@ section headings for related findings, and subsection headings only for a meanin
 Headings are topic labels, not sentences or findings. Put every result, value, date, and explanation
 in a finding under its heading. Each finding becomes one bullet. Do not put heading or bullet
 markers inside finding text. Use visuals for tables, code, or other Markdown blocks when useful.
+Put a whole table in one visual: header, separator, and every row, with one newline between rows.
 Leave unused lists empty. Do not add empty sections or repeat findings to create hierarchy.
 Use custom_layout only when the user explicitly requests a fixed template; otherwise leave it empty.
 """
@@ -613,6 +638,7 @@ Use custom_layout only when the user explicitly requests a fixed template; other
                 ("system", synthesis_prompt),
                 ("human", human_message),
             ],
+            config=llm_config,
         )
         result = ReportDocument.model_validate(response)
     except Exception as exc:
@@ -819,12 +845,14 @@ async def _arequest_hogql_fix(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[str]:
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "query_fix"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
+        team=team, user=user, stage="query_fix", trace_correlation_id=trace_correlation_id
+    )
 
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_FIX_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
@@ -846,7 +874,9 @@ async def _arequest_hogql_fix(
     rendered = f"{rendered}\n\n{_fix_project_context_block(context_blob)}"
 
     try:
-        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)(
+            [("system", rendered)], config=llm_config
+        )
     except Exception as exc:
         logger.warning(
             "ai_report.query_fix_llm_failed",

@@ -12,11 +12,14 @@ import { radii, type } from '@/ui/tokens'
 import { liveHref } from '../viewRoutes'
 
 /** Users online beside the Web analytics title. A tap opens Live. */
-export function LiveChip(): ReactElement {
+export function LiveChip({ internalUsersFilter }: { internalUsersFilter: boolean | undefined }): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
-    const { count, reconnecting, screenActive } = useLiveUsersOnline()
+    const { count, reconnecting, screenActive } = useLiveUsersOnline(
+        internalUsersFilter ?? false,
+        internalUsersFilter !== undefined
+    )
     const label = count !== null ? `${groupThousands(count)} online` : reconnecting ? 'Reconnecting…' : 'Live'
     return (
         <Pressable44

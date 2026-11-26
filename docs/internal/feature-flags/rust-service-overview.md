@@ -139,10 +139,30 @@ This endpoint serves flag definitions for server-side SDKs that evaluate flags l
 
 Authenticated via:
 
-- Team secret API token (`Authorization: Bearer phs_...`), or
+- Project secret API key (`Authorization: Bearer phs_...`), or
 - Personal API key with `feature_flag:read` scope
 
-Current implementation returns flag definitions with cohort data from HyperCache, with PostgreSQL fallback on cache miss. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute).
+Current implementation returns flag definitions with cohort data from HyperCache (Redis, then S3). There is no PostgreSQL fallback: a miss in both tiers returns 503. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute).
+
+The `v` query parameter selects the feed.
+A single `v` whose decoded value is `2` selects the definitions v2 feed, which carries config version 2 flags beside the legacy ones.
+Every other value, a repeated `v`, and no `v` select the legacy feed.
+
+A `v=2` request reads the team's `flags_with_cohorts_v2.json` entry and its ETag from Redis only.
+A team that holds no config version 2 flag has no such entry, and the legacy entry then answers exactly as it does for an unversioned request: same body, same ETag, same 304 handling.
+A missing v2 entry requests no rebuild.
+A v2 ETag that cannot be read, an ETag without its payload, and a payload that cannot be read also fall back to the legacy entry.
+A failed read cannot tell whether the team has a v2 entry, and an error would take the legacy entry and its S3 copy from every team that has none.
+The ETag check runs before the payload read, so a request that carries the v2 ETag gets a 304 whatever the payload state: a client holds that ETag only together with the v2 body, which is still current.
+A request with any other ETag spends the full-response budget before the payload read, as on the legacy path, so a refused request costs no payload read.
+After a fallback the legacy path does not spend it again, even when the legacy ETag then matches and the answer is a 304.
+The v2 ETag read increments neither `redis_missing` nor `redis_error`: a missing v2 ETag is a team without a v2 entry, and a failed read logs a warning.
+
+Authentication, both rate-limit budgets, the quota check and billing are the same for both feeds.
+`flags_flag_definitions_feed_total` counts requests by the feed they asked for (`requested`), the path that took them (`served`) and the SDK name (`library`).
+`served` is `v2` when the v2 entry answered, and `legacy` when the request went on to the legacy path, whatever that path then answered.
+Requests refused before the feed is chosen are not counted, including a `v=2` request whose stale ETag the full-response budget refuses.
+The request log line carries `requests_v2`, `sdk_name` and `sdk_version`.
 
 Billing quota enforcement matches Django's `/api/feature_flag/local_evaluation` behavior:
 
@@ -163,6 +183,8 @@ pub struct FlagRequest {
     pub person_properties: Option<HashMap<String, Value>>,
     pub groups: Option<HashMap<String, Value>>,
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
+    pub person_property_keys_known_absent: Option<Value>, // array of strings
+    pub group_property_keys_known_absent: Option<Value>,  // group type name -> array of strings
     pub anon_distinct_id: Option<String>,    // alias: $anon_distinct_id
     pub device_id: Option<String>,           // alias: $device_id
     pub flag_keys: Option<Vec<String>>,      // evaluate only these flags
@@ -188,6 +210,24 @@ Two signals size how often that precedence matters:
 - The canonical log line carries the same fact as `geoip_properties_differ_from_lookup`. The counter has no labels, so query the log line in Loki to attribute a spike to a team or SDK.
 
 Both are removable once the precedence change has settled.
+
+#### Known-absent property keys
+
+`person_property_keys_known_absent` lists person property keys the caller knows the person doesn't have. `group_property_keys_known_absent` maps a group type name to the group property keys the caller knows that group doesn't have. An SDK sends them when local evaluation falls back to `/flags`, so the server reaches the same answer local evaluation would.
+
+```json
+{
+  "person_property_keys_known_absent": ["plan"],
+  "group_property_keys_known_absent": { "organization": ["subscription"] }
+}
+```
+
+- A listed key is absent for this request. The listing wins over a stored value, a value in `person_properties` or `group_properties`, and a value the service adds itself: `$geoip_*`, a copied `$initial_*`, the `$os`/`$os_name` alias, `$group_key`, and `distinct_id`.
+- Each operator then answers as it does for a key missing from the person's full stored properties: `is_not_set` and the negated operators (`is_not`, `not_icontains`, `not_regex`, `not_starts_with`, `not_ends_with`, `not_icontains_multi`, `not_between`) match, and every other operator, including `is_set` and `semver_neq`, does not.
+- A missing field or JSON null lists nothing. Each list holds at most 1000 strings, counted with duplicates. A wrong type or a longer list returns a 400 whose message names the field.
+- A group type name the team doesn't have is ignored. A person key with the person metadata prefix is ignored, so a listed `created_at` never hides the persons-table `created_at` column.
+- A listed key counts as supplied when the service decides whether to fetch stored properties, so listing a key never causes a fetch.
+- Static cohorts and realtime cohorts read membership from stored tables, so known absence doesn't change their membership. Cohorts evaluated from properties in the service do honor it.
 
 ### `FlagsResponse` (v2 response)
 
@@ -302,13 +342,11 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### Team lookup
 
-| Variable                          | Default | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `ACCEPT_TEAM_SECRET_TOKENS`       | `true`  | When `false`, `phs_` bearer tokens authenticate only through `ProjectSecretAPIKey` rows — the legacy `Team.secret_api_token` lookup is skipped (PostHog/posthog#66179). A token already in the auth cache keeps authenticating the way it did before a flip until its entry expires, up to `AUTH_TOKEN_CACHE_TTL_SECONDS` later                                                                                                                                                                                                                                                        |
-| `LEGACY_TOKEN_MIRROR_SHADOW`      | `true`  | Transitional (PostHog/posthog#66179): after a successful legacy-token auth, a background query checks that the token's PSAK mirror row resolves to the same team, and emits `flags_legacy_token_mirror_shadow_total{result}`. A sustained zero `missing`/`team_mismatch` rate, with `match` nonzero, gates flipping `ACCEPT_TEAM_SECRET_TOKENS` off; `revoked` means leak revocation removed the row on purpose, so that token must not be backfilled. Runs only while legacy auth is on and only on auth-cache misses, with a hard concurrency cap (excess checks count as `skipped`) |
-| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Variable                          | Default | Purpose                                                                                                                                                          |
+| --------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid |
+| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                 |
+| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                        |
 
 When `SKIP_PG_TEAM_FALLBACK` is enabled, HyperCache misses return a token validation error instead of querying PostgreSQL. This eliminates database pressure from requests with invalid tokens. Transient errors (Redis/S3 timeouts) bypass the fallback entirely and are not negative-cached.
 
@@ -361,18 +399,16 @@ python manage.py invalidate_flags_auth_cache --team-id 12345 --dry-run
 
 ### Token sources
 
-The command collects token hashes from three sources and batch-deletes the corresponding Redis cache entries:
+The command collects token hashes from two sources and batch-deletes the corresponding Redis cache entries:
 
 | Source                  | Description                                                                                                          |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Team secret tokens      | `secret_api_token` and `secret_api_token_backup`, hashed with SHA-256                                                |
 | Project secret API keys | `ProjectSecretAPIKey.secure_value` for the team                                                                      |
 | Personal API keys       | `PersonalAPIKey` entries for users in the team's organization, filtered by `scoped_teams` and `scoped_organizations` |
 
 ### When to use
 
 - **Security incidents**: Force re-validation after a suspected token compromise
-- **Token rotation**: Clear stale cache entries after rotating team secret tokens
 - **Debugging**: Diagnose cache staleness issues by forcing a cache miss
 
 ### Options
@@ -412,19 +448,19 @@ Applied in order via Axum layers (defined in `router.rs`):
 
 ## Related files
 
-| File                                                         | Purpose                                           |
-| ------------------------------------------------------------ | ------------------------------------------------- |
-| `rust/feature-flags/src/main.rs`                             | Binary entry point, tracing setup                 |
-| `rust/feature-flags/src/server.rs`                           | Service initialization, resource creation         |
-| `rust/feature-flags/src/router.rs`                           | Axum router, routes, shared state                 |
-| `rust/feature-flags/src/config.rs`                           | Environment variable configuration                |
-| `rust/feature-flags/src/api/endpoint.rs`                     | `/flags` and `/decide` handler                    |
-| `rust/feature-flags/src/api/flag_definitions.rs`             | `/flags/definitions` handler                      |
-| `rust/feature-flags/src/api/auth.rs`                         | Authentication (secret tokens, personal API keys) |
-| `rust/feature-flags/src/api/types.rs`                        | Request/response types                            |
-| `rust/feature-flags/src/handler/flags.rs`                    | Core request processing pipeline                  |
-| `posthog/storage/team_access_cache.py`                       | Token auth cache with targeted invalidation       |
-| `posthog/management/commands/invalidate_flags_auth_cache.py` | Bulk cache invalidation management command        |
+| File                                                         | Purpose                                                     |
+| ------------------------------------------------------------ | ----------------------------------------------------------- |
+| `rust/feature-flags/src/main.rs`                             | Binary entry point, tracing setup                           |
+| `rust/feature-flags/src/server.rs`                           | Service initialization, resource creation                   |
+| `rust/feature-flags/src/router.rs`                           | Axum router, routes, shared state                           |
+| `rust/feature-flags/src/config.rs`                           | Environment variable configuration                          |
+| `rust/feature-flags/src/api/endpoint.rs`                     | `/flags` and `/decide` handler                              |
+| `rust/feature-flags/src/api/flag_definitions.rs`             | `/flags/definitions` handler                                |
+| `rust/feature-flags/src/api/auth.rs`                         | Authentication (project secret API keys, personal API keys) |
+| `rust/feature-flags/src/api/types.rs`                        | Request/response types                                      |
+| `rust/feature-flags/src/handler/flags.rs`                    | Core request processing pipeline                            |
+| `posthog/storage/team_access_cache.py`                       | Token auth cache with targeted invalidation                 |
+| `posthog/management/commands/invalidate_flags_auth_cache.py` | Bulk cache invalidation management command                  |
 
 ## See also
 

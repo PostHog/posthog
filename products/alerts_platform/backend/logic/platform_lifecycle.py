@@ -24,13 +24,11 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     GroupOutcome,
-    HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
-    PlatformHandback,
     PlatformOwnershipHandover,
     SourceKind,
     source_condition,
@@ -41,6 +39,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
     increment_history_rows_dropped,
     increment_instances_reaped,
+    record_check_completion_lag,
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import (
@@ -52,6 +51,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic import delivery_holds
+from products.alerts_platform.backend.logic.alert_routes import routed_label_names
 from products.alerts_platform.backend.logic.platform_alert_events import (
     CONFIGURATION_ROW_ALERT_ID,
     PlatformAlertEventRow,
@@ -289,10 +289,13 @@ def due_checks(
         return ()
 
     instances = _instances_by_configuration(team_id, configurations)
-    return tuple(_check(c, instances.get(str(c.id), [])) for c in configurations)
+    label_names = routed_label_names(team_id)
+    return tuple(_check(c, instances.get(str(c.id), []), label_names) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> PlatformAlertCheckInput:
+def _check(
+    c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert], label_names: frozenset[str]
+) -> PlatformAlertCheckInput:
     return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
@@ -311,9 +314,11 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         instances=tuple(_composed(c, alert) for alert in alerts),
         grouping=Grouping.from_stored(c.grouping),
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
+        owner_changed_at=c.owner_changed_at,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
         created_by_id=c.created_by_id,
+        routed_label_names=label_names,
     )
 
 
@@ -613,6 +618,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
+        # Captured before the write advances the schedule; the lag itself is measured at commit.
+        due_times = [
+            (configuration.source_kind, configuration.next_check_at)
+            for configuration in configurations
+            if configuration.next_check_at is not None
+        ]
         for configuration in configurations:
             by_id[str(configuration.id)] = _without_stale_groups(configuration, by_id[str(configuration.id)])
         # In outcome order, because the source put the groups it most wants kept first.
@@ -642,6 +653,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             hold = delivery_holds.hold_for(configuration, outcome, now)
             if hold is not None:
                 holds.append(hold)
+            rows_before = len(rows)
+            ungrouped = alerts.get(_InstanceKey(configuration_id=str(configuration.id), grouping_key=""))
+            ungrouped_state_before = _composed(configuration, ungrouped).state
             turned_away = 0
             for reported in outcome.groups:
                 alert = alerts.get(
@@ -681,18 +695,35 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
 
             if outcome.failure is not None:
                 # The empty-key row, so a failure row states the state an ungrouped check found.
-                ungrouped = alerts.get(_InstanceKey(configuration_id=str(configuration.id), grouping_key=""))
                 rows.append(
                     _event_row(
                         configuration,
                         outcome,
                         outcome.failure,
                         alert=None,
-                        previous_state=_composed(configuration, ungrouped).state,
+                        previous_state=ungrouped_state_before,
                         now=now,
                     )
                 )
             configuration.check_status = _check_status(configuration, outcome)
+            if len(rows) == rows_before:
+                # A grouped check that judged no group writes no other row. Without this one, every
+                # reader of the history sees an alert whose checks stopped, and a failure never ends.
+                rows.append(
+                    event_row(
+                        configuration,
+                        alert=None,
+                        evaluation_key=outcome.evaluation_key,
+                        kind=AlertEventKind.CHECK.value,
+                        previous_state=ungrouped_state_before,
+                        state=_composed(configuration, ungrouped).state,
+                        episode_started_at=None,
+                        consecutive_failures=outcome.consecutive_failures,
+                        query_duration_ms=outcome.query_duration_ms,
+                        error_message=outcome.error_message,
+                        now=now,
+                    )
+                )
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.failure is None and not outcome.skipped:
                 configuration.overflowed_groups = outcome.overflowed + turned_away
@@ -732,8 +763,20 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
+        # The lag goes first, because callbacks run in order and a slow history insert is not
+        # part of the check's completion.
+        transaction.on_commit(lambda: _record_completion_lags(due_times))
         transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
+
+
+def _record_completion_lags(due_times: Sequence[tuple[str, datetime]]) -> None:
+    # Wall time at commit rather than the tick's cutoff, so a slow write or an enclosing
+    # transaction that holds the commit counts towards the lag.
+    committed_at = django_timezone.now()
+    for source_kind, due_at in due_times:
+        lag_ms = max(0, int((committed_at - due_at).total_seconds() * 1000))
+        safe_record(record_check_completion_lag, source_kind, lag_ms)
 
 
 _CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
@@ -742,6 +785,30 @@ _ADMISSION_LOCK_SQL: Final = {
     True: "SELECT pg_advisory_xact_lock(hashtext(%s))",
     False: "SELECT pg_advisory_xact_lock_shared(hashtext(%s))",
 }
+
+
+def stored_settings_of(upsert: PlatformAlertUpsert) -> dict[str, Any]:
+    """The settings columns a copy of `upsert` stores. Raises `ValueError` on a cadence the platform
+    refuses, because an unparseable unit or anchor raised where the schedule advances would fail a
+    whole batch of unrelated checks."""
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    return {
+        "name": upsert.name,
+        "enabled": upsert.enabled,
+        "source_config": upsert.source_config,
+        "check_interval_minutes": upsert.check_interval_minutes,
+        "recurrence_unit": upsert.recurrence_unit,
+        "anchor_time": validate_and_normalize_schedule_start_time(upsert.anchor_time),
+        "evaluation_periods": upsert.evaluation_periods,
+        "datapoints_to_alarm": upsert.datapoints_to_alarm,
+        "cooldown_minutes": upsert.cooldown_minutes,
+        "schedule_restriction": upsert.schedule_restriction,
+        # A source's snooze mutes the whole alert. State is left alone because a muted alert
+        # keeps tracking reality.
+        "snooze_until": upsert.snooze_until,
+        "created_by_id": upsert.created_by_id,
+    }
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
@@ -757,15 +824,10 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     check, for example at the end of quiet hours, and copying that would skip checks the platform
     still runs.
 
-    The recurrence is checked here rather than where the schedule advances, because an
-    unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
-
     `revive` says the source alert was just created or turned back on, which resets the copy
     even when it stayed enabled, for example a BROKEN copy that discovery skips.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
 
     with transaction.atomic():
         existing = (
@@ -779,24 +841,13 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             return False
         defaults = {
             "team_id": upsert.team_id,
-            "name": upsert.name,
-            "enabled": upsert.enabled,
             "source_kind": upsert.source_kind.value,
-            "source_config": upsert.source_config,
-            "check_interval_minutes": upsert.check_interval_minutes,
-            "recurrence_unit": upsert.recurrence_unit,
-            "anchor_time": anchor_time,
-            "evaluation_periods": upsert.evaluation_periods,
-            "datapoints_to_alarm": upsert.datapoints_to_alarm,
-            "cooldown_minutes": upsert.cooldown_minutes,
-            "schedule_restriction": upsert.schedule_restriction,
+            **stored,
             # Reached by a backfill run, which re-admits a copy an operator switched off.
             "switched_off_at": None,
-            # A source's snooze mutes the whole alert. State is left alone because a muted alert
-            # keeps tracking reality.
-            "snooze_until": upsert.snooze_until,
-            "created_by_id": upsert.created_by_id,
         }
+        if upsert.first_enabled_at is not None:
+            defaults["first_enabled_at"] = upsert.first_enabled_at
         if (
             existing is None
             or not existing["enabled"]
@@ -820,6 +871,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             defaults=defaults,
             create_defaults={**defaults, "grouping": upsert.grouping.to_stored()},
         )
+        # `update()`, because `auto_now_add` replaces any value a create passes.
+        if upsert.created_at is not None and configuration.created_at != upsert.created_at:
+            PlatformAlertConfiguration.objects.unscoped().filter(pk=configuration.pk).update(
+                created_at=upsert.created_at
+            )
         if revived:
             PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
@@ -895,7 +951,6 @@ def create_native_configuration(
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
     recurrence_unit: str | None,
-    destinations_owner: PlatformAlertOwner,
     created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
@@ -909,7 +964,6 @@ def create_native_configuration(
         recurrence_unit=recurrence_unit,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
-        destinations_owner=destinations_owner,
         created_by_id=created_by_id,
         first_enabled_at=now if edit.enabled else None,
     )
@@ -969,18 +1023,14 @@ def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: dateti
     configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
-    A copy the platform owns gets nothing, because every edit already writes both of its rows.
+    A copy the platform owns gets nothing, because the platform holds its settings.
     Otherwise a team runs a source here while any of its parallel-run copies of that source is
     enabled. A team the backfill left out of its sample, or one
     `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
     off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
-
-    `admit_new_teams` is for a source whose parallel run covers every team. It also admits a team with
-    no enabled copy, such as one whose first alert this is, while the source runs for another team and
-    no operator switched this team off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
@@ -990,23 +1040,10 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admi
         existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
         if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
             return
-        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists() or (
-            admit_new_teams and _admits_new_team(team_copies, upsert.source_kind.value)
-        )
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
         switched_off = existing is not None and existing.switched_off_at is not None
         if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
-
-
-def _admits_new_team(team_copies: QuerySet[PlatformAlertConfiguration], source_kind: str) -> bool:
-    if team_copies.filter(switched_off_at__isnull=False).exists():
-        return False
-    # A switch-off of the whole source leaves no enabled copy anywhere, so this admits nothing then.
-    return (
-        PlatformAlertConfiguration.objects.unscoped()
-        .filter(source_kind=source_kind, owner=PlatformAlertOwner.SOURCE, enabled=True)
-        .exists()
-    )
 
 
 def _hold_admission(source_kind: str, *, exclusive: bool) -> None:
@@ -1030,20 +1067,10 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     Raises `ValueError` on a cadence `upsert_configuration` would refuse, because a stored one that
     cannot advance fails every outcome of the batch it is recorded in.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
+    del stored["enabled"], stored["snooze_until"]
     PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
-        name=upsert.name,
-        source_config=upsert.source_config,
-        check_interval_minutes=upsert.check_interval_minutes,
-        recurrence_unit=upsert.recurrence_unit,
-        anchor_time=anchor_time,
-        evaluation_periods=upsert.evaluation_periods,
-        datapoints_to_alarm=upsert.datapoints_to_alarm,
-        cooldown_minutes=upsert.cooldown_minutes,
-        schedule_restriction=upsert.schedule_restriction,
-        created_by_id=upsert.created_by_id,
+        **stored,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )
@@ -1078,6 +1105,36 @@ def write_owned_cadence(
     # history and notification would be dropped as duplicates.
     configuration.next_check_at = max(upsert.next_check_at or now, now + _HANDOVER_FENCE)
     configuration.save(update_fields=[*_CADENCE_FIELDS, "next_check_at", "updated_at"])
+
+
+def write_native_cadence(
+    configuration: PlatformAlertConfiguration,
+    *,
+    check_interval_minutes: int,
+    recurrence_unit: str | None,
+    now: datetime,
+) -> None:
+    """Writes a cadence an edit chose onto an alert with no source row, locked by the caller.
+
+    A changed cadence makes the alert due a minute out, and its next check moves it onto the new
+    cadence's grid. Waiting out the old cadence would leave an alert moved from hourly to every minute
+    unchecked for up to an hour. A snooze still defers the check to its end.
+    """
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
+    if (
+        configuration.check_interval_minutes == check_interval_minutes
+        and configuration.recurrence_unit == recurrence_unit
+    ):
+        return
+    configuration.check_interval_minutes = check_interval_minutes
+    configuration.recurrence_unit = recurrence_unit
+    # A minute out for the reason `write_owned_cadence` gives.
+    due = now + _HANDOVER_FENCE
+    if configuration.snooze_until is not None and configuration.snooze_until > due:
+        due = configuration.snooze_until
+    configuration.next_check_at = due
+    configuration.save(update_fields=["check_interval_minutes", "recurrence_unit", "next_check_at", "updated_at"])
 
 
 _HANDOVER_FENCE: Final = timedelta(minutes=1)
@@ -1175,57 +1232,6 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             alert.last_notified_at = handover.last_notified_at
             alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
     return True
-
-
-def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
-) -> PlatformHandback | HandbackRefusal:
-    """Hands a copied alert back to its source, or says why the platform keeps it.
-
-    A source that runs calendar schedules itself takes back an alert on one. Any other source gets
-    only interval cadences back.
-
-    The caller holds the source's row lock and writes the source's owner and state in the same
-    transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied,
-    and `ValueError` when the platform does not own it, because both owners change together.
-    """
-    with transaction.atomic():
-        configurations = PlatformAlertConfiguration.objects.for_team(team_id).select_for_update()
-        configuration = configurations.get(legacy_configuration_id=legacy_configuration_id)
-        if configuration.owner != PlatformAlertOwner.PLATFORM:
-            raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
-        alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
-        calendar = configuration.recurrence_unit is not None and not source_runs_calendar_schedules
-        # A grouped copy with no group open yet still splits its results, which its source cannot do.
-        if (
-            calendar
-            or Grouping.from_stored(configuration.grouping).mode != GroupingMode.SINGLE
-            or any(alert.grouping_key for alert in alerts)
-        ):
-            return HandbackRefusal.NOT_PORTABLE
-        alert = alerts[0] if alerts else None
-        if alert is not None and (alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None):
-            return HandbackRefusal.FIRING
-        # The same rule discovery reads, so an alert discovery skips is never waited on. A check
-        # advances `next_check_at` when it records, so a row not due under this lock has no
-        # platform check between reading the alert and recording it.
-        if configurations.filter(pk=configuration.pk, enabled=True).filter(due_q(at)).exclude(suppressed()).exists():
-            return HandbackRefusal.CHECK_DUE
-
-        handback = PlatformHandback(
-            state=PlatformAlertState(_composed(configuration, alert).state),
-            last_notified_at=alert.last_notified_at if alert is not None else None,
-            consecutive_failures=configuration.consecutive_failures,
-            next_check_at=configuration.next_check_at,
-            enabled=configuration.enabled,
-        )
-        configuration.owner = PlatformAlertOwner.SOURCE
-        configuration.owner_changed_at = at
-        # A check can still be running for a copy that is disabled or not due, and it records only
-        # rows still due, so this keeps it from recording and delivering after the handback.
-        configuration.next_check_at = max(configuration.next_check_at or at, at + _HANDOVER_FENCE)
-        configuration.save(update_fields=["owner", "owner_changed_at", "next_check_at"])
-        return handback
 
 
 def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:

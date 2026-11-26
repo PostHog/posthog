@@ -220,6 +220,7 @@ export type ExecCommandErrorReason =
     | 'invalid_regex'
     | 'unknown_learn_topic'
     | 'needs_confirmation'
+    | 'needs_write_tool'
 
 /**
  * Thrown by the `exec` dispatcher when it rejects a command before any inner
@@ -437,6 +438,7 @@ export interface PostHogPermissionErrorOptions {
     challengeScopes?: string[] | undefined
     url: string
     method: string
+    remediation?: string | undefined
 }
 
 /**
@@ -451,6 +453,7 @@ export class PostHogPermissionError extends Error {
     public readonly challengeScopes: string[] | undefined
     public readonly url: string
     public readonly method: string
+    public readonly remediation: string | undefined
 
     constructor(options: PostHogPermissionErrorOptions) {
         const message = options.missingScope
@@ -463,6 +466,7 @@ export class PostHogPermissionError extends Error {
         this.challengeScopes = options.challengeScopes
         this.url = options.url
         this.method = options.method
+        this.remediation = options.remediation
     }
 
     get requiredScopes(): string[] | undefined {
@@ -491,6 +495,9 @@ const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authentic
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
     const callTarget =
         error.method && error.url ? `${error.method} ${formatSafeRequestTarget(error.url)}` : 'this MCP request'
+    if (error.remediation) {
+        return [error.message, '', error.remediation].join('\n')
+    }
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
@@ -620,6 +627,63 @@ export function serverDetailOf(error: unknown): string | undefined {
     return undefined
 }
 
+// Analytics-safe shapes: a snake_case code and a DRF field path. Anything else in the body is
+// free text that can hold caller input, so it never reaches analytics.
+const API_ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
+const API_ERROR_ATTR_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,127}$/
+
+export interface ApiErrorIdentifiers {
+    code?: string
+    attr?: string
+}
+
+/**
+ * The machine-readable `code` and field `attr` of an API error body, for analytics. Reads a top-level
+ * object or the first item of a list, and keeps a value only when it looks like an identifier.
+ * `detail`, `message` and every other field are never read.
+ */
+export function parseApiErrorIdentifiers(body: string): ApiErrorIdentifiers {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(body)
+    } catch {
+        return {}
+    }
+    const source = Array.isArray(parsed) ? parsed[0] : parsed
+    if (source === null || typeof source !== 'object') {
+        return {}
+    }
+    const { code, attr } = source as { code?: unknown; attr?: unknown }
+    return {
+        ...(typeof code === 'string' && API_ERROR_CODE_PATTERN.test(code) ? { code } : {}),
+        ...(typeof attr === 'string' && API_ERROR_ATTR_PATTERN.test(attr) ? { attr } : {}),
+    }
+}
+
+export function getApiLimitErrorType(error: PostHogApiError): 'rate_limited' | 'memory_limit' | undefined {
+    if (error.status === 429) {
+        return 'rate_limited'
+    }
+    if (error.status === 503) {
+        const { code } = parseApiErrorIdentifiers(error.body)
+        if (code === 'clickhouse_at_capacity' || code === 'query_ran_concurrently' || code === 'query_capacity') {
+            return 'rate_limited'
+        }
+    }
+    if (error.status === 513 && parseApiErrorIdentifiers(error.body).code === 'clickhouse_memory_limit_exceeded') {
+        return 'memory_limit'
+    }
+    return undefined
+}
+
+export function isExpectedApiError(error: unknown): boolean {
+    const apiError = findRecoverableApiError(error)
+    if (apiError instanceof PostHogApiError) {
+        return (apiError.status >= 400 && apiError.status < 500) || getApiLimitErrorType(apiError) !== undefined
+    }
+    return apiError instanceof PostHogValidationError || findPostHogPermissionError(error) !== undefined
+}
+
 function drfDetail(body: string): string | undefined {
     try {
         const detail = (JSON.parse(body) as { detail?: unknown } | null)?.detail
@@ -692,7 +756,8 @@ export function handleToolError(
         error instanceof PinnedContextSwitchError ||
         error instanceof ToolInputValidationError ||
         error instanceof ExecCommandError ||
-        (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.errorType))
+        (error instanceof MCPToolResultError &&
+            ['validation', 'permission', 'memory_limit', 'rate_limited'].includes(error.errorType))
     ) {
         return {
             content: [
@@ -705,52 +770,20 @@ export function handleToolError(
         }
     }
 
-    // Recoverable: 4xx responses from the PostHog API (and validation errors)
-    // are agent-input failures — the LLM passed a bad id, a stale UUID, or a
-    // value the serializer rejected. Returning the typed error message to the
-    // LLM lets it self-correct on the next turn. Capturing these as exceptions
-    // — fingerprinted by tool name — would create a fresh error tracking issue
-    // for every agent slip-up. Reserve `captureException` for 5xx and
-    // unexpected non-HTTP errors, which are genuinely actionable for engineers.
-    const recoverableApiError = findRecoverableApiError(error)
-    if (recoverableApiError) {
-        const isFourXx =
-            recoverableApiError instanceof PostHogValidationError ||
-            (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
-        if (isFourXx) {
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Error: [${toolName}]: ${withServerDetail(recoverableApiError.message, recoverableApiError)}`,
-                    },
-                ],
-                isError: true,
-            }
+    const apiError = findRecoverableApiError(error)
+    if (apiError && isExpectedApiError(apiError)) {
+        const retryHint =
+            apiError instanceof PostHogApiError
+                ? getToolRecoveryHint({ status: apiError.status, retryAfterSeconds: apiError.retryAfterSeconds })
+                : undefined
+        const message = retryHint ? `${apiError.message}\n\n${retryHint}` : apiError.message
+        return {
+            content: [{ type: 'text', text: `Error: [${toolName}]: ${withServerDetail(message, apiError)}` }],
+            isError: true,
         }
     }
-
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
-        const properties: Record<string, any> = {
-            team: 'growth',
-            tool: toolName,
-            is_permission_error: true,
-            suppress_analytics: suppressAnalytics,
-            missing_scope: permissionError.missingScope,
-            $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
-        }
-
-        if (sessionUuid) {
-            properties.$session_id = sessionUuid
-        }
-
-        try {
-            getPostHogClient().captureException(permissionError, distinctId, properties)
-        } catch {
-            // Never let observability break the request.
-        }
-
         return {
             content: [
                 {
@@ -781,7 +814,7 @@ export function handleToolError(
     }
 
     try {
-        getPostHogClient().captureException(mcpError, distinctId, properties)
+        getPostHogClient().captureException(mcpError, { distinctId, properties })
     } catch {
         // Never let observability break the request.
     }
@@ -790,16 +823,7 @@ export function handleToolError(
     // failed endpoint has a known recovery path (e.g. a logs query that scanned
     // too much data), append a short "here's how to recover" footer so the agent
     // narrows and retries instead of re-issuing the same failing call.
-    // `recoverableApiError` was unwrapped from any `cause` chain above; only 5xx
-    // reach here (4xx short-circuited earlier).
-    const recoveryHint =
-        recoverableApiError instanceof PostHogApiError
-            ? getToolRecoveryHint({
-                  url: recoverableApiError.url,
-                  status: recoverableApiError.status,
-                  retryAfterSeconds: recoverableApiError.retryAfterSeconds,
-              })
-            : undefined
+    const recoveryHint = apiError instanceof PostHogApiError ? getToolRecoveryHint(apiError) : undefined
 
     return {
         content: [

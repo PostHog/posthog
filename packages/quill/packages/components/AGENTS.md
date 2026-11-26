@@ -4,12 +4,42 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 ## Exports
 
+- `Credenza`, `CredenzaTrigger`, `CredenzaContent`, `CredenzaHeader`, `CredenzaTitle`, `CredenzaDescription`, `CredenzaBody`, `CredenzaFooter`, `CredenzaClose` — a `Dialog` on a wide viewport and a bottom `Drawer` on a phone, from one set of parts
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`, with an opt-in `selectable` checkbox variant
 - `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
+
+## Credenza
+
+```tsx
+<Credenza open={open} onOpenChange={setOpen}>
+  <CredenzaTrigger render={<Button variant="outline" />}>Rename dashboard</CredenzaTrigger>
+  <CredenzaContent>
+    <CredenzaHeader>
+      <CredenzaTitle>Rename dashboard</CredenzaTitle>
+      <CredenzaDescription>Everyone in the project sees the new name.</CredenzaDescription>
+    </CredenzaHeader>
+    <CredenzaBody>{/* fields */}</CredenzaBody>
+    <CredenzaFooter>
+      <CredenzaClose render={<Button variant="outline" />}>Cancel</CredenzaClose>
+      <Button variant="primary">Save</Button>
+    </CredenzaFooter>
+  </CredenzaContent>
+</Credenza>
+```
+
+Rules:
+
+- At 768px (`md`) and wider, the parts render the `Dialog` parts. Below that, they render the `Drawer` parts as a bottom sheet. Each mode keeps the look and behavior of its primitive: the dialog has its close button, and the drawer has its handle and swipe to dismiss.
+- The mode follows the viewport only while the credenza is closed. A popup that is open stays in its mode until its close animation ends, so a phone that rotates keeps the drawer and what the user typed.
+- `open`, `defaultOpen` and `onOpenChange` work as on `Dialog`. Leave out `open` to let the credenza keep its own state.
+- Put content in `CredenzaBody`. It scrolls between the header and the footer and gives the side padding. Content placed directly in `CredenzaContent` has no padding. `viewportClassName` and `render` work as on `DialogBody` in both modes.
+- Write the footer as Cancel first, main action last. The dialog shows them in a row, with the main action on the right. The drawer stacks them full width, with the main action on top.
+- A change of mode remounts the popup and its parts, but never a `CredenzaTrigger`: the triggers attach to the mounted root through a shared handle. Focus goes back to the trigger that opened it, and any number of triggers works with no extra props.
+- Use `Dialog` or `Drawer` directly when the surface must be the same on every viewport.
 
 ## DataTable
 
@@ -42,7 +72,8 @@ const columns: ColumnDef<Person>[] = [
 
 Rules:
 
-- Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells) and `expand: true` (absorb leftover width).
+- Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells), `expand: true` (absorb leftover width) and `sticky: 'left' | 'right'` (freeze the column while the table scrolls sideways, such as a name column beside a wide timeline). Pin one column per side: every pinned column sits at offset 0, so a second one on the same side would cover the first.
+- A row can grow to show more without an expansion API: render the extra content inside its cells from your own expanded state, toggled by `onRowClick`. Every cell in the row grows together, so a sticky label column stays aligned with the content beside it.
 - `fullWidth` needs exactly one column with `meta: { expand: true }` to decide which column stretches.
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`. A column needs an `accessorKey` or `accessorFn` to sort.
 - A list sorted on the server passes `sorting` and `onSortingChange`. The table then keeps the rows in the order of `data`, only reports the clicks, and has no "off" state. Use `sortDescFirst` on a column to start at desc. `meta: { sortDataAttr }` sets the `data-attr` of the column's sort button.

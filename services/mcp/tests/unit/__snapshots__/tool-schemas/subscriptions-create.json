@@ -109,6 +109,38 @@
         "delivery_config": {
             "description": "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options.",
             "properties": {
+                "image_size": {
+                    "description": "PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.",
+                    "properties": {
+                        "height": {
+                            "anyOf": [
+                                {
+                                    "maximum": 5000,
+                                    "minimum": 200,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping."
+                        },
+                        "width": {
+                            "anyOf": [
+                                {
+                                    "maximum": 4000,
+                                    "minimum": 320,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Output width in pixels, from 320 to 4000. Omit or use null for automatic width."
+                        }
+                    },
+                    "type": "object"
+                },
                 "include_feedback": {
                     "description": "Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
                     "type": "boolean"

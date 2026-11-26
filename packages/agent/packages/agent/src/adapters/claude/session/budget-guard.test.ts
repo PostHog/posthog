@@ -61,6 +61,29 @@ describe("RunBudgetGuard", () => {
   });
 
   test.each([
+    ["at", 60_000, 0.0114],
+    ["over", 60_001, 0.0570005],
+  ])(
+    "prices a haiku 5.5 prompt %s 100k cache-inclusive tokens at its tier",
+    (_side, inputTokens, expected) => {
+      const cost = estimateMessageCostUsd(
+        {
+          id: "m1",
+          model: "claude-haiku-5-5",
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: 10_000,
+            cache_read_input_tokens: 40_000,
+            cache_creation_input_tokens: 0,
+          },
+        },
+        DEFAULT_MODEL_PRICES,
+      );
+      expect(cost).toBeCloseTo(expected, 9);
+    },
+  );
+
+  test.each([
     ["claude-fable-5-2", 48.2],
     ["claude-fable-5-1", 61],
   ])("prices %s at its own fable rates", (model, perMillionEach) => {
@@ -86,6 +109,9 @@ describe("RunBudgetGuard", () => {
     ["zai-org/glm-5.3-flash", 0.68],
     ["moonshotai/kimi-k3", 18.3],
     ["deepseek-ai/deepseek-v4-flash-0731", 0.418],
+    ["deepseek-ai/deepseek-v4.1-flash-1017", 1.507],
+    ["deepseek-ai/deepseek-v4.1-flash-1017-fast", 3.014],
+    ["claude-haiku-5-5", 3.05],
   ])(
     "prices %s below opus, the way the gateway bills it",
     (model, perMillionEach) => {
@@ -358,6 +384,7 @@ describe("RunBudgetGuard", () => {
     for (const stage of ["warn", "critical"] as const) {
       expect(publish.steerText(stage)).toContain("git_signed_commit");
       expect(publish.steerText(stage)).not.toMatch(/, push,/);
+      expect(publish.steerText(stage)).toContain("Except for a security fix");
       expect(wrapUp.steerText(stage)).toContain(
         "If the user asked you to open",
       );
@@ -365,6 +392,27 @@ describe("RunBudgetGuard", () => {
         "open the draft pull request",
       );
     }
+  });
+
+  test("uses GitLab publishing instructions at both budget thresholds", async () => {
+    const guard = RunBudgetGuard.fromEnv(
+      { [BUDGET_CAP_ENV]: "1", POSTHOG_GIT_PROVIDER: "gitlab" },
+      logger,
+      "publish",
+    )!;
+    for (const stage of ["warn", "critical"] as const) {
+      expect(guard.steerText(stage)).toContain("gitlab_merge_request");
+      expect(guard.steerText(stage)).not.toContain("git_signed_commit");
+      expect(guard.steerText(stage)).toContain("Except for a security fix");
+    }
+    guard.recordAssistantMessage(opusCall("m1", 1_000_000));
+    guard.recordAssistantMessage(opusCall("m2", 500_000));
+    const result = await guard.preToolUseHook()(
+      spawn("Agent"),
+      undefined,
+      hookOptions(),
+    );
+    expect(JSON.stringify(result)).toContain("gitlab_merge_request");
   });
 
   test("snapshots the steers it recorded", () => {

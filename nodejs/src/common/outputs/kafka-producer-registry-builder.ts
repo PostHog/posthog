@@ -1,23 +1,13 @@
-import { ProducerGlobalConfig } from 'node-rdkafka'
-
 import { BlackholeKafkaProducer } from '~/common/kafka/blackhole-producer'
+import { redactKafkaConfig } from '~/common/kafka/config'
+import { LazyKafkaProducer } from '~/common/kafka/lazy-producer'
 import { KafkaProducer, KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 import { AllowedConfigKey, parseProducerConfig } from './kafka-producer-config'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
 
-const SENSITIVE_KEYS = new Set([
-    'sasl.password',
-    'sasl.oauthbearer.client.secret',
-    'ssl.key.password',
-    'ssl.key.pem',
-    'ssl.certificate.pem',
-])
-
-function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
-    return Object.fromEntries(Object.entries(config).map(([k, v]) => [k, SENSITIVE_KEYS.has(k) ? '***' : v]))
-}
+const LAZY_CONNECT_WAIT_MS = 5_000
 
 /**
  * Builder for `KafkaProducerRegistry` that validates config keys at compile time.
@@ -37,6 +27,7 @@ function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
 export class KafkaProducerRegistryBuilder<P extends string = never, CK extends string = never> {
     private registrations = new Map<string, Partial<Record<AllowedConfigKey, CK>>>()
     private blackholes = new Set<string>()
+    private lazy = new Set<string>()
 
     constructor(private kafkaClientRack: string | undefined) {}
 
@@ -53,7 +44,18 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
         const next = new KafkaProducerRegistryBuilder<P | Name, CK | ConfigKeys>(this.kafkaClientRack)
         next.registrations = new Map(this.registrations)
         next.blackholes = new Set(this.blackholes)
+        next.lazy = new Set(this.lazy)
         next.registrations.set(name, configMap)
+        return next
+    }
+
+    /** Like `register()`, but the producer connects in the background: `build()` waits for it briefly and never fails on it. */
+    registerLazy<Name extends string, ConfigKeys extends string>(
+        name: Name,
+        configMap: Partial<Record<AllowedConfigKey, ConfigKeys>>
+    ): KafkaProducerRegistryBuilder<P | Name, CK | ConfigKeys> {
+        const next = this.register(name, configMap)
+        next.lazy.add(name)
         return next
     }
 
@@ -61,6 +63,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
         const next = new KafkaProducerRegistryBuilder<P | Name, CK>(this.kafkaClientRack)
         next.registrations = new Map(this.registrations)
         next.blackholes = new Set(this.blackholes)
+        next.lazy = new Set(this.lazy)
         next.blackholes.add(name)
         return next
     }
@@ -73,6 +76,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
      */
     async build(config: Record<CK, string>): Promise<KafkaProducerRegistry<P>> {
         const producers: Record<string, KafkaProducer> = {}
+        const lazies: LazyKafkaProducer[] = []
         for (const name of this.blackholes) {
             producers[name] = new BlackholeKafkaProducer(name)
         }
@@ -90,14 +94,23 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
                 }
 
                 const resolvedConfig = parseProducerConfig(values)
-                logger.info('📝', `Creating producer "${name}"`, { config: redactConfig(resolvedConfig) })
-                producers[name] = await KafkaProducerWrapper.createWithConfig(
-                    this.kafkaClientRack,
-                    resolvedConfig,
-                    name
-                )
+                logger.info('📝', `Creating producer "${name}"`, { config: redactKafkaConfig(resolvedConfig) })
+                const connect = () => KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, resolvedConfig, name)
+                if (this.lazy.has(name)) {
+                    const lazy = new LazyKafkaProducer(connect)
+                    lazies.push(lazy)
+                    // A healthy cluster is connected before the pod takes traffic; a down one delays boot by this much.
+                    await lazy.waitConnected(LAZY_CONNECT_WAIT_MS)
+                    producers[name] = lazy
+                } else {
+                    producers[name] = await connect()
+                }
             })
-        )
+        ).catch(async (error) => {
+            // A failed build returns no registry to disconnect them, so their background retries would run on.
+            await Promise.allSettled(lazies.map((lazy) => lazy.disconnect()))
+            throw error
+        })
 
         // TypeScript cannot verify that an imperatively-built Record has all keys of a
         // generic union P. The builder guarantees this: every `register()` and

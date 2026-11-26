@@ -37,9 +37,10 @@ tools:
             want to run an experiment, and if so create the experiment with `experiment-create`, which will manage its
             own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the
             structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for
-            variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing
-            flag. Check the key first: `feature-flag-get-definition-by-key` when you already have the exact key it will
-            use, `feature-flag-get-all` when you only know part of the key or the name.
+            variants, `filters.payloads` for JSON-encoded payloads). To name a release condition, set its `description`.
+            Use `update-feature-flag` to change an existing flag. Check the key first:
+            `feature-flag-get-definition-by-key` when you already have the exact key it will use, `feature-flag-get-all`
+            when you only know part of the key or the name.
         include_params:
             - key
             - name
@@ -70,7 +71,7 @@ tools:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
                     default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
-        hooks: featureFlags/conditionIdHooks
+        hooks: featureFlags/createFeatureFlagHooks
     delete-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
@@ -301,8 +302,9 @@ tools:
         param_overrides:
             search:
                 description:
-                    Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
-                    tools.
+                    Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same
+                    separator. The words of the term must appear together and in order, so a shorter term matches more
+                    flags. Use this to find the flag ID for get/update/delete tools.
             active:
                 description:
                     Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"`
@@ -1055,9 +1057,11 @@ tools:
             condition. A `condition_id` belongs to the flag you read it from, so leave it off a condition copied from a
             different flag. Once any condition has a `condition_id`, a condition without one is treated as new. This
             tool uses the ID to restore each condition's property types and targeting, so a reorder, deletion, or edit
-            keeps every condition on the persons or group type it targeted. If a `condition_id` matches no condition on
-            the flag, the flag may have changed after your read, and the update is refused. Read the flag again and
-            rebuild the update. When the flag targets groups, keep `type: "group"`, `group_type_index`, and
+            keeps every condition on the persons or group type it targeted. A condition with a `condition_id` and no
+            `description` keeps its stored name. When you reorder conditions, send each `description` too. Send
+            `description` to rename it, and null or an empty string to remove the name. If a `condition_id` matches no
+            condition on the flag, the flag may have changed after your read, and the update is refused. Read the flag
+            again and rebuild the update. When the flag targets groups, keep `type: "group"`, `group_type_index`, and
             `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the
             existing flag so group targeting is not silently converted to person targeting. When the flag's conditions
             don't all target the same thing (some target persons and others a group type, or they target different group
@@ -1067,6 +1071,17 @@ tools:
             keeps, and it refuses the update. Use `feature-flag-get-definition-by-key` when you have the string key: it
             returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you
             already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.
+
+
+            Release conditions normally combine with OR: a user who matches any condition gets the flag, subject to that
+            condition's rollout percentage. When `filters.early_exit` is true, evaluation can stop after an earlier
+            condition misses its rollout, so check condition order and do not assume an edit widens access. Property
+            filters inside one condition combine with AND. To give more users access, add a new release condition. Add
+            values to an existing `exact` property filter only when that condition has no other filters, has a 100%
+            rollout, and doing so is safe given `early_exit` and condition order. A new property filter on an existing
+            condition, such as an `is_not` filter, removes access from some users who match that condition today. Add a
+            property filter to an existing condition only when the user asks to restrict access. When the request can
+            mean either, ask the user which one they mean before you write.
         include_params:
             - key
             - name

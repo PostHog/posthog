@@ -19,6 +19,9 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
+    ConditionSetTraffic,
+    ExperimentOnFlag,
+    ExposureCohort,
     ExposureEvents,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
@@ -27,6 +30,7 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     LatestCalculation,
+    MetricCompiles,
     MetricEvents,
     MetricWindow,
     ReachableCondition,
@@ -37,9 +41,16 @@ from products.experiments.backend.health.registry import (
     HealthCheck,
     evaluate,
 )
-from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH
+from products.experiments.backend.health.test.factories import (
+    DRAFT,
+    EVENTS_LIMITED,
+    FEATURE_FLAGS_LIMITED,
+    RUNNING_CONTEXT,
+    flag_history,
+)
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from products.feature_flags.backend.facade.edits import FlagVariant
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting, FlagVariant
 
 UNEVEN_SPLIT_TOTALS = ExposureTotals(
     total_exposures={"control": 800, "test": 200, "$multiple": 20},
@@ -68,7 +79,11 @@ RUNNING_UNEVEN_SPLIT = replace(RUNNING_CONTEXT, flag=UNEVEN_FLAG, exposures=UNEV
 
 NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test": 0})
 ENDED: dict[str, Any] = {"is_running": False, "has_ended": True}
+MATURED_USERS_OFF = 'Runs when "Require completed conversion or retention window" is on'
 LAUNCHED_AT = datetime(2026, 10, 1, tzinfo=UTC)
+KEY_CHANGE = BucketingChange(
+    changed_at=datetime(2026, 10, 3, tzinfo=UTC), setting=BucketingSetting.KEY, before="old-key", after="flag"
+)
 
 Key = ExperimentHealthCheckKey
 Value = ExperimentHealthValueKey
@@ -76,6 +91,9 @@ Status = ExperimentHealthCheckStatus
 NOT_LOOKED = (Status.NOT_APPLICABLE, Status.NOT_CHECKED)
 FLAG_CHANGE_KEYS = (Key.SPLIT_CHANGED_MID_RUN, Key.BUCKETING_CHANGED_MID_RUN, Key.RELEASE_CONDITIONS_CHANGED_MID_RUN)
 EVENT_KEYS = (Key.METRIC_EVENT_NOT_INGESTED, Key.EXPOSURE_CRITERIA_CANNOT_MATCH)
+# These checks can pass or report a finding without a value or a row, so the panel shows only their description. A
+# check leaves this set when it reads what it looked at in every state.
+READS_NOTHING_YET = {Key.EXPOSURE_CRITERIA_CANNOT_MATCH}
 
 
 def _events(name: str, received: dict[str, bool]) -> dict[str, Any]:
@@ -196,6 +214,21 @@ class TestEvaluate(TestCase):
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
+            (
+                "events_billing_limit_with_exposures",
+                {"billing_limits": EVENTS_LIMITED, "exposures": _filtered_totals(950, 1000)},
+                [ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT],
+            ),
+            (
+                "feature_flags_billing_limit_with_exposures",
+                {"billing_limits": FEATURE_FLAGS_LIMITED, "exposures": _filtered_totals(950, 1000)},
+                [ExperimentHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT],
+            ),
+            (
+                "billing_limit_in_the_first_day",
+                {"billing_limits": EVENTS_LIMITED, "exposures": replace(NO_EXPOSURES, hours_since_launch=1)},
+                [ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT],
+            ),
             ("test_account_filter_under_100_users_without_it", {"exposures": _filtered_totals(4, 99)}, []),
             (
                 "test_account_filter_keeps_nobody",
@@ -281,6 +314,19 @@ class TestEvaluate(TestCase):
                 {Key.ZERO_EXPOSURES: Status.FINDING},
             ),
             (
+                "billing_limits_are_not_checked_when_unread",
+                {"billing_limits": None},
+                {Key.EVENTS_BILLING_LIMIT: Status.NOT_CHECKED, Key.FEATURE_FLAGS_BILLING_LIMIT: Status.NOT_CHECKED},
+            ),
+            (
+                "billing_limits_are_not_reported_after_the_end",
+                {**ENDED, "billing_limits": FEATURE_FLAGS_LIMITED},
+                {
+                    Key.EVENTS_BILLING_LIMIT: Status.NOT_APPLICABLE,
+                    Key.FEATURE_FLAGS_BILLING_LIMIT: Status.NOT_APPLICABLE,
+                },
+            ),
+            (
                 "events_not_received_are_not_reported_after_the_end",
                 {**ENDED, **_events("purchase", {"purchase": False})},
                 dict.fromkeys(EVENT_KEYS, Status.NOT_APPLICABLE),
@@ -334,6 +380,57 @@ class TestEvaluate(TestCase):
             sorted(finding.check for finding in health.findings if finding.check),
             sorted(check.key for check in health.checks if check.status == Status.FINDING),
         )
+        self.assertEqual(
+            [
+                check.key
+                for check in health.checks
+                if check.status not in NOT_LOOKED
+                and not check.values
+                and not check.rows
+                and check.key not in READS_NOTHING_YET
+            ],
+            [],
+        )
+
+    @parameterized.expand(
+        [
+            ("no_metric_waits_for_the_launch", 0, False, Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+            ("no_metric_at_launch", 0, True, Status.FINDING, MATURED_USERS_OFF),
+            ("a_metric_passes_at_launch", 1, True, Status.PASSED, MATURED_USERS_OFF),
+        ]
+    )
+    def test_a_draft_at_launch_runs_the_checks_after_launch(
+        self, _name: str, metric_count: int, at_launch: bool, no_metric: Status, not_matured_reason: str
+    ) -> None:
+        draft = replace(
+            RUNNING_UNEVEN_SPLIT,
+            **DRAFT,
+            flag=replace(UNEVEN_FLAG, active=False),
+            exposures=None,
+            hours_since_launch=None,
+            hours_since_start=None,
+            primary_metric_count=metric_count,
+        )
+        launched = replace(draft, is_launched=True, is_running=True, hours_since_launch=0.0, hours_since_start=0.0)
+
+        health = evaluate(draft, EXPERIMENT_HEALTH_CHECKS, launched=launched if at_launch else None)
+
+        checks = {check.key: check for check in health.checks}
+        self.assertEqual(checks[Key.NO_METRIC].status, no_metric)
+        self.assertEqual(
+            [finding.check for finding in health.findings], [Key.NO_METRIC] if no_metric == Status.FINDING else []
+        )
+        self.assertEqual(
+            {
+                key: (checks[key].status, checks[key].reason)
+                for key in (Key.SPLIT_CHANGED_MID_RUN, Key.METRIC_CALCULATION_FAILED, Key.METRICS_NOT_MATURED)
+            },
+            {
+                Key.SPLIT_CHANGED_MID_RUN: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+                Key.METRIC_CALCULATION_FAILED: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+                Key.METRICS_NOT_MATURED: (Status.NOT_APPLICABLE, not_matured_reason),
+            },
+        )
 
     @parameterized.expand(
         [
@@ -347,12 +444,29 @@ class TestEvaluate(TestCase):
                         FlagVariant(key="test", rollout_percentage=100),
                     ),
                 ),
+                "The split now serves one variant, so the split of the run isn't tested",
+            ),
+            (
+                "one_variant_in_the_split_and_one_exposed",
+                replace(
+                    UNEVEN_FLAG,
+                    variants=(
+                        FlagVariant(key="control", rollout_percentage=0),
+                        FlagVariant(key="test", rollout_percentage=100),
+                    ),
+                ),
                 "Needs two or more variants in the split",
+                {"control": 0, "test": 500},
             ),
         ]
     )
-    def test_srm_says_why_it_did_not_run(self, _name: str, flag: FlagState, reason: str) -> None:
-        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, flag=flag), EXPOSURE_HEALTH_CHECKS)
+    def test_srm_says_why_it_did_not_run(
+        self, _name: str, flag: FlagState, reason: str, total_exposures: dict[str, int] | None = None
+    ) -> None:
+        exposures = UNEVEN_SPLIT_TOTALS
+        if total_exposures is not None:
+            exposures = replace(exposures, total_exposures=total_exposures)
+        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, flag=flag, exposures=exposures), EXPOSURE_HEALTH_CHECKS)
 
         srm = next(check for check in health.checks if check.key == Key.SRM)
         self.assertEqual((srm.status, srm.reason), (Status.NOT_APPLICABLE, reason))
@@ -552,6 +666,271 @@ class TestEvaluate(TestCase):
                 Status.NOT_APPLICABLE,
                 {},
             ),
+            (
+                "stale_experiment_reads_when_the_daily_calculation_ends",
+                Key.STALE_EXPERIMENT,
+                {"hours_since_start": 72, "daily_calculation_ends_at": datetime(2026, 11, 30, 9, 0, tzinfo=UTC)},
+                Status.PASSED,
+                {Value.SINCE_START_HOURS: 72, Value.DAILY_CALCULATION_ENDS_AT: "2026-11-30T09:00:00+00:00"},
+            ),
+            (
+                "events_billing_limit_reads_when_the_limit_lifts",
+                Key.EVENTS_BILLING_LIMIT,
+                {"billing_limits": EVENTS_LIMITED},
+                Status.FINDING,
+                {
+                    Value.EVENTS_BILLING_LIMIT_REACHED: True,
+                    Value.EVENTS_BILLING_LIMIT_ENDS_AT: "2026-12-01T00:00:00+00:00",
+                },
+            ),
+            (
+                "feature_flags_billing_limit_reads_when_the_limit_lifts",
+                Key.FEATURE_FLAGS_BILLING_LIMIT,
+                {"billing_limits": FEATURE_FLAGS_LIMITED},
+                Status.FINDING,
+                {
+                    Value.FEATURE_FLAGS_BILLING_LIMIT_REACHED: True,
+                    Value.FEATURE_FLAGS_BILLING_LIMIT_ENDS_AT: "2026-12-01T00:00:00+00:00",
+                },
+            ),
+            (
+                "feature_flags_billing_limit_reads_its_own_limit",
+                Key.FEATURE_FLAGS_BILLING_LIMIT,
+                {"billing_limits": EVENTS_LIMITED},
+                Status.PASSED,
+                {Value.FEATURE_FLAGS_BILLING_LIMIT_REACHED: False},
+            ),
+            (
+                "new_flag_reads_its_last_call_before_launch",
+                Key.NEW_FLAG_NO_TRAFFIC,
+                {**DRAFT, "flag_called": True, "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC)},
+                Status.PASSED,
+                {Value.FLAG_CALLED: True, Value.FLAG_LAST_CALLED_AT: "2026-11-11T10:42:00+00:00"},
+            ),
+            (
+                "new_flag_without_calls_reads_that_none_were_recorded",
+                Key.NEW_FLAG_NO_TRAFFIC,
+                {**DRAFT, "flag_called": False, "team_has_active_flag": True},
+                Status.FINDING,
+                {Value.FLAG_CALLED: False},
+            ),
+            (
+                "new_flag_reads_nothing_when_the_warehouse_holds_the_exposures",
+                Key.NEW_FLAG_NO_TRAFFIC,
+                {
+                    **DRAFT,
+                    "flag_called": False,
+                    "team_has_active_flag": True,
+                    "warehouse_native_exposures": True,
+                    "exposure_events": None,
+                },
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+            (
+                "flag_state_after_the_end_reads_the_last_call",
+                Key.FLAG_STATE,
+                {
+                    **ENDED,
+                    "ended_at": datetime(2026, 11, 1, tzinfo=UTC),
+                    "flag": replace(
+                        UNEVEN_FLAG, release_groups=(FlagReleaseGroup(rollout_percentage=100, property_count=0),)
+                    ),
+                    "flag_called_after_end": True,
+                    "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC),
+                },
+                Status.FINDING,
+                {
+                    Value.FLAG_ACTIVE: True,
+                    Value.FLAG_DELETED: False,
+                    Value.FLAG_ROLLED_OUT: True,
+                    Value.SHIPPED_VARIANT: None,
+                    Value.FLAG_LAST_CALLED_AT: "2026-11-11T10:42:00+00:00",
+                },
+            ),
+            (
+                "flag_state_at_a_zero_rollout_reads_the_people_assigned_outside_and_not_the_last_call",
+                Key.FLAG_STATE,
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG, release_groups=(FlagReleaseGroup(rollout_percentage=0, property_count=0),)
+                    ),
+                    "condition_set_traffic": ConditionSetTraffic(
+                        since=LAUNCHED_AT,
+                        until=datetime(2026, 10, 8, tzinfo=UTC),
+                        team_timezone="UTC",
+                        people_by_set={},
+                        calls=40,
+                        remotely_evaluated_calls=0,
+                        people_assigned_outside=12,
+                    ),
+                    "flag_last_called_at": datetime(2026, 10, 8, tzinfo=UTC),
+                },
+                Status.FINDING,
+                {
+                    Value.FLAG_ACTIVE: True,
+                    Value.FLAG_DELETED: False,
+                    Value.FLAG_ROLLED_OUT: False,
+                    Value.SHIPPED_VARIANT: None,
+                    Value.ASSIGNED_OUTSIDE_COUNT: 12,
+                },
+            ),
+            (
+                "zero_exposures_on_flag_calls_reads_the_last_call",
+                Key.ZERO_EXPOSURES,
+                {
+                    "exposures": replace(NO_EXPOSURES, hours_since_launch=23.94),
+                    "flag_last_called_at": datetime(2026, 10, 1, 9, 30, tzinfo=UTC),
+                },
+                Status.NOT_APPLICABLE,
+                {
+                    Value.EXPOSED_COUNT: 0,
+                    Value.SINCE_LAUNCH_HOURS: 23.9,
+                    Value.FLAG_LAST_CALLED_AT: "2026-10-01T09:30:00+00:00",
+                },
+            ),
+            (
+                "zero_exposures_on_a_custom_event_leaves_out_the_flag_calls",
+                Key.ZERO_EXPOSURES,
+                {
+                    **_events("purchase", {"purchase": True}),
+                    "exposures": replace(NO_EXPOSURES, hours_since_launch=23.94),
+                    "flag_last_called_at": datetime(2026, 10, 1, 9, 30, tzinfo=UTC),
+                },
+                Status.NOT_APPLICABLE,
+                {Value.EXPOSED_COUNT: 0, Value.SINCE_LAUNCH_HOURS: 23.9},
+            ),
+            (
+                "shared_flag_counts_the_other_experiments_that_are_not_archived",
+                Key.FLAG_SHARED,
+                {
+                    "other_experiments_on_flag": (
+                        ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=None, archived=False),
+                        ExperimentOnFlag(start_date=None, ended_at=None, archived=False),
+                        ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=None, archived=True),
+                    )
+                },
+                Status.FINDING,
+                {Value.OTHER_RUNNING_EXPERIMENT_COUNT: 1, Value.OTHER_DRAFT_EXPERIMENT_COUNT: 1},
+            ),
+            (
+                "flag_variants_read_the_split_and_the_baseline",
+                Key.FLAG_VARIANTS_MISMATCH,
+                {"baseline_variant_key": "control"},
+                Status.PASSED,
+                {Value.FLAG_SPLIT: "control 80% / test 20%", Value.BASELINE_VARIANT: "control"},
+            ),
+            (
+                "metric_compiles_count_the_metrics_they_couldnt_check",
+                Key.METRIC_CANNOT_COMPILE,
+                {
+                    "metric_compiles": MetricCompiles(
+                        metric_count=4, failures=(), unknown_count=1, no_access_count=1, exposure_query_fails=False
+                    )
+                },
+                Status.NOT_CHECKED,
+                {Value.METRIC_COUNT: 4, Value.INVALID_METRIC_COUNT: 0, Value.UNCHECKED_METRIC_COUNT: 2},
+            ),
+            (
+                "flag_variants_without_variants_read_none",
+                Key.FLAG_VARIANTS_MISMATCH,
+                {"flag": replace(UNEVEN_FLAG, variants=())},
+                Status.FINDING,
+                {Value.FLAG_SPLIT: "None", Value.BASELINE_VARIANT: None},
+            ),
+            (
+                "metric_compiles_without_metrics_read_nothing",
+                Key.METRIC_CANNOT_COMPILE,
+                {
+                    "metric_compiles": MetricCompiles(
+                        metric_count=0, failures=(), unknown_count=0, no_access_count=0, exposure_query_fails=False
+                    )
+                },
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+            (
+                "metric_calculation_without_metrics_reads_nothing",
+                Key.METRIC_CALCULATION_FAILED,
+                {
+                    "latest_calculation": LatestCalculation(
+                        metric_count=0,
+                        finished_at=LAUNCHED_AT,
+                        failures=(),
+                        completed_count=0,
+                        completed_exposures_paths=frozenset(),
+                    )
+                },
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+            (
+                "exposure_criteria_read_the_custom_event",
+                Key.EXPOSURE_CRITERIA_CANNOT_MATCH,
+                _events("purchase", {"purchase": False}),
+                Status.FINDING,
+                {Value.EVENT: "purchase", Value.EVENT_RECEIVED: False},
+            ),
+            (
+                "flag_history_reads_where_the_history_starts",
+                Key.FLAG_HISTORY,
+                {"flag_history": flag_history([KEY_CHANGE], start_date=LAUNCHED_AT)},
+                Status.PASSED,
+                {Value.HISTORY_SINCE_AT: "2026-10-01T00:00:00+00:00"},
+            ),
+            (
+                "split_changes_count_only_their_kind",
+                Key.SPLIT_CHANGED_MID_RUN,
+                {"flag_history": flag_history([KEY_CHANGE], start_date=LAUNCHED_AT)},
+                Status.PASSED,
+                {Value.HISTORY_SINCE_AT: "2026-10-01T00:00:00+00:00", Value.CHANGE_COUNT: 0},
+            ),
+            (
+                "no_metric_counts_the_metrics",
+                Key.NO_METRIC,
+                {"secondary_metric_count": 2},
+                Status.PASSED,
+                {Value.PRIMARY_METRIC_COUNT: 1, Value.SECONDARY_METRIC_COUNT: 2},
+            ),
+            (
+                "metric_all_zero_reads_the_calculated_metrics",
+                Key.METRIC_ALL_ZERO,
+                {
+                    "latest_calculation": LatestCalculation(
+                        metric_count=3,
+                        finished_at=datetime(2026, 10, 4, 12, tzinfo=UTC),
+                        failures=(),
+                        completed_count=2,
+                        completed_exposures_paths=frozenset(),
+                        hours_of_data=84,
+                    )
+                },
+                Status.PASSED,
+                {
+                    Value.METRIC_COUNT: 3,
+                    Value.COMPLETED_METRIC_COUNT: 2,
+                    Value.CALCULATED_AT: "2026-10-04T12:00:00+00:00",
+                },
+            ),
+            (
+                "exposure_filters_count_the_dynamic_cohorts",
+                Key.EXPOSURE_FILTERS,
+                {
+                    "exposure_events": ExposureEvents(
+                        custom_event=None,
+                        required_flag_key="flag",
+                        variant_property="$feature_flag_response",
+                        flag_key_filters=(),
+                        cohort_ids=(1, 2),
+                    ),
+                    "exposure_cohorts": (
+                        ExposureCohort(id=1, name="Beta testers", is_static=True),
+                        ExposureCohort(id=2, name="Paying users", is_static=False),
+                    ),
+                },
+                Status.FINDING,
+                {Value.COHORT_COUNT: 2, Value.DYNAMIC_COHORT_COUNT: 1},
+            ),
         ]
     )
     def test_a_check_reports_what_it_read(
@@ -572,16 +951,18 @@ class TestEvaluate(TestCase):
             (Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES, {"exposures": _filtered_totals(400, 1000)}),
             (Key.ZERO_EXPOSURES, {}),
             (Key.UNSERVED_VARIANT_EXPOSURES, {"flag": UNSERVED_CONTROL_FLAG}),
+            (Key.STALE_EXPERIMENT, {}),
         ]
     )
     def test_a_rule_names_values_that_its_check_reads(self, key: Key, changes: dict[str, Any]) -> None:
-        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, **changes), EXPOSURE_HEALTH_CHECKS)
+        health = evaluate(
+            replace(RUNNING_UNEVEN_SPLIT, **changes), (*EXPERIMENT_HEALTH_CHECKS, *EXPOSURE_HEALTH_CHECKS)
+        )
 
         check = next(check for check in health.checks if check.key == key)
-        assert check.rule is not None and check.rule.minimum is not None
-        self.assertEqual(
-            {check.rule.value, check.rule.minimum.value} - check.values.keys(), set(), (check.status, check.values)
-        )
+        assert check.rule is not None
+        rule_keys = {check.rule.value, *([check.rule.minimum.value] if check.rule.minimum else [])}
+        self.assertEqual(rule_keys - check.values.keys(), set(), (check.status, check.values))
 
     @parameterized.expand([(check.key.value, check) for check in EXPOSURE_HEALTH_CHECKS if check.rule])
     def test_an_exposure_rule_converts_to_the_exposure_schema(self, _name: str, check: HealthCheck) -> None:
@@ -643,6 +1024,25 @@ class TestEvaluate(TestCase):
                 _events("checkout_viewed", {"checkout_viewed": True}),
                 ExperimentHealthFindingCode.ZERO_EXPOSURES,
             ),
+            (
+                "events_billing_limit",
+                {"billing_limits": EVENTS_LIMITED, "flag_called_during_run": False},
+                ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT,
+            ),
+            (
+                "events_billing_limit_on_a_custom_exposure_event",
+                {
+                    **_events("checkout_viewed", {"checkout_viewed": True}),
+                    "billing_limits": EVENTS_LIMITED,
+                    "flag_called_during_run": False,
+                },
+                ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT,
+            ),
+            (
+                "feature_flags_billing_limit_after_calls_during_the_run",
+                {"billing_limits": FEATURE_FLAGS_LIMITED, "flag_called_during_run": True},
+                ExperimentHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT,
+            ),
         ]
     )
     def test_one_check_reports_an_experiment_without_exposures(
@@ -655,6 +1055,8 @@ class TestEvaluate(TestCase):
         reporting = {finding.code for finding in health.findings} & {
             ExperimentHealthFindingCode.ZERO_EXPOSURES,
             ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
+            ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT,
+            ExperimentHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT,
         }
         zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
         self.assertEqual(
@@ -663,6 +1065,37 @@ class TestEvaluate(TestCase):
                 {expected},
                 Status.FINDING if expected == ExperimentHealthFindingCode.ZERO_EXPOSURES else Status.NOT_APPLICABLE,
             ),
+        )
+
+    @parameterized.expand(
+        [
+            ("product_analytics_event", "checkout_viewed", False),
+            ("exception", "$exception", True),
+            ("llm_event", "$ai_generation", True),
+            ("survey_event", "survey sent", True),
+        ]
+    )
+    def test_billing_limit_keeps_exposure_events_with_their_own_limit(
+        self, _name: str, exposure_event: str, has_own_limit: bool
+    ) -> None:
+        ctx = replace(
+            RUNNING_CONTEXT,
+            flag=EVEN_SPLIT_FLAG,
+            exposures=replace(NO_EXPOSURES, hours_since_launch=48),
+            billing_limits=EVENTS_LIMITED,
+            flag_called_during_run=False,
+            **_events(exposure_event, {exposure_event: True}),
+        )
+
+        health = evaluate(ctx, EXPOSURE_HEALTH_CHECKS)
+
+        billing = next(
+            finding for finding in health.findings if finding.code == ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT
+        )
+        zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
+        self.assertEqual(
+            ("has a limit of its own" in billing.detail, zero_exposures.status),
+            (has_own_limit, Status.FINDING if has_own_limit else Status.NOT_APPLICABLE),
         )
 
     def test_a_failing_check_does_not_hide_the_other_findings(self) -> None:

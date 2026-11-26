@@ -20,6 +20,7 @@ import { logger, serializeError } from '~/common/utils/logger'
 import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '../../outputs/outputs'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
+import { isClickTrackingEnabled } from '../hogflows/hogflow-sensitivity'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
@@ -28,14 +29,12 @@ import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
+import { Attribute, readOpeningTagOrCut } from './helpers/opening-tag'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { SnsEnvelope } from './helpers/sns-envelope'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
-
-// Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
-const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
 
 /**
  * How anchors in the email body are prepared for click attribution.
@@ -46,7 +45,8 @@ const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+)
  * `ses` leaves hrefs pointing at their real destination and instead annotates each anchor with the
  * attributes SES reads when it rewrites links for its own click tracking. SES is the sole click
  * source on this path, so wrapping the href as well would only bury the destination inside a
- * per-send URL that the Click event then reports verbatim.
+ * per-send URL that the Click event then reports verbatim. SES also adds its own open pixel, and
+ * the pixel handler records nothing in production, so this mode adds no pixel of ours.
  */
 export type EmailTrackingMode = 'redirect' | 'ses'
 
@@ -55,13 +55,16 @@ const addAttributeToOpeningTag = (openingTag: string, attribute: string): string
         return openingTag
     }
     const attributes = openingTag.slice(0, -1)
-    const withoutSelfClose = attributes.endsWith('/') ? attributes.slice(0, -1) : attributes
+    const withoutSelfClose = /[\t\n\f\r "']\/$/.test(attributes) ? attributes.slice(0, -1) : attributes
     return `${withoutSelfClose.trimEnd()} ${attribute}>`
 }
 
-const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
+const replaceAttribute = (html: string, attribute: Attribute, replacement: string): string =>
+    html.slice(0, attribute.start) + replacement + html.slice(attribute.end)
+
+const withSesLinkIndexTag = (openingTag: string, attributes: Attribute[], linkIndex: number): string => {
     const tag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
-    const existing = openingTag.match(SES_TAGS_ATTR_REGEX)
+    const existing = attributes.find(({ name }) => name === 'ses:tags')
     if (!existing) {
         return addAttributeToOpeningTag(openingTag, `ses:tags="${tag}"`)
     }
@@ -69,8 +72,8 @@ const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
     // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
     // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
     // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
-    const value = existing[1] ?? existing[2] ?? existing[3] ?? ''
-    return openingTag.replace(SES_TAGS_ATTR_REGEX, () => `ses:tags="${value ? `${value};` : ''}${tag}"`)
+    const value = (existing.value ?? '').replaceAll('"', '&quot;')
+    return replaceAttribute(openingTag, existing, `ses:tags="${value ? `${value};` : ''}${tag}"`)
 }
 
 const trackingEventsCounter = new Counter({
@@ -95,7 +98,7 @@ const emailTrackingLogSkipsCounter = new Counter({
 
 export const sesQueuedNotificationsCounter = new Counter({
     name: 'email_tracking_ses_queued_notifications_total',
-    help: 'SES notifications through the queue, by stage: queued, then recorded, skipped, or failed for a retry',
+    help: 'SES notifications through the queue, by stage: queued, then recorded, redelivered, skipped, or failed for a retry',
     labelNames: ['stage'],
 })
 
@@ -207,8 +210,6 @@ const isJavascriptHref = (href: string): boolean => {
     return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
-export const openPixelTag = (pixelUrl: string): string => `<img src="${pixelUrl}" style="display: none;" />`
-
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
@@ -225,16 +226,14 @@ export const addTrackingToEmail = (
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
     const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
-    const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     // Incremented for every anchor with an href, including ones that turn out to be opted
     // out or unsafe, so the index stays tied to document position instead of shifting with how
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
-    // A sensitive email's links can carry a login code or a reset token, so none of them goes through
-    // a click-tracking redirect. Opens and deliveries are still tracked.
-    const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+    const allLinksOptedOut = !isClickTrackingEnabled(invocation)
+    const redirectUrls = new Map<string, string>()
 
     html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++
@@ -248,8 +247,9 @@ export const addTrackingToEmail = (
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
-        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = sensitive || hasClickTrackingOptOut(openingTag)
+        const { attributes, end } = readOpeningTagOrCut(m, '<a'.length)
+        const openingTag = m.slice(0, end + 1)
+        const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -261,21 +261,25 @@ export const addTrackingToEmail = (
                     ? m
                     : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
             }
-            return withSesLinkIndexTag(openingTag, linkIndex) + m.slice(openingTag.length)
+            return withSesLinkIndexTag(openingTag, attributes, linkIndex) + m.slice(openingTag.length)
         }
 
         if (optedOut) {
             return m
         }
-        const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
+        const tracked = redirectUrls.get(href) ?? signer.redirectUrl(trackingInvocation, href, isTest)
+        redirectUrls.set(href, tracked)
 
         // replace just the href in the original tag to preserve other attributes
-        return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
+        const hrefAttribute = attributes.find(({ name, value }) => name === 'href' && value !== null)!
+        return replaceAttribute(m, hrefAttribute, `href="${tracked}"`)
     })
 
-    html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)
-
-    return html
+    if (mode === 'ses') {
+        return html
+    }
+    const pixelUrl = signer.pixelUrl(trackingInvocation, isTest)
+    return html.replace('</body>', `<img src="${pixelUrl}" style="display: none;" /></body>`)
 }
 
 const REDIRECT_CONFIRMATION_PAGE_HEADERS = {
@@ -744,6 +748,8 @@ export class EmailTrackingService {
                         status: update.status,
                         reason: update.reason,
                         statusAt: new Date(update.timestamp),
+                        messageCreatedAt:
+                            update.messageCreatedAtMs === undefined ? undefined : new Date(update.messageCreatedAtMs),
                     })
                 }
             }
@@ -769,7 +775,8 @@ export class EmailTrackingService {
                             parsedTeamId,
                             emailAddresses,
                             diagnostic,
-                            bounceTimestamp
+                            bounceTimestamp,
+                            { eventId: envelope.MessageId }
                         )
                     }
                 }

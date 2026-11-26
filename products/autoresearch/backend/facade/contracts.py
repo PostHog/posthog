@@ -65,6 +65,28 @@ class TrainingRunCapReached(Exception):
         super().__init__(message)
 
 
+class TrainingBudgetReached(Exception):
+    """The project has used its monthly training budget.
+
+    The viewset maps it to a 429, so the message is user-facing copy.
+    """
+
+    code = "training_budget_reached"
+
+    def __init__(self, *, spent_usd: float, limit_usd: int, resets_at: datetime) -> None:
+        self.spent_usd = spent_usd
+        self.limit_usd = limit_usd
+        self.resets_at = resets_at
+        if limit_usd == 0:
+            message = "Training runs are turned off for this project. Contact support to turn them on."
+        else:
+            message = (
+                f"This project has used ${spent_usd:,.2f} of its ${limit_usd:,} monthly training budget. "
+                f"Training can start again on {resets_at:%B} {resets_at.day} (UTC)."
+            )
+        super().__init__(message)
+
+
 class LivePipelineCapReached(AutoresearchConflict):
     """The project already has its limit of live pipelines, so another cannot go live.
 
@@ -111,6 +133,14 @@ class ArtifactStorageUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ActionTarget:
+    id: int
+    name: str
+    team_id: int
+    created_by_id: int | None
+
+
+@dataclass(frozen=True)
 class TrainingTrendPoint:
     iteration_number: int
     best_holdout_score: float
@@ -121,6 +151,9 @@ class LiveTrainingRun:
     """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
 
     id: UUID
+    task_id: UUID | None
+    task_run_id: UUID | None
+    task_url: str | None
     iteration_budget: int
     experiment_count: int
     best_holdout_score: float | None
@@ -391,10 +424,15 @@ class ProjectLimits:
     max_iterations_per_run: int
     max_live_pipelines: int
     live_pipelines: int
+    max_training_spend_usd_per_month: int
+    # Token plus compute cost of this UTC calendar month's sandbox training runs, in US dollars.
+    training_spend_usd: float
+    training_spend_resets_at: datetime
     # Where each limit came from: project, default or code.
     max_training_runs_per_day_source: str
     max_iterations_per_run_source: str
     max_live_pipelines_source: str
+    max_training_spend_usd_per_month_source: str
 
 
 # ── Write contracts ────────────────────────────────────────────────────────
@@ -452,6 +490,8 @@ class PipelineValidation:
     inference_population_size: int | None
     warnings: list[ValidationWarning]
     error: str | None
+    # One of VALIDATION_ERROR_CODE_CHOICES when `error` is set.
+    error_code: str | None
 
 
 @dataclass(frozen=True)

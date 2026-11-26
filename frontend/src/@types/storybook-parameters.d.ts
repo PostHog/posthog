@@ -3,8 +3,14 @@ import type { Mocks } from '~/mocks/utils'
 
 export type ViewportWidthName = 'narrow' | 'medium' | 'wide' | 'superwide'
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
-export type SupportedBrowserName = 'chromium' | 'webkit'
+export type SupportedBrowserName = 'chromium' | 'webkit' | 'firefox'
 export type SnapshotTheme = 'light' | 'dark'
+
+declare global {
+    interface Window {
+        __STORYBOOK_SCENE_READINESS__?: { storyId: string; instanceId: number; getReadyVersion: () => number | null }
+    }
+}
 
 declare module 'storybook/internal/types' {
     interface Parameters {
@@ -12,6 +18,8 @@ declare module 'storybook/internal/types' {
         /** @default 'padded' */
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
+            /** Defaults to true. Set false to retain the fixed settle delay while missing content holds are repaired. */
+            waitForSceneReady?: boolean
             /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
              * @default true

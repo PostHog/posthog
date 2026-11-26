@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
+import { fromPostHogProducts, isFromPostHogItem } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
@@ -19,10 +19,25 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import { isDefinitionDetailPath } from './todayData'
+import { homePaneRouteForPath, isHomePanePath } from './todayHome'
+import { isErrorTrackingIssuePath } from './todayMonitor'
+import { isTodayHomePaneEnabled, isTodayPaneEnabled } from './todayPaneFlags'
+import { paneConfigProductForPath } from './todayPaneProducts'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
-import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
+import { TODAY_PRODUCT_PANES, isProductPane } from './todayProductPanes'
 
-export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'people' | 'release' | 'products' | 'settings'
+export type TodayRailPane =
+    | 'home'
+    | 'spaces'
+    | 'analytics'
+    | 'monitor'
+    | 'people'
+    | 'release'
+    | 'automate'
+    | 'data'
+    | 'products'
+    | 'settings'
 
 /** What the shell shows: the page, the pane picked on the rail, and whether its sidebar is open. */
 export interface TodayView {
@@ -60,7 +75,17 @@ export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
     return effectivePhaiView === 'new' ? urls.taskNewSession() : urls.ai()
 }
 
-export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'people', 'release', 'products']
+export const TODAY_RAIL_PANES: TodayRailPane[] = [
+    'home',
+    'spaces',
+    'analytics',
+    'people',
+    'release',
+    'monitor',
+    'automate',
+    'data',
+    'products',
+]
 
 /** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
 const RAIL_PANE_HOMES: Partial<
@@ -69,10 +94,13 @@ const RAIL_PANE_HOMES: Partial<
     home: () => urls.projectHomepage(),
     spaces: todayNewChatUrl,
     analytics: () => urls.analyticsList(),
+    monitor: () => urls.errorTracking(),
     // Not urls.customerAnalytics(): that redirect opens the Accounts page when customer-analytics-csp is on.
     people: (_, featureFlags) =>
         featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? urls.customerAnalyticsDashboard() : urls.persons(),
     release: () => urls.releases(),
+    automate: () => urls.workflows(),
+    data: () => urls.sources(),
     settings: () => urls.settings('project'),
 }
 
@@ -107,11 +135,18 @@ export function nextPhonePages(
     return [...pages.slice(0, -1), page]
 }
 
-/** The pane a route belongs to, or null for pages that keep whichever pane was open. */
-export function railPaneForPath(pathname: string): TodayRailPane | null {
+/**
+ * The pane a route belongs to, or null for pages that keep whichever pane was open. Monitor's, Automate's and Data's
+ * pages belong to them only while their pane is on, and to Products otherwise.
+ */
+export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
+    }
+    const homePaneRoute = homePaneRouteForPath(path, featureFlags)
+    if (homePaneRoute) {
+        return homePaneRoute
     }
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
@@ -129,16 +164,24 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
         isUnderPath(path, urls.notebooks()) ||
         isUnderPath(path, urls.dashboards()) ||
         isUnderPath(path, '/insights') ||
-        fromPostHogProducts().some((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))
+        isFromPostHogItem(byPostHogItemForPath(path) ?? {})
     ) {
         return 'analytics'
+    }
+    const productPane = TODAY_PRODUCT_PANES.find(
+        (config) => isTodayPaneEnabled(config.pane, featureFlags) && paneConfigProductForPath(config, path)
+    )
+    if (productPane) {
+        return productPane.pane
     }
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'
     }
+    // Source and destination setup pages live under /data-warehouse, apart from the Sources and Destinations they belong to.
     if (
         isUnderPath(path, urls.library()) ||
         isUnderPath(path, urls.tools()) ||
+        isUnderPath(path, '/data-warehouse') ||
         libraryTypeForPath(path) ||
         productsPaneListsPath(path)
     ) {
@@ -148,6 +191,17 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
 }
 
 let navProductPages: FileSystemImport[] | null = null
+
+/**
+ * The By PostHog entry that owns this page. Its ready-made analytics belong to Analytics. Its other pages, like
+ * Session replay, belong to Products and keep an open Analytics pane open.
+ */
+function byPostHogItemForPath(path: string): FileSystemImport | undefined {
+    const items = fromPostHogProducts().map((product) => product.item)
+    // Matched like the Products tab, so a recording under /replay belongs to Session replay, not only its home page.
+    const href = navProductHrefForPath(path, items)
+    return href ? items.find((item) => item.href === href) : undefined
+}
 
 /** Whether the Products pane lists the product that owns this page. Some, like Dashboards, open under Analytics too. */
 function productsPaneListsPath(path: string): boolean {
@@ -161,22 +215,40 @@ function productsPaneListsPath(path: string): boolean {
  */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
-        (routePane === 'analytics' && productsPaneListsPath(path)) || (routePane === 'people' && isPeopleListPath(path))
+        // Home's own pages, the Today page among them, still switch to Home. Only the Inbox and Pulse stay.
+        ((routePane === 'analytics' || isProductPane(routePane) || (routePane === 'home' && isHomePanePath(path))) &&
+            productsPaneListsPath(path)) ||
+        (routePane === 'people' && isPeopleListPath(path))
     )
 }
 
 /**
- * The pane to show after a page change. A person, group or cohort opened while Analytics shows keeps Analytics, so a
- * drill-in from an insight does not switch the rail. `shownPane` is the pane on screen before the change, which is the
+ * Whether an open Analytics pane stays open on this page: a product By PostHog lists, the SQL editor its sidebar links
+ * to, a person, group or cohort, an error tracking issue, or an event or property definition, so a drill-in from an
+ * insight or a replay does not switch the rail. Each of these opens its own pane when Analytics is not showing.
+ */
+function analyticsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
+    return (
+        (routePane === 'people' && isPeopleDetailPath(path)) ||
+        (routePane === 'monitor' && isErrorTrackingIssuePath(path)) ||
+        (routePane === 'data' && isDefinitionDetailPath(path)) ||
+        !!byPostHogItemForPath(path) ||
+        isUnderPath(path, urls.sqlEditor())
+    )
+}
+
+/**
+ * The pane to show after a page change. `shownPane` is the pane on screen before the change, which is the
  * route's pane when nothing was picked.
  */
 function paneAfterNavigation(
     openPane: TodayRailPane | null,
     pathname: string,
-    shownPane: TodayRailPane | null
+    shownPane: TodayRailPane | null,
+    featureFlags: FeatureFlagsSet
 ): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
-    const routePane = railPaneForPath(pathname)
+    const routePane = railPaneForPath(pathname, featureFlags)
     if (openPane === 'products' && productsPaneKeepsPath(path, routePane)) {
         return openPane
     }
@@ -186,15 +258,19 @@ function paneAfterNavigation(
     ) {
         return shownPane
     }
-    if (shownPane === 'analytics' && routePane === 'people' && isPeopleDetailPath(path)) {
+    if (shownPane === 'analytics' && analyticsPaneKeepsPath(path, routePane)) {
         return shownPane
     }
     return routePane ?? openPane
 }
 
 /** The pane to show when the app loads. The pane stored on the last visit stands in for the pane on screen before. */
-function paneOnLoad(storedPane: TodayRailPane | null, pathname: string): TodayRailPane | null {
-    return paneAfterNavigation(storedPane, pathname, storedPane)
+function paneOnLoad(
+    storedPane: TodayRailPane | null,
+    pathname: string,
+    featureFlags: FeatureFlagsSet
+): TodayRailPane | null {
+    return paneAfterNavigation(storedPane, pathname, storedPane, featureFlags)
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -204,13 +280,16 @@ export interface todayShellLogicValues {
     mobileLayout: boolean // navigationLogic
     activePane: TodayRailPane
     currentView: TodayView
+    dataPaneLinksTabs: boolean
     lastSceneUrl: string | null
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
+    onHomePage: boolean
     paneHasSidebar: boolean
     peoplePaneLinksTabs: boolean
     phoneCanGoBack: boolean
+    phoneHeaderHasProjectMenu: boolean
     phoneHeaderHidden: boolean
     phoneHeaderShown: boolean
     phoneLayout: boolean
@@ -297,13 +376,20 @@ export interface todayShellLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayShellLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        routePane: (location: { hash: string; pathname: string; search: string }) => TodayRailPane | null
+        routePane: (
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            },
+            featureFlags: FeatureFlagsSet
+        ) => TodayRailPane | null
         activePane: (
             pickedPane: TodayRailPane | null,
             routePane: TodayRailPane | null,
             featureFlags: FeatureFlagsSet
         ) => TodayRailPane
-        paneHasSidebar: (activePane: TodayRailPane) => boolean
+        paneHasSidebar: (activePane: TodayRailPane, featureFlags: FeatureFlagsSet) => boolean
         currentView: (
             location: {
                 hash: string
@@ -329,7 +415,10 @@ export interface todayShellLogicMeta {
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
         railPanes: (featureFlags: FeatureFlagsSet) => TodayRailPane[]
         peoplePaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
+        dataPaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
         onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
+        onHomePage: (location: { hash: string; pathname: string; search: string }) => boolean
+        phoneHeaderHasProjectMenu: (onHomePage: boolean, sidebarVisible: boolean) => boolean
         phoneHeaderHidden: (
             onAiPage: boolean,
             searchParams: Record<string, any>,
@@ -378,7 +467,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             ['mobileLayout'],
         ],
         actions: [router, ['locationChanged']],
-        logic: [todayPeopleRecentsLogic],
     })),
     actions({
         rememberSceneUrl: (location: { pathname: string; search: string; hash: string }) => ({ location }),
@@ -452,8 +540,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
     }),
     selectors({
         routePane: [
-            () => [router.selectors.location],
-            (location: { pathname: string }): TodayRailPane | null => railPaneForPath(location.pathname),
+            (s) => [router.selectors.location, s.featureFlags],
+            (location: { pathname: string }, featureFlags: FeatureFlagsSet): TodayRailPane | null =>
+                railPaneForPath(location.pathname, featureFlags),
         ],
         activePane: [
             (s) => [s.pickedPane, s.routePane, s.featureFlags],
@@ -463,10 +552,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 featureFlags: FeatureFlagsSet
             ): TodayRailPane => {
                 const pane = pickedPane ?? routePane ?? 'home'
-                return pane === 'release' && !featureFlags[FEATURE_FLAGS.RELEASES_AREA] ? 'home' : pane
+                return isTodayPaneEnabled(pane, featureFlags) ? pane : 'home'
             },
         ],
-        paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
+        paneHasSidebar: [
+            (s) => [s.activePane, s.featureFlags],
+            (activePane: TodayRailPane, featureFlags: FeatureFlagsSet): boolean =>
+                activePane !== 'home' || isTodayHomePaneEnabled(featureFlags),
+        ],
         currentView: [
             (s) => [router.selectors.location, s.activePane, s.sidebarOpen],
             (
@@ -508,7 +601,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
         railPanes: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): TodayRailPane[] =>
-                TODAY_RAIL_PANES.filter((pane) => pane !== 'release' || !!featureFlags[FEATURE_FLAGS.RELEASES_AREA]),
+                TODAY_RAIL_PANES.filter((pane) => isTodayPaneEnabled(pane, featureFlags)),
         ],
         // The People pane links every People page and tab, so those pages hide their tabs and name while it is open.
         peoplePaneLinksTabs: [
@@ -516,9 +609,25 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (todayRailEnabled: boolean, activePane: TodayRailPane): boolean =>
                 todayRailEnabled && activePane === 'people',
         ],
+        dataPaneLinksTabs: [
+            (s) => [s.todayRailEnabled, s.activePane],
+            (todayRailEnabled: boolean, activePane: TodayRailPane): boolean =>
+                todayRailEnabled && activePane === 'data',
+        ],
         onAiPage: [
             () => [router.selectors.location],
             (location: { pathname: string }): boolean => isAiPath(location.pathname),
+        ],
+        onHomePage: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): boolean => {
+                const path = removeProjectIdIfPresent(location.pathname)
+                return path === '/' || path === urls.projectHomepage()
+            },
+        ],
+        phoneHeaderHasProjectMenu: [
+            (s) => [s.onHomePage, s.sidebarVisible],
+            (onHomePage: boolean, sidebarVisible: boolean): boolean => onHomePage && !sidebarVisible,
         ],
         phoneHeaderHidden: [
             (s) => [s.onAiPage, router.selectors.searchParams, s.todayRailEnabled, s.phoneLayout],
@@ -570,8 +679,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
         },
         locationChanged: ({ method, pathname }) => {
             const { pickedPane } = values
-            const shownPane = pickedPane ?? railPaneForPath(cache.lastPathname ?? '')
-            actions.setPickedPane(paneAfterNavigation(pickedPane, pathname, shownPane))
+            const { featureFlags } = values
+            const shownPane = pickedPane ?? railPaneForPath(cache.lastPathname ?? '', featureFlags)
+            actions.setPickedPane(paneAfterNavigation(pickedPane, pathname, shownPane, featureFlags))
             const pageChanged = method === 'PUSH' && pathname !== cache.lastPathname
             cache.lastPathname = pathname
             // An unpinned sidebar gives the new page room. The drawer closes on its own, and a rail pick wants it open.
@@ -650,7 +760,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         const { pathname, search, hash } = router.values.location
-        actions.setPickedPane(paneOnLoad(values.pickedPane, pathname))
+        actions.setPickedPane(paneOnLoad(values.pickedPane, pathname, values.featureFlags))
         cache.lastPathname = pathname
         actions.rememberSceneUrl({ pathname, search, hash })
         actions.setPhonePages([{ pathname, url: `${pathname}${search}${hash}` }])
