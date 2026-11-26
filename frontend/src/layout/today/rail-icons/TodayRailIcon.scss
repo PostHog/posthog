@@ -115,6 +115,13 @@ $stagger: 30ms;
     }
 }
 
+@include hovered(release) {
+    .TodayRailIcon__cloth {
+        transform-origin: 0% 50%;
+        animation: TodayRailIcon__Flutter $dur-hover $ease-out;
+    }
+}
+
 @include hovered(monitor) {
     .TodayRailIcon__pulse {
         animation: TodayRailIcon__Draw $dur-hover $ease-out;
@@ -197,6 +204,12 @@ $stagger: 30ms;
 @keyframes TodayRailIcon__Step {
     40% {
         transform: translateX(0.75px);
+    }
+}
+
+@keyframes TodayRailIcon__Flutter {
+    40% {
+        transform: skewY(-8deg);
     }
 }
 

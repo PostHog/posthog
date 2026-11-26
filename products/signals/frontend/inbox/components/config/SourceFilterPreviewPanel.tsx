@@ -36,7 +36,7 @@ function previewNotice(
     nouns: string
 ): PreviewNotice | null {
     if (requestError === 'throttled') {
-        return { type: 'info', message: 'Too many previews in a short time. The preview updates again shortly.' }
+        return { type: 'info', message: 'Rate limit exceeded. Please wait before trying again.' }
     }
     if (requestError === 'failed') {
         return {

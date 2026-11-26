@@ -198,6 +198,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Select: fixed options, no text input, up to ~15 items
   - Select and Combobox triggers follow the button size rule. Their popup items are always default size, so an `sm` trigger opens a menu bigger than itself. This includes a `Button` that opens a picker
   - Combobox: one or many values from a long or async list, filterable; multi-select shows chips; no free text
+  - A `Button` that opens a Combobox or Autocomplete with its input inside the popup renders through `ComboboxTrigger` or `AutocompleteTrigger` (`render={<Button />}`). Never open the popup from the Button's `onClick` and pass its ref as `anchor`: the popup does not know the Button is its trigger, so the Button gets no `aria-expanded` and does not stay pressed while the popup is open. `ComboboxTrigger` draws the chevron, so don't add `SelectTriggerIcon`. Pass `showChevron={false}` only for a Button that shows no chevron, such as an "Add" button
   - Actions in a Combobox (settings, "New …") are list items, never footer buttons. See section 8
   - Autocomplete: free text with optional suggestions; search, command pickers
   - Filterable DropdownMenu (`DropdownMenuFilterProvider`, `DropdownMenuInput`, `DropdownMenuEmpty`, `DropdownMenuList`): search the rows of a menu or submenu that is already open, such as a list's filter menu. Use Combobox instead when the control is a field that holds a value, needs chips, or lists more than about 1,000 options, because a filterable menu keeps every row mounted

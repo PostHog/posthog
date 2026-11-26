@@ -117,14 +117,31 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearExternalReferenceJob:
+    team_id: int
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The immutable ticket id survives moves between Linear teams.
+    ticket_id: UUID
+    actor_id: UUID
+    identifier: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
+
+
+@dataclass(frozen=True)
 class LinearStatusSyncJob:
     # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
     organization_id: str
     # The ticket's identifier first, then any identifiers it had before it moved between Linear teams.
     identifiers: tuple[str, ...]
     # The workflow state the ticket left. The task reads its category to tell a reopen from a move
-    # between two open states.
-    previous_state_id: str
+    # between two open states. None reconciles a newly linked ticket without inferring a reopen.
+    previous_state_id: str | None
 
     def __post_init__(self) -> None:
         if not self.identifiers:
@@ -166,11 +183,24 @@ class ErrorTrackingIssuePreview:
     assignee: ErrorTrackingIssueAssignee | None
 
 
+class IssueTagColor(LabeledStrEnum):
+    # Hue names, not status names such as danger or success, so a team's tag does not read as an alert state.
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 @dataclass(frozen=True)
 class ErrorTrackingIssueTagDefinition:
     key: str
     label: str
     description: str
+    color: IssueTagColor | None
 
 
 @dataclass(frozen=True)
@@ -178,6 +208,7 @@ class ErrorTrackingIssueTag:
     key: str
     label: str
     description: str
+    color: IssueTagColor | None
     # The tagger that applied the tag. Postgres stores it, the ClickHouse copy of the tags does not.
     source: str | None = None
 
@@ -349,6 +380,7 @@ class ErrorTrackingIssueTagRule:
     key: str
     label: str
     description: str
+    color: IssueTagColor | None
     filters: dict
     version: int
     order_key: int

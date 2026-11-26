@@ -2336,6 +2336,14 @@ class TestTaskRun(TestCase):
         self.assertEqual(log_entries[0]["type"], "info")
         self.assertEqual(log_entries[0]["message"], "First log entry")
 
+    def test_append_log_writes_nothing_once_the_run_is_deleted(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        TaskRun.objects.filter(pk=run.pk).delete()
+
+        run.append_log([{"type": "info", "message": "written after the run was deleted"}])
+
+        self.assertIsNone(object_storage.read(run.log_url, missing_ok=True))
+
     def _append_memory_read_twice(
         self, *, sent_by_run_sandbox: bool, entry_age: timedelta = timedelta(0)
     ) -> tuple[datetime, list[dict[str, Any]]]:

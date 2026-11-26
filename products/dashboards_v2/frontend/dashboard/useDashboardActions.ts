@@ -21,7 +21,10 @@ export function useDashboardActions(): MenuAction[] {
         downloadImage,
         downloadingImage,
         dashboardActions,
+        filters,
     } = useDashboardV2()
+    const hasFilterTypes = !!filters && filters.types.length > 0
+    const allowFilters = !!dashboard.allowFilters
     // The image shows only the tab on screen, so with several tabs the menu names it.
     const label = gridTabs(dashboard).length > 1 ? `Download "${activeTab.title}" tab as image` : 'Download image'
     return useMemo(() => {
@@ -40,6 +43,27 @@ export function useDashboardActions(): MenuAction[] {
         if (appearance) {
             actions.push(appearance)
         }
+        if (hasFilterTypes) {
+            actions.push({
+                key: 'allow-filters',
+                label: 'Allow filters',
+                dataAttr: 'dashboard-v2-allow-filters',
+                disabledReason: disabledReasonFor('setAllowFilters'),
+                checked: allowFilters,
+                onSelect: () => onEdit({ edit: 'setAllowFilters', allowed: !allowFilters }),
+            })
+        }
         return dashboardActions ? dashboardActions(actions) : actions
-    }, [label, downloadImage, downloadingImage, dashboardActions, activeTab.tiles, widgets, disabledReasonFor, onEdit])
+    }, [
+        label,
+        downloadImage,
+        downloadingImage,
+        dashboardActions,
+        activeTab.tiles,
+        widgets,
+        disabledReasonFor,
+        onEdit,
+        hasFilterTypes,
+        allowFilters,
+    ])
 }

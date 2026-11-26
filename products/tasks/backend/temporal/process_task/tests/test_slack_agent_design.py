@@ -29,6 +29,12 @@ PROJECT_URL = "https://us.posthog.com/project/7"
 
 
 class TestStreamedAnswerCodeElements(SimpleTestCase):
+    def setUp(self) -> None:
+        # No database here for the shared-channel check, which only matters in a Slack Connect channel.
+        stub = patch.object(SlackThreadHandler, "_shared_channel_turned_off", return_value=False)
+        stub.start()
+        self.addCleanup(stub.stop)
+
     @parameterized.expand(
         [
             ("backticks", "```", True),

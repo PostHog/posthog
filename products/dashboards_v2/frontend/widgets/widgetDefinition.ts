@@ -4,9 +4,15 @@ import type { ContentWidget } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
 import type { WidgetSpec } from './widgetSpec'
 
+export interface WidgetComponentProps<Config = unknown> {
+    widget: ContentWidget<Config>
+    /** Saves a new config for this widget, as one undo step. Left out when the person cannot change it. */
+    setConfig?: (config: Config) => void
+}
+
 /** A widget type the browser can render: its spec plus its component. The host passes its list of these to the dashboard. */
 export interface WidgetDefinition<Config = unknown> extends WidgetSpec<Config> {
-    Component: ComponentType<{ widget: ContentWidget<Config> }>
+    Component: ComponentType<WidgetComponentProps<Config>>
     /** Shows while `Component` suspends. Without it, the tile shows `WidgetLoading`. */
     Loading?: ComponentType<{ widget: ContentWidget<Config> }>
     /** Controls in the tile's header, beside the title, such as an interval picker or an "Open as insight" button. */

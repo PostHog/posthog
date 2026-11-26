@@ -33,6 +33,7 @@ class TestOAuthApplicationConsole(BaseTest):
             name="Example",
             client_id="https://app.example.com/client.json",
             is_cimd_client=True,
+            organization=self.organization,
             client_secret="",
             client_type=client_type,
             jwks_uri=jwks_uri,

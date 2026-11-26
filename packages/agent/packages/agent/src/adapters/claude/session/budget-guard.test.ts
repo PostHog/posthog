@@ -61,6 +61,29 @@ describe("RunBudgetGuard", () => {
   });
 
   test.each([
+    ["at", 60_000, 0.0114],
+    ["over", 60_001, 0.0570005],
+  ])(
+    "prices a haiku 5.5 prompt %s 100k cache-inclusive tokens at its tier",
+    (_side, inputTokens, expected) => {
+      const cost = estimateMessageCostUsd(
+        {
+          id: "m1",
+          model: "claude-haiku-5-5",
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: 10_000,
+            cache_read_input_tokens: 40_000,
+            cache_creation_input_tokens: 0,
+          },
+        },
+        DEFAULT_MODEL_PRICES,
+      );
+      expect(cost).toBeCloseTo(expected, 9);
+    },
+  );
+
+  test.each([
     ["claude-fable-5-2", 48.2],
     ["claude-fable-5-1", 61],
   ])("prices %s at its own fable rates", (model, perMillionEach) => {
@@ -88,6 +111,7 @@ describe("RunBudgetGuard", () => {
     ["deepseek-ai/deepseek-v4-flash-0731", 0.418],
     ["deepseek-ai/deepseek-v4.1-flash-1017", 1.507],
     ["deepseek-ai/deepseek-v4.1-flash-1017-fast", 3.014],
+    ["claude-haiku-5-5", 3.05],
   ])(
     "prices %s below opus, the way the gateway bills it",
     (model, perMillionEach) => {
