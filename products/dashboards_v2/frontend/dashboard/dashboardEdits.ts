@@ -1,3 +1,4 @@
+import { type FilterEdit, applyFilterEdit } from '../filters/filterEdits'
 import { arrangeInColumns, contentRows, dropIntoGrid, resizeSection, settleGrid } from '../grid/gridTiles'
 import { bottomOf } from '../grid/placeTiles'
 import { type PresentationEdit, applyPresentationEdit } from '../presentation/presentationEdits'
@@ -39,7 +40,7 @@ export type LayoutEdit =
 /** Edits to what a tile holds. A widget type sends these from its own menu actions, such as a chart switching kind. */
 export type ContentEdit = { edit: 'setWidgetConfig'; id: string; config: unknown }
 
-export type DashboardEdit = LayoutEdit | ContentEdit | PresentationEdit
+export type DashboardEdit = LayoutEdit | ContentEdit | PresentationEdit | FilterEdit
 
 /** The dashboard as one person sees it, with sections they opened or closed for themselves. Never saved. */
 export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>, sizeOf: SizeOf): Dashboard {
@@ -288,6 +289,10 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
             }
             return { ...dashboard, tabs: [...rest.slice(0, index), tab, ...rest.slice(index)] }
         }
+        case 'setAllowFilters':
+        case 'addFilter':
+        case 'removeFilter':
+            return applyFilterEdit(dashboard, edit)
         default:
             return applyPresentationEdit(dashboard, edit)
     }
