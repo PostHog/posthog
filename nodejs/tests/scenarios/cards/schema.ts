@@ -68,8 +68,17 @@ export const Card = z
                 minOffered: z.number().min(0).max(1).default(0.9),
                 ramp: z.array(RampStep).min(1).optional(),
                 stopOnBreak: z.literal(true).optional(),
+                warmUp: Duration.optional(),
             })
             .strict()
+            .refine(({ for: lasts, warmUp }) => warmUp === undefined || durationMs(warmUp) < durationMs(lasts), {
+                message: 'the warm-up must end before the drive does',
+                path: ['warmUp'],
+            })
+            .refine(({ ramp, warmUp }) => warmUp === undefined || ramp === undefined, {
+                message: 'a drive with a ramp takes no warm-up',
+                path: ['warmUp'],
+            })
             .refine(
                 ({ for: lasts, ramp }) =>
                     ramp === undefined ||
@@ -98,8 +107,13 @@ export const Card = z
         bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
         pair: z.boolean().optional(),
+        unpaired: z.string().trim().min(1).optional(),
     })
     .strict()
+    .refine(({ pair, unpaired }) => !pair || unpaired === undefined, {
+        message: 'a card that runs paired names no reason to run unpaired',
+        path: ['unpaired'],
+    })
     .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {
         message: 'a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         path: ['valves'],
@@ -173,6 +187,11 @@ export type Load = z.infer<typeof Load>
 export const Host = z.object({ cpuCeiling: z.number().min(0).max(1) }).strict()
 export type Host = z.infer<typeof Host>
 
+export const AlertsProfile = z
+    .object({ rules: z.string(), labels: z.string(), exclude: z.array(z.string()).default([]) })
+    .strict()
+export type AlertsProfile = z.infer<typeof AlertsProfile>
+
 export const Profile = z
     .object({
         name: z.string(),
@@ -182,6 +201,7 @@ export const Profile = z
         backlog: Backlog.optional(),
         load: Load.optional(),
         host: Host.optional(),
+        alerts: AlertsProfile.optional(),
     })
     .strict()
 export type Profile = z.infer<typeof Profile>

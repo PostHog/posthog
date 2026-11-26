@@ -117,7 +117,6 @@ BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS", "")
 )
 
-CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
 # Insert blocks are formed before ClickHouse partitions the rows into staging files.
 BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES", 64 * 1024 * 1024, type_cast=int

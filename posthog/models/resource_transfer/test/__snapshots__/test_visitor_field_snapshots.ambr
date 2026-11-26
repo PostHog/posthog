@@ -36,7 +36,6 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Dashboard
   list([
-    'analytics_dashboards',
     'data_color_theme',
     'data_color_theme_id',
     'is_shared',
@@ -587,12 +586,10 @@
     '__static_attributes__',
     '__str__',
     '_meta',
-    'analytics_dashboards',
     'created_by_id',
     'data_color_theme',
     'data_color_theme_id',
     'delete',
-    'exportedasset_set',
     'get_analytics_metadata',
     'get_creation_mode_display',
     'get_file_system_representation',
@@ -603,12 +600,10 @@
     'id',
     'is_shared',
     'is_sharing_enabled',
-    'items',
     'last_accessed_at',
     'last_refresh',
     'objects',
     'objects_including_soft_deleted',
-    'primary_dashboard_teams',
     'share_token',
     'sharingconfiguration_set',
     'tagged_items',

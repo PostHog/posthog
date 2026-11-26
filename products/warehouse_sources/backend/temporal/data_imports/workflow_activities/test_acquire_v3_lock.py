@@ -15,6 +15,7 @@ from posthog.models import Organization, Team
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+    CDC_NOTHING_TO_LOAD,
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
     HolderWorkflowDescription,
@@ -267,6 +268,63 @@ class TestAcquireV3PipelineLockActivityDeactivatedOrganization:
             mock_acquire.assert_called_once()
         else:
             mock_acquire.assert_not_called()
+
+
+_GATE = "products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch.consumer_tick_stands_down"
+
+
+@pytest.mark.django_db
+class TestCDCConsumerTickGate:
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_a_non_cdc_run_takes_the_path_it_took_before_the_gate(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+        django_assert_num_queries,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        schema = _schema_with_config({})
+
+        with patch(_GATE) as gate, django_assert_num_queries(2):
+            result = acquire_v3_pipeline_lock_activity(
+                AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)
+            )
+
+        gate.assert_not_called()
+        assert (result.acquired, result.deferred, result.stood_down_reason) == (True, False, None)
+        mock_acquire.assert_called_once()
+
+    @pytest.mark.parametrize("stands_down", [True, False], ids=["nothing_to_load", "load_owed"])
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_a_cdc_tick_with_nothing_to_load_stands_down_before_the_lock(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+        stands_down: bool,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        schema = _schema_with_config({})
+        ExternalDataSchema.objects.filter(id=schema.id).update(sync_type=ExternalDataSchema.SyncType.CDC)
+
+        with patch(_GATE, return_value=stands_down):
+            result = acquire_v3_pipeline_lock_activity(
+                AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)
+            )
+
+        assert result.deferred is stands_down
+        assert result.acquired is not stands_down
+        assert result.stood_down_reason == (CDC_NOTHING_TO_LOAD if stands_down else None)
+        assert mock_acquire.called is not stands_down
 
 
 class TestTakeOverStaleLock:

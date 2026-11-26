@@ -383,6 +383,55 @@ describe('workflowLogic external edits', () => {
         expect(saved.name).toBe('Typed during the reload')
     })
 
+    it('asks about an edit typed while the reload is in flight when the reload would not keep it', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false })
+        const DRAFT_AT = '2026-05-15T00:00:00.000Z'
+        const staged = { status: 'active' as const, draft: { name: 'External edits test' }, draft_updated_at: DRAFT_AT }
+        useWorkflowMock(makeWorkflow(staged))
+        await expectLogic(logic, () => logic.actions.loadWorkflow()).toDispatchActions(['loadWorkflowSuccess'])
+        let releaseReload: () => void = () => {}
+        const reloadReleased = new Promise<void>((resolve) => {
+            releaseReload = resolve
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': async () => {
+                    await reloadReleased
+                    // Renamed elsewhere: only the live stamp moves, the staged draft keeps its own.
+                    return [200, makeWorkflow({ ...staged, name: 'Renamed elsewhere', updated_at: NEWER })]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        const typed = logic.values.workflow.actions.map((action, index) =>
+            index === 0 ? { ...action, name: 'Typed during the reload' } : action
+        )
+        logic.actions.setWorkflowValue('actions', typed)
+
+        // Auto-save waits while the reload runs, and again once the banner asks.
+        await jest.advanceTimersByTimeAsync(3500)
+        releaseReload()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        await jest.advanceTimersByTimeAsync(3500)
+
+        expect(savedBodies).toHaveLength(0)
+        expect(logic.values.workflow.actions[0].name).toBe('Typed during the reload')
+        expect(logic.values.externallyEdited).toBe(true)
+        // A manual save stays fenced by the copy the form holds, live and staged alike.
+        await expectLogic(logic, () => logic.actions.saveWorkflow(logic.values.workflow)).toDispatchActions([
+            'saveWorkflowSuccess',
+        ])
+        expect(savedBodies[0]).toMatchObject({ base_updated_at: DRAFT_AT, base_live_updated_at: LOADED_AT })
+
+        // Keep mine adopts the latest copy for both stamps, so the next save goes through.
+        await expectLogic(logic, () => logic.actions.keepMyWorkflowVersion()).toDispatchActions(['setExternallyEdited'])
+        await expectLogic(logic, () => logic.actions.saveWorkflow(logic.values.workflow)).toDispatchActions([
+            'saveWorkflowSuccess',
+        ])
+        expect(savedBodies[1]).toMatchObject({ base_updated_at: DRAFT_AT, base_live_updated_at: NEWER })
+    })
+
     it('holds auto-save until the reload lands, so a stale save cannot start a second reload', async () => {
         let releaseReload: () => void = () => {}
         const reloadReleased = new Promise<void>((resolve) => {
@@ -426,15 +475,21 @@ describe('workflowLogic external edits', () => {
     const ownReload = (): void => logic.actions.loadWorkflow()
 
     it.each([
-        { case: 'edits wait to be saved', run: [editElsewhere], keepLocalEdits: true, edit: true, banner: true },
-        { case: 'the form is clean', run: [editElsewhere], keepLocalEdits: true, edit: false, banner: false },
-        { case: 'local edits are not kept', run: [editElsewhere], keepLocalEdits: false, edit: true, banner: false },
-        { case: 'it was our own reload', run: [ownReload], keepLocalEdits: true, edit: true, banner: false },
+        { case: 'edits wait to be saved', run: [editElsewhere], keepLocalEdits: true, edit: 'before', banner: true },
+        { case: 'the form is clean', run: [editElsewhere], keepLocalEdits: true, edit: null, banner: false },
+        {
+            case: 'edits typed during it would not be kept',
+            run: [editElsewhere],
+            keepLocalEdits: false,
+            edit: 'during',
+            banner: true,
+        },
+        { case: 'it was our own reload', run: [ownReload], keepLocalEdits: true, edit: 'before', banner: false },
         {
             case: 'an edit lands during it',
             run: [ownReload, editElsewhere],
             keepLocalEdits: true,
-            edit: true,
+            edit: 'before',
             banner: true,
         },
     ])('when the reload fails and $case, shows the banner: $banner', async ({ run, keepLocalEdits, edit, banner }) => {
@@ -447,13 +502,17 @@ describe('workflowLogic external edits', () => {
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
         })
-        if (edit) {
-            logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        const type = (): void => logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        if (edit === 'before') {
+            type()
         }
 
-        await expectLogic(logic, () => run.forEach((step) => step())).toDispatchActions(
-            run.map(() => 'loadWorkflowFailure')
-        )
+        await expectLogic(logic, () => {
+            run.forEach((step) => step())
+            if (edit === 'during') {
+                type()
+            }
+        }).toDispatchActions(run.map(() => 'loadWorkflowFailure'))
 
         expect(getCalls).toBe(1 + run.length)
         expect(logic.values.externallyEdited).toBe(banner)
@@ -461,19 +520,15 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.workflow.name).toBe(edit ? 'Typed before the reload' : 'External edits test')
     })
 
-    it('lets the server copy win when the flag is off', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false })
-        logic.actions.setWorkflowValue('name', 'My local edit')
-        useWorkflowMock(makeWorkflow({ name: 'Renamed elsewhere', updated_at: NEWER }))
-
-        await reconcileExternalEdit()
-
-        expect(logic.values.workflow.name).toBe('Renamed elsewhere')
-        expect(logic.values.hasUnsavedChanges).toBe(false)
-    })
-
-    it('warns instead of clobbering when auto-save is off and there are unsaved local edits', async () => {
-        logic.actions.setAutoSaveEnabled(false)
+    it.each([
+        { case: 'auto-save is off', setUp: () => logic.actions.setAutoSaveEnabled(false) },
+        {
+            case: 'the reload would not keep them',
+            setUp: () =>
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false }),
+        },
+    ])('warns instead of clobbering unsaved local edits when $case', async ({ setUp }) => {
+        setUp()
         logic.actions.setWorkflowValue('name', 'My local edit')
         expect(logic.values.hasUnsavedChanges).toBe(true)
 
@@ -484,6 +539,7 @@ describe('workflowLogic external edits', () => {
         // Banner shown, no destructive reload, no syncing overlay.
         expect(logic.values.externallyEdited).toBe(true)
         expect(logic.values.isSyncingExternalEdit).toBe(false)
+        expect(logic.values.workflow.name).toBe('My local edit')
         expect(getCalls).toBe(1)
     })
 
@@ -681,8 +737,18 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.externallyEdited).toBe(true)
     })
 
-    it('shows the banner when an auto-save 409s with a pending schedule change, instead of reloading it away', async () => {
+    it.each([
         // Only a manual save persists a schedule change, so the silent-reload path would wipe it.
+        {
+            case: 'a pending schedule change',
+            setUp: () => logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z'),
+        },
+        {
+            case: 'a reload that would not keep the edits',
+            setUp: () =>
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false }),
+        },
+    ])('shows the banner when an auto-save 409s with $case, instead of reloading it away', async ({ setUp }) => {
         silenceKeaLoadersErrors()
         useMocks({
             get: {
@@ -696,7 +762,7 @@ describe('workflowLogic external edits', () => {
                 '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
             },
         })
-        logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+        setUp()
         logic.actions.setWorkflowValue('name', 'Conflicting edit')
         const baselineGets = getCalls
 
@@ -706,6 +772,7 @@ describe('workflowLogic external edits', () => {
         }).toDispatchActions(['saveWorkflowFailure'])
 
         expect(logic.values.externallyEdited).toBe(true)
+        expect(logic.values.workflow.name).toBe('Conflicting edit')
         expect(getCalls).toBe(baselineGets)
     })
 

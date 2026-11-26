@@ -247,7 +247,6 @@
          "posthog_organizationintegration"."kind",
          "posthog_organizationintegration"."integration_id",
          "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
          "posthog_organizationintegration"."created_by_id",
          "posthog_organizationintegration"."created_at",
          "posthog_organizationintegration"."updated_at"
@@ -314,7 +313,6 @@
          "posthog_organizationintegration"."kind",
          "posthog_organizationintegration"."integration_id",
          "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
          "posthog_organizationintegration"."created_by_id",
          "posthog_organizationintegration"."created_at",
          "posthog_organizationintegration"."updated_at"
@@ -488,7 +486,6 @@
          "posthog_organizationintegration"."kind",
          "posthog_organizationintegration"."integration_id",
          "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
          "posthog_organizationintegration"."created_by_id",
          "posthog_organizationintegration"."created_at",
          "posthog_organizationintegration"."updated_at"
@@ -925,7 +922,6 @@
          "posthog_organizationintegration"."kind",
          "posthog_organizationintegration"."integration_id",
          "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
          "posthog_organizationintegration"."created_by_id",
          "posthog_organizationintegration"."created_at",
          "posthog_organizationintegration"."updated_at"
@@ -1166,7 +1162,6 @@
          "posthog_organizationintegration"."kind",
          "posthog_organizationintegration"."integration_id",
          "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
          "posthog_organizationintegration"."created_by_id",
          "posthog_organizationintegration"."created_at",
          "posthog_organizationintegration"."updated_at"

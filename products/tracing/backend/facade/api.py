@@ -60,6 +60,7 @@ from products.tracing.backend.latency_heatmap_query_runner import (
 from products.tracing.backend.latency_percentiles_query_runner import (
     run_latency_percentiles_query as _run_latency_percentiles_query,
 )
+from products.tracing.backend.logic import assert_tracing_viewer as _assert_tracing_viewer
 from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
 from products.tracing.backend.service_health_query_runner import (
     run_service_health_query as _run_service_health_query,
@@ -100,6 +101,11 @@ MAX_SUMMARY_LIMIT = _MAX_SUMMARY_LIMIT
 # These look repetitive when fields align 1:1. The value is having ONE place
 # where "internal" becomes "external contract". When models and contracts drift,
 # the mapper absorbs the change instead of it leaking everywhere.
+
+
+def assert_tracing_viewer(user: "User", team: "Team") -> bool:
+    """Raise `UserAccessControlError` unless the user has viewer access to tracing on the team."""
+    return _assert_tracing_viewer(user, team)
 
 
 def run_count_query(

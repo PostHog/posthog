@@ -139,6 +139,7 @@ export const createAiGenerationEvent = (teamId: number, data: Partial<RawClickHo
             $ai_input: ['test input'],
             $ai_output_choices: ['test output'],
         }),
+        person_id: 'person-uuid-1',
         person_mode: 'full',
         historical_migration: false,
         ...data,

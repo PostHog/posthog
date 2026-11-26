@@ -1381,6 +1381,17 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingIssueTagColor(StrEnum):
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -2130,6 +2141,10 @@ class MCPDashboardSection(StrEnum):
     PROTOCOL_VERSION = "protocolVersion"
     TOOL = "tool"
     ERROR_TYPE = "errorType"
+    TOOL_SHARE = "toolShare"
+    HARNESS = "harness"
+    ERROR_TYPE_SHARE = "errorTypeShare"
+    USER = "user"
     LAB_USERS = "labUsers"
     NAMED_MODEL_USERS = "namedModelUsers"
     RELIABILITY = "reliability"
@@ -2280,6 +2295,11 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
     STRIKING_DISTANCE = "striking_distance"
     KEYWORD_TRACKING = "keyword_tracking"
+
+
+class MarketingAnalyticsRecommendationsConversionSourceKind(StrEnum):
+    POSTHOG = "posthog"
+    GOOGLE_ADS = "google_ads"
 
 
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):

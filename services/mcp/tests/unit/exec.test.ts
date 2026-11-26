@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import type { ApiClient } from '@/api/client'
 import { toolResponsesShortenedTotal } from '@/hono/metrics'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
+import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -13,6 +15,7 @@ import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { maxResponseBytes } from '@/lib/response-budget'
 import { SessionManager } from '@/lib/SessionManager'
+import { StateManager } from '@/lib/StateManager'
 import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
@@ -38,6 +41,7 @@ import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
     type Context,
+    type State,
     type Tool,
     type ZodObjectAny,
 } from '@/tools/types'
@@ -469,9 +473,8 @@ describe('exec tool', () => {
 
         it('counts a result it shortens, since the executor then sees one that fits', async () => {
             const shortened = async (): Promise<number> =>
-                (await toolResponsesShortenedTotal.get()).values.find(
-                    ({ labels }) => labels.tool === 'mock-tool' && labels.budget === 'client'
-                )?.value ?? 0
+                (await toolResponsesShortenedTotal.get()).values.find(({ labels }) => labels.tool === 'mock-tool')
+                    ?.value ?? 0
             const exec = createExec(
                 [
                     makeMockTool({
@@ -1367,6 +1370,33 @@ describe('exec tool', () => {
             const exec = createExec([makeMockTool({ handler: async () => ({ status: 'proposed' }) })])
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             expect(result).not.toContain('NONCANONICAL')
+        })
+    })
+
+    describe('business knowledge availability after a tool call', () => {
+        it.each([
+            ['business-knowledge-sources-text-create', true],
+            ['business-knowledge-sources-url-create', true],
+            ['business-knowledge-sources-partial-update', false],
+        ])('%s makes the next read see a new source: %s', async (toolName, seesNewSource) => {
+            const cache = new MemoryCache<State>(`knowledge-after-${toolName}`)
+            await cache.clear()
+            await cache.set('projectId', '42')
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ has_sources: false, has_repositories: false })
+                .mockResolvedValueOnce({ has_sources: true, has_repositories: false })
+            const api = { config: { apiToken: 'phx_test' }, request } as unknown as ApiClient
+            const stateManager = new StateManager(cache, api)
+            await stateManager.getOrFetchBusinessKnowledgeContent('42')
+            const context = { ...mockContext, stateManager } as Context
+            const createTool = makeMockTool({ name: toolName, handler: async () => ({ id: 'source-1' }) })
+            const exec = createExecTool([createTool], context, '', '', undefined)
+
+            await exec.handler(context, { command: `call ${toolName}` })
+
+            const nextRequest = new StateManager(cache, api)
+            expect((await nextRequest.getOrFetchBusinessKnowledgeContent('42'))?.hasSources).toBe(seesNewSource)
         })
     })
 
@@ -2312,7 +2342,6 @@ describe('exec tool', () => {
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
             ['experiment-get-all', 'experiment-list'],
-            ['llma-tagger-list', 'llma-evaluation-list'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
             ['warehouse-tables-create', 'data-warehouse-source-setup'],
             ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],

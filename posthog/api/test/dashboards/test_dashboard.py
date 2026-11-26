@@ -3885,15 +3885,36 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("oversized_agent_context", {"agent_context": "x" * 10_001}, None),
-            ("long_tile_group_key", {"group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}, None),
-            ("too_many_groups", {}, {"groups": {f"group-{index}": {} for index in range(MAX_GROUPS + 1)}}),
-            ("long_group_key", {}, {"groups": {"k" * (MAX_GROUP_KEY_LENGTH + 1): {"title": "Long"}}}),
-            ("long_legacy_group_title", {}, {"group_titles": {"plans": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}}),
+            ("oversized_agent_context", {"agent_context": "x" * 10_001}, None, {"attr": None}),
+            ("long_tile_group_key", {"group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}, None, {"attr": None}),
+            (
+                "null_character_tile_group_key",
+                {"group_key": "plans\u0000"},
+                None,
+                {"attr": "tiles", "detail": "Group keys can't contain null characters."},
+            ),
+            (
+                "too_many_groups",
+                {},
+                {"groups": {f"group-{index}": {} for index in range(MAX_GROUPS + 1)}},
+                {"attr": "customization", "detail": f"A dashboard can have at most {MAX_GROUPS} groups."},
+            ),
+            (
+                "long_group_key",
+                {},
+                {"groups": {"k" * (MAX_GROUP_KEY_LENGTH + 1): {"title": "Long"}}},
+                {"attr": "customization", "detail": f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters."},
+            ),
+            (
+                "long_legacy_group_title",
+                {},
+                {"group_titles": {"plans": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}},
+                {"attr": "customization__group_titles__plans"},
+            ),
         ]
     )
     def test_create_from_template_json_rejects_invalid_template(
-        self, _name: str, tile_fields: dict, customization: dict | None
+        self, _name: str, tile_fields: dict, customization: dict | None, expected_error: dict[str, str | None]
     ) -> None:
         template: dict = {
             **valid_template,
@@ -3909,6 +3930,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert {key: response.json()[key] for key in expected_error} == expected_error
         assert Dashboard.objects.count() == dashboard_count
         assert Text.objects.count() == text_count
 

@@ -1,13 +1,16 @@
-"""Experiment reads: one experiment as the experiment API shows it, and a page of the experiments list.
+"""Experiment reads: one experiment as the experiment API shows it, a page of the experiments list, and the reads of
+the detail actions of the experiment API.
 
 A read that the API must refuse, such as an unknown `order`, raises the `ValidationError` of Django REST framework,
-with the message the API returns.
+with the message the API returns. A read that loads the experiment for a detail action raises `ExperimentNotFound`
+when the project has no live experiment with the id.
 """
 
 from dataclasses import fields
 from typing import Any
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 
 from products.experiments.backend.experiment_creator import to_experiment_creator
@@ -29,11 +32,15 @@ from .contracts import (
     ExperimentBasic,
     ExperimentDetail,
     ExperimentFlag,
+    ExperimentHandle,
     ExperimentHoldoutView,
     ExperimentListFilters,
     ExperimentSavedMetricLinkView,
+    ExperimentTimeseriesResults,
+    FlagCleanupTarget,
     ListAccess,
 )
+from .warehouse_native_access import warehouse_native_connection_id
 
 
 def _to_experiment_flag(experiment: Experiment) -> ExperimentFlag:
@@ -179,3 +186,52 @@ def list_experiments(
         # The list computes is_legacy in SQL, because it does not read the metric columns.
         lambda experiment: _to_experiment_basic(experiment, is_legacy=experiment.is_legacy_annotation)  # type: ignore[attr-defined]
     )
+
+
+def _to_handle(experiment: Experiment) -> ExperimentHandle:
+    return ExperimentHandle(
+        id=experiment.id,
+        team_id=experiment.team_id,
+        created_by_id=experiment.created_by_id,
+        feature_flag_id=experiment.feature_flag_id,
+        feature_flag_created_by_id=experiment.feature_flag.created_by_id,
+        holdout_id=experiment.holdout_id,
+        flag_cleanup_task_id=experiment.flag_cleanup_task_id,
+        warehouse_native_connection_id=warehouse_native_connection_id(experiment.exposure_criteria),
+    )
+
+
+def get_experiment_handle(*, team: Team, experiment_id: int) -> ExperimentHandle | None:
+    """The live experiment of the project with the id, or None when the project has no such experiment. One query."""
+    experiment = experiments.get_handle(team=team, experiment_id=experiment_id)
+    return None if experiment is None else _to_handle(experiment)
+
+
+def linked_saved_metric_ids(*, experiment_id: int) -> list[int]:
+    """The ids of the shared metrics that the experiment uses."""
+    return experiments.linked_saved_metric_ids(experiment_id)
+
+
+def get_flag_cleanup_target(*, team: Team, user: User, experiment_id: int) -> FlagCleanupTarget:
+    experiment = experiments.get_for_action(team=team, experiment_id=experiment_id)
+    target = ExperimentService(team=team, user=user).get_cleanup_repository_target(experiment)
+    return FlagCleanupTarget(
+        repository=target["repository"], source=target["source"], candidates=tuple(target["candidates"])
+    )
+
+
+def get_timeseries_results(
+    *, team: Team, user: User, experiment_id: int, metric_uuid: str
+) -> ExperimentTimeseriesResults:
+    """Raises the `ValidationError` of Django REST framework for an experiment that has not started."""
+    experiment = experiments.get_for_action(team=team, experiment_id=experiment_id)
+    return ExperimentTimeseriesResults(
+        **ExperimentService(team=team, user=user).get_timeseries_results(experiment, metric_uuid=metric_uuid)
+    )
+
+
+def assert_user_may_run_warehouse_native_sources(*, team: Team, user: User, experiment_id: int) -> None:
+    """Raises the `ValidationError` of Django REST framework when `user` may not run the warehouse-native sources of
+    the experiment, which a recalculation sends to the customer's warehouse with no user to check."""
+    experiment = experiments.get_for_action(team=team, experiment_id=experiment_id)
+    ExperimentService(team=team, user=user).assert_user_may_run_warehouse_native_sources(experiment)

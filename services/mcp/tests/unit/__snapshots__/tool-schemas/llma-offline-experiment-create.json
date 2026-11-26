@@ -86,6 +86,17 @@
             ],
             "description": "Expected number of distinct item/scorer-version results, including non-success statuses."
         },
+        "experiment_scorer_version_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Exact experiment scorer version. Omit to use the suite default."
+        },
         "id": {
             "description": "Caller-generated experiment UUID. Reuse it for exact retries.",
             "type": "string"
