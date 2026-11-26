@@ -242,18 +242,19 @@ function unrunnableQuery(
 
 interface RefIds {
     used: Set<string>
-    // The next suffix to try for each refId, so many targets sharing one don't rescan from 2.
+    // The next suffix to try for each shortened refId, so many targets that shorten alike don't rescan from 2.
     next: Map<string, number>
 }
 
 function uniqueRefId(refId: string, refIds: RefIds): string {
-    let id = refId.slice(0, MAX_REF_ID)
-    let n = refIds.next.get(refId) ?? 2
+    const base = refId.slice(0, MAX_REF_ID)
+    let id = base
+    let n = refIds.next.get(base) ?? 2
     while (refIds.used.has(id)) {
-        id = `${refId.slice(0, MAX_REF_ID - String(n).length - 1)}-${n}`
+        id = `${base.slice(0, MAX_REF_ID - String(n).length - 1)}-${n}`
         n++
     }
-    refIds.next.set(refId, n)
+    refIds.next.set(base, n)
     refIds.used.add(id)
     return id
 }
