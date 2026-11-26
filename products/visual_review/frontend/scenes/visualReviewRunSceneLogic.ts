@@ -843,14 +843,24 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     if (!headRunId) {
                         return null
                     }
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), headRunId, {
-                        limit: 10000,
-                        include_quarantined: true,
-                    })
-                    return {
-                        headRunId,
-                        keys: Object.fromEntries(response.results.map((s) => [s.identifier, pictureKey(s)])),
+                    // Unchanged rows make the newest run larger than one page.
+                    const keys: Record<string, string> = {}
+                    let offset = 0
+                    while (true) {
+                        const response = await visualReviewRunsSnapshotsList(
+                            String(values.currentProjectId),
+                            headRunId,
+                            { limit: 10000, offset, include_quarantined: true }
+                        )
+                        for (const snapshot of response.results) {
+                            keys[snapshot.identifier] = pictureKey(snapshot)
+                        }
+                        if (!response.next || response.results.length === 0) {
+                            break
+                        }
+                        offset += response.results.length
                     }
+                    return { headRunId, keys }
                 },
             },
         ],
@@ -1132,6 +1142,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 })
                 fresh = response.results[0]
             } catch {
+                // Without the new `seq` the next decision would be refused, so reload the list instead.
+                actions.loadSnapshots()
                 return
             }
             if (!fresh) {
@@ -1255,6 +1267,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                                 : s
                         )
                     )
+                    // Finalize settles the pull request's decisions, and the decision lines need them.
+                    if (values.decidesByPullRequest) {
+                        actions.loadSnapshots()
+                    }
                 } catch (e: any) {
                     actions.finalizeRunFailure()
                     lemonToast.error(e?.detail || e?.message || 'Failed to finalize run')
@@ -1284,16 +1300,17 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     override_rejection: overrideRejection,
                 }
 
-                // Find the next pending snapshot in sorted order before the async call.
-                // Skip quarantined snapshots when they're hidden, otherwise approving advances
-                // onto an unrelated quarantined item the user can't see in the thumbnail strip.
-                const sorted = values.sortedChangedSnapshots
+                // Find the next snapshot to show before the async call: the next pending one, or with a decision
+                // filter on, the next one the filtered strip lists. Skip quarantined snapshots when they're hidden,
+                // otherwise approving advances onto an unrelated quarantined item the user can't see in the strip.
+                const filtered = values.decisionFilter !== null
+                const sorted = values.filteredChangedSnapshots
                 const currentIdx = sorted.findIndex((s) => s.id === snapshot.id)
-                const nextPending = sorted
+                const next = sorted
                     .slice(currentIdx + 1)
                     .find(
                         (s) =>
-                            s.review_state === 'pending' &&
+                            (filtered || s.review_state === 'pending') &&
                             (values.showQuarantinedThumbnails || !values.quarantinedIdentifierSet.has(s.identifier))
                     )
 
@@ -1308,8 +1325,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     // Patch only the accepted snapshot — refetching the whole list flashed
                     // the entire viewer and dropped the user's place.
                     patchReviewState(snapshot.id, 'approved')
-                    if (nextPending) {
-                        actions.setSelectedSnapshotId(nextPending.id)
+                    if (next) {
+                        actions.setSelectedSnapshotId(next.id)
                     }
                     // The buttons stay busy until the new `seq` is read back, so a quick undo does not send an old one.
                     if (values.decidesByPullRequest) {

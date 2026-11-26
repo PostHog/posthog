@@ -120,8 +120,10 @@ export function finalizeButtonCopy(progress: RunProgressApi, rejections: Rejecti
         tooltip = `Accepts the ${countChanges(needs_review)} left and passes the gate.`
     } else if (approved_via_mcp > 0) {
         tooltip = `${countChanges(approved_via_mcp)} ${approved_via_mcp === 1 ? 'was' : 'were'} accepted by an agent. Finalizing passes the gate with them.`
-    } else {
+    } else if (approved > 0) {
         tooltip = `Passes the gate with ${countChanges(approved, 'accepted')}.`
+    } else {
+        tooltip = 'Records the accepted pictures of quarantined stories.'
     }
     return { label, note, tooltip, disabledReason: null }
 }

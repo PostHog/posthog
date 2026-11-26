@@ -293,10 +293,11 @@ export function SnapshotDiffViewer({
                         classificationReason={snapshot.classification_reason}
                     />
 
-                    {/* A rejected unchanged pair is tolerated, but its rejection still blocks finalize until undone here. */}
+                    {/* A rejected unchanged pair is tolerated, but its rejection still blocks finalize until undone here.
+                        Once accepted anyway, it keeps the actions so the accept can be undone. */}
                     {reviewDecisions &&
                         !reviewDecisions.finalized &&
-                        (hasChanges || snapshot.review_state === 'rejected') &&
+                        (hasChanges || snapshot.review_state === 'rejected' || snapshot.review_state === 'approved') &&
                         !isReportingOnly && (
                             <SnapshotDecisionActions
                                 snapshot={snapshot}

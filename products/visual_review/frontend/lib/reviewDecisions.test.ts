@@ -95,6 +95,17 @@ describe('reviewDecisions', () => {
                 disabledReason: null,
             },
         },
+        {
+            name: 'only quarantined changes accepted',
+            input: progress({ total: 0 }),
+            rejections: noRejections,
+            expected: {
+                label: 'Finalize run',
+                note: null,
+                tooltip: 'Records the accepted pictures of quarantined stories.',
+                disabledReason: null,
+            },
+        },
     ])('finalize button: $name', ({ input, rejections, expected }) => {
         expect(finalizeButtonCopy(input, rejections)).toEqual(expected)
     })

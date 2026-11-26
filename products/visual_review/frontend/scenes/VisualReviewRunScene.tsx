@@ -517,7 +517,8 @@ export function VisualReviewRunScene(): JSX.Element {
         !pullRequestClosed &&
         !run.approved &&
         !!progress &&
-        progress.approved + progress.rejected + progress.needs_review > 0
+        // Progress counts an accepted quarantined change as resolved, but finalize still records its picture.
+        (progress.approved + progress.rejected + progress.needs_review > 0 || reviewApproved > 0)
     const showYamlFinalize =
         !decidesByPullRequest &&
         !isReportingOnly &&

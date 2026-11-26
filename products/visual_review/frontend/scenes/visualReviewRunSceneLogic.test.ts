@@ -409,6 +409,35 @@ describe('visualReviewRunSceneLogic', () => {
         await expectLogic(logic).toMatchValues({ filteredChangedSnapshots: [toleratedRejected] })
     })
 
+    it('advances within the decision filter after an accept', async () => {
+        const story = (identifier: string, review_state: string): Record<string, unknown> => ({
+            id: `snapshot-${identifier}`,
+            identifier,
+            result: 'changed',
+            review_state,
+            current_artifact: { content_hash: 'after' },
+            decision: null,
+        })
+        const snapshots = [story('a', 'rejected'), story('b', 'pending'), story('c', 'rejected')]
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [200, LEDGER_RUN],
+                [SNAPSHOTS_URL]: [200, { count: 3, next: null, previous: null, results: snapshots }],
+            },
+            post: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/approve/`]: [200, {}],
+            },
+        })
+        logic.actions.loadRun()
+        logic.actions.loadSnapshots()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setDecisionFilter('rejected')
+
+        await expectLogic(logic, () => logic.actions.approveSnapshot(logic.values.snapshots[0], true))
+            .toFinishAllListeners()
+            .toMatchValues({ selectedSnapshotId: 'snapshot-c' })
+    })
+
     it.each([
         {
             name: 'moves a renamed repo path to the run repo',
