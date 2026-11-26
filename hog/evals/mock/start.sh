@@ -20,9 +20,15 @@ curl -fsSL "https://releases.posthog.com/hog/v$version/manifest.json" -o "$state
 # `hog api` reads its tool catalog from PostHog. The mock serves this copy, so runs don't reach PostHog.
 curl -fsSL https://us.posthog.com/api/cli/catalog.json -o "$state/catalog.json"
 
+# The proxy listens on loopback only, so other machines on the network can't relay through it. Docker
+# Desktop forwards host.docker.internal to it. On Linux Docker Engine, set HOG_MOCK_BIND to the docker0
+# address, such as 172.17.0.1, and HOG_MOCK_HOST to the same address.
+bind=${HOG_MOCK_BIND:-127.0.0.1}
+mock_host=${HOG_MOCK_HOST:-host.docker.internal}
+
 docker rm -f hog-mock >/dev/null 2>&1 || true
 docker run -d --name hog-mock \
-    -p 18080-18083:18080-18083 \
+    -p "$bind:18080-18083:18080-18083" \
     -v "$state/ca:/home/mitmproxy/.mitmproxy" \
     -v "$state/logs:/logs" \
     -v "$here:/mock/src:ro" \
@@ -65,11 +71,12 @@ ENV PATH=/opt/venv/bin:\$PATH VIRTUAL_ENV=/opt/venv
 # The fake PostHog (scenario: $name) answers for us/eu.posthog.com through this proxy.
 COPY mock-ca.crt /usr/local/share/ca-certificates/hog-mock.crt
 RUN update-ca-certificates
-ENV HTTPS_PROXY=http://host.docker.internal:$port \\
-    HTTP_PROXY=http://host.docker.internal:$port \\
+ENV HTTPS_PROXY=http://$mock_host:$port \\
+    HTTP_PROXY=http://$mock_host:$port \\
     NO_PROXY=localhost,127.0.0.1,registry.npmjs.org,api.anthropic.com,statsig.anthropic.com,openrouter.ai,api.openai.com,chatgpt.com \\
     NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \\
-    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # hog and hog-worker from the release, installed with its install script. The install skips the proxy,
 # so the image builds from the real release even when the mock isn't running.
