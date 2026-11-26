@@ -1,15 +1,16 @@
+import { IconCheck, IconChevronDown } from '@posthog/icons'
+
 import {
-    Item,
-    ItemContent,
-    ItemDescription,
-    ItemTitle,
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectGroupLabel,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
 } from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -21,8 +22,9 @@ import type { ErrorTrackingIssueReadApi, ResolvedUntilEnumApi } from '../../gene
 
 type IssueStatus = ErrorTrackingIssue['status']
 
-// The value of a resolved option names its mode too, so the two resolved options stay apart.
-const resolvedOptionValue = (mode: ResolvedUntilEnumApi): string => `resolved:${mode}`
+function CurrentCheck(): JSX.Element {
+    return <IconCheck data-icon="inline-end" className="ms-auto" />
+}
 
 export function IssueSceneStatusSelect({
     status,
@@ -35,69 +37,66 @@ export function IssueSceneStatusSelect({
     latestRelease: ErrorTrackingIssueReadApi['latest_release'] | undefined
     onChange: (status: IssueStatus, resolvedUntil?: ResolvedUntilEnumApi) => void
 }): JSX.Element {
-    const value =
-        status === 'resolved'
-            ? resolvedOptionValue(resolvedUntil === 'new_release' ? 'new_release' : 'next_occurrence')
-            : status
+    // An issue resolved before its mode was recorded reopens on the next exception.
+    const currentMode = status === 'resolved' ? (resolvedUntil ?? 'next_occurrence') : null
+
+    const statusItem = (itemStatus: IssueStatus): JSX.Element => (
+        <DropdownMenuItem onClick={() => itemStatus !== status && onChange(itemStatus)}>
+            <StatusIndicator status={itemStatus} size="xsmall" />
+            {itemStatus === status && <CurrentCheck />}
+        </DropdownMenuItem>
+    )
 
     return (
-        <Select
-            value={value}
-            onValueChange={(nextValue: string | null) => {
-                if (!nextValue || nextValue === value) {
-                    return
-                }
-                const mode = RESOLVE_MODES.find((option) => resolvedOptionValue(option.value) === nextValue)
-                if (mode) {
-                    onChange('resolved', mode.value)
-                } else {
-                    onChange(nextValue as IssueStatus)
-                }
-            }}
-        >
-            <SelectTrigger
-                size="default"
-                className="gap-1"
-                aria-label={`Status: ${getIssueStatusConfig(status).label}`}
-            >
-                <SelectValue>
-                    <StatusIndicator
-                        status={status}
-                        size="xsmall"
-                        className="text-secondary"
-                        tooltip={
-                            status === 'resolved' ? (
-                                <IssueResolvedRule resolvedUntil={resolvedUntil} latestRelease={latestRelease} />
-                            ) : undefined
-                        }
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="outline"
+                        left
+                        className="gap-1"
+                        aria-label={`Status: ${getIssueStatusConfig(status).label}`}
                     />
-                </SelectValue>
-            </SelectTrigger>
-            <SelectContent align="start" alignItemWithTrigger={false}>
-                <SelectGroup>
-                    <SelectGroupLabel className="py-1">Status</SelectGroupLabel>
-                    <SelectItem value="active">
-                        <StatusIndicator status="active" size="xsmall" />
-                    </SelectItem>
-                    {RESOLVE_MODES.map((mode) => (
-                        <SelectItem key={mode.value} value={resolvedOptionValue(mode.value)} className="h-auto">
-                            <Item size="xs" className="p-0">
-                                <ItemContent variant="menuItem">
-                                    <ItemTitle>
-                                        <StatusIndicator status="resolved" size="xsmall" />
-                                    </ItemTitle>
-                                    <ItemDescription className="max-w-80 line-clamp-none whitespace-normal">
+                }
+            >
+                <StatusIndicator
+                    status={status}
+                    size="xsmall"
+                    className="text-secondary"
+                    tooltip={
+                        status === 'resolved' ? (
+                            <IssueResolvedRule resolvedUntil={resolvedUntil} latestRelease={latestRelease} />
+                        ) : undefined
+                    }
+                />
+                <IconChevronDown className="size-3.5 text-muted-foreground" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                <DropdownMenuGroup>
+                    <DropdownMenuLabel>Status</DropdownMenuLabel>
+                    {statusItem('active')}
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger data-attr="error-tracking-issue-status-resolved">
+                            <StatusIndicator status="resolved" size="xsmall" />
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                            {RESOLVE_MODES.map((mode) => (
+                                <DropdownMenuItem
+                                    key={mode.value}
+                                    description={
                                         <IssueResolvedRule resolvedUntil={mode.value} latestRelease={latestRelease} />
-                                    </ItemDescription>
-                                </ItemContent>
-                            </Item>
-                        </SelectItem>
-                    ))}
-                    <SelectItem value="suppressed">
-                        <StatusIndicator status="suppressed" size="xsmall" />
-                    </SelectItem>
-                </SelectGroup>
-            </SelectContent>
-        </Select>
+                                    }
+                                    onClick={() => mode.value !== currentMode && onChange('resolved', mode.value)}
+                                >
+                                    {mode.action}
+                                    {mode.value === currentMode && <CurrentCheck />}
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    {statusItem('suppressed')}
+                </DropdownMenuGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
