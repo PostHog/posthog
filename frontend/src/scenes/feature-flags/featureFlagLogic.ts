@@ -339,6 +339,12 @@ function liveFlagToastOptions(
     return { button, toastId: `feature-flag-live-${flagId}` }
 }
 
+const COHORT_REFUSAL_ERROR_CODES = new Set([
+    'behavioral_cohort_found',
+    'realtime_cohort_not_ready',
+    'cohort_does_not_exist',
+])
+
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
     posthog.capture('failed to create feature flag with cohort', { detail, code })
 }
@@ -3773,7 +3779,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
-                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                    if (COHORT_REFUSAL_ERROR_CODES.has(error.code)) {
                         reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     } else if (isAccessDeniedError(error)) {
                         // Mirror the load path's access-denied handling instead of the generic
@@ -3817,7 +3823,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
-                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                    if (COHORT_REFUSAL_ERROR_CODES.has(error.code)) {
                         reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     }
                     throw error
