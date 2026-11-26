@@ -16,6 +16,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { pluralize } from 'lib/utils/strings'
@@ -573,7 +574,10 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         },
         deleteSelfManagedTables: async ({ tableIds }) => {
             const teamId = String(ApiConfig.getCurrentTeamId())
-            const results = await Promise.allSettled(tableIds.map((id) => warehouseTablesDestroy(teamId, id)))
+            const concurrency = new ConcurrencyController(5)
+            const results = await Promise.allSettled(
+                tableIds.map((id) => concurrency.run({ fn: () => warehouseTablesDestroy(teamId, id) }))
+            )
             // A 404 means the table is already gone, for example deleted from its own row after it was selected.
             const failedCount = results.filter(
                 (result) => result.status === 'rejected' && result.reason?.status !== 404
