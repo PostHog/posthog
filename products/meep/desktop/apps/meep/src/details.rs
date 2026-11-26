@@ -3150,6 +3150,11 @@ impl Desktop {
                     ui::column()
                         .gap(px(4.))
                         .pt(px(8.))
+                        .child(super::topic_icon::bob(
+                            "topic-chat-hello",
+                            super::topic_icon::tile(&state.topic.display_icon(), 56.).mb(px(10.)),
+                            cx.reduce_motion(),
+                        ))
                         .child(
                             div()
                                 .text_size(px(15.))

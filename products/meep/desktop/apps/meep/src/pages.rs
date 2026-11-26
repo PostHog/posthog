@@ -225,24 +225,14 @@ fn all_clear(lines: [&'static str; 2], reduced: bool) -> Div {
             .into_any_element()
         }
     };
-    let hog = div()
-        .absolute()
-        .left(px((W - HOG) / 2.))
-        .top(px(WATER - HOG * 0.8))
-        .size(px(HOG))
-        .child(
-            img(super::topic_icon::art("float"))
-                .size_full()
-                .object_fit(ObjectFit::Contain),
-        );
-    let hog = if reduced {
-        hog.into_any_element()
-    } else {
-        hog.with_animation("all-clear-float", Animation::new(BEAT).repeat(), |el, t| {
-            el.mt(px((t * std::f32::consts::TAU).sin() * 3.))
-        })
-        .into_any_element()
-    };
+    let hog = super::topic_icon::bob(
+        "all-clear-float",
+        super::topic_icon::hero("float", HOG)
+            .absolute()
+            .left(px((W - HOG) / 2.))
+            .top(px(WATER - HOG * 0.8)),
+        reduced,
+    );
     ui::column()
         .w_full()
         .items_center()

@@ -51,6 +51,35 @@ pub(super) fn art(slug: &str) -> Arc<Image> {
     IMAGES.get(slug).unwrap_or(&IMAGES["wizard-1"]).clone()
 }
 
+pub(super) fn hero(slug: &str, size: f32) -> Div {
+    const BLEED: f32 = 2.;
+    div()
+        .flex_none()
+        .relative()
+        .size(px(size))
+        .overflow_hidden()
+        .child(
+            img(art(slug))
+                .absolute()
+                .left(px(-BLEED))
+                .top(px(-BLEED))
+                .size(px(size + 2. * BLEED))
+                .object_fit(ObjectFit::Contain),
+        )
+}
+
+pub(super) fn bob(id: impl Into<ElementId>, el: Div, reduced: bool) -> AnyElement {
+    if reduced {
+        return el.into_any_element();
+    }
+    el.with_animation(
+        id,
+        Animation::new(std::time::Duration::from_millis(3600)).repeat(),
+        |el, t| el.mt(px((t * std::f32::consts::TAU).sin() * 3.)),
+    )
+    .into_any_element()
+}
+
 static SIDEBAR_SPRITES: LazyLock<BTreeMap<&str, Arc<Image>>> = LazyLock::new(|| {
     [
         (

@@ -134,24 +134,80 @@ impl Render for Host {
         if let Some(view) = &self.view {
             return view.clone().into_any_element();
         }
+        let reduced = cx.reduce_motion();
+        let (slug, title, line) = match &self.error {
+            None => ("coffee-run", "Opening your workspace", boot_line(None)),
+            Some(e) => (
+                "error",
+                "Meep couldn't open your workspace",
+                boot_line(Some(e)),
+            ),
+        };
         ui::page()
             .justify_center()
             .items_center()
-            .child(ui::heading("app-title", "Meep"))
-            .child(ui::caption(
-                self.error
-                    .clone()
-                    .unwrap_or_else(|| "Opening your workspace…".into()),
+            .pb(px(48.))
+            .child(topic_icon::bob(
+                "boot-hog",
+                topic_icon::hero(slug, 128.),
+                reduced,
             ))
-            .when(self.error.is_some(), |el| {
+            .child(
+                div()
+                    .pt(px(16.))
+                    .text_size(px(15.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title),
+            )
+            .child(ui::caption(line).pt(px(6.)).max_w(px(420.)).text_center())
+            .when_some(self.error.clone(), |el, e| {
                 el.child(
-                    ui::button("retry", "Try again").on_click(cx.listener(|s, _, w, cx| {
-                        s.error = None;
-                        s.connect(w, cx);
-                        cx.notify()
-                    })),
+                    div()
+                        .mt(px(14.))
+                        .max_w(px(420.))
+                        .text_center()
+                        .text_size(px(11.))
+                        .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                        .child(e),
                 )
+                .child(div().pt(px(18.)).child(
+                    ui::primary_button("retry", "Try again").on_click(cx.listener(
+                        |s, _, w, cx| {
+                            s.error = None;
+                            s.connect(w, cx);
+                            cx.notify()
+                        },
+                    )),
+                ))
             })
             .into_any_element()
+    }
+}
+
+fn boot_line(error: Option<&str>) -> &'static str {
+    let Some(error) = error.map(str::to_lowercase) else {
+        return "Getting your topics ready.";
+    };
+    let has = |words: &[&str]| words.iter().any(|w| error.contains(w));
+    if has(&[
+        "scope",
+        "registration",
+        "unauthorized",
+        "401",
+        "403",
+        "oauth",
+    ]) {
+        "PostHog didn't give Meep the access it needs. Try again and allow every permission PostHog asks for."
+    } else if has(&[
+        "connect",
+        "dns",
+        "network",
+        "timed out",
+        "refused",
+        "unreachable",
+    ]) {
+        "Meep can't reach PostHog. Check your connection, then try again."
+    } else {
+        "Something stopped Meep while it opened your workspace. The details are below."
     }
 }

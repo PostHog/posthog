@@ -395,8 +395,18 @@ impl Desktop {
                 .items_center()
                 .justify_center()
                 .gap(px(12.))
-                .child(status_icon(Column::Todo).size(px(28.)).border(px(2.)))
-                .child(div().font_weight(FontWeight::SEMIBOLD).child("No tasks"))
+                .child(super::topic_icon::bob(
+                    "no-tasks-hog",
+                    super::topic_icon::hero("workmaxxing", 112.),
+                    cx.reduce_motion(),
+                ))
+                .child(
+                    div()
+                        .pt(px(4.))
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("No tasks yet"),
+                )
                 .child(ui::caption(
                     "Give the agent something to work on, or queue it for later.",
                 ))
