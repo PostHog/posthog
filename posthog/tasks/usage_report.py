@@ -462,7 +462,6 @@ class UsageReportCounters:
     workflow_emails_sent_in_period: int
     # Report-only: the part of workflow_emails_sent_in_period sent through the transactional email API.
     workflow_transactional_emails_sent_in_period: int
-    # Report-only: the part of workflow_emails_sent_in_period sent by broadcasts.
     workflow_broadcast_emails_sent_in_period: int
     workflow_push_sent_in_period: int
     workflow_sms_sent_in_period: int
@@ -2788,9 +2787,8 @@ def get_teams_with_workflow_broadcast_emails_sent_in_period(
     begin: datetime,
     end: datetime,
 ) -> TeamUsageRows:
-    # Broadcasts share their email step ids with other workflows, so they count by workflow id. Only Postgres knows
-    # which workflows are broadcasts, and the id list is matched here rather than sent to ClickHouse, where it would
-    # outgrow the query size limit. A broadcast deleted before the report runs drops out of the count.
+    # Broadcasts share step ids with other workflows, so this matches workflow ids here, keeping the growing id list
+    # out of the ClickHouse query. A broadcast deleted before the report runs drops out of the count.
     with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
         emails_by_workflow = sync_execute(
             """

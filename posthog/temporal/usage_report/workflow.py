@@ -75,8 +75,8 @@ AI_OVERAGE_BYTES_QUERY_NAME = UsageCounter.AI_OVERAGE_BYTES.value
 BROADCAST_EMAILS_QUERY_NAME = "teams_with_workflow_broadcast_emails_sent_in_period"
 # Query activities run on any worker of the queue, and a worker without a query's spec fails the whole run on its
 # name. During a rolling deploy older workers still run, so a new query stays registered but undispatched until
-# every worker has its spec. The aggregator defaults a missing query to empty meanwhile. Removing a query from this
-# set adds an activity to new runs, so gate that dispatch behind a new workflow.patched() id in the same change.
+# every worker has its spec. The aggregator defaults a missing query to empty meanwhile.
+# Undeferring a query adds an activity to the workflow, so gate it behind a new workflow.patched() id.
 DEFERRED_QUERY_NAMES = frozenset({AI_OVERAGE_BYTES_QUERY_NAME, BROADCAST_EMAILS_QUERY_NAME})
 
 
