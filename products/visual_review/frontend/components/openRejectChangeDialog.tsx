@@ -11,7 +11,7 @@ export function openRejectChangeDialog(onReject: (reason: string) => void): void
     LemonDialog.openForm({
         title: 'Reject this change?',
         description:
-            'The author gets a comment on the PR. Finalize stays blocked until the picture changes or you undo the rejection. ' +
+            'Finalize stays blocked until the picture changes or you undo the rejection. ' +
             'Is the old picture the wrong one? Quarantine the story instead.',
         width: 520,
         initialValues: { reason: '' },

@@ -1333,7 +1333,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         expected_seq: expectedSeq(snapshot),
                     })
                     posthog.capture('visual_review_change_rejected', decisionProperties(snapshot))
-                    lemonToast.success('Change rejected. The author gets a comment on the PR.')
+                    lemonToast.success('Change rejected. Finalize stays blocked until it is resolved.')
                     actions.loadRun()
                     patchReviewState(snapshot.id, 'rejected')
                     await readDecisionBack(snapshot.id)
