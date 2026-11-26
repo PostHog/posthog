@@ -206,6 +206,23 @@ describe('LegacyWebhookService', () => {
             }
         )
 
+        it('posts nothing for an event whose body names another team than its header', async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
+            await updateOrganizationAvailableFeatures(hub.postgres, otherOrganizationId, [ZAPIER])
+            await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
+            await createPageviewHook(team2.id, 'https://hooks.zapier.com/other-team')
+            await startService()
+
+            const { events, requests } = await parseAndSend([
+                createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' }), {
+                    headers: [{ team_id: String(team.id) }],
+                }),
+            ])
+
+            expect(events).toEqual([])
+            expect(requests).toEqual([])
+        })
+
         it('posts to the hook of every matching action that has a target', async () => {
             await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
             await createPageviewHook(team.id, 'https://hooks.zapier.com/first')

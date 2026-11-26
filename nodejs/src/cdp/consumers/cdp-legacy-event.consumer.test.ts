@@ -770,6 +770,7 @@ describe('CdpLegacyEventsConsumer', () => {
         })
 
         it("does not run the header team's plugins on an event whose body names another team", async () => {
+            register.getSingleMetric('cdp_events_team_id_header_mismatch')?.reset()
             const mismatched = createKafkaMessage(createIncomingEvent(otherTeam.id, {}), {
                 headers: [{ team_id: String(team.id) }],
             })
@@ -778,6 +779,10 @@ describe('CdpLegacyEventsConsumer', () => {
             await backgroundTask
 
             expect(mockFetch).not.toHaveBeenCalled()
+            const mismatches = (await register.getMetricsAsJSON()).find(
+                (m) => m.name === 'cdp_events_team_id_header_mismatch'
+            )
+            expect(mismatches?.values).toEqual([expect.objectContaining({ value: 1 })])
         })
     })
 

@@ -10,6 +10,7 @@ import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } fro
 
 import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawKafkaEvent, Team } from '../../types'
 import { assertTeamId, readTeamIdHeader, skipIfMalformed } from '../consumers/message-parsing'
+import { counterTeamIdHeaderMismatch } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { cdpTrackedFetch, loggableOrigin } from '../utils/cdp-fetch'
@@ -99,7 +100,7 @@ export class LegacyWebhookService {
 
         await Promise.all(
             messages.map(async (message) => {
-                // Few teams have webhooks, so most bodies are never needed. The body still decides the team.
+                // Few teams have webhooks, so most bodies are never needed.
                 const headerTeamId = readTeamIdHeader(message)
                 if (headerTeamId !== null && !this.actionMatcher.hasWebhooks(headerTeamId)) {
                     return
@@ -109,6 +110,10 @@ export class LegacyWebhookService {
                     assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
                 )
                 if (!clickHouseEvent) {
+                    return
+                }
+                if (headerTeamId !== null && clickHouseEvent.team_id !== headerTeamId) {
+                    counterTeamIdHeaderMismatch.inc()
                     return
                 }
 
