@@ -83,26 +83,26 @@ def check_size(spec: dict[str, Any]) -> None:
         raise BoardSpecInvalid(f"The board document is {size} bytes. The limit is {MAX_BOARD_SPEC_BYTES} bytes.")
 
 
-def _has_nul(root: Any) -> bool:
-    # An explicit stack, because a hostile document can nest deeper than Python's recursion limit.
-    stack = [root]
+# Deeper than any real board. `json.dumps` recurses once per level, so an unbounded document could crash a save.
+MAX_BOARD_DEPTH = 100
+
+
+def check_storable(spec: Any) -> None:
+    """Refuse a document that is nested too deep or holds a NUL character, which Postgres refuses in jsonb.
+
+    The walk uses an explicit stack, because a hostile document can nest deeper than Python's recursion limit.
+    """
+    stack = [(spec, 1)]
     while stack:
-        value = stack.pop()
+        value, depth = stack.pop()
         if isinstance(value, str):
             if "\x00" in value:
-                return True
-        elif isinstance(value, dict):
-            stack.extend(value.keys())
-            stack.extend(value.values())
-        elif isinstance(value, list):
-            stack.extend(value)
-    return False
-
-
-def check_storable(spec: dict[str, Any]) -> None:
-    # Postgres refuses a NUL character anywhere in a jsonb value, so the save would fail with a 500.
-    if _has_nul(spec):
-        raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
+                raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
+        elif isinstance(value, dict | list):
+            if depth > MAX_BOARD_DEPTH:
+                raise BoardSpecInvalid(f"The board document is nested deeper than {MAX_BOARD_DEPTH} levels.")
+            children = [*value.keys(), *value.values()] if isinstance(value, dict) else value
+            stack.extend((child, depth + 1) for child in children)
 
 
 def title_of(spec: dict[str, Any]) -> str:
