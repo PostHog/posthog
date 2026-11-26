@@ -43,6 +43,7 @@ describe('CodeEmailTabs', () => {
 
     let sendRequests: Record<string, string>[]
     let sends: Record<string, string>[]
+    let trendRows: [string[], string, number[]][]
 
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
@@ -68,6 +69,7 @@ describe('CodeEmailTabs', () => {
             '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                 const { query } = ((await request.json()) as { query: { query: string } }).query
                 const isEmailTotals = query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
+                const isTrends = query.includes('groupArray(bucket)')
                 return [
                     200,
                     {
@@ -76,7 +78,9 @@ describe('CodeEmailTabs', () => {
                                   [10, 'email-step', 'email_sent'],
                                   [3, 'email-step', 'email_bounced_transient'],
                               ]
-                            : [],
+                            : isTrends
+                              ? trendRows
+                              : [],
                     },
                 ]
             },
@@ -99,8 +103,18 @@ describe('CodeEmailTabs', () => {
         sendLinks = true,
         quillFilters = false,
         impact = false,
-    }: { sendLinks?: boolean; quillFilters?: boolean; impact?: boolean } = {}): void => {
+        trendRows: rows,
+    }: {
+        sendLinks?: boolean
+        quillFilters?: boolean
+        impact?: boolean
+        trendRows?: [string[], string, number[]][]
+    } = {}): void => {
         sendRequests = []
+        trendRows = rows ?? [
+            [['2026-03-14'], 'email_delivered', [2]],
+            [['2026-03-14'], 'email_sandbox_delivered', [3]],
+        ]
         sends = [
             {
                 message_id: 'msg-1',
@@ -174,6 +188,24 @@ describe('CodeEmailTabs', () => {
 
         expect(await screen.findByText(/^3 soft bounced/)).toBeInTheDocument()
         expect(screen.queryByText(BANNER)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['counting test sender deliveries as delivered', undefined],
+        [
+            'counting sent minus bounced as delivered before any receipt, like the Email steps table',
+            [
+                [['2026-03-13', '2026-03-14'], 'email_sent', [7, 0]],
+                [['2026-03-13', '2026-03-14'], 'email_bounced', [0, 2]],
+            ] as [string[], string, number[]][],
+        ],
+    ])('shows email outcome cards instead of workflow run cards, %s', async (_, rows) => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs({ trendRows: rows })
+
+        expect(await screen.findByText('vs. 5 prior')).toBeInTheDocument()
+        expect(screen.getByText('5')).toBeInTheDocument()
+        expect(screen.queryByText('Workflows in progress')).not.toBeInTheDocument()
     })
 
     it("lists this email's sends, each linked to its page with the filters to come back to", async () => {
