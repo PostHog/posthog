@@ -2,7 +2,7 @@ import copy
 import hmac
 import hashlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
@@ -116,12 +116,6 @@ class ResourceConfig:
     protocolSettings: dict[str, Any] | None = None
 
 
-@frozen
-class InstallationCredentials:
-    access_token: str = field(repr=False)
-    token_type: str
-
-
 @dataclass
 class InstallationContact:
     email: str
@@ -135,11 +129,10 @@ class InstallationAccount:
     name: str | None = None
 
 
-@dataclass
+@frozen
 class InstallationConfig:
     scopes: list[str]
     acceptedPolicies: dict[str, Any]
-    credentials: InstallationCredentials
     account: InstallationAccount
 
 
@@ -310,22 +303,16 @@ class VercelIntegration:
     def upsert_installation(installation_id: str, payload: dict[str, Any], user_claims: VercelUserClaims) -> None:
         account_data = payload.get("account", {})
         contact_data = account_data.get("contact", {})
-        credentials_data = payload.get("credentials", {})
 
         vercel_user_id = user_claims.user_id
 
         contact = InstallationContact(email=contact_data["email"], name=contact_data.get("name"))
-
-        credentials = InstallationCredentials(
-            access_token=credentials_data["access_token"], token_type=credentials_data["token_type"]
-        )
 
         account = InstallationAccount(url=account_data["url"], contact=contact, name=account_data.get("name"))
 
         config = InstallationConfig(
             scopes=payload["scopes"],
             acceptedPolicies=payload["acceptedPolicies"],
-            credentials=credentials,
             account=account,
         )
 
@@ -357,11 +344,9 @@ class VercelIntegration:
         ).first()
 
         config_dict = asdict(config)
-        credentials = config_dict.pop("credentials", {})
 
         if org_integration is not None:
             org_integration.config = config_dict
-            org_integration.sensitive_config = {"credentials": credentials}
             org_integration.save()
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
@@ -402,7 +387,6 @@ class VercelIntegration:
                     integration_id=installation_id,
                     defaults={
                         "config": config_dict,
-                        "sensitive_config": {"credentials": credentials},
                         "created_by": user,
                     },
                 )
