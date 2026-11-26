@@ -104,6 +104,9 @@ export interface dashboardV2LogicActions {
             version: 2
         }
     }
+    openDashboard: (dashboard: Dashboard) => {
+        dashboard: Dashboard
+    }
     redo: () => {
         value: true
     }
@@ -279,6 +282,8 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         /** The one entry point for edits to the layout. Drags and menus call it, so the permission check lives here only. */
         applyDashboardEdit: (edit: DashboardEdit, view?: View) => ({ edit, view }),
         commitDashboard: (dashboard: Dashboard) => ({ dashboard }),
+        /** Shows another dashboard, such as an imported one. It is an undo step, so undo goes back to the last one. */
+        openDashboard: (dashboard: Dashboard) => ({ dashboard }),
         undo: true,
         redo: true,
         stepHistory: (step: 'back' | 'forward') => ({ step }),
@@ -333,6 +338,11 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             if (!values.disabledReasonFor('undo')) {
                 actions.stepHistory('back')
             }
+        },
+        openDashboard: ({ dashboard }) => {
+            const settled = settleDashboard(dashboard, sizeOf)
+            actions.commitDashboard(settled)
+            actions.setActiveTab(activeGridTab(settled, null).id)
         },
         redo: () => {
             if (!values.disabledReasonFor('redo')) {

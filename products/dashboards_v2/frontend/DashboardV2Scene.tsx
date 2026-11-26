@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
@@ -11,9 +11,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
 import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
 import { DashboardV2View } from './dashboard/DashboardV2View'
+import type { MenuAction } from './dashboard/menuAction'
 import { dashboardV2Logic } from './dashboardV2Logic'
 import { createQueryBatchRunner } from './data/queryBatchRunner'
 import { runSampleQuery } from './fixtures/runSampleQuery'
+import { ImportDashboardDialog } from './import/ImportDashboardDialog'
 import { createChartPanel } from './panels/chart/createChartPanel'
 import { DEFAULT_PANELS } from './panels/defaultPanels'
 
@@ -35,7 +37,8 @@ export function DashboardV2Scene(): JSX.Element {
 
 function DashboardV2(): JSX.Element {
     const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
-    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
+    const { applyDashboardEdit, setActiveTab, undo, redo, openDashboard } = useActions(dashboardV2Logic)
+    const [importing, setImporting] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
@@ -52,6 +55,20 @@ function DashboardV2(): JSX.Element {
                 : SAMPLE_PANELS,
         [runsRealQueries, currentTeamId]
     )
+    const dashboardActions = useCallback(
+        (actions: MenuAction[]): MenuAction[] => [
+            {
+                key: 'import',
+                label: 'Import from Grafana or New Relic',
+                dataAttr: 'dashboard-v2-import-open-dialog',
+                disabledReason: disabledReasonFor('addTab'),
+                onSelect: () => setImporting(true),
+                group: 'dashboard',
+            },
+            ...actions,
+        ],
+        [disabledReasonFor]
+    )
     const controller = useMemo<DashboardV2Controller>(
         () => ({
             dashboard,
@@ -62,8 +79,10 @@ function DashboardV2(): JSX.Element {
             onActiveTabChange: setActiveTab,
             history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
             refresh: {},
+            dashboardActions,
         }),
         [
+            dashboardActions,
             dashboard,
             activeTabId,
             panels,
@@ -78,19 +97,22 @@ function DashboardV2(): JSX.Element {
     )
 
     return (
-        <DashboardV2View
-            controller={controller}
-            header={
-                <header className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-col gap-1 min-w-0">
-                        <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
-                        {dashboard.description && (
-                            <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
-                        )}
-                    </div>
-                    <DashboardV2Actions />
-                </header>
-            }
-        />
+        <>
+            <ImportDashboardDialog open={importing} onClose={() => setImporting(false)} onOpenBoard={openDashboard} />
+            <DashboardV2View
+                controller={controller}
+                header={
+                    <header className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-col gap-1 min-w-0">
+                            <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                            {dashboard.description && (
+                                <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
+                            )}
+                        </div>
+                        <DashboardV2Actions />
+                    </header>
+                }
+            />
+        </>
     )
 }
