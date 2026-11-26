@@ -137,15 +137,12 @@ export interface RecommendationTotal {
 export interface RecommendationGroup {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendation['level']
-    // The unresolved rows. Resolved ones have a table of their own.
     recommendations: MarketingAnalyticsRecommendation[]
     // Every row of the rule is minor, resolved ones included, so resolving rows never moves the rule to another section.
     minor: boolean
-    // Every row of the rule says to keep spending, resolved ones included, for the same reason as `minor`.
     keepOnly: boolean
 }
 
-// For a rule that only says to keep spending, the amount is the spend at stake, not a change to expect.
 export function impactColumnTitle(keepOnly: boolean): string {
     return keepOnly ? 'Spend' : 'Impact'
 }

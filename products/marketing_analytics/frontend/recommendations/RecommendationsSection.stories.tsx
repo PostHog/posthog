@@ -331,8 +331,7 @@ const meta: Meta<typeof RecommendationsSection> = {
     component: RecommendationsSection,
     beforeEach: () => {
         localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
-        // Opening the recommendations in one story marks the intro as seen for the next ones, so every story
-        // starts with it seen and the ones that show it reset it.
+        // Opening the recommendations in one story marks the intro as seen for the next ones.
         localStorage.setItem(INTRO_SEEN_KEY, 'true')
         const originalNow = performance.now
         performance.now = () => 0
