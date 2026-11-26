@@ -1,8 +1,8 @@
 import type { Widget } from '../dashboard/dashboardTypes'
+import type { MenuAction } from '../dashboard/menuAction'
 import { applyTileActionFilters } from './applyTileActions'
-import type { TileAction } from './tileAction'
 
-const action = (key: string): TileAction => ({ key, label: key, dataAttr: key, disabledReason: null })
+const action = (key: string): MenuAction => ({ key, label: key, dataAttr: key, disabledReason: null })
 const tile = { id: 't1', widget: { type: 'text', config: {} } as unknown as Widget }
 
 describe('applyTileActionFilters', () => {

@@ -2854,7 +2854,11 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 400, response.json()
-        expected = "Turn it on from the cohort's page" if cohort_kind == "realtime_off" else "isn't ready for realtime"
+        expected = (
+            "Open the cohort's page to turn realtime on"
+            if cohort_kind == "realtime_off"
+            else "isn't ready for realtime"
+        )
         assert expected in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
@@ -5946,7 +5950,12 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if expected_snapshot_status:
-            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            assert response.json() == {
+                "status": expected_snapshot_status,
+                "audience_size": None,
+                "error": None,
+                "skipped_test_account_filters": [],
+            }
             mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
         else:
             mock_task.assert_not_called()

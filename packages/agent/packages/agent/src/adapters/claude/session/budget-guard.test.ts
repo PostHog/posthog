@@ -360,6 +360,7 @@ describe("RunBudgetGuard", () => {
     for (const stage of ["warn", "critical"] as const) {
       expect(publish.steerText(stage)).toContain("git_signed_commit");
       expect(publish.steerText(stage)).not.toMatch(/, push,/);
+      expect(publish.steerText(stage)).toContain("Except for a security fix");
       expect(wrapUp.steerText(stage)).toContain(
         "If the user asked you to open",
       );
@@ -378,6 +379,7 @@ describe("RunBudgetGuard", () => {
     for (const stage of ["warn", "critical"] as const) {
       expect(guard.steerText(stage)).toContain("gitlab_merge_request");
       expect(guard.steerText(stage)).not.toContain("git_signed_commit");
+      expect(guard.steerText(stage)).toContain("Except for a security fix");
     }
     guard.recordAssistantMessage(opusCall("m1", 1_000_000));
     guard.recordAssistantMessage(opusCall("m2", 500_000));

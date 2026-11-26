@@ -333,7 +333,7 @@ Re-audited 2026-11-19 against <https://www.aha.io/openapi.json>: no new gaps wor
 
 ## Ahrefs — **thin**
 
-Today (15): `backlinks`, `brand_radar_web_pages`, `domain_rating_history`, `domain_rating_top_domains`, `link_intersect_refdomains`, `link_intersect_refpages`, `metrics_history`, `organic_keywords`, `projects`, `rank_tracker_overview`, `referring_domains`, `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`, `site_metrics_daily`
+Today (17): `backlinks`, `brand_radar_mentions_history`, `brand_radar_web_pages`, `domain_rating_history`, `domain_rating_top_domains`, `link_intersect_refdomains`, `link_intersect_refpages`, `metrics_history`, `organic_keywords`, `projects`, `rank_tracker_overview`, `referring_domains`, `site_audit_health_scores`, `site_audit_issues`, `site_audit_pages`, `site_metrics_daily`, `top_pages`
 
 Diffed against: <https://docs.ahrefs.com/openapi.json>
 
@@ -344,8 +344,8 @@ Diffed against: <https://docs.ahrefs.com/openapi.json>
 - [x] `Domain Rating history (GET /v3/site-explorer/domain-rating-history)` — tracks the vendor's core authority metric alongside audit health (high)
 - [x] `Rank Tracker overview (GET /v3/rank-tracker/overview)` — measures tracked keyword rankings and visibility by project (high)
 - [x] `Referring domains (GET /v3/site-explorer/refdomains)` — measures unique linking domains and their authority (medium)
-- [ ] `Top pages (GET /v3/site-explorer/top-pages)` — identifies pages that drive organic traffic and revenue opportunities (medium)
-- [ ] `Brand Radar mentions history (GET /v3/brand-radar/mentions-history)` — measures brand visibility trends across AI search platforms (medium)
+- [x] `Top pages (GET /v3/site-explorer/top-pages)` — identifies pages that drive organic traffic and revenue opportunities (medium)
+- [x] `Brand Radar mentions history (GET /v3/brand-radar/mentions-history)` — measures brand visibility trends across AI search platforms (medium)
 - [x] `Link intersect referring domains (POST /v3/competitive-analysis/link-intersect-refdomains)` — finds domains that link to competitors, for link building (medium)
 - [x] `Link intersect referring pages (POST /v3/competitive-analysis/link-intersect-refpages)` — finds pages that link to competitors, for link building (medium)
 - [x] `Brand Radar web pages (POST /v3/brand-radar/web-pages)` — web pages that mention the tracked brands or competitors (medium)
@@ -1989,7 +1989,7 @@ Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API 
 
 ## Bexio — gaps
 
-Today (35): `account_groups`, `accounts`, `bank_accounts`, `bank_payments`, `bills`, `business_years`, `client_services`, `contact_groups`, `contact_relations`, `contacts`, `currencies`, `deliveries`, `expenses`, `invoice_item_positions`, `invoice_payments`, `invoice_reminders`, `invoices`, `items`, `journal_entries`, `manual_entries`, `notes`, `order_item_positions`, `orders`, `outgoing_payments`, `payroll_employees`, `project_states`, `project_types`, `projects`, `purchase_orders`, `quote_item_positions`, `quotes`, `tasks`, `taxes`, `timesheets`, `users`
+Today (44): `account_groups`, `accounts`, `bank_accounts`, `bank_payments`, `bills`, `business_years`, `client_services`, `contact_branches`, `contact_groups`, `contact_relations`, `contacts`, `countries`, `currencies`, `deliveries`, `expenses`, `invoice_item_positions`, `invoice_payments`, `invoice_reminders`, `invoices`, `items`, `journal_entries`, `languages`, `manual_entries`, `notes`, `order_item_positions`, `orders`, `outgoing_payments`, `payment_types`, `payroll_employees`, `project_states`, `project_types`, `projects`, `purchase_orders`, `quote_item_positions`, `quotes`, `salutations`, `task_priorities`, `task_statuses`, `tasks`, `taxes`, `timesheets`, `titles`, `units`, `users`
 
 Diffed against: <https://docs.bexio.com/>
 
@@ -2001,8 +2001,8 @@ Diffed against: <https://docs.bexio.com/>
 - [x] `Payroll employees (GET /4.0/payroll/employees)` — employee roster for HR and labor cost analysis (medium)
 - [x] `Invoice reminders (GET /2.0/kb_invoice/{invoice_id}/kb_reminder)` — dunning history for overdue invoices (medium)
 - [x] `Bank payments (GET /4.0/banking/payments)` — payments sent from the bank accounts we sync (medium)
-- [ ] `Contact lookups: countries, languages, salutations, titles, branches (GET /2.0/country; GET /2.0/language; GET /2.0/salutation; GET /2.0/title; GET /2.0/contact_branch)` — resolve id fields carried on contacts we sync (medium)
-- [ ] `Task and invoice lookups: todo status, todo priority, payment types, units (GET /2.0/todo_status; GET /2.0/todo_priority; GET /2.0/payment_type; GET /2.0/unit)` — resolve ids on tasks, invoices and articles we sync (medium)
+- [x] `Contact lookups: countries, languages, salutations, titles, branches (GET /2.0/country; GET /2.0/language; GET /2.0/salutation; GET /2.0/title; GET /2.0/contact_branch)` — resolve id fields carried on contacts we sync (medium)
+- [x] `Task and invoice lookups: todo status, todo priority, payment types, units (GET /2.0/todo_status; GET /2.0/todo_priority; GET /2.0/payment_type; GET /2.0/unit)` — resolve ids on tasks, invoices and articles we sync (medium)
 
 Note: Extracted all GET and search routes from the OpenAPI embedded in docs.bexio.com and diffed them against the 24 synced tables and the paths in settings.py. Excluded actions (issue, send, cancel), PDFs, files, permissions, document number helpers and single-record GETs. Document positions and payments need one request per parent document and a document type segment in the path. Payroll needs the payroll scope, and the 3.0 and 4.0 APIs paginate differently from 2.0, so check each route.
 
@@ -2630,7 +2630,7 @@ Note (2026-11-19): Diffed the REST pages listed in docs/llms.txt (each served as
 
 ## Bunny — gaps
 
-Today (13): `dns_records`, `dns_zone_statistics`, `dns_zones`, `pull_zone_logs`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_collections`, `video_libraries`, `video_library_statistics`, `videos`
+Today (18): `billing_summary`, `dns_records`, `dns_zone_statistics`, `dns_zones`, `pull_zone_logs`, `pull_zone_optimizer_statistics`, `pull_zone_origin_shield_queue_statistics`, `pull_zone_safehop_statistics`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_collections`, `video_heatmaps`, `video_libraries`, `video_library_statistics`, `videos`
 
 Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 
@@ -2642,10 +2642,10 @@ Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 - [x] `GET /dnszone/{id}/statistics` — DNS query volume per zone, the only usage metric for the DNS product (medium)
 - [x] `GET /library/{libraryId}/collections (Stream API)` — lookup resolving the collection IDs carried on videos (medium)
 - [x] `GET /v2/pullzones/{pullZoneId}/logs (CDN Logging API)` — raw edge access logs — request-level detail for traffic analysis (medium)
-- [ ] `GET /billing/summary` — spend per period per service, needed to tie CDN usage to cost (medium)
-- [ ] `GET /library/{libraryId}/videos/{videoId}/heatmap and /play (Stream API)` — per-video engagement/retention curve; the drop-off analysis people import video data for (medium)
-- [ ] `GET /pullzone/{pullZoneId}/optimizer/statistics` — image optimizer usage per pull zone, a breakdown of the traffic we would otherwise only see in aggregate (low)
-- [ ] `GET /pullzone/{pullZoneId}/safehop/statistics and /originshield/queuestatistics` — origin reliability and shield queue behavior per pull zone (low)
+- [x] `GET /billing/summary` — spend per period per service, needed to tie CDN usage to cost (medium)
+- [x] `GET /library/{libraryId}/videos/{videoId}/heatmap and /play (Stream API)` — per-video engagement/retention curve; the drop-off analysis people import video data for (medium). Built `heatmap` as `video_heatmaps`; `/play` skipped: it returns playback URLs and signed tokens, not table data.
+- [x] `GET /pullzone/{pullZoneId}/optimizer/statistics` — image optimizer usage per pull zone, a breakdown of the traffic we would otherwise only see in aggregate (low)
+- [x] `GET /pullzone/{pullZoneId}/safehop/statistics and /originshield/queuestatistics` — origin reliability and shield queue behavior per pull zone (low)
 
 Note: Bunny splits its API across several specs, all fetched this run: Core (core-api-public-docs.b-cdn.net/docs/v3/public.json), Stream (video.bunnycdn.com/openapi/bunnynet-video-api.public.json), and CDN Logging (logging.bunnycdn.com/docs/all/swagger.json). PostHog syncs only the four top-level zone/library objects — every statistics and child resource in all three specs is missing, so the source currently carries configuration objects but none of the usage data that is the point of a CDN import.
 
@@ -3209,11 +3209,11 @@ Diffed against: <https://jsapi.apiary.io/apis/dearinventory.apib>
 - [x] `Transactions (GET /transactions)` — account ledger transactions by date range, the accounting detail behind sales and purchases (high)
 - [x] `Journals (GET /journal)` — manual and system journal list with status (medium)
 - [x] `Customer credits (GET /ref/customer/credits)` — open credits per customer, ties to sales credit notes (medium)
-- [ ] `Supplier deposits (GET /ref/supplier/deposits)` — deposits paid to suppliers and their used state (medium)
-- [ ] `CRM leads (GET /crm/lead)` — lead records with modified-since filter (medium)
-- [ ] `CRM opportunities (GET /crm/opportunity)` — sales pipeline opportunities (medium)
+- [x] `Supplier deposits (GET /ref/supplier/deposits)` — deposits paid to suppliers and their used state (medium)
+- [x] `CRM leads (GET /crm/lead)` — lead records with modified-since filter (medium)
+- [x] `CRM opportunities (GET /crm/opportunity)` — sales pipeline opportunities (medium)
 - [x] `Production order list (GET /production/orderList)` — manufacturing orders with status and dates (medium)
-- [ ] `Inventory write-off list (GET /inventoryWriteOffList)` — stock write-offs, a stock movement type not in adjustments (medium)
+- [x] `Inventory write-off list (GET /inventoryWriteOffList)` — stock write-offs, a stock movement type not in adjustments (medium)
 - [ ] `Product discounts (GET /reference/discount)` — discount definitions applied to sales (low)
 - [ ] `Bank accounts (GET /ref/account/bank)` — bank account lookup for payments (low)
 
@@ -4075,11 +4075,11 @@ Diffed against: <https://developers.kit.com/llms.txt>
 - [x] `GET /v4/segments` — segment lookup table, entirely unsynced (high)
 - [x] `GET /v4/sequences/{id}/emails (list-sequence-emails)` — the individual emails inside each sequence - line items for the sequences already synced (medium)
 - [x] `GET /v4/broadcasts/{id}/clicks (get-link-clicks-for-a-broadcast)` — per-link click breakdown within a broadcast (medium)
-- [ ] `GET /v4/subscribers/{id}/stats` — per-subscriber engagement (opens, clicks) for cohort and churn analysis (medium)
+- [ ] `GET /v4/subscribers/{id}/stats` — per-subscriber engagement (opens, clicks) for cohort and churn analysis (medium) Skipped: one request per subscriber, and the API key limit of 120 requests a minute makes a full sync of a large list take hours.
 - [x] `GET /v4/account/growth_stats` — subscriber growth, cancellations and net new over a date range (medium)
-- [ ] `GET /v4/account/email_stats` — account-level send, open and click totals (medium)
-- [ ] `GET /v4/posts` — published newsletter posts, the public content catalog (medium)
-- [ ] `GET /v4/snippets` — reusable content snippets referenced by broadcasts and sequences (low)
+- [x] `GET /v4/account/email_stats` — account-level send, open and click totals (medium)
+- [x] `GET /v4/posts` — published newsletter posts, the public content catalog (medium)
+- [x] `GET /v4/snippets` — reusable content snippets referenced by broadcasts and sequences (low)
 
 Note: Kit (formerly ConvertKit) publishes a complete llms.txt index of its v4 API reference; each operation also has a .md variant. Core objects are synced but every engagement metric and every subscriber-membership junction is missing.
 
@@ -4407,7 +4407,7 @@ Diffed against: <https://api.cyberimpact.com/docs/openapi.yaml>
 - [x] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium) → `mailing_hard_bounces`, `mailing_soft_bounces` (full refresh, fan-out over `sent_mailings`)
 - [x] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium) → `mailing_unsubscribes` (full refresh, fan-out over `sent_mailings`)
 - [x] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low) → `mailing_stopped_recipients` (full refresh, fan-out over `sent_mailings`)
-- [ ] `Member consent (GET /members/{key}/consent)` — consent details per member for compliance reporting; needs fan-out over members (low)
+- [x] `Member consent (GET /members/{key}/consent)` — consent details per member for compliance reporting; needs fan-out over members (low) → `member_consents` (full refresh, fan-out over `members`)
 
 Note: Parsed the OpenAPI spec (34 paths). Existing tables cover members, groups, group members, custom fields, mailing lists, stats, opens, clicks and templates. The missing routes are the other per-mailing recipient lists, which follow the same fan-out as mailing_opens and mailing_clicks. /members/{key}/mailings is a per-member view of data already available per mailing, so it was excluded. Writes, batches, tokens and ping were excluded.
 
@@ -6010,9 +6010,9 @@ Diffed against: <https://developer.flutterwave.com/v3.0.0/reference/get-all-tran
 - [x] `Query Wallet balance history (GET /v3/wallet/statement)` — reconcile wallet credits and debits with transfers and settlement activity (high). Added as `wallet_statement` (v3, one walk per currency listed by `/balances`).
 - [ ] `View transaction timeline (GET /v3/transactions/{id}/events)` — analyze payment processing steps and failures beyond the current transaction status (medium); skipped: one request per transaction on every sync, because `transactions` has no update cursor and the timeline has no list or date filter, and the rows are checkout UI steps with IP addresses and actor emails
 - [x] `Get bill payments history (GET /v3/bills/history)` — report bill payment volume, failures, reversals, and customer spending (medium). Added as `bill_payments` (v3).
-- [ ] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium)
-- [ ] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium)
-- [ ] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium)
+- [x] `Fetch All Subaccounts (GET /v3/payout-subaccounts)` — identify customer wallets and payout subaccounts, which differ from collection split-payment subaccounts (medium). Added as `payout_subaccounts` (v3, follows `data.cursor.next` when the response has one).
+- [x] `Fetch Transactions (GET /v3/payout-subaccounts/{account_reference}/transactions)` — analyze credits and debits within each customer wallet (medium). Added as `payout_subaccount_transactions` (v3, one walk per wallet listed by `/payout-subaccounts`).
+- [x] `Retrieve Wallet balances (GET /v3/balances)` — report available merchant funds across currencies (medium). Added as `balances` (v3, full refresh).
 
 Note: Parsed the full operation metadata embedded in the official V3 reference and checked each proposed endpoint page. Existing subaccounts call /subaccounts, not /payout-subaccounts. Banks need country fan-out; wallet statements need currency windows; payout transactions need account fan-out. Excluded charge creation, tokens, verification tools, and nested refunds already covered by the refunds table.
 
@@ -6954,10 +6954,10 @@ Diffed against: <https://developer.getguru.com/reference/authentication>
 - [x] `card verifiers (GET /v1/cards/verifiers, /v1/cards/{id}/verifiers)` — verification ownership per card - drives knowledge-freshness reporting (medium)
 - [x] `team stats (GET /v1/teams/{id}/stats)` — rolled-up workspace counters for trend dashboards (medium)
 - [x] `knowledge alerts (GET /v1/alerts/delegated, /v1/alerts/{id}/stats/summary, /stats/users)` — alert delivery and per-user read state - announcement reach analysis (medium)
-- [ ] `templates (GET /v1/templates)` — lookup for the template a card was created from (medium)
-- [ ] `collection access (GET /v1/collections/{id}/access, GET /v1/groups/{id}/collections)` — group-to-collection permission mapping, a membership-style join across two synced tables (low)
-- [ ] `people (GET /v1/people/{id}, /v1/people/{id}/directreports)` — org chart attributes enriching members (low)
-- [ ] `assistants (GET /v1/assistants)` — AI assistant inventory for answer-quality analysis (low)
+- [x] `templates (GET /v1/templates)` — lookup for the template a card was created from (medium)
+- [x] `collection access (GET /v1/collections/{id}/access, GET /v1/groups/{id}/collections)` — group-to-collection permission mapping, a membership-style join across two synced tables (low)
+- [ ] `people (GET /v1/people/{id}, /v1/people/{id}/directreports)` — org chart attributes enriching members (low) Skipped: no list endpoint; each profile needs one request per member, and the person ID format is not documented.
+- [x] `assistants (GET /v1/assistants)` — AI assistant inventory for answer-quality analysis (low)
 
 Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (openapi.json and sitemap.xml both 404, and the deep-link slug in the payload's doc list returns 404). Endpoint list was extracted from the /reference index page's operation slugs (e.g. getv1groupsgetgroupmembers, getv1teamsanalyticsgetanalytics), which are generated one-per-operation, so the inventory is complete even though field-level shapes were not read.
 
@@ -7360,7 +7360,7 @@ Note: Docs pages are server-rendered HTML with no OpenAPI file, so I read the en
 
 ## Honeybadger — gaps
 
-Today (18): `account_users`, `accounts`, `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `notices_by_class`, `notices_per_day`, `occurrences`, `outages`, `projects`, `sites`, `team_members`, `uptime_checks`
+Today (19): `account_users`, `accounts`, `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `notices_by_class`, `notices_per_day`, `occurrences`, `outages`, `projects`, `sites`, `status_pages`, `team_members`, `uptime_checks`
 
 Diffed against: <https://docs.honeybadger.io/api/>
 
@@ -7382,13 +7382,13 @@ Note: Static endpoint list; source dir products/warehouse_sources/sources/honeyb
 
 Re-audited 2026-11-19 against: <https://docs.honeybadger.io/api/v3/openapi.json>
 
-- [ ] `Check-in events (GET /projects/{project_id}/check_ins/{check_in_id}/events)` — run history per cron or heartbeat monitor, the fact table behind the check_ins we sync; fan-out over check_ins (high)
+- [ ] `Check-in events (GET /projects/{project_id}/check_ins/{check_in_id}/events)` — run history per cron or heartbeat monitor, the fact table behind the check_ins we sync; fan-out over check_ins (high). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Alarms (GET /projects/{project_id}/alarms)` — alarm definitions, the parent that alarm_history fans out over and the lookup for its alarm IDs (medium)
 - [ ] `Teams (GET /teams)` — team lookup, the parent that team_members fans out over (medium)
-- [ ] `Status pages (GET /status_pages)` — status page lookup, parent for the incident tables below (medium)
-- [ ] `Status page incidents (GET /status_pages/{status_page_id}/incidents)` — customer-facing incident history per status page; fan-out over status_pages (medium)
+- [x] `Status pages (GET /status_pages)` — status page lookup, parent for the incident tables below (medium). Added as `status_pages` from v2 `GET /accounts/{id}/status_pages` (fan-out over `accounts`, full refresh; off by default).
+- [ ] `Status page incidents (GET /status_pages/{status_page_id}/incidents)` — customer-facing incident history per status page; fan-out over status_pages (medium). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Status page incident updates (GET /status_pages/{status_page_id}/incidents/{incident_id}/updates)` — timeline of updates per status page incident; fan-out over incidents (low)
-- [ ] `Account usage (GET /account/usage)` — billing and quota usage for the account, the cost object for plan monitoring (medium)
+- [ ] `Account usage (GET /account/usage)` — billing and quota usage for the account, the cost object for plan monitoring (medium). Skipped: v3 only, and v3 refuses the v2 personal auth token the source stores.
 - [ ] `Project stats (GET /projects/{project_id}/stats)` — per-project rollup counts for dashboards (low)
 - [ ] `Fault summary (GET /projects/{project_id}/faults/summary)` — fault counts by state per project (low)
 - [ ] `Dashboards (GET /projects/{project_id}/dashboards)` — saved Insights dashboard definitions per project (low)
@@ -7969,9 +7969,9 @@ Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked
 
 Re-audited 2026-11-19 against: <https://api.intruder.io/v1/swagger.json>
 
-- [ ] `Network services (GET /v1/attack-surface/services/)` — Open ports and services found on the attack surface, the exposure inventory next to targets and issues (high)
-- [ ] `AI pentests (GET /v1/ai-pentests/)` — AI pentest engagements with status and dates, the parent for the findings below (medium)
-- [ ] `AI pentest findings (GET /v1/ai-pentests/{ai_pentest_id}/findings/)` — Vulnerabilities reported by each AI pentest, fanned out over ai-pentests (medium)
+- [x] `Network services (GET /v1/attack-surface/services/)` — Open ports and services found on the attack surface, the exposure inventory next to targets and issues (high)
+- [x] `AI pentests (GET /v1/ai-pentests/)` — AI pentest engagements with status and dates, the parent for the findings below (medium)
+- [x] `AI pentest findings (GET /v1/ai-pentests/{ai_pentest_id}/findings/)` — Vulnerabilities reported by each AI pentest, fanned out over ai-pentests (medium)
 
 Note (2026-11-19): Re-read the live swagger.json and listed every GET and POST path. The previous audit predates the ai-pentests and attack-surface routes, which are not in the current tables. Still excluded: health, licenses (seat and billing), occurrence comments and scanner_output (large free text), target authentications and api_schemas (scan config), and all write routes. The ai-pentests routes may depend on the account having that product.
 
@@ -8356,7 +8356,7 @@ Re-audited 2026-11-19 against <https://docs.kapa.ai/api/reference>: no new gaps 
 
 ## Katana — gaps
 
-Today (31): `bin_inventory`, `bin_locations`, `bom_rows`, `customers`, `inventory`, `inventory_movements`, `locations`, `manufacturing_order_operation_rows`, `manufacturing_order_productions`, `manufacturing_order_recipe_rows`, `manufacturing_orders`, `materials`, `operators`, `price_list_rows`, `price_lists`, `products`, `purchase_order_rows`, `purchase_orders`, `sales_order_fulfillments`, `sales_order_rows`, `sales_orders`, `sales_return_rows`, `sales_returns`, `services`, `stock_adjustments`, `stock_transfers`, `stocktake_rows`, `stocktakes`, `suppliers`, `tax_rates`, `variants`
+Today (38): `additional_costs`, `bin_inventory`, `bin_locations`, `bom_rows`, `customer_addresses`, `customers`, `inventory`, `inventory_movements`, `locations`, `manufacturing_order_operation_rows`, `manufacturing_order_production_ingredients`, `manufacturing_order_productions`, `manufacturing_order_recipe_rows`, `manufacturing_orders`, `materials`, `operators`, `po_additional_cost_rows`, `price_list_rows`, `price_lists`, `product_operation_rows`, `products`, `purchase_order_rows`, `purchase_orders`, `sales_order_addresses`, `sales_order_fulfillments`, `sales_order_rows`, `sales_orders`, `sales_return_rows`, `sales_returns`, `services`, `stock_adjustments`, `stock_transfers`, `stocktake_rows`, `stocktakes`, `supplier_addresses`, `suppliers`, `tax_rates`, `variants`
 
 Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 
@@ -8377,15 +8377,15 @@ Note: The docs site (developer.katanamrp.com) is a ReadMe app, but the live gate
 
 Re-audited 2026-11-19 against: <https://api.katanamrp.com/v1/openapi.json>
 
-- [ ] `Production ingredients (GET /manufacturing_order_production_ingredients)` — Ingredients actually consumed by each production we sync, for yield and material variance (high)
-- [ ] `Additional costs (GET /additional_costs; GET /po_additional_cost_rows)` — Landed cost lines on purchase orders we sync, needed for true cost of goods (high)
-- [ ] `Sales order addresses (GET /sales_order_addresses; GET /customer_addresses; GET /supplier_addresses)` — Billing and shipping addresses behind sales orders, customers and suppliers, for regional analysis (medium)
+- [x] `Production ingredients (GET /manufacturing_order_production_ingredients)` — Ingredients actually consumed by each production we sync, for yield and material variance (high) — built 2026-11-24 as `manufacturing_order_production_ingredients`, full refresh (rows carry no created_at or updated_at)
+- [x] `Additional costs (GET /additional_costs; GET /po_additional_cost_rows)` — Landed cost lines on purchase orders we sync, needed for true cost of goods (high) — built 2026-11-24 as `additional_costs` and `po_additional_cost_rows`
+- [x] `Sales order addresses (GET /sales_order_addresses; GET /customer_addresses; GET /supplier_addresses)` — Billing and shipping addresses behind sales orders, customers and suppliers, for regional analysis (medium) — built 2026-11-24 as `sales_order_addresses`, `customer_addresses` and `supplier_addresses`
 - [ ] `Sales order shipping fees (GET /sales_order_shipping_fee)` — Shipping charged per sales order we sync, part of revenue (medium)
 - [ ] `Serial numbers (GET /serial_numbers; GET /serial_numbers_stock)` — Unit level traceability and where each serial is in stock (medium)
 - [ ] `Batch stocks (GET /batch_stocks)` — Stock per batch with expiry, for traceability and shelf life reports (medium)
 - [ ] `Bin transfers (GET /bin_transfers; GET /bin_transfer_rows)` — Stock moves between bins, below the location grain of stock transfers (medium)
 - [ ] `Price list customers (GET /price_list_customers)` — Join table linking customers to the price lists we sync (medium)
-- [ ] `Product operation rows and recipes (GET /product_operation_rows; GET /recipes)` — Routing and recipe definitions per product, the planned side of manufacturing order rows (medium)
+- [x] `Product operation rows and recipes (GET /product_operation_rows; GET /recipes)` — Routing and recipe definitions per product, the planned side of manufacturing order rows (medium) — built 2026-11-24 as `product_operation_rows`; `/recipes` skipped, Katana deprecates it in favor of BOM rows, which `bom_rows` already syncs
 - [ ] `Users (GET /users)` — Lookup for the user ids that appear on activity and operations (low)
 
 Note (2026-11-19): Parsed all 120 paths of the live openapi.json and listed every GET. Also unsynced and lower value: demand_forecasts, negative_stock, inventory_signals, custom_field_definitions, sales_returns/return_reasons, outsourced_purchase_order_recipe_rows, accounting_metadata routes. Excluded: per-record activity_log routes, returnable and traceability lookups, factory, user_info and webhooks. Most list routes take page and limit paging; address and row tables may need a parent id.
@@ -10188,7 +10188,7 @@ Re-audited 2026-11-19 against <https://docs.usemotion.com/llms.txt>: no new gaps
 
 ## Moxie — gaps
 
-Today (14): `agreements`, `clients`, `contacts`, `email_templates`, `form_names`, `invoice_templates`, `payable_invoices`, `pipeline_stages`, `projects`, `task_stages`, `tasks`, `tickets`, `vendor_names`, `workspace_users`
+Today (18): `agreements`, `clients`, `contacts`, `email_templates`, `form_names`, `invoice_templates`, `opportunities`, `payable_invoices`, `pipeline_stages`, `project_notes`, `projects`, `task_stages`, `tasks`, `ticket_comments`, `tickets`, `time_entries`, `vendor_names`, `workspace_users`
 
 Diffed against: <https://api-docs.withmoxie.com/sitemap.xml>
 
@@ -10201,10 +10201,10 @@ Note: Followed the retired help collection to the current reference, then read c
 
 Re-audited 2026-11-19 against: <https://api-docs.withmoxie.com/sitemap.xml>
 
-- [ ] `List time entries (GET /public/action/timeWorked/list)` — Track billable and worked hours by client, project and person - the core usage data for a services tool (high)
-- [ ] `Search opportunities (GET /public/action/opportunities/search)` — Analyze the sales pipeline; stage and client ids resolve against pipeline_stages and clients (high)
-- [ ] `List ticket comments (GET /public/action/tickets/comments/list)` — Measure support reply activity per ticket synced in tickets (medium)
-- [ ] `Search project notes (GET /public/action/projects/notes/search)` — Read internal notes on projects we already sync (low)
+- [x] `List time entries (GET /public/action/timeWorked/list)` — Track billable and worked hours by client, project and person - the core usage data for a services tool (high). Added as `time_entries`.
+- [x] `Search opportunities (GET /public/action/opportunities/search)` — Analyze the sales pipeline; stage and client ids resolve against pipeline_stages and clients (high). Added as `opportunities`.
+- [x] `List ticket comments (GET /public/action/tickets/comments/list)` — Measure support reply activity per ticket synced in tickets (medium). Added as `ticket_comments`.
+- [x] `Search project notes (GET /public/action/projects/notes/search)` — Read internal notes on projects we already sync (low). Added as `project_notes`.
 - [ ] `List project types (GET /public/action/projectTypes/list)` — Resolve project type ids on projects to their fields and task stages (low)
 
 Note (2026-11-19): Read the sitemap and the operation pages for the five routes. Time entries return up to 10000 rows per call with no sort guarantee, so use date windows and dedupe by id. Ticket comments need a ticketId (fan-out under tickets) and cursor paging with commentType. Project notes need a projectId (fan-out under projects). Excluded create, update, delete, webhook and upload routes.
@@ -12303,7 +12303,7 @@ Re-audited 2026-11-19 against <https://help.rapid7.com/insightvm/en-us/api/insig
 
 ## Raygun — gaps
 
-Today (10): `applications`, `customers`, `deployment_error_groups`, `deployments`, `error_groups`, `error_instances`, `error_metrics`, `page_metrics`, `pages`, `sessions`
+Today (11): `applications`, `customers`, `deployment_error_groups`, `deployments`, `error_groups`, `error_instances`, `error_metrics`, `page_metrics`, `pages`, `sessions`, `teams`
 
 Diffed against: <https://api.raygun.com/v3/raygun-openapi-spec.json>
 
@@ -12311,7 +12311,7 @@ Diffed against: <https://api.raygun.com/v3/raygun-openapi-spec.json>
 - [x] `metrics/{application}/errors/time-series` — Raygun's headline error-rate metric, pre-aggregated over time (medium)
 - [x] `applications/{id}/deployments/{id}/error-groups` — Maps error groups to the deployment that introduced them, the core regression-detection join (medium)
 - [x] `metrics/{application}/pages/time-series and /pages/histogram` — Real user monitoring page-load performance over time and its distribution (medium) — time-series only; the histogram is a snapshot over a caller-chosen window with no time dimension, and the time-series percentiles cover the distribution over time
-- [ ] `teams` — Lookup resolving team ownership of applications (low)
+- [x] `teams` — Lookup resolving team ownership of applications (low) — team list only; the v3 team object has no application identifiers and the API has no per-team application listing
 
 Note: Spec URL is not linked from the product docs page; found it by reading the Swagger UI bootstrap at https://api.raygun.com/v3/swagger/index.js. Coverage of the top-level collections is good - the gap is one level down, at error instances and the metrics endpoints.
 
@@ -16115,10 +16115,10 @@ Note: Read the official eCommerce operation index and linked Stores, Blog, Booki
 
 Re-audited 2026-11-19 against: <https://dev.wix.com/docs/llms.txt>
 
-- [ ] `Bookings services (POST /bookings/v2/services/query)` — the service catalog that synced bookings point to, with price and duration (high)
-- [ ] `Events (POST /events/v3/events/query)` — Wix Events listings with dates and status; none are synced today (high)
-- [ ] `Event guests (POST /events/v2/guests/query)` — attendees per event, for registration and attendance analysis (high)
-- [ ] `RSVPs (POST /events/v2/rsvps/query)` — RSVP responses to events (medium)
+- [x] `Bookings services (POST /bookings/v2/services/query)` — the service catalog that synced bookings point to, with price and duration (high)
+- [x] `Events (POST /events/v3/events/query)` — Wix Events listings with dates and status; none are synced today (high)
+- [x] `Event guests (POST /events/v2/guests/query)` — attendees per event, for registration and attendance analysis (high)
+- [x] `RSVPs (POST /events/v2/rsvps/query)` — RSVP responses to events (medium)
 - [ ] `Coupons (POST /stores/v2/coupons/query)` — store coupon definitions and usage, to explain order discounts (medium)
 - [ ] `Form submissions (POST /form-submission-service/v4/submissions/namespace/query)` — lead and contact form entries; needs a namespace filter (medium)
 - [ ] `Booking staff members (POST /bookings/v1/staff-members/query)` — staff who deliver bookings, for utilisation by staff (medium)

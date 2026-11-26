@@ -353,7 +353,7 @@ def _select_type_columns(
     return list(select_type.columns.items())
 
 
-def _unify_select_set_columns(
+def unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
@@ -585,7 +585,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
+            columns=unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -1534,7 +1534,9 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
+        chosen_body = swap_flag_calls(
+            body, self.context, resolve, scope=FlagCallScope.view(view_name), enclosing_ctes=self.ctes
+        ).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 

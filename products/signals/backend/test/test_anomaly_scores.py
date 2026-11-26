@@ -1,9 +1,11 @@
 import dataclasses
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+import time_machine
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -12,6 +14,8 @@ import numpy as np
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
     ChartDisplayType,
     CompareFilter,
     EventPropertyFilter,
@@ -567,6 +571,43 @@ class TestMetricScoringQuery(SimpleTestCase):
         assert query_cost(insight, MagicMock(spec=Team)) == 2
 
 
+class TestFormulaBreakdownScoring(ClickhouseTestMixin, BaseTest):
+    @time_machine.travel("2026-01-10T12:00:00Z", tick=False)
+    def test_scoring_reads_the_formula_values_that_the_chart_shows(self) -> None:
+        # Ranked per series, shop_10 is in the top 10 of visits but not of purchases, so its purchases would read 0.
+        visits_and_purchases = {**{f"shop_{i}": (2, 2) for i in range(9)}, "shop_9": (1, 2), "shop_10": (3, 1)}
+        days = (date(2026, 1, 8), date(2026, 1, 9))
+        for day in days:
+            for shop, counts in visits_and_purchases.items():
+                for event, count in zip(("visit", "purchase"), counts):
+                    for _ in range(count):
+                        _create_event(
+                            team=self.team,
+                            event=event,
+                            distinct_id="customer",
+                            timestamp=datetime.combine(day, time(12), tzinfo=UTC),
+                            properties={"shop": shop},
+                        )
+        query = TrendsQuery(
+            series=[EventsNode(event="visit"), EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(breakdown="shop"),
+            trendsFilter=TrendsFilter(formula="A / B"),
+        )
+        insight = Insight.objects.create(team=self.team, query=query.model_dump(exclude_none=True))
+
+        scores = score_insight(insight, self.team, now=datetime(2026, 1, 10, 12, tzinfo=UTC))
+
+        scored = {series.breakdown_value: series.points for series in scores.series}
+        # The top 10 on visits and purchases together leaves out shop_9, the value with the fewest events.
+        assert set(scored) == set(visits_and_purchases) - {"shop_9"}
+        for breakdown_value, points in scored.items():
+            assert breakdown_value is not None
+            visits, purchases = visits_and_purchases[breakdown_value]
+            assert [(point.bucket_start.date(), point.value) for point in points if point.value] == [
+                (day, visits / purchases) for day in days
+            ]
+
+
 class TestFetchBuckets(SimpleTestCase):
     def test_unbounded_smoothing_is_not_scored(self) -> None:
         query = TrendsQuery(
@@ -607,6 +648,27 @@ class TestTrendsQueryFor(SimpleTestCase):
                 TrendsQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.MINUTE).model_dump(
                     exclude_none=True
                 ),
+            ),
+            (
+                "formula_over_histogram_breakdown",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+                    breakdownFilter=BreakdownFilter(breakdown="$screen_width", breakdown_histogram_bin_count=5),
+                    trendsFilter=TrendsFilter(formula="A / B"),
+                ).model_dump(exclude_none=True),
+            ),
+            (
+                "formula_over_multiple_breakdowns_with_a_histogram",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[
+                            Breakdown(property="$browser"),
+                            Breakdown(property="$screen_width", histogram_bin_count=5),
+                        ]
+                    ),
+                    trendsFilter=TrendsFilter(formula="A / B"),
+                ).model_dump(exclude_none=True),
             ),
         ]
     )

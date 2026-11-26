@@ -85,7 +85,7 @@ async function runHogli(
 }
 
 const NOT_REACHABLE = 3
-const FIRST_START_TIMEOUT_S = 3600
+export const FIRST_START_TIMEOUT_S = 3600
 
 const STACK_UNITS = {
     intents: ['product_analytics', 'workflows'],

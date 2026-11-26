@@ -1,12 +1,18 @@
 import type { ComponentType } from 'react'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
-import type { TileAction } from '../tiles/tileAction'
+import type { MenuAction } from '../dashboard/menuAction'
 import type { WidgetSpec } from './widgetSpec'
+
+export interface WidgetComponentProps<Config = unknown> {
+    widget: ContentWidget<Config>
+    /** Saves a new config for this widget, as one undo step. Left out when the person cannot change it. */
+    setConfig?: (config: Config) => void
+}
 
 /** A widget type the browser can render: its spec plus its component. The host passes its list of these to the dashboard. */
 export interface WidgetDefinition<Config = unknown> extends WidgetSpec<Config> {
-    Component: ComponentType<{ widget: ContentWidget<Config> }>
+    Component: ComponentType<WidgetComponentProps<Config>>
     /** Shows while `Component` suspends. Without it, the tile shows `WidgetLoading`. */
     Loading?: ComponentType<{ widget: ContentWidget<Config> }>
     /** Controls in the tile's header, beside the title, such as an interval picker or an "Open as insight" button. */
@@ -14,12 +20,12 @@ export interface WidgetDefinition<Config = unknown> extends WidgetSpec<Config> {
     /** Replaces what the footer shows. Without it, a widget whose data refreshes shows when it last refreshed. */
     Footer?: ComponentType<{ widget: ContentWidget<Config> }>
     /** Adds entries to the tile's right-click menu, such as "Open in traces" or a chart's options. */
-    menuActions?: (context: WidgetMenuContext<Config>) => TileAction[]
+    menuActions?: (context: WidgetMenuContext<Config>) => MenuAction[]
     /**
      * Receives the tile's full action list, after `menuActions` are added, and returns the list to show. Use it to
-     * remove, disable, reorder or add entries by `TileAction.key`. The host's `tileActions` runs after it.
+     * remove, disable, reorder or add entries by `MenuAction.key`. The host's `tileActions` runs after it.
      */
-    tileActions?: (actions: TileAction[], context: { widget: ContentWidget<Config> }) => TileAction[]
+    tileActions?: (actions: MenuAction[], context: { widget: ContentWidget<Config> }) => MenuAction[]
 }
 
 export interface WidgetMenuContext<Config = unknown> {

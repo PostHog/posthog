@@ -56,6 +56,7 @@ class AgentEgressExecution(BaseModel):
     previous_sandbox_id: str | None = None
     previous_relay_name: str | None = None
     owns_sandbox: bool = True
+    publish_git_read_grant: bool = False
     capability_refresh_at: float = 0
     certificate_refresh_at: float = 0
     certificate_expires_at: float = 0
@@ -81,7 +82,11 @@ class AgentEgressLifecycle:
         self.sandbox_expires_at = sandbox_expires_at
         self.config_sha256 = hashlib.sha256(
             config.model_dump_json(
-                exclude={name for name in ("renew_relay_certificate", "maintain_for_run") if not getattr(config, name)}
+                exclude={
+                    name
+                    for name in ("renew_relay_certificate", "maintain_for_run", "publish_git_read_grant")
+                    if not getattr(config, name, False)
+                }
             ).encode()
         ).hexdigest()
         self.registry = AgentEgressRegistry(region=settings.AGENT_EGRESS_REGION)
@@ -193,6 +198,7 @@ class AgentEgressLifecycle:
                 previous_sandbox_id=previous_sandbox_id,
                 previous_relay_name=previous_relay_name,
                 owns_sandbox=self.config.sandbox_id is None,
+                publish_git_read_grant=getattr(self.config, "publish_git_read_grant", False),
                 closed_executions=closed_executions,
             )
             self._save(run, state)
