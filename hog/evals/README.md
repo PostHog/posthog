@@ -38,16 +38,31 @@ OpenRouter refuses a request when the credit left can't cover every request in f
 
 `stunthog.ts` options:
 
-| Option     | Default                                                          | What it sets                     |
-| ---------- | ---------------------------------------------------------------- | -------------------------------- |
-| `--url`    | `STUNTHOG_URL` or `http://127.0.0.1:3100`                        | The StuntHog server              |
-| `--only`   | Every eval                                                       | Eval keys, separated by commas   |
-| `--models` | Claude Sonnet 5.5, Claude Opus 5.5, GPT Sol and Gemini Pro on Pi | `<harness>:<model>` pairs        |
-| `--judge`  | `pi:anthropic/claude-opus-5.5`                                   | The judge's harness and model    |
-| `--count`  | `1`                                                              | Sessions per model               |
-| `--run`    | Off                                                              | Starts each eval after saving it |
+| Option      | Default                                                          | What it sets                                                    |
+| ----------- | ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| `--url`     | `STUNTHOG_URL` or `http://127.0.0.1:3100`                        | The StuntHog server                                             |
+| `--only`    | Every eval                                                       | Eval keys, separated by commas                                  |
+| `--models`  | Claude Sonnet 5.5, Claude Opus 5.5, GPT Sol and Gemini Pro on Pi | `<harness>:<model>` pairs                                       |
+| `--judge`   | `pi:anthropic/claude-opus-5.5`                                   | The judge's harness and model                                   |
+| `--count`   | `1`                                                              | Sessions per model                                              |
+| `--run`     | Off                                                              | Starts each eval after saving it                                |
+| `--variant` | None                                                             | Runs a local hog build from `variant.sh` instead of the release |
 
 Running the script again updates the evals in place. StuntHog keeps earlier revisions and their sessions.
+
+### Compare a change
+
+`variant.sh` builds hog from this checkout into a variant, with its own Dockerfiles. Eval titles get the variant name, so its sessions sit next to the release's.
+
+```sh
+git checkout my-change
+hog/evals/variant.sh my-change                 # SKILLS_ZIP=<path> also serves a local context-mill bundle
+bun hog/evals/stunthog.ts --variant my-change --run --only handoff,basic
+git checkout master && hog/evals/variant.sh base
+bun hog/evals/stunthog.ts --variant base --run --only handoff,basic
+```
+
+Compare more than one session per model: the same build scores a criterion or two apart between runs.
 
 ## The evals
 
