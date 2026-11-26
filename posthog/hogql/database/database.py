@@ -268,7 +268,8 @@ class HogQLDatabaseSources:
     direct_connection_metadata: dict[str, Any] | None
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional[UserAccessControl]
-    denied_system_table_names: set[str]  # node names under the "system" node to remove during build
+    # Node names to remove during build: bare names under "system", qualified names (`posthog.x`) elsewhere
+    denied_system_table_names: set[str]
     group_types: list[dict[str, Any]]
     mcp_custom_harness_rules: Sequence[CustomHarnessRule]
     saved_queries: list[DataWarehouseSavedQuery]
@@ -730,6 +731,25 @@ def _scoped_system_tables() -> Mapping[str, PostgresTable | ScopedLazyTable]:
 
 
 @cache
+def access_controlled_posthog_tables() -> Mapping[str, APIScopeObject]:
+    """`posthog.<name>` table -> the resource that gates it, for ClickHouse tables holding one product's data.
+
+    Unlike scoped system tables, these only deny a user whose access to the resource is none. Userless
+    and synthetic principals keep reading them: product query runners and alerts run without a user,
+    and their own API permissions gate the request. Same process-static invariant as
+    _scoped_system_tables.
+    """
+    posthog_node = build_database_root_node().children["posthog"]
+    return MappingProxyType(
+        {
+            f"posthog.{name}": access_scope
+            for name, table_node in posthog_node.children.items()
+            if (access_scope := getattr(table_node.table, "access_scope", None)) is not None
+        }
+    )
+
+
+@cache
 def _system_table_required_features() -> Mapping[str, str]:
     """Table name -> required AvailableFeature for system tables behind a billing entitlement.
 
@@ -842,6 +862,11 @@ def _compute_system_table_access_decision(
             continue
         denied.add(name)
 
+    for qualified_name, access_scope in access_controlled_posthog_tables().items():
+        access = user_access_control.access_level_for_resource(access_scope)
+        if not access or access.access_level == NO_ACCESS_LEVEL:
+            denied.add(qualified_name)
+
     return user_access_control, denied
 
 
@@ -859,7 +884,9 @@ def system_table_denials(
     ``unentitled`` from :func:`unentitled_system_tables` to read the organization's entitlements once
     across many users.
     """
-    return frozenset(_compute_system_table_access_decision(team, user, user_access_control, unentitled=unentitled)[1])
+    denied = _compute_system_table_access_decision(team, user, user_access_control, unentitled=unentitled)[1]
+    # Qualified names are `posthog.*` tables, not system tables.
+    return frozenset(name for name in denied if "." not in name)
 
 
 class Database(BaseModel):
@@ -1470,17 +1497,18 @@ class Database(BaseModel):
         if user_access_control is not None:
             self.user_access_control = user_access_control
 
-        # Record only denials we actually applied, so a database with no "system" node denies nothing.
+        # Record only denials we actually applied, so a database without the namespace node denies nothing.
+        # Bare names live under "system"; qualified ones (`posthog.trace_spans`) name their namespace.
         removed: set[str] = set()
-        if denied_system_table_names:
-            system_node = self.tables.children.get("system")
-            if system_node is not None and hasattr(system_node, "children"):
-                for name in denied_system_table_names:
-                    if name in system_node.children:
-                        del system_node.children[name]
-                        removed.add(name)
+        for name in denied_system_table_names:
+            namespace, _, table_name = name.rpartition(".")
+            namespace = namespace or "system"
+            namespace_node = self.tables.children.get(namespace)
+            if namespace_node is not None and table_name in namespace_node.children:
+                del namespace_node.children[table_name]
+                removed.add(f"{namespace}.{table_name}")
 
-        self._denied_tables = {f"system.{name}" for name in removed}
+        self._denied_tables = removed
 
     def _is_warehouse_table_denied(self, table: DataWarehouseTable) -> bool:
         """

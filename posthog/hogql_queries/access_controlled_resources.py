@@ -249,6 +249,7 @@ def queried_access_controlled_resources(
     later path to it adds nothing, and views that reference each other end."""
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql.database.database import access_controlled_posthog_tables  # noqa: PLC0415
     from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
@@ -291,7 +292,10 @@ def queried_access_controlled_resources(
             return None  # unparseable -> fail closed
 
         table_names = set(get_table_names(select))
-        system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
+        system_scopes = {
+            **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
+            **access_controlled_posthog_tables(),
+        }
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
         scopes_from_system_tables = set(scopes)
 

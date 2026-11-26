@@ -82,6 +82,13 @@ You don't have access to table `system.error_tracking_issues`.
 
 This is a `QueryError` (`posthog/hogql/errors.py`), so it's exposed to the user.
 
+### Product tables under `posthog.`
+
+A ClickHouse table under `posthog.` that holds one product's data can declare an `access_scope` too: `posthog.trace_spans` and `posthog.trace_attributes` declare `"tracing"`.
+`access_controlled_posthog_tables()` collects them, and the same decision removes them for a user whose access to that resource is `none`, with the same `You don't have access to table` error.
+Unlike system tables, they stay readable without a user and for synthetic and shared-link principals: product query runners and alerts read them without a user, and the product's API permissions gate those requests.
+They also partition the query cache by their scope.
+
 ### Object-level access
 
 Some resources support per-object access controls - dashboards, insights, notebooks, feature flags, experiments, surveys, error tracking issues, session recordings, etc.

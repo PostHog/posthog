@@ -585,6 +585,41 @@ class TestDeniedTableError(BaseTest):
         assert cm.exception.code_name == "table_access_denied"
         assert str(cm.exception) == "You don't have access to table `system.dashboards`."
 
+    @parameterized.expand(
+        [
+            ("member_with_none", "none", OrganizationMembership.Level.MEMBER, True),
+            ("member_with_viewer", "viewer", OrganizationMembership.Level.MEMBER, False),
+            ("admin_with_none", "none", OrganizationMembership.Level.ADMIN, False),
+            ("no_user", None, OrganizationMembership.Level.MEMBER, False),
+        ]
+    )
+    def test_trace_tables_follow_tracing_access(
+        self, _name: str, access_level: str | None, level: OrganizationMembership.Level, denied: bool
+    ) -> None:
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = level
+        membership.save()
+        if access_level is not None:
+            AccessControl.objects.create(team=self.team, resource="tracing", access_level=access_level)
+
+        database = Database.create_for(team=self.team, user=self.user if access_level is not None else None)
+
+        for table_name in ("posthog.trace_spans", "posthog.trace_attributes"):
+            if denied:
+                with self.assertRaises(TableAccessDeniedError):
+                    database.get_table(table_name)
+                assert table_name.split(".")[1] not in database.tables.children["posthog"].children
+            else:
+                database.get_table(table_name)
+
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""
         database = Database.create_for(team=self.team, user=self.user)
