@@ -127,6 +127,7 @@ def _capture(recorded: list[tuple[HogFlow, Team, datetime]]) -> None:
                     "entry_attempt_id": str(flow.entry_attempt_id) if flow.entry_attempt_id else None,
                     "origin_product": flow.origin_product,
                     "first_real_send_at": first_send.isoformat(),
+                    "$ignore_sent_at": True,
                 },
                 groups=groups(team=team),
             )

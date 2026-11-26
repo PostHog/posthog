@@ -105,6 +105,7 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
             "entry_attempt_id": str(entry_attempt_id) if entry_attempt_id else None,
             "origin_product": "broadcasts",
             "first_real_send_at": first_send.isoformat(),
+            "$ignore_sent_at": True,
         }
 
         scoped_capture.reset_mock()
