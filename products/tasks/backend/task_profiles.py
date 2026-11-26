@@ -91,6 +91,7 @@ USER = replace(
 )
 
 MCP_ANALYTICS = replace(_PUBLIC, key="mcp_analytics", origin_product="mcp_analytics")
+LOOP = replace(_BASE, key="loop", origin_product="loop", mcp_scopes="read_only")
 
 HOGDESK = replace(
     _PUBLIC, key="hogdesk", origin_product="hogdesk", read_without_channel=Read.TEAM, drive=DrivePolicy.AUDIENCE
@@ -151,6 +152,7 @@ WORKFLOW = replace(
 PROFILES = (
     USER,
     MCP_ANALYTICS,
+    LOOP,
     HOGDESK,
     WIZARD,
     SPACE_SETUP,
