@@ -960,7 +960,11 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Undo the accept or reject of snapshots, in ledger mode, so they need review again."""
         body = request.validated_data
         input_dto = ClearRunInput(
-            run_id=pk, user_id=cast(int, request.user.id), identifiers=body.identifiers, expected_seq=body.expected_seq
+            run_id=pk,
+            user_id=cast(int, request.user.id),
+            identifiers=body.identifiers,
+            expected_seq=body.expected_seq,
+            override_rejection=body.override_rejection,
         )
         try:
             result = api.clear_snapshot_decisions(input_dto, team_id=self.team_id, via=_channel(request))

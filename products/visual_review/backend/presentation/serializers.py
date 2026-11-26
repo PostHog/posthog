@@ -424,7 +424,11 @@ class RejectedSnapshotDetailSerializer(DataclassSerializer):
 
 class NotFullyResolvedDetailSerializer(DataclassSerializer):
     rejected = RejectedSnapshotDetailSerializer(
-        many=True, help_text="Every rejected snapshot. It needs a new picture or the rejecter's undo, not an accept."
+        many=True,
+        help_text=(
+            "Every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's "
+            'explicit override ("accept anyway"). An agent can never clear it.'
+        ),
     )
     needs_review = serializers.ListField(
         child=serializers.CharField(), help_text="Every snapshot that still needs a decision."
@@ -631,6 +635,14 @@ class ClearRunInputSerializer(DataclassSerializer):
         help_text="Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.",
     )
     expected_seq = serializers.IntegerField(allow_null=True, required=False, min_value=0, help_text=_EXPECTED_SEQ_HELP)
+    override_rejection = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection "
+            "undoes without it. An agent through MCP can never undo another user's rejection."
+        ),
+    )
 
     class Meta:
         dataclass = ClearRunRequestInput

@@ -715,6 +715,8 @@ export interface ClearRunRequestInputApi {
      * @nullable
      */
     expected_seq?: number | null
+    /** Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection undoes without it. An agent through MCP can never undo another user's rejection. */
+    override_rejection?: boolean
 }
 
 export interface CompleteRunInputApi {
@@ -780,7 +782,7 @@ export interface RejectedSnapshotDetailApi {
 }
 
 export interface NotFullyResolvedDetailApi {
-    /** Every rejected snapshot. It needs a new picture or the rejecter's undo, not an accept. */
+    /** Every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"). An agent can never clear it. */
     rejected: RejectedSnapshotDetailApi[]
     /** Every snapshot that still needs a decision. */
     needs_review: string[]

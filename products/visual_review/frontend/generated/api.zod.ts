@@ -211,6 +211,8 @@ export const visualReviewRunsClearCreateBodyIdentifiersMax = 500
 
 export const visualReviewRunsClearCreateBodyExpectedSeqMin = 0
 
+export const visualReviewRunsClearCreateBodyOverrideRejectionDefault = false
+
 export const VisualReviewRunsClearCreateBody = /* @__PURE__ */ zod.object({
     identifiers: zod
         .array(zod.string().max(visualReviewRunsClearCreateBodyIdentifiersItemMax))
@@ -222,6 +224,12 @@ export const VisualReviewRunsClearCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
+        ),
+    override_rejection: zod
+        .boolean()
+        .default(visualReviewRunsClearCreateBodyOverrideRejectionDefault)
+        .describe(
+            "Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection undoes without it. An agent through MCP can never undo another user's rejection."
         ),
 })
 

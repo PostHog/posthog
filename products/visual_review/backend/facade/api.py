@@ -1071,6 +1071,7 @@ def clear_snapshot_decisions(
         via=via,
         team_id=team_id,
         expected_seq=input.expected_seq,
+        override_rejection=input.override_rejection,
     )
     return _to_decision_result(outcome)
 

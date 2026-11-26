@@ -420,9 +420,10 @@ DECISION_BASELINE = {"X": "x0", "Y": "y0", "Z": "z0", "W": "w0"}
 
 # Event names: "ci F" is CI finishing on the current head of F, as the run with the next number ("ci F 2"), and
 # "partial" renders X only. "push F" moves the head to a new commit with the same pictures, "push F Y=y2" changes
-# one picture. "accept X@1 h1" is person h1 accepting the pair X shows on run 1, "reject", "clear" and
-# "accept-anyway" (an accept over someone else's rejection) work the same way, and "agent-accept" is an agent
-# through MCP for h1. "tolerate Y@1" and "quarantine Y" are h1 tolerating the pair or quarantining the story.
+# one picture. "accept X@1 h1" is person h1 accepting the pair X shows on run 1, "reject", "clear",
+# "accept-anyway" and "clear-anyway" (an accept or undo over someone else's rejection) work the same way, and
+# "agent-accept" is an agent through MCP for h1. "tolerate Y@1" and "quarantine Y" are h1 tolerating the pair or
+# quarantining the story.
 # "finalize F" finalizes the newest run, and "finalize-all F" accepts everything nobody decided on first.
 # "retain" sweeps runs 4 days later.
 DECISION_SCENARIOS = (
@@ -512,6 +513,17 @@ DECISION_SCENARIOS = (
             "accept X@1 h1": ("ci F",),
             "clear X@1 h2": ("ci F",),
             "finalize F": ("accept X@1 h1", "clear X@1 h2"),
+        },
+    ),
+    DecisionScenario(
+        key="undo_over_another_reviewers_rejection",
+        first_head={"X": "x1", "Y": "y0", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "reject X@1 h2": ("ci F",),
+            "clear X@1 h1": ("ci F",),
+            "clear-anyway X@1 h1": ("ci F",),
+            "finalize-all F": ("reject X@1 h2", "clear X@1 h1", "clear-anyway X@1 h1"),
         },
     ),
 )

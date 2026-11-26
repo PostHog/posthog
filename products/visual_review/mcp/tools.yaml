@@ -307,13 +307,15 @@ tools:
             Undo the accept or reject of snapshots in ledger mode, so they need review again. Pass the run's UUID as
             `id` and the snapshot `identifiers`. Works on any run of the pull request until its newest run is
             finalized. An agent can undo only decisions made through MCP, never a person's, and never a rejection
-            another user's agent made. The response has `head_run` and its `progress`.
+            another user's agent made (`rejected_by_other`). The response has `head_run` and its `progress`.
         param_overrides:
             id:
                 description: |
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
+        exclude_params:
+            - override_rejection
         feature_flag: visual-review-decisions
         feature_flag_behavior: enable
     visual-review-runs-counts-retrieve:
@@ -346,8 +348,8 @@ tools:
             the accepts, commits nothing, and turns the required status green at once. In yaml mode it commits the
             accepted snapshots to the pull request's baseline file. `approve_all: true` accepts every change nobody
             decided on first, and skips rejected and quarantined ones. On `409 not_fully_resolved` the response lists
-            `rejected` and `needs_review` separately: a rejected snapshot needs a new picture or the rejecter's undo,
-            never an accept from an agent. On `409 stale_run`, finalize `head_run_id` instead; on `409 sha_mismatch`,
+            `rejected` and `needs_review` separately: a rejected snapshot clears with a new picture, the rejecter's
+            undo, or a person's explicit override, never by an agent. On `409 stale_run`, finalize `head_run_id` instead; on `409 sha_mismatch`,
             re-run CI and finalize the new run. The response names the `approvers`. STOP: never finalize without an
             explicit human yes for this run. A yes covers one run: after a push, ask again.
         feature_flag: visual-review

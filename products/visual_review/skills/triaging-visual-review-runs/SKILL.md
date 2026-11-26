@@ -16,7 +16,7 @@ diffs them against committed baseline hashes, and gates the PR until every chang
 A PR with visual changes carries a `visual-review` GitHub status check, and usually a required CI job that reports the same verdict.
 Both stay red until each diffed snapshot is accepted and finalized, tolerated, or quarantined, and the job re-runs:
 finalize does that for accepts, `recompute-create` for tolerations and quarantines. The run's `_posthogUrl` opens the VR UI, which offers the same actions.
-In ledger mode a reviewer can also reject a snapshot, and a rejection blocks finalize until the picture changes or the rejecter undoes it.
+In ledger mode a reviewer can also reject a snapshot, and a rejection blocks finalize until the picture changes, the rejecter undoes it, or another person overrides it on purpose.
 Accepts and rejections made on an earlier run of the pull request still count on the newest run while the pictures are the same.
 That holds for a run whose `gate` is `ci_job`. Read `gate` on the run first: see [Which gate the run has](#which-gate-the-run-has).
 A PR from a fork is usually the exception: it gets no Visual Review run at all.
@@ -212,7 +212,7 @@ Decision call shapes (`approve-create`, `reject-create`, `clear-create`):
 - `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
 - `approve-create`: `snapshots: [{identifier, new_hash}]` — `new_hash` is the `content_hash` of each snapshot's `current_artifact` on that run, or null for a `removed` snapshot. This only records the decision; nothing is committed and the gate stays red until you finalize.
 - `reject-create`: `snapshots: [{identifier, new_hash, reason}]`, with a `reason` of 1 to 500 characters.
-- `clear-create`: `identifiers: [...]`.
+- `clear-create`: `identifiers: [...]`. A person who undoes someone else's rejection passes `override_rejection: true`; an agent cannot.
 - Optional `expected_seq`: the highest `decision.seq` you read on these snapshots, or 0 when you read none. A decision someone made after your read returns `409 decided_since`; read the snapshots again.
 - All or nothing: one refused snapshot refuses the call, and `snapshots` in the error names each one with its `code`. Fix the call or report the refusal; never retry it unchanged.
 - The response has `head_run` and its `progress`, so you know what is left on the newest run.
@@ -235,7 +235,7 @@ Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
 - `id` (required) — the run UUID.
 - Finalize the PR's newest run: `head_run` on `runs-retrieve`. `can_finalize: true` says finalize without `approve_all` would pass now. `progress.needs_review` also counts removed snapshots nobody decided on, which finalize accepts by itself, so `can_finalize` can be true while it is above 0.
 - `approve_all: true` — accept every `changed`/`new` snapshot nobody decided on before finalizing (tolerated and quarantined ones are left alone, and a rejected one is never accepted). Use when you've verified every remaining diff is intended.
-- Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` unless every change is accepted, tolerated, or quarantined and none is rejected. The error lists `rejected` (with `by` and `reason`) and `needs_review` separately: a rejected snapshot needs a new picture or the rejecter's undo, never your accept.
+- Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` unless every change is accepted, tolerated, or quarantined and none is rejected. The error lists `rejected` (with `by` and `reason`) and `needs_review` separately: a rejected snapshot clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"), never by an agent.
 - It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — finalize posts a green status, and the required check turns green when its job re-runs) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
 
 If finalize fails with `409 stale_run`, the run has been superseded: the error names `head_run_id`. Ask again before you finalize that run, because a yes covers one run. A successful finalize often kicks off a fresh CI run, which is normal.

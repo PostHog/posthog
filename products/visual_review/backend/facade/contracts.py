@@ -192,6 +192,7 @@ class RejectRunInput:
 class ClearRunRequestInput:
     identifiers: list[str] = field(default_factory=list)
     expected_seq: int | None = None
+    override_rejection: bool = False
 
 
 @dataclass(frozen=True)
@@ -200,6 +201,7 @@ class ClearRunInput:
     user_id: int
     identifiers: list[str]
     expected_seq: int | None = None
+    override_rejection: bool = False
 
 
 @dataclass(frozen=True)

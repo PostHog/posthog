@@ -893,8 +893,8 @@ DECISION_COLORS = {
 
 GUARANTEE_DECISION_RULES = (
     "A decision is refused exactly when the pull request's head run is finalized, an agent would change a "
-    "person's decision or take back a rejection, or a person would accept over someone else's rejection without "
-    "an override"
+    "person's decision or take back a rejection, or a person would accept over or undo someone else's rejection "
+    "without an override"
 )
 GUARANTEE_FINALIZE = (
     "Finalize passes exactly when no pair of the head run is rejected, no rejected story is missing from a partial "
@@ -949,7 +949,7 @@ class DecisionOracle:
         by_other = current.person != decision.person
         if decision.agent and (decision.action == DecisionAction.ACCEPT or by_other):
             return "refused"
-        if decision.action == DecisionAction.ACCEPT and by_other and not override:
+        if by_other and not override:
             return "refused"
         return "written"
 
@@ -1073,7 +1073,9 @@ class DecisionPlayer:
             "accept-anyway": DecisionAction.ACCEPT,
             "reject": DecisionAction.REJECT,
             "clear": DecisionAction.CLEAR,
+            "clear-anyway": DecisionAction.CLEAR,
         }[verb]
+        override = verb in ("accept-anyway", "clear-anyway")
         person = "h1" if agent else actor or "h1"
         decision = OracleDecision(person=person, agent=agent, action=action)
         latest = self._latest()
@@ -1081,7 +1083,7 @@ class DecisionPlayer:
             key,
             decision,
             head_finalized=latest is not None and latest.number in self.finalized,
-            override=verb == "accept-anyway",
+            override=override,
         )
         request = approvals.DecisionRequest(identifier=identifier, new_hash=key[2] or None, reason="looks wrong")
         try:
@@ -1093,7 +1095,7 @@ class DecisionPlayer:
                     [request],
                     via=DecisionChannel.MCP if agent else DecisionChannel.WEB,
                     team_id=self.repo.team_id,
-                    override_rejection=verb == "accept-anyway",
+                    override_rejection=override,
                 )
             actual = "unchanged" if identifier in outcome.already_decided else "written"
         except errors.DecisionRefusedError as error:
@@ -1207,7 +1209,7 @@ class DecisionPlayer:
             outcome = self.ci(partial=rest[-1] == "partial")
         elif verb == "push":
             outcome = self.push(rest[1] if len(rest) > 1 else None)
-        elif verb in ("accept", "agent-accept", "accept-anyway", "reject", "clear"):
+        elif verb in ("accept", "agent-accept", "accept-anyway", "reject", "clear", "clear-anyway"):
             outcome = self.decide(event, verb, rest[0], rest[1] if len(rest) > 1 else None)
         elif verb == "tolerate":
             outcome = self.tolerate(event, rest[0])

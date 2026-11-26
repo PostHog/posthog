@@ -631,6 +631,9 @@ class TestReviewDecisions:
             pytest.param(
                 "bob_rejects", WEB, ACCEPT, {"new_hash": "b1", "override_rejection": True}, None, id="accept_anyway"
             ),
+            pytest.param("bob_rejects", WEB, CLEAR, {}, "rejected_by_other", id="undo_needs_override"),
+            pytest.param("bob_rejects", WEB, CLEAR, {"override_rejection": True}, None, id="undo_anyway"),
+            pytest.param("user_rejects", WEB, CLEAR, {}, None, id="undo_own_reject"),
             pytest.param(
                 "bob_rejects",
                 WEB,
@@ -673,6 +676,8 @@ class TestReviewDecisions:
             _decide(run, bob, REJECT, new_hash="b1", reason="Too blue")
         elif setup == "bob_agent_rejects":
             _decide(run, bob, REJECT, via=MCP, new_hash="b1", reason="Too blue")
+        elif setup == "user_rejects":
+            _decide(run, user, REJECT, new_hash="b1", reason="Too blue")
         elif setup == "user_agent_rejects":
             _decide(run, user, REJECT, via=MCP, new_hash="b1", reason="Too blue")
         elif setup == "bob_accepts":

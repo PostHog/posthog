@@ -761,9 +761,10 @@ def _check_against_current(
             f"{_describe(current, names)}. An agent cannot accept over a rejection or undo someone else's. "
             "Ask the user to decide.",
         )
-    if call.action == DecisionAction.ACCEPT and by_other and not call.override_rejection:
+    if by_other and not call.override_rejection:
+        verb = "accept" if call.action == DecisionAction.ACCEPT else "undo"
         return refusal(
-            "rejected_by_other", f"{_describe(current, names)}. Pass override_rejection to accept it anyway."
+            "rejected_by_other", f"{_describe(current, names)}. Pass override_rejection to {verb} it anyway."
         )
     return None
 
