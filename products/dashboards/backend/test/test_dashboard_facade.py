@@ -1,6 +1,6 @@
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -296,6 +296,27 @@ class TestInsightTileReads(APIBaseTest):
             (self.second_tile, self.second.id, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, {}),
         ]
 
+    @parameterized.expand(
+        [
+            ("json", {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
+            ("stringified_json", '{"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}'),
+        ]
+    )
+    def test_tile_for_insight_on_dashboard_returns_parsed_layouts_and_the_dashboard(
+        self, _name: str, stored_layouts: dict | str
+    ) -> None:
+        DashboardTile.objects.filter(id=self.second_tile).update(layouts=stored_layouts, color="blue")
+
+        tile = api.tile_for_insight_on_dashboard(insight_id=self.second.id, dashboard_id=self.dashboard)
+
+        assert tile is not None
+        assert (tile.id, tile.dashboard.id, tile.color, tile.layouts) == (
+            self.second_tile,
+            self.dashboard,
+            "blue",
+            {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+        )
+
     def test_insight_tiles_is_empty_for_a_soft_deleted_dashboard(self) -> None:
         Dashboard.objects.filter(id=self.dashboard).update(deleted=True)
 
@@ -365,7 +386,7 @@ class TestDashboardSearch(APIBaseTest):
         )
 
         assert [r["result_id"] for r in results] == [str(self.revenue), str(self.churn)]
-        assert results[0]["rank"] > results[1]["rank"]
+        assert cast(float, results[0]["rank"]) > cast(float, results[1]["rank"])
         assert count == 0
 
 
