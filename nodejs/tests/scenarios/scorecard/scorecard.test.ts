@@ -197,6 +197,8 @@ describe('scorecard', () => {
     it('reports a run that stopped before the drive with empty verdict fields', () => {
         const stopped: RunResult = {
             ...RESULT,
+            status: 'invalid',
+            statusReason: 'the run stopped: statement timeout',
             units: undefined,
             convergence: undefined,
             invariants: [],
