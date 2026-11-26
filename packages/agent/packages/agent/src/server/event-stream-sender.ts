@@ -241,11 +241,11 @@ export class TaskRunEventStreamSender {
 
   rejectOnlyIfOversized(
     event: Record<string, unknown>,
-  ): Record<string, unknown> {
-    if (this.envelopeBytes(event) <= this.maxEventBytes) {
-      return event;
+  ): Record<string, unknown> | null {
+    if (this.envelopeBytes(omitToolAppData(event)) <= this.maxEventBytes) {
+      return null;
     }
-    return rejectOnlyPermissionRequest(event) ?? event;
+    return rejectOnlyPermissionRequest(event);
   }
 
   enqueue(event: Record<string, unknown>): void {
@@ -862,7 +862,10 @@ export class TaskRunEventStreamSender {
       return trimmedEvent;
     }
 
-    const truncatedEvent = this.truncateOversizedEvent(trimmedEvent);
+    const truncatedEvent =
+      trimmedEvent.type === "permission_request"
+        ? null
+        : this.truncateOversizedEvent(trimmedEvent);
     if (!truncatedEvent) {
       this.config.logger.warn("Dropped oversized task run event", {
         eventBytes: trimmedEventBytes,

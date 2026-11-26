@@ -6112,10 +6112,10 @@ export class AgentServer {
       options: params.options,
       toolCall: params.toolCall,
     };
-    const request =
-      this.eventStreamSender?.rejectOnlyIfOversized(fullRequest) ?? fullRequest;
+    const rejectOnlyRequest =
+      this.eventStreamSender?.rejectOnlyIfOversized(fullRequest) ?? null;
+    const request = rejectOnlyRequest ?? fullRequest;
     const options = request.options as typeof params.options;
-    const rejectOnly = request !== fullRequest;
 
     this.broadcastEvent(request);
 
@@ -6137,7 +6137,8 @@ export class AgentServer {
         toolCallId,
         optionIds: new Set(options.map((option) => option.optionId)),
         validateOptionIds:
-          rejectOnly || toolCallMeta?.codeToolKind !== "question",
+          rejectOnlyRequest !== null ||
+          toolCallMeta?.codeToolKind !== "question",
       });
     });
   }

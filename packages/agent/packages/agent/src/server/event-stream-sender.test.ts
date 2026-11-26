@@ -496,6 +496,30 @@ describe("TaskRunEventStreamSender", () => {
       ],
       count: 1,
     },
+    {
+      name: "when a permission request is oversized",
+      senderOptions: { maxEventBytes: 1000 },
+      events: [
+        {
+          type: "permission_request",
+          requestId: "request-1",
+          options: [{ kind: "allow_once", optionId: "allow" }],
+          toolCall: {
+            toolCallId: "tool-1",
+            rawInput: { diff: "x".repeat(2000) },
+          },
+        },
+        { type: "notification", notification: { method: "small" } },
+      ],
+      expectedLines: [
+        lossLine(1, 1),
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "small" } },
+        },
+      ],
+      count: 1,
+    },
   ])(
     "replaces events dropped $name with a sequenced loss event",
     async ({ senderOptions, events, expectedLines, count }) => {
@@ -639,7 +663,7 @@ describe("TaskRunEventStreamSender", () => {
       toolCall: { toolCallId: "tool-1", title: "q".repeat(2000) },
     };
 
-    expect(sender.rejectOnlyIfOversized(request)).toBe(request);
+    expect(sender.rejectOnlyIfOversized(request)).toBeNull();
   });
 
   it.each([
