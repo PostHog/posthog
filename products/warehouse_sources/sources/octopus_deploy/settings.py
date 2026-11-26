@@ -72,12 +72,13 @@ OCTOPUS_DEPLOY_ENDPOINTS: dict[str, OctopusDeployEndpointConfig] = {
         space_scoped=False,
     ),
     # Teams live at the instance level, not under a space: built-in system teams have no SpaceId,
-    # so a per-space fan-out would repeat them. `includeSystem` adds those system teams to the listing.
+    # so a per-space fan-out would repeat them. Without `spaces`, the server reads only the default
+    # space; `spaces=all` with `includeSystem=true` is what Octopus.Client sends for every team.
     "teams": OctopusDeployEndpointConfig(
         name="teams",
         path="/api/teams",
         space_scoped=False,
-        extra_params={"includeSystem": "true"},
+        extra_params={"spaces": "all", "includeSystem": "true"},
     ),
     "runbooks": OctopusDeployEndpointConfig(
         name="runbooks",

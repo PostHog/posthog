@@ -199,16 +199,16 @@ class TestGetRows:
         # Spaces-1 was already completed before the crash — not re-fetched.
         assert "/api/Spaces-1/projects" not in result.paths
 
-    # Teams must ask for the built-in system teams (SpaceId null) explicitly, on every page.
+    # Teams must ask for every space and for the built-in system teams (SpaceId null), on every page.
     @pytest.mark.parametrize(
-        "endpoint, path, include_system",
+        "endpoint, path, spaces, include_system",
         [
-            ("spaces", "/api/spaces", None),
-            ("users", "/api/users", None),
-            ("teams", "/api/teams", "true"),
+            ("spaces", "/api/spaces", None, None),
+            ("users", "/api/users", None, None),
+            ("teams", "/api/teams", "all", "true"),
         ],
     )
-    def test_instance_level_endpoint_skips_space_fan_out(self, endpoint, path, include_system):
+    def test_instance_level_endpoint_skips_space_fan_out(self, endpoint, path, spaces, include_system):
         responses = [
             _page([{"Id": "A-1"}, {"Id": "A-2", "SpaceId": None}], has_next=True),
             _page([{"Id": "A-3"}], has_next=False),
@@ -218,6 +218,7 @@ class TestGetRows:
         assert result.raised is None
         assert result.paths == [path, path]
         assert result.rows == [{"Id": "A-1"}, {"Id": "A-2", "SpaceId": None}, {"Id": "A-3"}]
+        assert result.params("spaces") == [spaces, spaces]
         assert result.params("includeSystem") == [include_system, include_system]
         assert result.params("skip") == ["0", "2"]
 
