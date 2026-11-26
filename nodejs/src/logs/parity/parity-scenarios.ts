@@ -835,6 +835,65 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
             ],
         ]
         scenarios.push(finish(traces))
+
+        const required = baseScenario(
+            'require-secret-key',
+            'A require_secret_key rule drops unsigned public-token messages at admission and bills none of them.',
+            {
+                LOGS_SAMPLING_ENABLED_TEAMS: '*',
+                LOGS_BILLING_PRORATE_ENABLED: true,
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '101',
+            }
+        )
+        required.secret_key_teams = { sha256$parity_plain: 101 }
+        required.internal_source_policies = { rules_src: { billed: true, teamRules: true } }
+        required.sampling_rules = {
+            101: [
+                pathRule('path-healthz', { patterns: ['/healthz'] }),
+                { ...pathRule('require-key', {}), rule_type: 'require_secret_key' },
+            ],
+        }
+        const signed = signInternalLogs(SIGNING_KEY, 'rules_src', 101, new Date(NOW_MS - 2000))
+        required.batches = [
+            [
+                await f.logs('sha256$parity_plain', 2),
+                await f.logs(plain, 3),
+                await f.logs(plain, 2, { headers: { 'auth-type': 'secret_key' } }),
+                await f.logs(plain, 2, {
+                    headers: { [INTERNAL_LOGS_HEADER]: signed, created_at: new Date(NOW_MS - 1000).toISOString() },
+                }),
+                await f.logs(json, 2),
+            ],
+        ]
+        scenarios.push(finish(required))
+
+        const badRule = baseScenario(
+            'require-secret-key-bad-rule',
+            'A team whose rules do not compile is quarantined as before, and other teams still get the require_secret_key drop.',
+            { LOGS_SAMPLING_ENABLED_TEAMS: '*' }
+        )
+        badRule.sampling_rules = {
+            101: [{ ...pathRule('require-key', {}), rule_type: 'require_secret_key' }],
+            102: [
+                pathRule('null-child', {
+                    patterns: ['/healthz'],
+                    filter_group: { type: 'AND', values: [{ type: 'OR', values: [null] }] },
+                }),
+            ],
+        }
+        badRule.batches = [[await f.logs(plain, 2), await f.logs(json, 2), await f.logs(pii, 2)]]
+        scenarios.push(finish(badRule))
+
+        const rulesOutage = baseScenario(
+            'require-secret-key-rules-outage',
+            'A rules outage for a team with public-token messages fails the batch, so none of them is ingested or billed.',
+            { LOGS_SAMPLING_ENABLED_TEAMS: '*' }
+        )
+        rulesOutage.sampling_rules = { 101: [{ ...pathRule('require-key', {}), rule_type: 'require_secret_key' }] }
+        rulesOutage.sampling_rules_faults = { 101: err('Error', 'pg down', true) }
+        rulesOutage.batches = [[await f.logs(plain, 2), await f.logs(json, 2)], [await f.logs(json, 1)]]
+        scenarios.push(finish(rulesOutage))
     }
     {
         const rng = new Rng(11)

@@ -10,6 +10,7 @@ use crate::normalize::LogsSettings;
 use crate::property_filter::coerce::{js_parse_int, js_trim};
 use crate::rate_limiter::{Clock, LogsRateLimiter};
 use crate::sampling::LogsSamplingService;
+use crate::secret_key::AUTH_TYPE_SECRET_KEY;
 
 use super::app_metrics::{iso_timestamp, LogsUsageMetricsQueue};
 use super::deps::LogsIngestionConsumerDeps;
@@ -193,6 +194,10 @@ pub fn applies_team_log_rules(message: &LogsIngestionMessage) -> bool {
 
 pub fn is_unbilled_internal(message: &LogsIngestionMessage) -> bool {
     message.internal_logs.as_ref().is_some_and(|i| !i.billed)
+}
+
+pub fn sent_by_team_with_public_token(message: &LogsIngestionMessage) -> bool {
+    message.auth_type != Some(AUTH_TYPE_SECRET_KEY) && message.internal_logs.is_none()
 }
 
 /// The DLQ headers are the replay contract. A failed DLQ write fails.

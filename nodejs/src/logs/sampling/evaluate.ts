@@ -50,6 +50,8 @@ export type CompiledRuleSet = {
     rules: CompiledSamplingRule[]
     /** True when any compiled rule applies per-line Redis rate limiting. */
     hasRateLimitRules: boolean
+    /** The first enabled `require_secret_key` rule. It drops whole messages at admission, so it is not in `rules`. */
+    requireSecretKeyRuleId: string | null
 }
 
 const SEV_ORD_DEBUG = 0

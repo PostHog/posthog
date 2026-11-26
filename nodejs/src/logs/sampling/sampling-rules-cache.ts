@@ -20,6 +20,7 @@ type CacheEntry = {
     compiled: CompiledRuleSet
     versionWatermark: number
     fetchedAtMs: number
+    rulesKnown: boolean
 }
 
 export class SamplingRulesCache {
@@ -29,7 +30,11 @@ export class SamplingRulesCache {
 
     constructor(private postgres: PostgresRouter) {}
 
-    public async getCompiledRuleSet(teamId: number, source: SamplingRuleSource = 'logs'): Promise<CompiledRuleSet> {
+    public async getCompiledRuleSet(
+        teamId: number,
+        source: SamplingRuleSource = 'logs',
+        { throwWhenNeverFetched = false }: { throwWhenNeverFetched?: boolean } = {}
+    ): Promise<CompiledRuleSet> {
         return instrumentFn(
             {
                 key: 'logsIngestion.sampling.getCompiledRuleSet',
@@ -40,7 +45,11 @@ export class SamplingRulesCache {
                 const now = Date.now()
                 const cacheKey = `${teamId}:${source}`
                 const existing = this.cache.get(cacheKey)
-                if (existing && now - existing.fetchedAtMs < REFRESH_MS) {
+                if (
+                    existing &&
+                    (!throwWhenNeverFetched || existing.rulesKnown) &&
+                    now - existing.fetchedAtMs < REFRESH_MS
+                ) {
                     trace.getActiveSpan()?.setAttributes({
                         'logs.sampling.cache_hit': true,
                         'logs.sampling.rule_count': existing.compiled.rules.length,
@@ -52,8 +61,8 @@ export class SamplingRulesCache {
                 try {
                     rows = await this.fetchRules(teamId, source)
                 } catch (error) {
-                    // Fail open: a rules-fetch failure in the hot path must not DLQ valid records.
-                    // Serve the last-known rules, or no rules, so nothing is dropped by mistake.
+                    // A rules-fetch failure in the hot path must not DLQ valid records: serve the last-known
+                    // rules so nothing is dropped by mistake.
                     logger.warn('[logs-sampling] rules fetch failed — falling back', {
                         teamId,
                         source,
@@ -64,11 +73,16 @@ export class SamplingRulesCache {
                         'logs.sampling.served_stale': Boolean(existing),
                     })
                     const fallback = existing?.compiled ?? compileRuleSet([])
+                    const rulesKnown = existing?.rulesKnown ?? false
                     this.cache.set(cacheKey, {
                         compiled: fallback,
                         versionWatermark: existing?.versionWatermark ?? 0,
                         fetchedAtMs: now - REFRESH_MS + FAILED_FETCH_RETRY_MS,
+                        rulesKnown,
                     })
+                    if (throwWhenNeverFetched && !rulesKnown) {
+                        throw error
+                    }
                     return fallback
                 }
                 // The API rejects severity rules for spans. A span has no severity, so a row written
@@ -76,7 +90,7 @@ export class SamplingRulesCache {
                 const applicable = source === 'spans' ? rows.filter((r) => r.rule_type !== 'severity_sampling') : rows
                 const compiled = compileRuleSet(applicable)
                 const vw = rows.reduce((m, r) => Math.max(m, r.version ?? 0), 0)
-                this.cache.set(cacheKey, { compiled, versionWatermark: vw, fetchedAtMs: now })
+                this.cache.set(cacheKey, { compiled, versionWatermark: vw, fetchedAtMs: now, rulesKnown: true })
                 trace.getActiveSpan()?.setAttributes({
                     'logs.sampling.cache_hit': false,
                     'logs.sampling.db_row_count': rows.length,

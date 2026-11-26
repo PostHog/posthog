@@ -95,6 +95,8 @@ pub struct CompiledSamplingRule {
 pub struct CompiledRuleSet {
     pub rules: Vec<CompiledSamplingRule>,
     pub has_rate_limit_rules: bool,
+    /// The first enabled `require_secret_key` rule. It drops whole messages at admission, so it is not in `rules`.
+    pub require_secret_key_rule_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

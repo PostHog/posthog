@@ -250,7 +250,12 @@ fn parse_always_keep(config: &JsValue) -> Result<Option<AlwaysKeep>, JsTypeError
 pub fn compile_rule_set(rows: &[SamplingRuleRow]) -> Result<CompiledRuleSet, JsTypeError> {
     let mut rules = Vec::with_capacity(rows.len());
     let mut has_rate_limit_rules = false;
+    let mut require_secret_key_rule_id = None;
     for row in rows {
+        if row.rule_type == "require_secret_key" {
+            require_secret_key_rule_id.get_or_insert_with(|| row.id.clone());
+            continue;
+        }
         let path_regex = match row.scope_path_pattern.as_deref() {
             Some(p) if !p.is_empty() => {
                 Some(Arc::new(Re2::without_flags(p).unwrap_or_else(|_| {
@@ -323,6 +328,7 @@ pub fn compile_rule_set(rows: &[SamplingRuleRow]) -> Result<CompiledRuleSet, JsT
     Ok(CompiledRuleSet {
         rules,
         has_rate_limit_rules,
+        require_secret_key_rule_id,
     })
 }
 

@@ -374,12 +374,17 @@ export function buildParityConsumer(
         } as unknown as LogsIngestionConsumerDeps['usageBatch'],
         dependencyRetry: { retryCount: 2, initialRetryDelayMs: 1 },
         samplingRulesCache: {
-            getCompiledRuleSet: (teamId: number) =>
-                Promise.resolve(
+            getCompiledRuleSet: (teamId: number) => {
+                const fault = scenario.sampling_rules_faults?.[teamId]
+                if (fault) {
+                    return Promise.reject(toError(fault))
+                }
+                return Promise.resolve(
                     memo(`sampling:${teamId}`, () =>
                         compileRuleSet((scenario.sampling_rules[teamId] ?? []) as SamplingRuleRow[])
                     )
-                ),
+                )
+            },
         } as unknown as LogsIngestionConsumerDeps['samplingRulesCache'],
         retentionRulesCache: {
             getCompiledRuleSet: (teamId: number, source: string) =>
