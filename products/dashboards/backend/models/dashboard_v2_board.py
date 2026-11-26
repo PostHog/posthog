@@ -31,7 +31,7 @@ class DashboardV2Board(TeamScopedRootMixin, UUIDModel):
     # '/'-separated folder titles. "" is the top level.
     folder = models.CharField(max_length=500, blank=True, default="")
 
-    managed_by = models.CharField(max_length=20, choices=BoardManagedBy.choices, default=BoardManagedBy.NATIVE)
+    managed_by = models.CharField(max_length=20, choices=BoardManagedBy.choices, default=BoardManagedBy.NATIVE.value)
     # The template the board was made from, so it can later be offered that template's newer versions.
     template_id = models.CharField(max_length=200, null=True, blank=True)
     template_version = models.PositiveIntegerField(null=True, blank=True)
