@@ -135,8 +135,8 @@ def test_instructions_after_research_write_the_mix_from_it_without_searching_aga
     assert '3 comparison prompts that name Hedgebox, such as "Hedgebox vs <competitor>"' in instructions
 
 
-def _status(code: int) -> MagicMock:
-    response = MagicMock(status_code=code)
+def _status(code: int, headers: dict[str, str] | None = None) -> MagicMock:
+    response = MagicMock(status_code=code, headers=headers or {})
     response.raise_for_status.side_effect = requests.HTTPError(response=response)
     return response
 
@@ -230,9 +230,15 @@ class TestSuggestPrompts(BaseTest):
         assert [s.prompt for s in found.prompts] == ["A?"]
         assert post.call_count == 2
 
-    def test_a_spend_limit_is_not_retried_and_says_so(self) -> None:
-        with pytest.raises(PromptSuggestionError, match="spend limit"):
-            self._suggest_with([_status(402), _status(402)])
+    @parameterized.expand(
+        [
+            ("spend limit", {}, "spend limit"),
+            ("credit refusal", {"X-PostHog-Denial": "credit_bucket_exhausted"}, "AI credit usage limit"),
+        ]
+    )
+    def test_a_402_is_not_retried_and_says_why(self, _name: str, headers: dict[str, str], message: str) -> None:
+        with pytest.raises(PromptSuggestionError, match=message):
+            self._suggest_with([_status(402, headers), _status(402, headers)])
 
     def test_an_unreadable_answer_is_asked_again_once(self) -> None:
         found, post = self._suggest(
