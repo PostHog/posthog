@@ -1,10 +1,12 @@
 import { ReadableStream } from 'node:stream/web'
 import { TextDecoder, TextEncoder } from 'node:util'
+import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import type { QueryRequest } from '../widgets/chart/vizTypes'
 import { BUSY_ERROR, createQueryBatchRunner } from './queryBatchRunner'
+import { QUERY_BATCH_TIMING_EVENT } from './queryBatchTiming'
 
 const TIME = { from: 'now-7d', to: 'now' }
 const SQL: QueryRequest = { query: { language: 'hogql', query: 'select 1 as total' }, time: TIME }
@@ -180,5 +182,67 @@ describe('createQueryBatchRunner', () => {
         streams[1].push(`${JSON.stringify({ i: 0, error: 'done' })}\n`)
 
         await expect(result).rejects.toThrow('done')
+    })
+
+    it('sends a sampled traceparent and reports the round trip under its trace id', async () => {
+        let clock = 1000
+        jest.spyOn(performance, 'now').mockImplementation(() => clock)
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        try {
+            const runQuery = createQueryBatchRunner(7, { context: () => ({ dashboard_tab_id: 'main' }) })
+            clock = 1010
+            const sql = runQuery(SQL)
+            const latency = runQuery(LATENCY)
+            void runQuery(TRENDS).catch(() => {})
+            clock = 1040
+            await flush()
+
+            const traceparent = (globalThis.fetch as jest.Mock).mock.calls[0][1].headers.traceparent
+            expect(traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
+
+            clock = 1100
+            streams[0].push(`${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true } } })}\n`)
+            await expect(latency).resolves.toEqual({ frames: [], stale: true })
+            clock = 1400
+            streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
+            await expect(sql).rejects.toThrow('Query timed out')
+            clock = 1500
+            streams[0].close()
+            await flush()
+
+            expect(capture.mock.calls.filter(([event]) => event === QUERY_BATCH_TIMING_EVENT)).toEqual([
+                [
+                    QUERY_BATCH_TIMING_EVENT,
+                    expect.objectContaining({
+                        dashboard_tab_id: 'main',
+                        trace_id: traceparent.split('-')[1],
+                        batch_index: 0,
+                        query_count: 3,
+                        query_languages: { hogql: 1, promql: 1, insight: 1 },
+                        language_mix: 'hogql+insight+promql',
+                        status: 200,
+                        failed: true,
+                        error: 'No answer came back for this query',
+                        aborted: false,
+                        queue_wait_ms: 30,
+                        headers_ms: 0,
+                        first_line_ms: 60,
+                        last_line_ms: 360,
+                        total_ms: 460,
+                        line_count: 2,
+                        unanswered_queries: 1,
+                        error_lines: 1,
+                        cache_hits: 1,
+                        stale_lines: 1,
+                        since_mount_request_ms: 40,
+                        since_mount_first_result_ms: 100,
+                        since_mount_last_result_ms: 400,
+                    }),
+                ],
+            ])
+            expect(capture.mock.calls[0][1]?.response_bytes).toBeGreaterThan(0)
+        } finally {
+            jest.restoreAllMocks()
+        }
     })
 })
