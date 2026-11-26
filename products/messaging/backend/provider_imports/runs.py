@@ -405,6 +405,9 @@ def _continue_failed_steps(
         # A cursor from another key can point into another account, so a new key starts the step over.
         if previous.get("key_id") == key_id and step not in fresh:
             step_progress["checkpoint"] = previous.get("checkpoint")
+            # The run read the records before the checkpoint without counting them, so its count can't say how many
+            # are left.
+            step_progress["continued"] = bool(previous.get("checkpoint"))
 
 
 def _key_id(api_key: str | None) -> str | None:
@@ -473,7 +476,11 @@ def _claim_step(team_id: int, run_id: UUID, step: str, attempt: int) -> _StepCla
         progress = run.progress.setdefault(step, _new_step_progress())
         if progress["status"] == ImportStepStatus.COMPLETED:
             return _StepClaim(completed=True, checkpoint=None)
-        progress.update(status=ImportStepStatus.RUNNING.value, attempt=attempt)
+        progress.update(
+            status=ImportStepStatus.RUNNING.value,
+            attempt=attempt,
+            reading_since={"at": timezone.now().isoformat(), "processed": progress["processed"]},
+        )
         update_fields = ["progress"]
         if run.status == ProviderImportStatus.QUEUED:
             run.status = ProviderImportStatus.RUNNING

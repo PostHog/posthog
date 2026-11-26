@@ -7,6 +7,7 @@ the rate limit headers on each response and leaves part of the limit for the cus
 
 import re
 import time
+import queue
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
@@ -28,6 +29,8 @@ MIN_SHARE_OF_LIMIT = 0.1
 SHARE_REGAINED_PER_REQUEST = 0.002
 # A request takes longer than the limit allows between requests, so the one-per-contact reads overlap.
 MAX_PARALLEL_REQUESTS = 4
+# How many pages `read_ahead` reads while the caller saves, and the most it hands over at once.
+MAX_PAGES_AHEAD = 10
 MAX_RATE_LIMIT_WAITS = 5
 MAX_RETRY_AFTER_SECONDS = 60
 # A long contact scan sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
@@ -214,6 +217,60 @@ class ResendClient:
             self._interval = window / (limit * self._share)
             if remaining == 0:
                 self._hold_until(now + min(float(reset or window), MAX_RETRY_AFTER_SECONDS))
+
+
+def read_ahead(pages: Iterator[ResendPage], read: Callable[[ResendPage], R]) -> Iterator[list[tuple[ResendPage, R]]]:
+    """`read` for each page in a thread of its own, so the requests go on while the caller saves what it was handed.
+
+    Each batch holds the pages read since the last one, at least one and at most MAX_PAGES_AHEAD, in page order. An
+    error in the thread is raised once the pages read before it are handed over. The thread stops when the caller
+    stops iterating. `read` must not use the database, whose connection belongs to the caller's transaction.
+    """
+    ready: queue.Queue[tuple[ResendPage, R] | BaseException | None] = queue.Queue(maxsize=MAX_PAGES_AHEAD)
+    stop = threading.Event()
+
+    def hand_over(item: tuple[ResendPage, R] | BaseException | None) -> bool:
+        while not stop.is_set():
+            try:
+                ready.put(item, timeout=0.5)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def produce() -> None:
+        try:
+            for page in pages:
+                if not hand_over((page, read(page))):
+                    return
+            hand_over(None)
+        except BaseException as e:
+            hand_over(e)
+
+    reader = threading.Thread(target=produce, name="resend-read-ahead", daemon=True)
+    reader.start()
+    try:
+        # The end of the pages, or the thread's error, once it was taken off the queue.
+        ending: BaseException | None = None
+        ended = False
+        while not ended:
+            batch: list[tuple[ResendPage, R]] = []
+            item = ready.get()
+            while True:
+                if not isinstance(item, tuple):
+                    ending, ended = item, True
+                    break
+                batch.append(item)
+                if len(batch) >= MAX_PAGES_AHEAD or ready.empty():
+                    break
+                item = ready.get()
+            if batch:
+                yield batch
+        if ending is not None:
+            raise ending
+    finally:
+        stop.set()
+        reader.join()
 
 
 def _int_header(response: requests.Response, name: str) -> int | None:

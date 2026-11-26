@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -674,6 +675,24 @@ class TestResendImport(BaseTest):
         org_domain = next(item for item in domains.items if item.label == "mail.example.org")
         assert any("feedback" in note for note in org_domain.notes)
 
+    def test_a_step_that_reads_contacts_one_at_a_time_says_how_long_it_has_left(self) -> None:
+        self.resend.page_size = 2
+        self.resend.failures["/contacts/c0000000-0000-4000-8000-000000000003/topics"] = [(503, {})] * 4
+        run = runs.start_run(self.team.id, "resend", ["opt_outs", "topic_opt_outs"], API_KEY, self.user.id)
+
+        with time_machine.travel(timezone.now(), tick=False) as clock:
+            runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
+            with self.assertRaises(ImportProviderUnavailable):
+                runs.run_step(self.team.id, run.id, "topic_opt_outs", attempt=1)
+            clock.shift(timedelta(minutes=1))
+            state = get_provider_import_run(self.team.id, run.id)
+
+        assert state is not None
+        opt_outs, topic_opt_outs = state.steps
+        assert (opt_outs.total, opt_outs.seconds_left) == (None, None)
+        # Half of the contacts the opt-outs step read took a minute, so the other half should too.
+        assert (topic_opt_outs.processed, topic_opt_outs.total, topic_opt_outs.seconds_left) == (2, 4, 60)
+
 
 class TestResendContacts(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
@@ -761,6 +780,37 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         else:
             assert run.progress["contact_properties"]["status"] == "completed"
             assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
+
+    def test_a_retry_after_a_failed_read_continues_after_the_last_saved_page(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+        self.resend.page_size = 2
+        run = runs.start_run(
+            self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "contact_properties"], API_KEY, self.user.id
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps[:-1]:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+        happy = "/contacts/c0000000-0000-4000-8000-000000000003"
+        self.resend.failures[happy] = [(503, {})] * 4
+
+        with patch("products.messaging.backend.services.resend_client.time.sleep"):
+            with self.assertRaises(ImportProviderUnavailable):
+                runs.run_step(self.team.id, run.id, "contact_properties", attempt=1)
+        run.refresh_from_db()
+        assert run.progress["contact_properties"]["checkpoint"] == {"after": FIXTURES["contacts"][1]["id"]}
+        assert self.people.events == []
+
+        self.resend.calls.clear()
+        runs.run_step(self.team.id, run.id, "contact_properties", attempt=2)
+
+        run.refresh_from_db()
+        assert run.progress["contact_properties"]["counts"] == {"people": 1, "contacts": 4}
+        assert [event["distinct_id"] for event in self.people.events] == ["user-hal"]
+        assert [call for call in self.resend.calls if re.fullmatch(r"/contacts/[^/]+", call)] == [
+            happy,
+            "/contacts/c0000000-0000-4000-8000-000000000004",
+        ]
 
     @parameterized.expand([("ended_long_ago",), ("run_deleted",)])
     def test_the_hourly_sweep_deletes_contacts_any_ended_run_left_behind(self, state: str) -> None:

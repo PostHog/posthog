@@ -10,6 +10,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
@@ -121,6 +124,10 @@ class ImportStepProgress:
     # How many warnings and items didn't fit in the run's stored progress.
     warnings_omitted: int = 0
     items_omitted: int = 0
+    # While the step runs: about how many records it reads in all, when an earlier step of the run counted them, and
+    # how long the rest should take at its pace so far.
+    total: int | None = None
+    seconds_left: int | None = None
 
 
 @frozen
@@ -252,7 +259,8 @@ def _to_state(run: ProviderImportRun, with_items: bool = True) -> ProviderImport
         provider=run.provider,
         status=run.status,
         steps=tuple(
-            _step_progress(step, specs.get(step), run.progress.get(step, {}), with_items) for step in run.steps
+            _step_progress(step, specs.get(step), run.progress.get(step, {}), with_items, run.progress)
+            for step in run.steps
         ),
         created_at=run.created_at,
         started_at=run.started_at,
@@ -262,9 +270,14 @@ def _to_state(run: ProviderImportRun, with_items: bool = True) -> ProviderImport
 
 
 def _step_progress(
-    key: str, spec: ImportStepSpec | None, progress: dict[str, Any], with_items: bool = True
+    key: str,
+    spec: ImportStepSpec | None,
+    progress: dict[str, Any],
+    with_items: bool = True,
+    run_progress: Mapping[str, dict[str, Any]] | None = None,
 ) -> ImportStepProgress:
     counts = progress.get("counts", {})
+    total, seconds_left = _estimate(spec, progress, run_progress or {})
     stored_items = progress.get("items", [])
     items = stored_items if with_items else []
     return ImportStepProgress(
@@ -288,4 +301,29 @@ def _step_progress(
         ),
         warnings_omitted=progress.get("warnings_omitted", 0),
         items_omitted=progress.get("items_omitted", 0) + len(stored_items) - len(items),
+        total=total,
+        seconds_left=seconds_left,
     )
+
+
+def _estimate(
+    spec: ImportStepSpec | None, progress: Mapping[str, Any], run_progress: Mapping[str, dict[str, Any]]
+) -> tuple[int | None, int | None]:
+    if spec is None or progress.get("status") != ImportStepStatus.RUNNING.value or progress.get("continued"):
+        return None, None
+    totals = [
+        run_progress[step].get("processed", 0)
+        for step in spec.total_from
+        if run_progress.get(step, {}).get("status") == ImportStepStatus.COMPLETED.value
+    ]
+    if not totals:
+        return None, None
+    total = max(totals)
+    processed = progress.get("processed", 0)
+    since = progress.get("reading_since") or {}
+    started_at = parse_datetime(since["at"]) if isinstance(since.get("at"), str) else None
+    read = processed - since.get("processed", processed)
+    elapsed = (timezone.now() - started_at).total_seconds() if started_at else 0
+    if read <= 0 or elapsed <= 0:
+        return total, None
+    return total, round(max(total - processed, 0) * elapsed / read)

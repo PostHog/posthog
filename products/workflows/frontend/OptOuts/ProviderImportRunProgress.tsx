@@ -28,7 +28,23 @@ function stepCounts(step: ImportStepProgressApi): string {
     if (step.status === 'pending') {
         return 'Not started'
     }
-    return `${step.processed.toLocaleString()} read · ${step.imported.toLocaleString()} new or changed`
+    const read =
+        step.total !== null
+            ? `${step.processed.toLocaleString()} of about ${step.total.toLocaleString()} read`
+            : `${step.processed.toLocaleString()} read`
+    return `${read} · ${step.imported.toLocaleString()} new or changed`
+}
+
+function timeLeft(seconds: number): string {
+    const minutes = Math.round(seconds / 60)
+    if (minutes < 1) {
+        return 'Less than a minute left'
+    }
+    if (minutes < 90) {
+        return `About ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} left`
+    }
+    const hours = Math.round(minutes / 60)
+    return `About ${hours} hours left`
 }
 
 function ItemRow({ item, onOpenLink }: { item: ImportStepItemApi; onOpenLink?: () => void }): JSX.Element {
@@ -107,6 +123,11 @@ export function ProviderImportRunProgress({
                             {stepCounts(step)}
                         </span>
                     </div>
+                    {step.seconds_left !== null && (
+                        <div className="ml-6 text-xs text-secondary" data-attr={`${step.key}-import-time-left`}>
+                            {timeLeft(step.seconds_left)}
+                        </div>
+                    )}
                     {step.last_error && (
                         <div className={`ml-6 text-xs ${step.status === 'failed' ? 'text-danger' : 'text-warning'}`}>
                             {step.status === 'failed' ? step.last_error : `Retrying after an error: ${step.last_error}`}

@@ -630,6 +630,16 @@ export interface ImportStepProgressApi {
     warnings_omitted: number
     /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
     items_omitted: number
+    /**
+     * While the step runs, about how many records it reads in all, when an earlier step of the run read the same records. Null otherwise.
+     * @nullable
+     */
+    total: number | null
+    /**
+     * While the step runs, an estimate of the seconds it needs to read the rest of `total`, from its pace so far. Null until the step has a pace and a total.
+     * @nullable
+     */
+    seconds_left: number | null
 }
 
 export interface ProviderImportRunApi {
