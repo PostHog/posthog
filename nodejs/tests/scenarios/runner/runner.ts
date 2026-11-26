@@ -863,14 +863,14 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
-                dependencies = (await health?.stop()) ?? dependencies
-                probed = (await probes?.stop()) ?? probed
-                sampled = (await sampler?.stop()) ?? sampled
-                await live.stop()
                 if (alerting) {
                     alerted ??= await alerting.finish(driveFrom ?? { startedAt: Date.now() }, valves.timeline())
                     outcome = { ...outcome, alerts: alerted.coverage }
                 }
+                dependencies = (await health?.stop()) ?? dependencies
+                probed = (await probes?.stop()) ?? probed
+                sampled = (await sampler?.stop()) ?? sampled
+                await live.stop()
                 try {
                     await opened.close()
                 } catch (error) {
