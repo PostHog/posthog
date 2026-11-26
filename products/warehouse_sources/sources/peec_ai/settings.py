@@ -15,16 +15,15 @@ class PeecAIEndpoint(TypedDict):
     primary_keys: NotRequired[list[str]]
     # Sends start_date (the configured start or the incremental watermark) and end_date (today).
     date_range: NotRequired[bool]
+    # Reads the date range one day per request window, so offsets stay small and rows arrive in date order.
+    daily: NotRequired[bool]
     sort_mode: NotRequired[Literal["asc"]]
     # Top-level columns copied from nested objects, so they can be primary keys.
     lifted_ids: NotRequired[dict[str, tuple[str, str]]]
 
 
 # The vendor recommends a per-model-channel breakdown, and a daily grain keeps rows mergeable by date.
-REPORT_PARAMS: dict[str, Any] = {
-    "dimensions": ["date", "model_channel_id"],
-    "order_by": [{"field": "date", "direction": "asc"}],
-}
+REPORT_PARAMS: dict[str, Any] = {"dimensions": ["date", "model_channel_id"]}
 MODEL_CHANNEL_ID: tuple[str, str] = ("model_channel", "id")
 
 
@@ -62,6 +61,7 @@ ENDPOINTS: dict[str, PeecAIEndpoint] = {
         "total_path": None,
         "method": "POST",
         "date_range": True,
+        "daily": True,
         "sort_mode": "asc",
         "primary_keys": ["brand_id", "date", "model_channel_id"],
         "lifted_ids": {"brand_id": ("brand", "id"), "model_channel_id": MODEL_CHANNEL_ID},
@@ -72,6 +72,7 @@ ENDPOINTS: dict[str, PeecAIEndpoint] = {
         "total_path": "total_count",
         "method": "POST",
         "date_range": True,
+        "daily": True,
         "sort_mode": "asc",
         "primary_keys": ["domain", "date", "model_channel_id"],
         "lifted_ids": {"model_channel_id": MODEL_CHANNEL_ID},
@@ -82,6 +83,7 @@ ENDPOINTS: dict[str, PeecAIEndpoint] = {
         "total_path": None,
         "method": "POST",
         "date_range": True,
+        "daily": True,
         "sort_mode": "asc",
         "primary_keys": ["url", "date", "model_channel_id"],
         "lifted_ids": {"model_channel_id": MODEL_CHANNEL_ID},
@@ -94,13 +96,14 @@ ENDPOINTS: dict[str, PeecAIEndpoint] = {
         "method": "POST",
         "date_range": True,
     },
-    # The endpoint has no sort parameter, so the row order is not guaranteed.
     "search_fanout_queries": {
         "path": "queries/search",
         "params": {"view": "rows"},
         "total_path": "total_count",
         "method": "POST",
         "date_range": True,
+        "daily": True,
+        "sort_mode": "asc",
         "primary_keys": ["chat_id", "query_index"],
         "lifted_ids": {"chat_id": ("chat", "id"), "query_index": ("query", "index")},
     },
