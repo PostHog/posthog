@@ -194,6 +194,7 @@ from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
+from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, in_dashboard_v2_batch
 from posthog.hogql_queries.phase_times import compute_phase_times
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
@@ -770,6 +771,22 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+
+    # Checked here rather than in validate_query_runner_access, which run() skips for share links and userless runs.
+    if kind in DASHBOARD_V2_BATCH_ONLY_KINDS and not in_dashboard_v2_batch():
+        error = UserAccessControlError("tracing", "viewer")
+        if user is not None and not user.is_anonymous:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="query access control error",
+                properties={
+                    "query_type": kind,
+                    "resource": error.resource,
+                    "required_level": error.required_level,
+                    "resource_id": error.resource_id,
+                },
+            )
+        raise error
 
     if kind == "InboxUsageQuery":
         from products.signals.backend.facade.spend import InboxUsageQueryRunner
@@ -1930,11 +1947,26 @@ def get_query_runner(
     if kind == "TraceSpansQuery":
         from posthog.schema import TraceSpansQuery
 
-        from products.tracing.backend.logic import TraceSpansQueryRunner
+        from products.tracing.backend.logic import span_list_query_runner
 
-        return TraceSpansQueryRunner(
-            query=cast(TraceSpansQuery, query),
+        return span_list_query_runner(
+            cast(TraceSpansQuery | dict[str, Any], query),
             team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "TraceSpansAggregationQuery":
+        from posthog.schema import TraceSpansAggregationQuery
+
+        from products.tracing.backend.logic import DEFAULT_AGGREGATION_ROW_LIMIT, aggregation_query_runner
+
+        return aggregation_query_runner(
+            cast(TraceSpansAggregationQuery | dict[str, Any], query),
+            team=team,
+            limit=DEFAULT_AGGREGATION_ROW_LIMIT,
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,

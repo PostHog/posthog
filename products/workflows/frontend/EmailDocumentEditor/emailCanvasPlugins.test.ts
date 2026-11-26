@@ -7,6 +7,11 @@ import { buildEmailExtensions } from './emailExtensions'
 describe('emailCanvasPlugins', () => {
     it.each<{ name: string; block: JSONContent; kept: boolean }>([
         { name: 'an HTML block', block: { type: 'emailHtml', attrs: { html: '<p>Whole email</p>' } }, kept: true },
+        {
+            name: 'a section',
+            block: { type: 'emailSection', content: [{ type: 'paragraph' }] },
+            kept: true,
+        },
         { name: 'a divider', block: { type: 'horizontalRule' }, kept: false },
     ])('typing on selected $name keeps it: $kept', ({ block, kept }) => {
         const editor = new Editor({

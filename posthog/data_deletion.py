@@ -75,6 +75,8 @@ def compile_event_uuid_query(
         team=team,
         user=user,
         user_access_control=UserAccessControl(user=user, team=team),
+        # A deletion must reach every stored row, including rows past the retention or coverage floor.
+        context=HogQLContext(team_id=team.pk, user=user, apply_events_retention_floor=False),
         variables=parsed_variables,
         workload=Workload.OFFLINE,
         ch_user=ch_user,

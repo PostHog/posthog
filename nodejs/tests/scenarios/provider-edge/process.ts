@@ -16,6 +16,7 @@ export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath'> & {
 type Call =
     | { op: 'add'; rule: FaultRule }
     | { op: 'applied'; faultId: string }
+    | { op: 'hits'; faultId: string }
     | { op: 'remove'; faultId: string }
     | { op: 'clear' }
 
@@ -46,6 +47,8 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
                 return edge.addFault(call.rule)
             case 'applied':
                 return edge.firstAppliedAt(call.faultId)
+            case 'hits':
+                return edge.hitsOf(call.faultId)
             case 'remove':
                 return edge.removeFault(call.faultId)
             case 'clear':
@@ -105,7 +108,12 @@ export async function startEdgeProcess(
                 readQueuedRepliesThen(() => {
                     if (stillWaiting()) {
                         ended ??= new Error(`the provider edge process did not ${what} within ${withinMs} ms`)
-                        kill()
+                        try {
+                            kill()
+                        } catch (error) {
+                            // A process that was not killed sends no exit, so reject the waiting calls here.
+                            end((ended = new Error(`${ended.message}, and could not be killed`, { cause: error })))
+                        }
                     }
                 }),
             withinMs
@@ -164,7 +172,6 @@ export async function startEdgeProcess(
             child.send({ options })
         } catch (error) {
             end(error as Error)
-            kill()
         }
     }
 
@@ -208,6 +215,7 @@ export async function startEdgeProcess(
             const faultId = await call<string>({ op: 'add', rule })
             return holdOf({
                 firstAppliedAt: () => call<number | undefined>({ op: 'applied', faultId }),
+                hits: () => call<string[]>({ op: 'hits', faultId }),
                 remove: () => call<void>({ op: 'remove', faultId }),
             })
         },

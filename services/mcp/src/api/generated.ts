@@ -9666,6 +9666,25 @@ export namespace Schemas {
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
 
+    /**
+     * Exposed entities with no row of the metric query that counted, by variant.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
+
+    /**
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
+
+    export interface ExperimentWarehouseNativeRowsLeftOut {
+      /** Exposure rows with an empty entity_id. */
+      empty_id?: number | null;
+      /** Exposed entities with no row of the metric query that counted, by variant. */
+      exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
+    }
+
     export interface ExperimentQueryResponse {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -9675,6 +9694,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -30739,6 +30760,7 @@ export namespace Schemas {
      * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
      * * `members_over_limit` - Members over limit
      * * `test_account_filter` - Test account filter
+     * * `unsupported_time_range` - Unsupported time range
      */
     export type CohortRealtimeUnavailableReasonEnum = typeof CohortRealtimeUnavailableReasonEnum[keyof typeof CohortRealtimeUnavailableReasonEnum];
 
@@ -30751,10 +30773,11 @@ export namespace Schemas {
       IncludesNonRealtimeCohort: 'includes_non_realtime_cohort',
       MembersOverLimit: 'members_over_limit',
       TestAccountFilter: 'test_account_filter',
+      UnsupportedTimeRange: 'unsupported_time_range',
     } as const;
 
     export interface CohortRealtimeReadiness {
-      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
        *
        * * `static` - Static
        * * `person_properties` - Person properties
@@ -30772,7 +30795,7 @@ export namespace Schemas {
       ready_at: string | null;
       /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
       build: CohortHistoryBuild | null;
-      /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
+      /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
        *
        * * `history_over_limit` - History over limit
        * * `too_large_to_build` - Too large to build
@@ -30780,7 +30803,8 @@ export namespace Schemas {
        * * `action_criteria` - Action criteria
        * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
        * * `members_over_limit` - Members over limit
-       * * `test_account_filter` - Test account filter */
+       * * `test_account_filter` - Test account filter
+       * * `unsupported_time_range` - Unsupported time range */
       reason: CohortRealtimeUnavailableReasonEnum | null;
       /**
          * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
@@ -51216,7 +51240,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -51543,6 +51567,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: ExperimentExposureQueryResponseTotalExposures;
@@ -53879,7 +53905,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -62492,6 +62518,20 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationsConversionSourceKind = typeof MarketingAnalyticsRecommendationsConversionSourceKind[keyof typeof MarketingAnalyticsRecommendationsConversionSourceKind];
+
+
+    export const MarketingAnalyticsRecommendationsConversionSourceKind = {
+      Posthog: 'posthog',
+      GoogleAds: 'google_ads',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationsConversionSource {
+      /** Names of the conversion goals CPAs count. Empty for `google_ads`. */
+      goalNames: string[];
+      kind: MarketingAnalyticsRecommendationsConversionSourceKind;
+    }
+
     export type MarketingAnalyticsRecommendationsDataGapKind = typeof MarketingAnalyticsRecommendationsDataGapKind[keyof typeof MarketingAnalyticsRecommendationsDataGapKind];
 
 
@@ -62661,6 +62701,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** The conversions CPAs count. Null when no Google Ads account was read. */
+      conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
@@ -93830,7 +93872,7 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health?: ExperimentHealth | null;
@@ -97226,17 +97268,29 @@ export namespace Schemas {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
       /**
-         * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       blocked_hosts?: string[];
       /**
-         * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+         * IP addresses or CIDR ranges to block from /flags requests, up to 100. The widest ranges are /8 for IPv4 and /16 for IPv6.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       blocked_ips?: string[];
+      /**
+         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      allowed_hosts?: string[];
+      /**
+         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      allowed_ips?: string[];
     }
 
     /**
@@ -108391,6 +108445,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -108413,6 +108469,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: QueryResponseAlternative20TotalExposures;
@@ -108949,6 +109007,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** The conversions CPAs count. Null when no Google Ads account was read. */
+      conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
@@ -145795,6 +145855,13 @@ export namespace Schemas {
      * @minimum 1
      */
     page?: number;
+    };
+
+    export type ExperimentsHealthRetrieveParams = {
+    /**
+     * Check a draft as it will be when its launch succeeds. The checks that run only after launch also run, as if the experiment launched now with no exposures, calculation or flag change yet. Has no effect on a launched experiment.
+     */
+    at_launch?: boolean;
     };
 
     export type ExperimentsRunningTimeTargetRetrieveParams = {

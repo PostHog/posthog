@@ -164,6 +164,37 @@ describe('host-run-card.sh', () => {
         )
     })
 
+    it.each<[string, object, string]>([
+        ['asks for the pair', { card: 'cyclotron-scale', pair: true }, ' --pair'],
+        ['names only the card', { card: 'cyclotron-scale' }, ''],
+    ])('runs the card paired only when the run manifest %s', async (_story, manifest, pairFlag) => {
+        const runner =
+            '#!/usr/bin/env bash\nmkdir -p "$XDG_CACHE_HOME"\nprintf \'%s\' "$*" >"$XDG_CACHE_HOME/runner-args"\n'
+
+        await exited(start({}, manifest, runner))
+
+        expect(readFileSync(path.join(dir, 'host', 'cache', 'runner-args'), 'utf8')).toMatch(
+            new RegExp(`tests/scenarios/main\\.ts run cyclotron-scale --profile \\S+${pairFlag}$`)
+        )
+    })
+
+    it("copies the control's live log of a pair beside the faulted run's", async () => {
+        const runner = `#!/usr/bin/env bash
+mkdir -p "$XDG_CACHE_HOME/posthog-scenarios/${RUNNER_RUN_ID}"
+echo '{"phase":"control"}' >"$XDG_CACHE_HOME/posthog-scenarios/${RUNNER_RUN_ID}/live.jsonl"
+`
+
+        await exited(
+            start(
+                { SCENARIO_LIVE_COPY_SECONDS: '0.1' },
+                { card: 'cyclotron-scale', pair: true, controlRunId: RUNNER_RUN_ID },
+                runner
+            )
+        )
+
+        expect(readFileSync(s3('control/live.jsonl'), 'utf8')).toBe('{"phase":"control"}\n')
+    })
+
     it('hands the runner the URLs of the poolers in front of the run cluster', async () => {
         await exited(start({}))
 

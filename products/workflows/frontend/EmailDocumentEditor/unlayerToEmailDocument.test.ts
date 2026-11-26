@@ -819,6 +819,39 @@ describe('unlayerToEmailDocument', () => {
                     ],
                 },
                 { type: 'emailHtml', attrs: { html: '<p>Custom markup</p>' } },
+                {
+                    type: 'emailSection',
+                    attrs: {
+                        emailStyle: { backgroundColor: '#ddeeff' },
+                        emailVisibility: { condition: { before: '{% if vip %}', after: '{% endif %}' } },
+                    },
+                    content: [
+                        paragraph(text('In the section')),
+                        {
+                            type: 'emailColumns',
+                            attrs: {
+                                emailVisibility: { condition: { before: '{% if nested %}', after: '{% endif %}' } },
+                            },
+                            content: [
+                                {
+                                    type: 'emailColumn',
+                                    attrs: { ratio: 1 },
+                                    content: [
+                                        {
+                                            ...paragraph(text('Nested left')),
+                                            attrs: { emailVisibility: { hideMobile: true } },
+                                        },
+                                    ],
+                                },
+                                {
+                                    type: 'emailColumn',
+                                    attrs: { ratio: 1 },
+                                    content: [paragraph(text('Nested right'))],
+                                },
+                            ],
+                        },
+                    ],
+                },
             ],
         }
 
@@ -836,7 +869,9 @@ describe('unlayerToEmailDocument', () => {
             'emailSpacer',
             'emailColumns',
             'emailHtml',
+            'emailColumns',
         ])
+        expect(back?.content?.[10].attrs?.emailVisibility).toMatchObject(doc.content[10].attrs?.emailVisibility)
         expect(back?.attrs?.page.bodyBackgroundColor).toEqual('#fafafa')
         expect(back?.content?.[6].attrs).toEqual({ height: 16 })
         expect(back?.content?.[7].attrs).toEqual({ height: 20, backgroundColor: '#123456' })
@@ -861,6 +896,13 @@ describe('unlayerToEmailDocument', () => {
             'https://example.com/start',
             'Right column',
             'Custom markup',
+            'In the section',
+            'Nested left',
+            'Nested right',
+            '#ddeeff',
+            '{% if nested %}',
+            '.ph-hide-mobile {',
+            '.ph-col { max-width: 100% !important; }',
         ]) {
             expect(json).toContain(expected)
         }

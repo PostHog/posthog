@@ -1,6 +1,6 @@
 from datetime import timedelta
 from inspect import unwrap
-from typing import TypedDict
+from typing import TypedDict, cast
 from uuid import UUID, uuid4
 
 import time_machine
@@ -16,6 +16,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.user_integration import UserIntegration
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.logger import restored_structlog_config
 
@@ -30,12 +31,17 @@ from products.tasks.backend.logic.services.agent_egress_git_worker import (
     publish_agent_egress_git_grant,
     refresh_agent_egress_git_grant,
 )
-from products.tasks.backend.logic.services.sandbox import ExecutionResult
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxBase
 from products.tasks.backend.models import AgentEgressRegistration, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
+)
+from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+    _apply_token_locked,
+    _live_sandboxes_for_user_integration,
+    _propagate_user_token,
 )
 
 
@@ -43,6 +49,25 @@ class GitGrantScope(TypedDict):
     team_id: int
     run_id: UUID
     execution_id: UUID
+
+
+class CredentialSandbox:
+    id = "sb-git-worker"
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self.commands: list[str] = []
+
+    def is_running(self) -> bool:
+        return True
+
+    def write_file(self, path: str, content: bytes, **kwargs: object) -> ExecutionResult:
+        self.files[path] = content
+        return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    def execute(self, command: str, **kwargs: object) -> ExecutionResult:
+        self.commands.append(command)
+        return ExecutionResult(stdout="", stderr="", exit_code=0)
 
 
 @override_settings(AGENT_EGRESS_REGION="test-us")
@@ -104,7 +129,60 @@ class TestAgentEgressGitWorker(TestCase):
     def lookup(self) -> tuple[AgentEgressRegistration, GitReadCredential] | None:
         return self.grants.lookup(**self.scope, repository="example/repo")
 
-    def test_existing_refresh_activity_rotates_the_live_execution_grant(self) -> None:
+    @parameterized.expand([("agent_egress_git_reads",), ("github_read_access",)])
+    def test_sibling_rotation_and_delayed_delivery_keep_scoped_guests_credential_free(self, flag: str) -> None:
+        assert self.task.created_by is not None
+        integration = UserIntegration.objects.create(
+            user=self.task.created_by, kind="github", integration_id="synthetic-user", config={}, sensitive_config={}
+        )
+        self.task.github_user_integration = integration
+        self.task.save(update_fields=["github_user_integration"])
+        TaskRun.update_state_atomic(
+            self.task_run.id, updates={"pr_authorship_mode": "user"}, remove_keys=["github_read_access"]
+        )
+        sibling = Task.objects.create(
+            team=self.team,
+            created_by=self.task.created_by,
+            repository="example/sibling",
+            github_user_integration=integration,
+        )
+        TaskRun.objects.create(
+            task=sibling,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-sibling", "pr_authorship_mode": "user"},
+        )
+        delayed = next(
+            row for row in _live_sandboxes_for_user_integration(integration.id) if row.run_id == str(self.task_run.id)
+        )
+        TaskRun.update_state_atomic(self.task_run.id, updates={flag: True})
+        protected, ordinary = CredentialSandbox(), CredentialSandbox()
+        ordinary.id = "sb-sibling"
+        sandboxes = {protected.id: protected, ordinary.id: ordinary}
+        with patch(
+            "products.tasks.backend.logic.services.sandbox.get_sandbox_class_for_sandbox_id",
+            return_value=MagicMock(get_by_id=lambda sandbox_id: sandboxes[sandbox_id]),
+        ):
+            self.assertFalse(
+                _apply_token_locked(
+                    cast(SandboxBase, protected),
+                    ["example/repo"],
+                    "synthetic-sibling-token",
+                    delayed.run_id,
+                    delayed.owner_id,
+                    task_id=delayed.task_id,
+                )
+            )
+            self.assertEqual(
+                {row.sandbox_id for row in _live_sandboxes_for_user_integration(integration.id)}, {ordinary.id}
+            )
+            self.assertEqual(_propagate_user_token(integration.id, "synthetic-sibling-token"), 1)
+        self.assertEqual(protected.files, {})
+        self.assertEqual(protected.commands, [])
+        self.assertIn(b"synthetic-sibling-token", b"".join(ordinary.files.values()))
+
+    @parameterized.expand([("legacy", False), ("brokered", True)])
+    def test_existing_refresh_activity_rotates_the_live_execution_grant(self, _name: str, brokered: bool) -> None:
         self.assertTrue(self.publish())
         first = self.lookup()
         assert first is not None
@@ -117,7 +195,10 @@ class TestAgentEgressGitWorker(TestCase):
         self.github_client.assert_called_once()
         TaskRun.update_state_atomic(
             self.task_run.id,
-            updates={"agent_egress_probe": {"execution_id": str(self.execution_id), "publish_git_read_grant": True}},
+            updates={
+                "agent_egress_probe": {"execution_id": str(self.execution_id), "publish_git_read_grant": True},
+                "agent_egress_git_reads": brokered,
+            },
         )
         self.response.json.return_value = {
             "token": "synthetic-refreshed-token",
@@ -129,20 +210,17 @@ class TestAgentEgressGitWorker(TestCase):
             team_id=self.team.id,
             team_uuid=str(self.team.uuid),
             organization_id=str(self.team.organization_id),
-            github_integration_id=self.integration.id,
+            github_integration_id=None if brokered else self.integration.id,
             repository="example/repo",
             distinct_id="synthetic-worker",
             state=self.task_run.state,
         )
-        sandbox = MagicMock(id="sb-git-worker")
-        sandbox.execute.return_value = sandbox.write_file.return_value = ExecutionResult(
-            stdout="", stderr="", exit_code=0
-        )
+        sandbox = CredentialSandbox()
         with (
             restored_structlog_config(),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
-                **{"return_value.get_by_id.return_value": sandbox},
+                return_value=MagicMock(get_by_id=lambda _: sandbox),
             ),
             patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
         ):
@@ -150,7 +228,12 @@ class TestAgentEgressGitWorker(TestCase):
             outcome = ActivityEnvironment().run(
                 unwrap(refresh_sandbox_credentials), RefreshSandboxCredentialsInput(context=ctx, sandbox_id=sandbox.id)
             )
-        self.assertIn("github", outcome.refreshed_kinds)
+        if brokered:
+            self.assertEqual(sandbox.files, {})
+            self.assertEqual(sandbox.commands, [])
+        else:
+            self.assertIn(b"synthetic-refreshed-token", b"".join(sandbox.files.values()))
+        self.assertEqual("github" in outcome.refreshed_kinds, not brokered)
         refreshed = self.lookup()
         assert refreshed is not None
         self.assertNotEqual(first[0].git_read_grant_version, refreshed[0].git_read_grant_version)

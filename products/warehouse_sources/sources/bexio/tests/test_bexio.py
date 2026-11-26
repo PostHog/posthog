@@ -286,6 +286,39 @@ def test_unpaginated_lookups_read_one_page(schema: str, path: str, order_by: str
 
 
 @pytest.mark.parametrize(
+    ("schema", "path", "order_by"),
+    [
+        ("countries", "/2.0/country", "id"),
+        ("languages", "/2.0/language", "id"),
+        ("salutations", "/2.0/salutation", None),
+        ("titles", "/2.0/title", "id"),
+        ("contact_branches", "/2.0/contact_branch", "id"),
+        ("task_statuses", "/2.0/todo_status", "id"),
+        ("task_priorities", "/2.0/todo_priority", "id"),
+        ("payment_types", "/2.0/payment_type", "id"),
+        ("units", "/2.0/unit", None),
+    ],
+)
+def test_paged_lookups_walk_offsets_with_only_supported_order_by(schema: str, path: str, order_by: str | None) -> None:
+    result = _driver().run(
+        schema,
+        [
+            ScriptedResponse(json=[{"id": i, "name": f"Entry {i}"} for i in range(1, 2001)]),
+            ScriptedResponse(json=[{"id": 2001, "name": "Entry 2001"}]),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.paths == [path, path]
+    assert result.params("offset") == ["0", "2000"]
+    assert result.params("limit") == ["2000", "2000"]
+    assert result.params("order_by") == [order_by, order_by]
+    assert len(result.rows) == 2001
+    assert result.response is not None
+    assert result.response.primary_keys == ["id"]
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         (datetime(2026, 3, 4, 5, 6, 7, 891000, tzinfo=UTC), "2026-03-04 05:06:07"),
