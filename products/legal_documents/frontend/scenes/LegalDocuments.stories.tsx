@@ -99,7 +99,7 @@ export const NewBAA: Story = {
         withBaaEntitlement,
         mswDecorator({
             get: {
-                '/api/billing/:organization_id/': {
+                '/api/organizations/:organization_id/billing/': {
                     products: [],
                     has_active_subscription: true,
                 },
@@ -122,7 +122,7 @@ export const NewBAATrial: Story = {
         withBaaEntitlement,
         mswDecorator({
             get: {
-                '/api/billing/:organization_id/': {
+                '/api/organizations/:organization_id/billing/': {
                     products: [],
                     trial: {
                         type: 'standard',
@@ -151,7 +151,7 @@ export const NewBAAEnterpriseTrial: Story = {
         withBaaEntitlement,
         mswDecorator({
             get: {
-                '/api/billing/:organization_id/': {
+                '/api/organizations/:organization_id/billing/': {
                     products: [],
                     trial: {
                         type: 'standard',
@@ -177,7 +177,7 @@ export const ListStartupProgram: Story = {
         mswDecorator({
             get: {
                 '/api/organizations/:org_id/legal_documents': EMPTY_PAGINATED_RESPONSE,
-                '/api/billing/:organization_id/': startupProgramBilling(StartupProgramLabel.Startup),
+                '/api/organizations/:organization_id/billing/': startupProgramBilling(StartupProgramLabel.Startup),
             },
         }),
     ],
@@ -197,7 +197,7 @@ export const NewBAAStartupProgram: Story = {
         mswDecorator({
             get: {
                 '/api/organizations/:org_id/legal_documents': EMPTY_PAGINATED_RESPONSE,
-                '/api/billing/:organization_id/': startupProgramBilling(StartupProgramLabel.Startup),
+                '/api/organizations/:organization_id/billing/': startupProgramBilling(StartupProgramLabel.Startup),
             },
         }),
     ],

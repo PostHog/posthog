@@ -81,7 +81,10 @@ describe('PaymentEntryModal', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/billing/:organization_id/activate/authorize': () => [403, { detail: BLOCKED_MESSAGE }],
+                '/api/organizations/:organization_id/billing/activate/authorize': () => [
+                    403,
+                    { detail: BLOCKED_MESSAGE },
+                ],
             },
         })
         initKeaTests()

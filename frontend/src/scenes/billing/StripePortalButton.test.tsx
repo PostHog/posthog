@@ -18,7 +18,7 @@ const EXTERNAL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/po
 
 describe('StripePortalButton', () => {
     const renderForBilling = async (billing: Partial<BillingType>): Promise<HTMLElement> => {
-        useMocks({ get: { '/api/billing/:organization_id/': [200, { ...billingJson, ...billing }] } })
+        useMocks({ get: { '/api/organizations/:organization_id/billing/': [200, { ...billingJson, ...billing }] } })
         billingLogic.mount()
         await expectLogic(billingLogic, () => {
             billingLogic.actions.loadBilling()

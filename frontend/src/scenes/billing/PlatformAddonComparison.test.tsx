@@ -23,7 +23,10 @@ describe('PlatformAddonComparison', () => {
         scrollIntoView.mockClear()
         useMocks({
             get: {
-                '/api/billing/:organization_id/': () => [200, makeBillingWithPlatformAddons(billingJson, 'trial-used')],
+                '/api/organizations/:organization_id/billing/': () => [
+                    200,
+                    makeBillingWithPlatformAddons(billingJson, 'trial-used'),
+                ],
             },
         })
         initKeaTests()

@@ -34,7 +34,7 @@ describe('billingProductLogic', () => {
     ): Promise<void> => {
         useMocks({
             get: {
-                '/api/billing/:organization_id/': () => [
+                '/api/organizations/:organization_id/billing/': () => [
                     200,
                     {
                         ...billingJson,
@@ -193,7 +193,7 @@ describe('billingProductLogic', () => {
         const seedProducts = async (products: BillingProductV2Type[], discountPercent?: number): Promise<void> => {
             useMocks({
                 get: {
-                    '/api/billing/:organization_id/': () => [
+                    '/api/organizations/:organization_id/billing/': () => [
                         200,
                         { ...billingJson, products, discount_percent: discountPercent },
                     ],
@@ -309,7 +309,7 @@ describe('billingProductLogic', () => {
                 }
                 useMocks({
                     get: {
-                        '/api/billing/:organization_id/': () => [
+                        '/api/organizations/:organization_id/billing/': () => [
                             200,
                             {
                                 ...billingJson,
@@ -353,15 +353,15 @@ describe('billingProductLogic', () => {
         })
 
         // Guards the unsubscribe submit path the deleted Playwright spec covered: confirming
-        // deactivation must POST the product to /api/billing/:organization_id/deactivate, submit the collected
+        // deactivation must POST the product to /api/organizations/:organization_id/billing/deactivate, submit the collected
         // survey on success (deactivateProductSuccess -> reportSurveySent), and clear surveyID so
         // the modal closes. Fake timers step over the loader's real 2s reload breakpoint.
         it('deactivates the product, submits the survey, and clears the modal on confirm', async () => {
             let deactivateBody: any = null
             useMocks({
-                get: { '/api/billing/:organization_id/': () => [200, billingJson] },
+                get: { '/api/organizations/:organization_id/billing/': () => [200, billingJson] },
                 post: {
-                    '/api/billing/:organization_id/deactivate': async ({ request }) => {
+                    '/api/organizations/:organization_id/billing/deactivate': async ({ request }) => {
                         deactivateBody = await request.json()
                         return [200, billingJson]
                     },
@@ -416,7 +416,7 @@ describe('billingProductLogic — confirm purchase modal', () => {
     let toastErrorSpy: jest.SpyInstance
 
     const seedBilling = async (billing: Partial<BillingType>): Promise<void> => {
-        useMocks({ get: { '/api/billing/:organization_id/': () => [200, billing] } })
+        useMocks({ get: { '/api/organizations/:organization_id/billing/': () => [200, billing] } })
         billingLogic.mount()
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
     }
@@ -452,7 +452,7 @@ describe('billingProductLogic — confirm purchase modal', () => {
         let body: unknown
         useMocks({
             post: {
-                '/api/billing/:organization_id/activate': async ({ request }) => {
+                '/api/organizations/:organization_id/billing/activate': async ({ request }) => {
                     body = await request.json()
                     return activate()
                 },
@@ -483,12 +483,12 @@ describe('billingProductLogic — confirm purchase modal', () => {
         const billingReads: (string | null)[] = []
         useMocks({
             get: {
-                '/api/billing/:organization_id/': ({ params }) => {
+                '/api/organizations/:organization_id/billing/': ({ params }) => {
                     billingReads.push(String(params.organization_id))
                     return [200, { customer_id: 'cus_test', subscription_level: 'paid', has_active_subscription: true }]
                 },
             },
-            post: { '/api/billing/:organization_id/activate': () => [200, { success: true }] },
+            post: { '/api/organizations/:organization_id/billing/activate': () => [200, { success: true }] },
         })
         router.actions.push('/project/1/replay', { foo: 'bar' })
         logic = billingProductLogic({ product: scaleAddon })
@@ -518,7 +518,7 @@ describe('billingProductLogic — confirm purchase modal', () => {
                     resolveActivation = resolve
                 })
         )
-        useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
+        useMocks({ post: { '/api/organizations/:organization_id/billing/activate': activate } })
         logic = billingProductLogic({ product: scaleAddon })
         logic.mount()
         logic.actions.initiateProductUpgrade(scaleAddon, scaleAddon.plans[0], '')
@@ -537,7 +537,7 @@ describe('billingProductLogic — confirm purchase modal', () => {
             resolveActivation = resolve
         })
         const activate = jest.fn(() => response)
-        useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
+        useMocks({ post: { '/api/organizations/:organization_id/billing/activate': activate } })
         logic = billingProductLogic({ product: scaleAddon })
         logic.mount()
         const push = jest.spyOn(router.actions, 'push')
@@ -563,7 +563,7 @@ describe('billingProductLogic — confirm purchase modal', () => {
     it('auto-closes the modal once activation finishes', async () => {
         useMocks({
             post: {
-                '/api/billing/:organization_id/activate': () =>
+                '/api/organizations/:organization_id/billing/activate': () =>
                     [200, { success: false, error: 'x' }] as [number, unknown],
             },
         })
@@ -628,7 +628,7 @@ describe('billingProductLogic — confirm purchase modal', () => {
 
     it('does nothing when the product has no upgrade plan', async () => {
         const activate = jest.fn(() => [200, { success: true }] as [number, unknown])
-        useMocks({ post: { '/api/billing/:organization_id/activate': activate } })
+        useMocks({ post: { '/api/organizations/:organization_id/billing/activate': activate } })
         const productWithoutPlans = { ...scaleAddon, type: BillingPlan.Boost, plans: [] } as BillingProductV2AddonType
         logic = billingProductLogic({ product: productWithoutPlans })
         logic.mount()

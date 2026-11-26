@@ -21,7 +21,7 @@ const mockUsageEndpoints = (
 ): void => {
     useMocks({
         get: {
-            '/api/billing/:organization_id/': () => [
+            '/api/organizations/:organization_id/billing/': () => [
                 200,
                 {
                     products: [
@@ -57,14 +57,14 @@ const PRICED_INBOX_PRODUCT = {
 const mountPricedForSave = async (saveStatus: number): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
     useMocks({
         get: {
-            '/api/billing/:organization_id/': () => [200, { products: [PRICED_INBOX_PRODUCT] }],
+            '/api/organizations/:organization_id/billing/': () => [200, { products: [PRICED_INBOX_PRODUCT] }],
             '/api/projects/:team_id/signals/reports/refund-summary/': () => [
                 200,
                 { period_billable_credits: 0, credited_credits: 0, credited_refund_count: 0, quota_limited: false },
             ],
         },
         patch: {
-            '/api/billing/:organization_id///': () =>
+            '/api/organizations/:organization_id/billing///': () =>
                 saveStatus === 200
                     ? [200, { products: [PRICED_INBOX_PRODUCT], custom_limits_usd: { inbox: 75 } }]
                     : [saveStatus, { attr: 'custom_limits_usd', detail: 'Rejected.' }],
@@ -102,7 +102,7 @@ const mountWithUsage = async (
 const mockSpendBilling = (cutoff: string | undefined, discountPercent = 0, credits: number | null = 1234): void => {
     useMocks({
         get: {
-            '/api/billing/:organization_id/': () => [
+            '/api/organizations/:organization_id/billing/': () => [
                 200,
                 {
                     products: [
@@ -356,7 +356,7 @@ describe('inboxUsageLogic', () => {
     it('degrades to null when the server returns 404 for the refund summary', async () => {
         useMocks({
             get: {
-                '/api/billing/:organization_id/': () => [
+                '/api/organizations/:organization_id/billing/': () => [
                     200,
                     { products: [{ type: 'inbox', display_divisor: CREDITS_PER_PR, current_usage: 1500 }] },
                 ],

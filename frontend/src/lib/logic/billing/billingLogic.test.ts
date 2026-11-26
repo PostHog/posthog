@@ -95,8 +95,8 @@ describe('billingLogic', () => {
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing/:organization_id/': () => billingAnswer ?? [200, billingState],
-                '/api/billing/:organization_id/credits/overview': () => creditOverviewAnswer,
+                '/api/organizations/:organization_id/billing/': () => billingAnswer ?? [200, billingState],
+                '/api/organizations/:organization_id/billing/credits/overview': () => creditOverviewAnswer,
             },
         })
         initKeaTests()
@@ -130,11 +130,11 @@ describe('billingLogic', () => {
                     billingReads.push('the current project')
                     return [200, billingState]
                 },
-                '/api/billing/:organization_id/': ({ params }) => {
+                '/api/organizations/:organization_id/billing/': ({ params }) => {
                     billingReads.push(String(params.organization_id))
                     return [200, billingState]
                 },
-                '/api/billing/:organization_id/get_invoices': (req) => {
+                '/api/organizations/:organization_id/billing/get_invoices': (req) => {
                     billingReads.push(`${new URL(req.request.url).searchParams.get('status')} invoices`)
                     return [200, { count: 1, link: null }]
                 },
@@ -176,7 +176,7 @@ describe('billingLogic', () => {
         const ambientOrganization = jest.fn(() => [200, organization])
         useMocks({
             get: {
-                '/api/billing/:organization_id/credits/overview': ambientCredits,
+                '/api/organizations/:organization_id/billing/credits/overview': ambientCredits,
                 '/api/users/@me': ambientUser,
                 '/api/organizations/@current': ambientOrganization,
             },
@@ -203,7 +203,11 @@ describe('billingLogic', () => {
     })
 
     it('reports a failed limit update as a failure, so the limit editor keeps the value', async () => {
-        useMocks({ patch: { '/api/billing/:organization_id///': () => [500, { detail: 'A server error occurred.' }] } })
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/billing///': () => [500, { detail: 'A server error occurred.' }],
+            },
+        })
         billingLogic.mount()
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
             .toFinishAllListeners()
@@ -427,7 +431,10 @@ describe('billingLogic', () => {
             }
             useMocks({
                 get: {
-                    '/api/billing/:organization_id/credits/overview': [200, { ...creditOverviewResponse, eligible }],
+                    '/api/organizations/:organization_id/billing/credits/overview': [
+                        200,
+                        { ...creditOverviewResponse, eligible },
+                    ],
                 },
             })
             billingLogic.mount()
@@ -714,7 +721,7 @@ describe('billingLogic', () => {
         })
         useMocks({
             get: {
-                '/api/billing/:organization_id/': async () => {
+                '/api/organizations/:organization_id/billing/': async () => {
                     billingRequests += 1
                     // Only the first request waits, so a duplicate request answers and shows up in the count.
                     if (billingRequests === 1) {
@@ -722,7 +729,7 @@ describe('billingLogic', () => {
                     }
                     return [200, billingState]
                 },
-                '/api/billing/:organization_id/get_invoices': [200, openInvoices],
+                '/api/organizations/:organization_id/billing/get_invoices': [200, openInvoices],
             },
         })
         billingLogic.mount()
@@ -756,7 +763,7 @@ describe('billingLogic', () => {
         billingState = { ...billingState, ...billing }
         useMocks({
             post: {
-                '/api/billing/:organization_id/deactivate': [
+                '/api/organizations/:organization_id/billing/deactivate': [
                     400,
                     { code, detail: UNSUBSCRIBE_ERROR_DETAIL, link: invoiceLink },
                 ],
@@ -874,7 +881,7 @@ describe('billingLogic', () => {
         const toastError = jest.spyOn(lemonToast, 'error')
         useMocks({
             get: {
-                '/api/billing/:organization_id/get_invoices': [
+                '/api/organizations/:organization_id/billing/get_invoices': [
                     403,
                     { type: 'authentication_error', code: 'permission_denied', detail: 'No billing access.' },
                 ],
@@ -1019,7 +1026,7 @@ describe('billingLogic', () => {
             invoiceRequests = 0
             useMocks({
                 get: {
-                    '/api/billing/:organization_id/get_invoices': (req) => {
+                    '/api/organizations/:organization_id/billing/get_invoices': (req) => {
                         if (new URL(req.request.url).searchParams.get('status') !== 'uncollectible') {
                             return [200, { count: 0, link: null }]
                         }

@@ -300,21 +300,18 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
-        '/api/billing/:organization_id/': {
+        '/api/organizations/:organization_id/billing/': {
             ...billingJson,
         },
-        '/api/billing/:organization_id/get_invoices': {
+        '/api/organizations/:organization_id/billing/get_invoices': {
             link: null,
             count: 0,
         },
-        '/api/billing/:organization_id/credits/overview': {
+        '/api/organizations/:organization_id/billing/credits/overview': {
             status: 'None',
             eligible: false,
         },
 
-        '/api/billing/:organization_id/spend/': { results: [] },
-        '/api/billing/:organization_id/usage/': { results: [] },
-        '/api/billing/:organization_id/usage/team_options/': { team_id_options: [] },
         '/api/organizations/:organization_id/billing/spend/timeseries/': {
             count: 0,
             next: null,
