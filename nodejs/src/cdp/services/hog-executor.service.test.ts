@@ -2810,21 +2810,25 @@ describe('Hog Executor', () => {
                 expect(executed.invocation.queueParameters).toMatchObject({ auth_input: 'slack' })
                 expect(JSON.stringify(executed.invocation.queueParameters)).not.toContain('xoxb-victim')
 
-                jest.mocked(fetch).mockImplementationOnce(() =>
-                    Promise.resolve({
-                        status: 200,
-                        headers: {},
-                        json: () => Promise.resolve({ ok: true }),
-                        text: () => Promise.resolve('{"ok": true}'),
-                        dump: () => Promise.resolve(),
-                    } as any)
-                )
+                const bodies: string[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk))
+                    req.on('end', () => {
+                        received.push({ url: req.url, authorization: req.headers['authorization'] })
+                        bodies.push(body)
+                        res.writeHead(200, { 'Content-Type': 'application/json' })
+                        res.end('{"ok": true}')
+                    })
+                })
+                ;(executed.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType).url =
+                    `${localOrigin}/`
                 const result = await executor.executeFetch(executed.invocation)
 
                 expect(result.error).toBeUndefined()
-                const [, options] = jest.mocked(fetch).mock.calls[0] as any
-                expect(options.headers).toEqual({ Authorization: 'Bearer xoxb-victim' })
-                expect(options.body).not.toContain('xoxb-victim')
+                expect(received.map((r) => r.authorization)).toEqual(['Bearer xoxb-victim'])
+                expect(bodies).toHaveLength(1)
+                expect(bodies[0]).not.toContain('xoxb-victim')
             })
         })
 
