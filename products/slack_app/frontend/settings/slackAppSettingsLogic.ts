@@ -396,7 +396,7 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
             (s) => [s.settings, s.settingsLoading],
             (settings: SlackAppSettingsApi | null, settingsLoading: boolean): string | undefined =>
                 settings && !settings.can_edit_workspace
-                    ? 'Only the person who installed Slack or a project admin can change this.'
+                    ? 'Only the person who installed Slack or a project admin can change this. When several PostHog organizations use this Slack workspace, you need that access in each of them.'
                     : settingsLoading
                       ? 'Saving your last change'
                       : undefined,

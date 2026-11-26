@@ -1513,6 +1513,12 @@ class TestChannelApprovalGate(TestCase):
         from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
+        # The shared channels switch applies only behind the flag, which a test case turns on itself.
+        flag = patch(
+            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced", return_value=False
+        )
+        flag.start()
+        self.addCleanup(flag.stop)
         self.factory = RequestFactory()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -1632,18 +1638,19 @@ class TestChannelApprovalGate(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
         with patch(
-            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enabled",
+            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced",
             return_value=flag_on,
         ):
             result = route_posthog_code_event_to_relevant_region(
-                request, self.event, "T12345", is_ext_shared_channel=True
+                request, {**self.event, "thread_ts": "1234.5678"}, "T12345", is_ext_shared_channel=True
             )
 
         assert result == ROUTE_HANDLED_LOCALLY
         assert mock_sync_connect.return_value.start_workflow.called is (expected == "workflow")
         assert mock_prompt.called is (expected == "prompt")
-        notices = [c.args[4] for c in mock_ephemeral.call_args_list]
-        assert (SHARED_CHANNELS_TURNED_OFF_MESSAGE in notices) is (expected == "turned_off")
+        # The notice lands in the thread the person mentioned PostHog in.
+        notices = [(c.args[3], c.args[4]) for c in mock_ephemeral.call_args_list]
+        assert (("1234.5678", SHARED_CHANNELS_TURNED_OFF_MESSAGE) in notices) is (expected == "turned_off")
 
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
     @patch("products.slack_app.backend.api.asyncio.run")

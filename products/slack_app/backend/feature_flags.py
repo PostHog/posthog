@@ -285,6 +285,25 @@ def is_slack_app_web_settings_enabled(integration: IntegrationRecord) -> bool:
     return enabled
 
 
+def is_slack_app_web_settings_enforced(integration: IntegrationRecord) -> bool:
+    """The same flag as ``is_slack_app_web_settings_enabled``, for a setting that restricts what PostHog may do.
+
+    A failed evaluation counts as on, so a flag outage cannot lift a restriction an admin turned on. The answer is
+    cached apart from the other gate, because the two answer a failure differently."""
+    cache_key = f"slack_app_web_settings_enforced_flag:{_organization_id(integration)}:{integration.integration_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    enabled = _workspace_flag_enabled(
+        SLACK_APP_WEB_SETTINGS_FLAG,
+        integration,
+        failure_log_key="slack_app_web_settings_feature_flag_check_failed",
+        on_error=True,
+    )
+    cache.set(cache_key, enabled, timeout=WEB_SETTINGS_FLAG_CACHE_SECONDS)
+    return enabled
+
+
 def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     """The daily work focus also tells the person what moved in the channels they share with the bot."""
     return _workspace_flag_enabled(

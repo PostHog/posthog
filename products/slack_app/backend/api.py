@@ -98,6 +98,7 @@ from products.slack_app.backend.logic.shared_channels import (
     SHARED_CHANNELS_TURNED_OFF_MESSAGE,
     SharedChannelAccess,
     shared_channel_access,
+    shared_channel_refusal_message,
 )
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
@@ -2718,7 +2719,7 @@ def _dispatch_mention_to_target(
             slack,
             channel_id or "",
             str(event.get("user") or ""),
-            None,
+            event.get("thread_ts") if isinstance(event.get("thread_ts"), str) else None,
             SHARED_CHANNELS_TURNED_OFF_MESSAGE,
         )
         _report_slack_mention_dropped(
@@ -4406,6 +4407,23 @@ def _thread_join_context(payload: dict) -> tuple[str, dict[str, Any]] | None:
     return context_token, context
 
 
+def _shared_channel_refusal_since_prompt(integration: WorkspaceIntegration, context: dict[str, Any]) -> str | None:
+    """The refusal for a confirmed prompt in a Slack Connect channel, or None when the run may start.
+
+    A prompt stays open for minutes, and the dispatch skips the webhook's gates, so an admin who turned shared
+    channels off in the meantime is checked again here.
+    """
+    channel = context.get("slack_channel_id")
+    if not context.get("is_ext_shared_channel") or not isinstance(channel, str):
+        return None
+    access = shared_channel_access(integration, channel)
+    return None if access == SharedChannelAccess.ALLOWED else shared_channel_refusal_message(access)
+
+
+def _replace_prompt(response_url: str, text: str) -> None:
+    inbox_interactivity.post_response_url(response_url, {"replace_original": True, "text": text})
+
+
 def _close_thread_join_prompt(context_token: str, context: dict[str, Any], response_url: str) -> None:
     """Forget an answered prompt, so the same person can ask again with their next message."""
     cache.delete(_picker_context_cache_key(context_token))
@@ -4455,6 +4473,11 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
     )
     if mapping is None:
         _close_thread_join_prompt(context_token, context, response_url)
+        return HttpResponse(status=200)
+    refusal = _shared_channel_refusal_since_prompt(integration, context)
+    if refusal is not None:
+        _close_thread_join_prompt(context_token, context, "")
+        _replace_prompt(response_url, refusal)
         return HttpResponse(status=200)
     # The message re-enters the pipeline past the webhook's gates, so the joiner's access to the
     # mapped project is checked again here.
@@ -4609,6 +4632,12 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
 
     if _untagged_followups_revoked_since_prompt(integration, context):
         _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+
+    refusal = _shared_channel_refusal_since_prompt(integration, context)
+    if refusal is not None:
+        cache.delete(_picker_context_cache_key(context_token))
+        _replace_prompt(response_url, refusal)
         return HttpResponse(status=200)
 
     cache.delete(_picker_context_cache_key(context_token))
@@ -4910,18 +4939,16 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
 
     # A typed reply in an unapproved Slack Connect channel is dropped before dispatch, and a
     # channel can become shared after the buttons were posted.
-    access = shared_channel_access(integration, channel)
-    if access != SharedChannelAccess.ALLOWED and channel_is_ext_shared(slack, channel):
+    # A DM never asks Slack, so the sharing check goes first and a DM click skips the flag evaluation.
+    access = (
+        shared_channel_access(integration, channel)
+        if channel_is_ext_shared(slack, channel)
+        else SharedChannelAccess.ALLOWED
+    )
+    if access != SharedChannelAccess.ALLOWED:
         logger.info("slack_app_reply_suggestion_channel_unapproved", integration_id=integration.id, access=access)
         _post_slack_user_ephemeral(
-            slack,
-            channel,
-            clicker_slack_user_id,
-            thread_ts,
-            SHARED_CHANNELS_TURNED_OFF_MESSAGE
-            if access == SharedChannelAccess.TURNED_OFF
-            else "This channel is shared with another organization, so PostHog needs approval here first. "
-            "Mention @PostHog in the channel to approve it.",
+            slack, channel, clicker_slack_user_id, thread_ts, shared_channel_refusal_message(access)
         )
         return HttpResponse(status=200)
 

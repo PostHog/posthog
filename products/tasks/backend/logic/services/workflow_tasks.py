@@ -285,6 +285,10 @@ def create_workflow_task(
         # inherits config_snapshot without re-rendering the prompt, so this is the only record.
         config_snapshot["skills"] = [{"name": skill.name, "version": skill.version} for skill in skills]
 
+    # Outside the transaction below: the shared-channel check can evaluate a feature flag remotely,
+    # and holding the advisory locks across it would stall every workflow fire for the team.
+    slack_integration = _slack_integration_that_may_speak(team.id, slack_context)
+
     extra_run_state: dict[str, Any] = {
         "config_snapshot": config_snapshot,
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
@@ -347,7 +351,7 @@ def create_workflow_task(
 
             # Resolved under the thread lock so the live-run check inside it holds for the
             # rest of the transaction.
-            slack_binding = _resolve_slack_binding(team.id, slack_context)
+            slack_binding = _resolve_slack_binding(slack_integration, team.id, slack_context)
             thread_context = slack_binding.thread_context if slack_binding is not None else None
             if slack_binding is not None:
                 extra_run_state.update(slack_artifact_delivery_state_updates(slack_binding.integration))
@@ -638,7 +642,9 @@ class _SlackBinding:
     thread_context: SlackThreadContext
 
 
-def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> _SlackBinding | None:
+def _slack_integration_that_may_speak(
+    team_id: int, ctx: contracts.WorkflowTaskSlackContext | None
+) -> IntegrationRecord | None:
     """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
     if ctx is None:
         return None
@@ -654,6 +660,14 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
         )
         return None
     if not _may_speak_in_channel(integration, ctx):
+        return None
+    return integration
+
+
+def _resolve_slack_binding(
+    integration: IntegrationRecord | None, team_id: int, ctx: contracts.WorkflowTaskSlackContext | None
+) -> _SlackBinding | None:
+    if integration is None or ctx is None:
         return None
     if _thread_has_a_live_run(integration, ctx):
         # No binding at all, rather than a binding that only loses the mapping race. The

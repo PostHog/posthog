@@ -9,13 +9,19 @@ from enum import StrEnum
 
 from posthog.integrations import IntegrationRecord
 
-from products.slack_app.backend.feature_flags import is_slack_app_web_settings_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_web_settings_enforced
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_settings import resolve_external_channels_enabled
 
 SHARED_CHANNELS_TURNED_OFF_MESSAGE = (
     "PostHog is turned off in channels shared with other organizations. "
     "A PostHog admin can turn it on in the Slack app settings in PostHog."
+)
+
+
+SHARED_CHANNEL_NEEDS_APPROVAL_MESSAGE = (
+    "This channel is shared with another organization, so PostHog needs approval here first. "
+    "Mention @PostHog in the channel to approve it."
 )
 
 
@@ -30,8 +36,31 @@ def shared_channel_access(integration: IntegrationRecord, slack_channel_id: str)
     """Only for a channel that Slack marks as externally shared. Other channels need neither check."""
     slack_workspace_id = integration.integration_id or ""
     # The switch is read first, so the flag is evaluated only for a workspace whose switch is off.
-    if not resolve_external_channels_enabled(slack_workspace_id) and is_slack_app_web_settings_enabled(integration):
+    if not resolve_external_channels_enabled(slack_workspace_id) and is_slack_app_web_settings_enforced(integration):
         return SharedChannelAccess.TURNED_OFF
     if SlackChannel.approval_granted(slack_workspace_id, slack_channel_id):
         return SharedChannelAccess.ALLOWED
     return SharedChannelAccess.NEEDS_APPROVAL
+
+
+def approved_shared_channel_turned_off(integration: IntegrationRecord, slack_channel_id: str) -> bool:
+    """Whether a run that already holds this channel's thread must stop posting in it.
+
+    A run checks ``shared_channel_access`` when it starts, but it can outlive that check. Only a Slack Connect
+    channel can have an approval, so an approved channel is a shared one, and a run in it stops once the switch
+    is off. This needs no call to Slack.
+    """
+    slack_workspace_id = integration.integration_id or ""
+    return (
+        SlackChannel.approval_granted(slack_workspace_id, slack_channel_id)
+        and not resolve_external_channels_enabled(slack_workspace_id)
+        and is_slack_app_web_settings_enforced(integration)
+    )
+
+
+def shared_channel_refusal_message(access: SharedChannelAccess) -> str:
+    return (
+        SHARED_CHANNELS_TURNED_OFF_MESSAGE
+        if access == SharedChannelAccess.TURNED_OFF
+        else SHARED_CHANNEL_NEEDS_APPROVAL_MESSAGE
+    )
