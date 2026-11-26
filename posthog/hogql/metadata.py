@@ -602,5 +602,7 @@ class TableCollector(TraversingVisitor):
         else:
             self.visit(node.table)
 
+        for argument in node.table_args or []:
+            self.visit(argument)
         self.visit(node.constraint)
         self.visit(node.next_join)

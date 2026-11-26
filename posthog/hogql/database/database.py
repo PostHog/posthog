@@ -888,25 +888,31 @@ def _reads_tables_the_walk_cannot_name(
             return True
         names |= {key(name) for name in collector.table_names}
 
+    def selects(expression: str) -> bool:
+        finder = _ReadFinder()
+        try:
+            finder.visit(parse_expr(expression))
+        except BaseHogQLError:
+            return True
+        return finder.found
+
     joins: dict[str, set[str]] = defaultdict(set)
-    for source, target in (
+    reading_expressions: set[str] = set()
+    for source, target, source_key, target_key in (
         DataWarehouseJoin.objects.filter(team_id=team.pk)
         .exclude(deleted=True)
-        .values_list("source_table_name", "joining_table_name")
+        .values_list("source_table_name", "joining_table_name", "source_table_key", "joining_table_key")
     ):
         joins[key(source)].add(key(target))
-    reading_expressions: set[str] = set()
+        # Join keys are HogQL expressions too, evaluated whenever the joined field is read.
+        if selects(source_key) or selects(target_key):
+            reading_expressions.add(key(source))
     for table_name, expression in (
         DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
         .exclude(deleted=True)
         .values_list("table_name", "expression")
     ):
-        finder = _ReadFinder()
-        try:
-            finder.visit(parse_expr(expression))
-        except BaseHogQLError:
-            finder.found = True
-        if finder.found:
+        if selects(expression):
             reading_expressions.add(key(table_name))
     if not joins and not reading_expressions:
         return False

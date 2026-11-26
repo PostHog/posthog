@@ -710,6 +710,16 @@ class TestDeniedTableError(BaseTest):
                 True,
             ),
             (
+                "trace_read_in_a_join_key",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "persons")],
+                None,
+                False,
+                True,
+            ),
+            (
                 "join_deleted_after_build",
                 "none",
                 "SELECT event AS name FROM events",
@@ -774,7 +784,11 @@ class TestDeniedTableError(BaseTest):
             DataWarehouseJoin.objects.create(
                 team=self.team,
                 source_table_name=source,
-                source_table_key="event",
+                source_table_key=(
+                    "if((SELECT count() FROM posthog.trace_spans) > 0, person_id, NULL)"
+                    if target == "persons"
+                    else "event"
+                ),
                 joining_table_name=target,
                 joining_table_key="name",
                 field_name=f"{target.rsplit('.', 1)[-1]}_join",
