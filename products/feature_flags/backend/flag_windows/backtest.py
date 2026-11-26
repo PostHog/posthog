@@ -487,22 +487,16 @@ def label_window(
     hours = data.hours.get(window.edit.group_type_index, {})
     before = [counts for start, counts in hours.items() if before_start <= start < rollback_hour]
     after = [counts for start, counts in hours.items() if after_start <= start < after_end]
-    rate_before, rate_after, z = _rate_drop(before, after)
-    evidence = LabelEvidence(
-        hours=int(span / HOUR),
-        new_errors_before=new_before,
-        new_errors_after=new_after,
-        rate_before=rate_before,
-        rate_after=rate_after,
-        drop_z=z,
-    )
+    evidence = _evidence(int(span / HOUR), new_before, new_after, before, after)
     if rollback.reason is not None:
         return _LABEL_BY_REASON[rollback.reason], evidence
     new_errors_stopped = (
         new_before >= parameters.min_label_errors and new_after <= parameters.stopped_share * new_before
     )
     rate_dropped = (
-        z >= parameters.drop_z and rate_before > 0 and 1 - rate_after / rate_before >= parameters.min_relative_drop
+        evidence.drop_z >= parameters.drop_z
+        and evidence.rate_before > 0
+        and 1 - evidence.rate_after / evidence.rate_before >= parameters.min_relative_drop
     )
     if new_errors_stopped or rate_dropped:
         return Label.BAD, evidence
@@ -512,17 +506,31 @@ def label_window(
     return Label.NOT_BAD, evidence
 
 
-def _rate_drop(before: Sequence[HourErrors], after: Sequence[HourErrors]) -> tuple[float, float, float]:
-    """The error rates of both sides, and the z of the drop from before to after."""
+def _evidence(
+    hours: int, new_before: int, new_after: int, before: Sequence[HourErrors], after: Sequence[HourErrors]
+) -> LabelEvidence:
+    """The evidence with the error rates of both sides, and the z of the drop from before to after."""
+    evidence = LabelEvidence(
+        hours=hours,
+        new_errors_before=new_before,
+        new_errors_after=new_after,
+        rate_before=0.0,
+        rate_after=0.0,
+        drop_z=0.0,
+    )
     active_before, errors_before = sum(h.active for h in before), sum(h.with_errors for h in before)
     active_after, errors_after = sum(h.active for h in after), sum(h.with_errors for h in after)
     if not active_before or not active_after:
-        return 0.0, 0.0, 0.0
+        return evidence
     rate_before, rate_after = errors_before / active_before, errors_after / active_after
     pooled = (errors_before + errors_after) / (active_before + active_after)
     variance = pooled * (1 - pooled) * (1 / active_before + 1 / active_after)
-    z = (rate_before - rate_after) / math.sqrt(variance) if variance > 0 else 0.0
-    return rate_before, rate_after, z
+    return replace(
+        evidence,
+        rate_before=rate_before,
+        rate_after=rate_after,
+        drop_z=(rate_before - rate_after) / math.sqrt(variance) if variance > 0 else 0.0,
+    )
 
 
 @frozen

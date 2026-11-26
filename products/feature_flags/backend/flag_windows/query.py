@@ -488,10 +488,10 @@ def _reason_joins(
             select=[
                 ast.Alias(alias="actor", expr=calls.actor_column(group_type_index)),
                 *[
-                    ast.Alias(alias=f"e{index}{suffix}", expr=expr)
+                    alias
                     for index, edit in watched
-                    for suffix, expr in zip(
-                        ("", "_first"), _called_with_watched_reason(edit, calls, reasons_by_edit[edit.id])
+                    for alias in _reason_aliases(
+                        index, _called_with_watched_reason(edit, calls, reasons_by_edit[edit.id])
                     )
                 ],
             ],
@@ -541,9 +541,7 @@ def _watched_reasons(edit: WatchedEdit) -> list[str]:
     return reasons
 
 
-def _called_with_watched_reason(
-    edit: WatchedEdit, calls: FlagCalls, reasons: Sequence[str]
-) -> tuple[ast.Expr, ast.Expr]:
+def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Sequence[str]) -> _ReasonColumns:
     """Whether the actor sent a call with a watched reason after the edit, and the time of the first one."""
     watched_call = parse_expr(
         """
@@ -558,10 +556,19 @@ def _called_with_watched_reason(
             "reasons": constants(reasons),
         },
     )
-    return (
-        parse_expr("max({watched_call})", placeholders={"watched_call": watched_call}),
-        parse_expr("minIf(timestamp, {watched_call})", placeholders={"watched_call": clone_expr(watched_call)}),
+    return _ReasonColumns(
+        called=parse_expr("max({watched_call})", placeholders={"watched_call": watched_call}),
+        first_call=parse_expr(
+            "minIf(timestamp, {watched_call})", placeholders={"watched_call": clone_expr(watched_call)}
+        ),
     )
+
+
+def _reason_aliases(index: int, columns: _ReasonColumns) -> list[ast.Alias]:
+    return [
+        ast.Alias(alias=f"e{index}", expr=columns.called),
+        ast.Alias(alias=f"e{index}_first", expr=columns.first_call),
+    ]
 
 
 def constants(values: Iterable[str]) -> ast.Tuple:
