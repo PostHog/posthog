@@ -278,20 +278,19 @@ tools:
             `current_artifact.content_hash` on that run. In ledger mode `new_hash` is null for a `removed` snapshot;
             elsewhere finalize accepts removals by itself. In ledger mode the run can be the newest run of the pull
             request or an older one: an accept counts on every later run that renders the same before and after
-            pictures. It does not pass the gate: `visual-review-runs-finalize-create` does that, and it needs a
-            person's yes. An agent cannot change a decision a person made, and never accepts over a rejection, its own
-            or anyone else's (`rejected_by_other`). An accept of a snapshot that is already accepted changes nothing
-            and keeps the first approver (listed in `already_decided`). The response has `head_run` and its
-            `progress`. All or nothing: on an error nothing is written, and `snapshots` names every refused snapshot
-            with its `code`.
+            pictures. It does not pass the gate: `visual-review-runs-finalize-create` does that, and it needs a person's
+            yes. An agent cannot change a decision a person made, and never accepts over a rejection, its own or anyone
+            else's (`rejected_by_other`). An accept of a snapshot that is already accepted changes nothing and keeps the
+            first approver (listed in `already_decided`). The response has `head_run` and its `progress`. All or
+            nothing: on an error nothing is written, and `snapshots` names every refused snapshot with its `code`.
+        exclude_params:
+            - override_rejection
         param_overrides:
             id:
                 description: |
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
-        exclude_params:
-            - override_rejection
         feature_flag: visual-review
     visual-review-runs-clear-create:
         operation: visual_review_runs_clear_create
@@ -305,17 +304,17 @@ tools:
         title: Undo visual review decisions
         description: >
             Undo the accept or reject of snapshots in ledger mode, so they need review again. Pass the run's UUID as
-            `id` and the snapshot `identifiers`. Works on any run of the pull request until its newest run is
-            finalized. An agent can undo only decisions made through MCP, never a person's, and never a rejection
-            another user's agent made (`rejected_by_other`). The response has `head_run` and its `progress`.
+            `id` and the snapshot `identifiers`. Works on any run of the pull request until its newest run is finalized.
+            An agent can undo only decisions made through MCP, never a person's, and never a rejection another user's
+            agent made (`rejected_by_other`). The response has `head_run` and its `progress`.
+        exclude_params:
+            - override_rejection
         param_overrides:
             id:
                 description: |
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
-        exclude_params:
-            - override_rejection
         feature_flag: visual-review-decisions
         feature_flag_behavior: enable
     visual-review-runs-counts-retrieve:
@@ -344,14 +343,14 @@ tools:
         description: >
             Finalize the newest run of a pull request once every changed, new and removed snapshot is accepted,
             tolerated or quarantined, and none is rejected. In ledger mode accepts made on earlier runs of the pull
-            request count while the pictures are the same, and the run's `gate` is `commit_status`: finalize records
-            the accepts, commits nothing, and turns the required status green at once. In yaml mode it commits the
-            accepted snapshots to the pull request's baseline file. `approve_all: true` accepts every change nobody
-            decided on first, and skips rejected and quarantined ones. On `409 not_fully_resolved` the response lists
-            `rejected` and `needs_review` separately: a rejected snapshot clears with a new picture, the rejecter's
-            undo, or a person's explicit override, never by an agent. On `409 stale_run`, finalize `head_run_id` instead; on `409 sha_mismatch`,
-            re-run CI and finalize the new run. The response names the `approvers`. STOP: never finalize without an
-            explicit human yes for this run. A yes covers one run: after a push, ask again.
+            request count while the pictures are the same, and the run's `gate` is `commit_status`: finalize records the
+            accepts, commits nothing, and turns the required status green at once. In yaml mode it commits the accepted
+            snapshots to the pull request's baseline file. `approve_all: true` accepts every change nobody decided on
+            first, and skips rejected and quarantined ones. On `409 not_fully_resolved` the response lists `rejected`
+            and `needs_review` separately: a rejected snapshot clears with a new picture, the rejecter's undo, or a
+            person's explicit override, never by an agent. On `409 stale_run`, finalize `head_run_id` instead; on `409
+            sha_mismatch`, re-run CI and finalize the new run. The response names the `approvers`. STOP: never finalize
+            without an explicit human yes for this run. A yes covers one run: after a push, ask again.
         feature_flag: visual-review
     visual-review-runs-lift-on-merge-create:
         operation: visual_review_runs_lift_on_merge_create
@@ -371,8 +370,8 @@ tools:
             first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift
             happens only after the pull request merges and a default-branch run that contains the merge renders the
             expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. An
-            accept made on an earlier run of the pull request counts when the pictures are the same. A repeat call
-            from the same pull request replaces the pending request.
+            accept made on an earlier run of the pull request counts when the pictures are the same. A repeat call from
+            the same pull request replaces the pending request.
         param_overrides:
             id:
                 description: |
