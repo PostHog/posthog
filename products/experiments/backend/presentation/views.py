@@ -46,6 +46,8 @@ from posthog.permissions import (
     is_scout_sandbox_request,
     is_service_auth,
     posthog_feature_flag_enabled,
+    request_subject,
+    resource_for_ref,
 )
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -74,6 +76,8 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.enums import Action
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade import (
     experiments as experiments_facade,
@@ -1215,7 +1219,9 @@ class EnterpriseExperimentsViewSet(
             team_id=self.team.id,
             created_by_id=experiment.feature_flag_created_by_id,
         )
-        return self.user_access_control.check_access_level_for_ref(flag, required_level="viewer")
+        return authorization.check(
+            resource=resource_for_ref(flag), action=Action.VIEW, subject=request_subject(self.request)
+        )
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,
@@ -1614,7 +1620,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: ExperimentHandle = self.get_object()
-        created = lifecycle.create_exposure_cohort(
+        cohort_data = lifecycle.create_exposure_cohort(
             team=self.team,
             user=cast(User, request.user),
             experiment_id=experiment.id,
@@ -1623,8 +1629,8 @@ class EnterpriseExperimentsViewSet(
                 "team": self.team,
                 "team_id": self.team_id,
             },
-        )
-        return Response({"cohort": created.cohort}, status=201)
+        ).cohort
+        return Response({"cohort": cohort_data}, status=201)
 
     @extend_schema(
         parameters=[
