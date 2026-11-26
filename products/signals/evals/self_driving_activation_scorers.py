@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types.responses import ResponseFormatTextJSONSchemaConfigParam
+from openai.types.shared_params import Reasoning
 
 from products.posthog_ai.eval_harness.acp_log import parse_log
 from products.posthog_ai.eval_harness.engines.types import ScorerResult
@@ -16,7 +18,7 @@ TEMPLATE_PATH = Path(__file__).resolve().parents[3] / "services/mcp/src/template
 TRIGGER_TOOLS = ("query-error-tracking-issues-list", "query-error-tracking-issue")
 STATUS_TOOL = "self-driving-status-get"
 JUDGE_MODEL = "gpt-6.2-sol"
-JUDGE_REASONING_EFFORT = "medium"
+JUDGE_REASONING: Reasoning = {"effort": "medium"}
 
 SELF_DRIVING = re.compile(r"self[\s-]?driving", re.IGNORECASE)
 ACTIVATION_LINK = "/inbox/activate"
@@ -259,7 +261,7 @@ Answer `yes` only when both conditions are true:
 Otherwise answer `no`. Give a one-sentence rationale first."""
 
 
-VERDICT_SCHEMA = {
+VERDICT_SCHEMA: ResponseFormatTextJSONSchemaConfigParam = {
     "type": "json_schema",
     "name": "verdict",
     "strict": True,
@@ -291,7 +293,7 @@ class AnsweredQuestionFirst(AsyncOnlyScorerMixin, Scorer):
             async with AsyncOpenAI() as client:
                 response = await client.responses.create(
                     model=JUDGE_MODEL,
-                    reasoning={"effort": JUDGE_REASONING_EFFORT},
+                    reasoning=JUDGE_REASONING,
                     input=prompt,
                     text={"format": VERDICT_SCHEMA},
                 )
