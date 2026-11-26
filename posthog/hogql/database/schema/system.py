@@ -2131,7 +2131,7 @@ exports: PostgresTable = PostgresTable(
 )
 
 _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = parse_expr(
-    f"NOT (type = 'canvas' AND ref NOT IN (SELECT toString(id) FROM {CANVASES_TABLE}))"
+    "NOT (type = 'canvas' AND ref NOT IN (SELECT toString(id) FROM system.canvases))"
 )
 _CANVAS_ROWS_HIDDEN = parse_expr("type != 'canvas'")
 

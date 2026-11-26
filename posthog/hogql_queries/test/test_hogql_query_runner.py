@@ -303,8 +303,6 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # system.activity_logs is floored to the plan's retention window, which moves with the clock,
             # so a stored row outlives the entitlement that let it be read.
             ("activity_logs", "select * from system.activity_logs", True),
-            # Canvas rows follow their channel's visibility, which the cache key does not carry.
-            ("file_system", "select ref from system.file_system", True),
             ("other_system_table", "select id, name from system.insights", False),
             ("events", "select count(event) from events", False),
             ("unparseable", "INVALID SQL SYNTAX", False),

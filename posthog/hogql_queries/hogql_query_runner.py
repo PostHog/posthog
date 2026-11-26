@@ -299,7 +299,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
 
         if _FILE_SYSTEM_TABLE in self._queried_table_names:
-            # Results stored before canvas rows were limited to readable canvases still hold the hidden ones.
             payload["file_system_canvas_rows"] = "readable_canvases"
 
         return payload
@@ -354,12 +353,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # system.activity_logs is floored to the organization's retention window, which moves with the
         # clock, so a stored row outlives the entitlement that let it be read. Recompute rather than
         # serve one back.
-        #
-        # system.file_system shows a canvas row only while its channel is public, and moving a canvas
-        # out of a public channel changes nothing in the cache key.
         table_names = self._queried_table_names
-        return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names) or bool(
-            {_ACTIVITY_LOGS_TABLE, _FILE_SYSTEM_TABLE} & table_names
+        return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names) or (
+            _ACTIVITY_LOGS_TABLE in table_names
         )
 
     @cached_property
