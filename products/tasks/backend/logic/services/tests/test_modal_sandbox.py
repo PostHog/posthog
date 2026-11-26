@@ -2558,6 +2558,53 @@ class TestModalSandboxCreateImageFallback:
         )
         assert "custom image posthog-dev-stack (never became ready) -> base image" in sandbox.config.image_fallback
 
+    def test_every_create_attempt_gets_a_fresh_sandbox_name(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            snapshot_external_id="im-snap-1",
+        )
+        names: list[str] = []
+        ready = iter([False, False, True])
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            names.append(kwargs["name"])
+            sb = MagicMock()
+            sb.object_id = f"sb-{len(names)}"
+            if not next(ready):
+                sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+            return sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=MagicMock(name="custom"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=MagicMock(name="snapshot"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, template, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+        ):
+            ModalSandbox.create(config)
+
+        assert len(names) == 3
+        assert len(set(names)) == 3
+        assert all(name.startswith("t-") for name in names)
+
     def test_unready_base_image_is_terminated_and_provisioning_fails(self):
         mock_sb = MagicMock()
         mock_sb.object_id = "sb-dead"

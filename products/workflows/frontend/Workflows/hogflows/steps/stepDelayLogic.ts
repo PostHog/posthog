@@ -492,6 +492,7 @@ export interface stepDelayLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {
@@ -842,6 +843,7 @@ export interface stepDelayLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {

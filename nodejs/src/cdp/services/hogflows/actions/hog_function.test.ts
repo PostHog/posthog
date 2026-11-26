@@ -17,6 +17,7 @@ import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { FakeSes } from '~/tests/helpers/fake-ses'
@@ -1170,7 +1171,7 @@ describe('HogFunctionHandler', () => {
         expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
     })
 
-    describe('paused email click tracking guards', () => {
+    describe('emails sent through SES', () => {
         const fakeSes = new FakeSes({
             'posthog-messaging': { opens: true, clicks: true },
             'posthog-messaging-untracked': { opens: false, clicks: false },
@@ -1197,6 +1198,169 @@ describe('HogFunctionHandler', () => {
                 }
             }
         })
+
+        beforeEach(() => {
+            fakeSes.deliveries.length = 0
+        })
+
+        type EmailConfig = Partial<Extract<HogFlowAction, { type: 'function_email' }>['config']>
+
+        const emailStepThroughSes = async (
+            config: EmailConfig,
+            send: CyclotronJobInvocationHogFlow['state']['send'],
+            html = '<body><a href="https://example.com/reset/tok">Reset</a></body>'
+        ) => {
+            const emailIntegrationId = uniqueTestId()
+            const emailTemplateId = `template-test-email-${team.id}`
+            await insertIntegration(hub.postgres, team.id, {
+                id: emailIntegrationId,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'ses',
+                },
+            })
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: emailTemplateId,
+                name: emailHogTemplate.name,
+                code: emailHogTemplate.code,
+                inputs_schema: emailHogTemplate.inputs_schema,
+            })
+
+            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+            const hogInputsService = new HogInputsService(
+                hub.integrationManager,
+                recipientTokensService,
+                hub.encryptedFields
+            )
+            const emailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const recipientsManagerService = new RecipientsManagerService(hub.postgres)
+            const emailService = new EmailService(
+                {
+                    sesAccessKeyId: 'fake-ses-key',
+                    sesSecretAccessKey: 'fake-ses-secret',
+                    sesRegion: 'us-east-1',
+                    sesEndpoint,
+                    sesTrackedConfigurationSet: 'posthog-messaging',
+                    sesUntrackedConfigurationSet: 'posthog-messaging-untracked',
+                },
+                hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                emailSuppressionService,
+                recipientsManagerService,
+                null,
+                { report: jest.fn(), reportEmailSent: jest.fn() }
+            )
+            const executor = new HogExecutorAsyncService(
+                new HogExecutorService(
+                    { executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                    hogInputsService
+                ),
+                {
+                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    fetchRetries: hub.CDP_FETCH_RETRIES,
+                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                    siteUrl: hub.SITE_URL,
+                    internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                },
+                {
+                    teamManager: hub.teamManager,
+                    conversationsTicketsJwt: new ScopedServiceJwt(
+                        PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                        hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                    ),
+                    customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                        PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                        hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                    ),
+                    hogInputsService,
+                    emailService,
+                    recipientTokensService,
+                    pushNotificationService: undefined as any,
+                }
+            )
+            const emailHandler = new HogFunctionHandler(
+                new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
+                new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
+                mockEmailValidationService,
+                'email',
+                null
+            )
+            const emailAction: Extract<HogFlowAction, { type: 'function_email' }> = {
+                id: 'email_action',
+                name: 'Send reset email',
+                description: '',
+                type: 'function_email',
+                config: {
+                    template_id: emailTemplateId as 'template-email',
+                    message_category_type: 'transactional',
+                    template_uuid: 'template-1',
+                    ...config,
+                    inputs: {
+                        email: {
+                            value: {
+                                to: { email: 'user@example.com', name: 'User' },
+                                from: { integrationId: emailIntegrationId, email: 'test@posthog.com', name: 'App' },
+                                replyTo: '',
+                                cc: '',
+                                bcc: '',
+                                subject: 'Reset your password',
+                                preheader: '',
+                                text: 'Reset',
+                                html,
+                            },
+                            templating: 'liquid',
+                        },
+                    },
+                },
+                created_at: 0,
+                updated_at: 0,
+                filters: null,
+            }
+            const emailFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        email_action: emailAction,
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'email_action', to: 'exit', type: 'continue' }],
+                })
+                .build()
+            const emailInvocation = createExampleHogFlowInvocation(emailFlow)
+            emailInvocation.state = {
+                ...emailInvocation.state,
+                event: emailInvocation.state?.event ?? ({} as any),
+                actionStepCount: 0,
+                ...(send ? { send } : {}),
+                currentAction: { id: emailAction.id, startedAtTimestamp: DateTime.now().toMillis() },
+            }
+
+            const runOnQueue = async (
+                stepInvocation: CyclotronJobInvocationHogFlow,
+                queue: 'hogflow' | 'email'
+            ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+                const result = createInvocationResult<CyclotronJobInvocationHogFlow>(stepInvocation, {
+                    queue,
+                    queuePriority: 0,
+                })
+                await emailHandler.execute({ invocation: stepInvocation, action: emailAction, result })
+                return result
+            }
+            const deliver = async (): Promise<void> => {
+                const queued = await runOnQueue(emailInvocation, 'hogflow')
+                await runOnQueue(queued.invocation, 'email')
+            }
+
+            return { emailAction, emailInvocation, runOnQueue, deliver }
+        }
 
         it.each([
             {
@@ -1256,148 +1420,9 @@ describe('HogFunctionHandler', () => {
         ])(
             'preserves queued click tracking behavior when $case',
             async ({ initialConfig, updatedConfig, send, simulatePreDeployState, expectTracked, expectOpens }) => {
-                fakeSes.deliveries.length = 0
-                const emailIntegrationId = uniqueTestId()
-                const emailTemplateId = `template-test-email-${team.id}`
-                await insertIntegration(hub.postgres, team.id, {
-                    id: emailIntegrationId,
-                    kind: 'email',
-                    config: {
-                        email: 'test@posthog.com',
-                        name: 'Test User',
-                        domain: 'posthog.com',
-                        verified: true,
-                        provider: 'ses',
-                    },
-                })
-                await insertHogFunctionTemplate(hub.postgres, {
-                    id: emailTemplateId,
-                    name: emailHogTemplate.name,
-                    code: emailHogTemplate.code,
-                    inputs_schema: emailHogTemplate.inputs_schema,
-                })
+                const { emailAction, emailInvocation, runOnQueue } = await emailStepThroughSes(initialConfig, send)
 
-                const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-                const hogInputsService = new HogInputsService(
-                    hub.integrationManager,
-                    recipientTokensService,
-                    hub.encryptedFields
-                )
-                const emailSuppressionService = new EmailSuppressionService(
-                    hub.postgres,
-                    emailSuppressionConfigFromEnv()
-                )
-                const recipientsManagerService = new RecipientsManagerService(hub.postgres)
-                const emailService = new EmailService(
-                    {
-                        sesAccessKeyId: 'fake-ses-key',
-                        sesSecretAccessKey: 'fake-ses-secret',
-                        sesRegion: 'us-east-1',
-                        sesEndpoint,
-                        sesTrackedConfigurationSet: 'posthog-messaging',
-                        sesUntrackedConfigurationSet: 'posthog-messaging-untracked',
-                    },
-                    hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    emailSuppressionService,
-                    recipientsManagerService,
-                    null,
-                    { report: jest.fn(), reportEmailSent: jest.fn() }
-                )
-                const executor = new HogExecutorAsyncService(
-                    new HogExecutorService(
-                        { executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
-                        hogInputsService
-                    ),
-                    {
-                        googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                        fetchRetries: hub.CDP_FETCH_RETRIES,
-                        fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                        fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                        siteUrl: hub.SITE_URL,
-                        internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
-                    },
-                    {
-                        teamManager: hub.teamManager,
-                        conversationsTicketsJwt: new ScopedServiceJwt(
-                            PosthogJwtAudience.CONVERSATIONS_TICKETS,
-                            hub.CONVERSATIONS_TICKETS_JWT_SECRET
-                        ),
-                        customerAnalyticsAccountsJwt: new ScopedServiceJwt(
-                            PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
-                            hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
-                        ),
-                        hogInputsService,
-                        emailService,
-                        recipientTokensService,
-                        pushNotificationService: undefined as any,
-                    }
-                )
-                const emailHandler = new HogFunctionHandler(
-                    new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
-                    new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
-                    mockEmailValidationService,
-                    'email',
-                    null
-                )
-                const emailAction: Extract<HogFlowAction, { type: 'function_email' }> = {
-                    id: 'email_action',
-                    name: 'Send reset email',
-                    description: '',
-                    type: 'function_email',
-                    config: {
-                        template_id: emailTemplateId as 'template-email',
-                        message_category_type: 'transactional',
-                        template_uuid: 'template-1',
-                        ...initialConfig,
-                        inputs: {
-                            email: {
-                                value: {
-                                    to: { email: 'user@example.com', name: 'User' },
-                                    from: { integrationId: emailIntegrationId, email: 'test@posthog.com', name: 'App' },
-                                    replyTo: '',
-                                    cc: '',
-                                    bcc: '',
-                                    subject: 'Reset your password',
-                                    preheader: '',
-                                    text: 'Reset',
-                                    html: '<body><a href="https://example.com/reset/tok">Reset</a></body>',
-                                },
-                                templating: 'liquid',
-                            },
-                        },
-                    },
-                    created_at: 0,
-                    updated_at: 0,
-                    filters: null,
-                }
-                const emailFlow = new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withWorkflow({
-                        actions: {
-                            email_action: emailAction,
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: [{ from: 'email_action', to: 'exit', type: 'continue' }],
-                    })
-                    .build()
-                const emailInvocation = createExampleHogFlowInvocation(emailFlow)
-                emailInvocation.state = {
-                    ...emailInvocation.state,
-                    event: emailInvocation.state?.event ?? ({} as any),
-                    actionStepCount: 0,
-                    ...(send ? { send } : {}),
-                    currentAction: { id: emailAction.id, startedAtTimestamp: DateTime.now().toMillis() },
-                }
-
-                const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(emailInvocation, {
-                    queue: 'hogflow',
-                    queuePriority: 0,
-                })
-                await emailHandler.execute({ invocation: emailInvocation, action: emailAction, result: firstResult })
+                const firstResult = await runOnQueue(emailInvocation, 'hogflow')
                 expect(firstResult.invocation.queue).toBe('email')
                 expect(fakeSes.deliveries).toHaveLength(0)
 
@@ -1406,15 +1431,7 @@ describe('HogFunctionHandler', () => {
                 }
                 Object.assign(emailAction.config, updatedConfig)
 
-                const secondResult = createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
-                    queue: 'email',
-                    queuePriority: 0,
-                })
-                await emailHandler.execute({
-                    invocation: firstResult.invocation,
-                    action: emailAction,
-                    result: secondResult,
-                })
+                await runOnQueue(firstResult.invocation, 'email')
 
                 expect(fakeSes.deliveries).toHaveLength(1)
                 const deliveredHtml = fakeSes.deliveries[0].html!
@@ -1427,6 +1444,89 @@ describe('HogFunctionHandler', () => {
                 expect(deliveredHtml.includes(`<img src="${sesEndpoint}/I0/open.gif" />`)).toBe(expectOpens)
             }
         )
+
+        describe('a code send in a message category', () => {
+            const newsletterId = '0197a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+            const codeSend = (category?: { id: string; type: 'marketing' | 'transactional' }) => ({
+                content: { subject: 'News', html: '<p>News</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>' },
+                tracking: { captureEngagement: true, opens: false as const },
+                ...(category ? { category } : {}),
+            })
+            const optOut = async (preferences: Record<string, string>): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                     VALUES ($1, $2, 'user@example.com', $3, NOW(), NOW(), false)`,
+                    [new UUIDT().toString(), team.id, JSON.stringify(preferences)],
+                    'testOptOutRecipient'
+                )
+            }
+            const unsubscribeLinks = (html: string) =>
+                [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(([, href]) => href)
+
+            it.each<{ case: string; preferences: Record<string, string> }>([
+                { case: 'this category', preferences: { [newsletterId]: 'OPTED_OUT' } },
+                { case: 'all marketing', preferences: { $all: 'OPTED_OUT' } },
+            ])('does not send a marketing email to a recipient who opted out of $case', async ({ preferences }) => {
+                await optOut(preferences)
+                const { deliver } = await emailStepThroughSes({}, codeSend({ id: newsletterId, type: 'marketing' }))
+
+                await deliver()
+
+                expect(fakeSes.deliveries).toHaveLength(0)
+            })
+
+            it('sends a marketing email with its unsubscribe link and List-Unsubscribe headers', async () => {
+                const { deliver } = await emailStepThroughSes({}, codeSend({ id: newsletterId, type: 'marketing' }))
+
+                await deliver()
+
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const [delivery] = fakeSes.deliveries
+                expect(unsubscribeLinks(delivery.html)).toEqual([
+                    expect.stringMatching(new RegExp(`^${hub.SITE_URL}/messaging-preferences/[^/]+/$`)),
+                ])
+                expect(delivery.headers).toEqual(
+                    expect.arrayContaining([
+                        { name: 'List-Unsubscribe', value: expect.stringMatching(/^<.+one_click_unsubscribe=1>$/) },
+                        { name: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
+                    ])
+                )
+            })
+
+            it('does not send a marketing email that its unsubscribe links make too large to send', async () => {
+                const { emailInvocation, runOnQueue } = await emailStepThroughSes(
+                    {},
+                    {
+                        ...codeSend({ id: newsletterId, type: 'marketing' }),
+                        content: { subject: 'News', html: '{{ unsubscribe_url }}'.repeat(400_000) },
+                    }
+                )
+
+                const queued = await runOnQueue(emailInvocation, 'hogflow')
+                const result = await runOnQueue(queued.invocation, 'email')
+
+                expect(fakeSes.deliveries).toHaveLength(0)
+                expect(result.logs.map(({ message }) => message)).toContainEqual(
+                    expect.stringContaining('message_too_large')
+                )
+            })
+
+            it.each([
+                { case: 'no category', category: undefined },
+                { case: 'a transactional category', category: { id: newsletterId, type: 'transactional' as const } },
+            ])('sends with $case as a transactional email, even to an opted-out recipient', async ({ category }) => {
+                await optOut({ $all: 'OPTED_OUT' })
+                const { deliver } = await emailStepThroughSes({}, codeSend(category))
+
+                await deliver()
+
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const [delivery] = fakeSes.deliveries
+                expect(unsubscribeLinks(delivery.html)).toEqual(['{{ unsubscribe_url }}'])
+                expect(delivery.headers.map(({ name }) => name)).not.toContain('List-Unsubscribe')
+            })
+        })
     })
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {

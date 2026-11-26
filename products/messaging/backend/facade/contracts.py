@@ -19,6 +19,16 @@ class UnlayerRenderError(UnlayerError):
     pass
 
 
+@frozen
+class MessageTemplateListFilter:
+    """Which of a team's templates a list returns. Every set field narrows the list, and an empty one leaves it whole."""
+
+    transactional: bool | None = None
+    search: str = ""
+    created_by_id: int | None = None
+    tags: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class EmailTemplateSummary:
     id: UUID
@@ -533,6 +543,8 @@ class TransactionalEmailImpact:
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
+    sessions: int | None
+    link_tagging_enabled: bool
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):

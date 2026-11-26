@@ -6004,7 +6004,23 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type ErrorTrackingIssueTagColorApi =
+    (typeof ErrorTrackingIssueTagColorApi)[keyof typeof ErrorTrackingIssueTagColorApi]
+
+export const ErrorTrackingIssueTagColorApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagApi {
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColorApi | null
     /** What the tag means, for a tooltip. */
     description: string
     /** Key of the tag definition. */

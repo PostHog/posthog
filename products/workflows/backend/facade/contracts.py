@@ -840,6 +840,10 @@ class SuggestionsSample:
     reached: bool
     # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
     tracked_sends: int
+    # All sends, tracked or not, from the live version's busiest email step in the window.
+    sends: int
+    # A readable conversion goal lets untracked sends count toward the floor.
+    reads_conversion: bool
     required_sends: int
     version_live_since: datetime
 
@@ -885,6 +889,7 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
+    click_tracking_enabled: bool | None = None
     # Empty values use the sender's own address, name and default reply-to.
     from_email: str = ""
     from_name: str = ""

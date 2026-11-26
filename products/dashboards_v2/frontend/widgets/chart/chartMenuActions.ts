@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import type { MenuAction } from '../../dashboard/menuAction'
-import type { WidgetMenuContext } from '../widgetDefinition'
+import type { MenuAction } from '../../menu/menuAction'
+import type { WidgetMenuContext } from '../core/widgetDefinition'
 import type { ChartConfig } from './chartSpec'
 import type { VizSpec } from './vizTypes'
 

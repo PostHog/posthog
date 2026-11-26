@@ -66,7 +66,7 @@ export function QuillImpactedMembersTable({
                 getRowId={(member) => member.id}
                 fullWidth
                 size="sm"
-                pageSize={members.length > 8 ? 8 : undefined}
+                pageSize={8}
             />
             {count > members.length && (
                 <Text size="xs" variant="muted" render={<p className="m-0" />}>

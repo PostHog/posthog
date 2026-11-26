@@ -172,9 +172,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
-                # Task is still running (PR opened mid-run) — keep the :eyes: reaction
-                # so the thread reads as in-progress until it genuinely completes.
-                handler.update_reaction("eyes")
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage, str(task_run.id))
             handler.post_or_update_progress(stage, task_url)

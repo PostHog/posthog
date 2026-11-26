@@ -69,6 +69,13 @@ export const CardFault = z.discriminatedUnion('name', [
             for: Duration.optional(),
         })
         .strict(),
+    z
+        .object({
+            name: z.literal('pg.commit_reply_lost'),
+            dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
 ])
 export type CardFault = z.infer<typeof CardFault>
 
@@ -89,7 +96,7 @@ export type WebhookAnswer =
 
 // Postgres itself refuses the insert, so its error, the transaction it fails and the rest of the client's pipeline
 // are the server's own.
-export type PgAnswer = { kind: 'pg-refuse' }
+export type PgAnswer = { kind: 'pg-refuse' } | { kind: 'pg-commit-reply-lost' }
 
 type Answer = SesAnswer | WebhookAnswer | PgAnswer
 
@@ -105,7 +112,7 @@ export type FaultRule = {
 type FaultedRequest =
     | { channel: 'ses'; recipients: string[] }
     | { channel: 'webhook'; host: string }
-    | { channel: 'pg' }
+    | { channel: 'pg'; at: 'enqueue' | 'commit' }
 
 export type Hit = { unitId?: string; pickKey: string }
 
@@ -134,13 +141,15 @@ export function ruleOf(fault: CardFault): FaultRule {
             return { ...fault, answer: { kind: 'webhook-ambiguous', accepted: fault.params.accepted } }
         case 'pg.enqueue_refused':
             return { ...fault, answer: { kind: 'pg-refuse' } }
+        case 'pg.commit_reply_lost':
+            return { ...fault, answer: { kind: 'pg-commit-reply-lost' } }
     }
 }
 
-export const heldAnswerRule = (): FaultRule => ({
+export const heldAnswerRule = (share?: number): FaultRule => ({
     name: 'edge.accepted',
     answer: { kind: 'hold-answer' },
-    dose: { count: 1 },
+    dose: share === undefined ? { count: 1 } : { share },
 })
 
 type ActiveFault = {
@@ -173,13 +182,14 @@ function picked(pick: string, key: string, attempt: number, share: number): bool
 // answers, and a clear forgets the tokens it handed out.
 const tokenOf = (faultId: string): string => faultId.replaceAll('-', '')
 
-// An enqueue carries no unit the edge can read, so a refusal records no hit.
+// An enqueue carries no unit the edge can read, so a Postgres fault records no hit.
 const PG_HIT: Hit = { pickKey: 'pg' }
 
 const isWebhookAnswer = (answer: Answer): answer is WebhookAnswer =>
     answer.kind === 'webhook-status' || answer.kind === 'webhook-ambiguous'
 
-const isPgAnswer = (answer: Answer): answer is PgAnswer => answer.kind === 'pg-refuse'
+const isPgAnswer = (answer: Answer): answer is PgAnswer =>
+    answer.kind === 'pg-refuse' || answer.kind === 'pg-commit-reply-lost'
 
 const isSesAnswer = (answer: Answer): answer is SesAnswer => !isWebhookAnswer(answer) && !isPgAnswer(answer)
 
@@ -191,14 +201,14 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
         return isWebhookAnswer(answer) && (match?.host === undefined || match.host === request.host)
     }
     if (request.channel === 'pg') {
-        return isPgAnswer(answer)
+        return answer.kind === (request.at === 'enqueue' ? 'pg-refuse' : 'pg-commit-reply-lost')
     }
     return isSesAnswer(answer) && (match?.recipient === undefined || request.recipients.includes(match.recipient))
 }
 
 function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): boolean {
     const {
-        rule: { dose, pick },
+        rule: { answer, dose, pick },
         matched,
         applied,
     } = fault
@@ -208,6 +218,9 @@ function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): b
     }
     if ('count' in dose) {
         return applied < dose.count
+    }
+    if (answer.kind === 'hold-answer' && (applied > 0 || unitId === undefined)) {
+        return false
     }
     if (pick !== undefined) {
         const attempt = fault.attempts.get(unitId ?? pickKey) ?? 0
@@ -271,7 +284,7 @@ export class FaultList {
     }
 
     refusePg(): string | undefined {
-        const fault = this.take({ channel: 'pg' }, PG_HIT, { appliesNow: false })
+        const fault = this.take({ channel: 'pg', at: 'enqueue' }, PG_HIT, { appliesNow: false })
         if (fault === undefined) {
             return undefined
         }
@@ -285,6 +298,11 @@ export class FaultList {
         if (id !== undefined && !this.firstApplied.has(id)) {
             this.firstApplied.set(id, Date.now())
         }
+    }
+
+    // The proxy cuts the client as soon as this answers, so the fault is observed when it takes its dose.
+    losePgCommitReply(): boolean {
+        return this.take({ channel: 'pg', at: 'commit' }, PG_HIT) !== undefined
     }
 
     private take(request: FaultedRequest, hit: Hit, { appliesNow = true } = {}): ActiveFault | undefined {

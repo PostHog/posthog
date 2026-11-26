@@ -4,7 +4,9 @@ The per-tool table and activity series resolve the effective tool name so exec-w
 calls match the per-tool detail runners. Category queries use the event-supplied category.
 """
 
+import math
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, cast
@@ -27,9 +29,11 @@ from posthog.schema import (
     MCPToolQualityDailyStatItem,
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityDailyStatsQueryResponse,
+    MCPToolQualityRowBucket,
     MCPToolQualityRowItem,
     MCPToolQualityRowsQuery,
     MCPToolQualityRowsQueryResponse,
+    MCPToolQualityTotals,
 )
 
 from posthog.hogql import ast
@@ -37,6 +41,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import DateRangeBounds, QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -44,6 +49,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
+    EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     mcp_query_date_range,
     shared_filter_exprs,
@@ -51,7 +57,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
 )
 
 if TYPE_CHECKING:
-    from posthog.schema import AnyPropertyFilterDiscriminated
+    from posthog.schema import AnyPropertyFilterDiscriminated, DateRange
 
     from posthog.models.team import Team
     from posthog.models.user import User
@@ -85,6 +91,18 @@ _TREND_SCORE_MIN_K = 10
 _TREND_SCORE_VOLUME_FRACTION = 0.0001
 
 
+@frozen
+class _ToolVolume:
+    """A tool's volume chart buckets, with the description and category from its latest call that sent one."""
+
+    buckets: list[MCPToolQualityRowBucket]
+    description: str | None
+    category: str | None
+
+
+_NO_VOLUME = _ToolVolume(buckets=[], description=None, category=None)
+
+
 def _category_in(categories: list[str] | None) -> list[ast.Expr]:
     """Optional `$mcp_tool_category IN (...)` predicate, values bound as constants."""
     if not categories:
@@ -108,6 +126,39 @@ def _within(date_from: ast.Expr, date_to: ast.Expr, *, exclusive_end: bool = Fal
 
 def _hogql_datetime(value: datetime) -> ast.Expr:
     return ast.Call(name="toDateTime", args=[ast.Constant(value=value.strftime("%Y-%m-%d %H:%M:%S"))])
+
+
+def _previous_window(current: QueryDateRange, date_range: "DateRange | None", team: "Team") -> DateRangeBounds:
+    """The period a window compares against, as a half-open [date_from, date_to).
+
+    To-date ranges ("This month") compare against the same part of the previous unit. Every
+    other range compares against the same length of time right before the current window.
+    """
+    current_from = current.date_from()
+    current_to = current.date_to()
+    calendar = QueryPreviousPeriodDateRange(
+        date_range=date_range, team=team, interval=None, now=current.now_with_timezone
+    ).previous_calendar_period(current_from, current_to)
+    if calendar is not None:
+        return calendar
+    return DateRangeBounds(date_from=current_from - (current_to - current_from), date_to=current_from)
+
+
+def _both_windows(current: QueryDateRange, previous: DateRangeBounds) -> ast.Expr:
+    return ast.Or(
+        exprs=[
+            _within(_hogql_datetime(previous.date_from), _hogql_datetime(previous.date_to), exclusive_end=True),
+            _within(current.date_from_as_hogql(), current.date_to_as_hogql()),
+        ]
+    )
+
+
+def _finite_or_none(value: object) -> float | None:
+    """None when no call carried a duration, which ClickHouse returns as NULL or NaN."""
+    if value is None:
+        return None
+    number = float(value)  # type: ignore[arg-type]
+    return number if math.isfinite(number) else None
 
 
 def _named_tool_where(
@@ -166,19 +217,8 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
 
     @cached_property
     def previous_window(self) -> DateRangeBounds:
-        """The period the Trend column compares against, as a half-open [date_from, date_to).
-
-        To-date ranges ("This month") compare against the same part of the previous unit. Every
-        other range compares against the same length of time right before the current window.
-        """
-        current_from = self.query_date_range.date_from()
-        current_to = self.query_date_range.date_to()
-        calendar = QueryPreviousPeriodDateRange(
-            date_range=self.query.dateRange, team=self.team, interval=None, now=self.query_date_range.now_with_timezone
-        ).previous_calendar_period(current_from, current_to)
-        if calendar is not None:
-            return calendar
-        return DateRangeBounds(date_from=current_from - (current_to - current_from), date_to=current_from)
+        """The period the Trend column compares against."""
+        return _previous_window(self.query_date_range, self.query.dateRange, self.team)
 
     def to_query(
         self, *, limit_override: int | None = None, offset_override: int | None = None
@@ -308,13 +348,79 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         return query
 
     def _both_windows(self) -> ast.Expr:
-        previous = self.previous_window
-        return ast.Or(
-            exprs=[
-                _within(_hogql_datetime(previous.date_from), _hogql_datetime(previous.date_to), exclusive_end=True),
-                _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
-            ]
+        return _both_windows(self.query_date_range, self.previous_window)
+
+    def _buckets_query(self, tools: list[str]) -> ast.SelectQuery | ast.SelectSetQuery:
+        interval = self.query.interval.value if self.query.interval else "day"
+        return parse_select(
+            """
+            SELECT
+                tool,
+                bucket,
+                count() AS calls,
+                countIf(is_error) AS errors,
+                round(quantile(0.95)(duration_ms)) AS p95_duration_ms,
+                argMaxIf(description, timestamp, description IS NOT NULL) AS description,
+                argMaxIf(category, timestamp, category IS NOT NULL) AS category
+            FROM (
+                SELECT
+                    {_EFFECTIVE_TOOL} AS tool,
+                    toString(dateTrunc({interval}, timestamp)) AS bucket,
+                    toBool(properties.$mcp_is_error) AS is_error,
+                    toFloat(properties.$mcp_duration_ms) AS duration_ms,
+                    nullIf({_EFFECTIVE_DESCRIPTION}, '') AS description,
+                    nullIf(toString(properties.$mcp_tool_category), '') AS category,
+                    timestamp
+                FROM events
+                WHERE {where} AND {_EFFECTIVE_TOOL} IN {tools}
+            )
+            GROUP BY tool, bucket
+            ORDER BY tool, bucket
+            LIMIT 50000
+            """,
+            placeholders={
+                "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
+                "_EFFECTIVE_DESCRIPTION": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
+                "interval": ast.Constant(value=interval),
+                "tools": ast.Tuple(exprs=[ast.Constant(value=tool) for tool in tools]),
+                "where": _named_tool_where(
+                    _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
+                    self.query.categories,
+                    self.team,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                ),
+            },
         )
+
+    def _page_buckets(self, tools: list[str]) -> dict[str, _ToolVolume]:
+        if not tools:
+            return {}
+        response = execute_hogql_query(
+            query=self._buckets_query(tools),
+            team=self.team,
+            user=self.user,
+            query_type="mcp_tool_quality_row_buckets_query",
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+        by_tool: dict[str, _ToolVolume] = {}
+        for tool, bucket, calls, errors, p95, description, category in response.results or []:
+            kept = by_tool.setdefault(str(tool), _ToolVolume(buckets=[], description=None, category=None))
+            kept.buckets.append(
+                MCPToolQualityRowBucket(
+                    bucket=str(bucket),
+                    calls=int(calls or 0),
+                    errors=int(errors or 0),
+                    p95_duration_ms=_finite_or_none(p95) or 0.0,
+                )
+            )
+            # Rows come in bucket order, so a later bucket's description is the newer one.
+            by_tool[str(tool)] = replace(
+                kept, description=description or kept.description, category=category or kept.category
+            )
+        return by_tool
 
     def _total_sessions_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
@@ -389,6 +495,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 total_count = 0
                 total_sessions = int(total_sessions_row[0] or 0)
                 previous_total_sessions = int(total_sessions_row[1] or 0)
+        page_buckets = self._page_buckets([str(row[0] or "") for row in rows]) if self.query.includeBuckets else {}
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
@@ -407,6 +514,9 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 previous_errors=int(row[14] or 0),
                 previous_p95_duration_ms=None if row[15] is None else float(row[15]),
                 previous_sessions=int(row[16] or 0),
+                buckets=page_buckets.get(str(row[0] or ""), _NO_VOLUME).buckets,
+                description=page_buckets.get(str(row[0] or ""), _NO_VOLUME).description,
+                category=page_buckets.get(str(row[0] or ""), _NO_VOLUME).category,
             )
             for row in rows
         ]
@@ -462,15 +572,86 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 "interval": ast.Constant(value=interval),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_LATENCY_QUANTILES": parse_expr(_LATENCY_QUANTILES),
-                "where": _named_tool_where(
-                    _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
-                    self.query.categories,
-                    self.team,
-                    self.query.properties,
-                    self.query.filterTestAccounts,
-                    tool_name=self.query.toolName,
+                "where": ast.And(
+                    exprs=[
+                        _named_tool_where(
+                            _within(
+                                self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()
+                            ),
+                            self.query.categories,
+                            self.team,
+                            self.query.properties,
+                            self.query.filterTestAccounts,
+                            tool_name=self.query.toolName,
+                        ),
+                        *_tool_search((self.query.search or "").strip()),
+                    ]
                 ),
             },
+        )
+
+    def _totals_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT
+                countIf(is_current) AS calls,
+                countIf(is_current AND is_error) AS errors,
+                round(quantileIf(0.5)(duration_ms, is_current)) AS p50,
+                round(quantileIf(0.95)(duration_ms, is_current)) AS p95,
+                countIf(NOT is_current) AS previous_calls,
+                countIf(NOT is_current AND is_error) AS previous_errors,
+                round(quantileIf(0.5)(duration_ms, NOT is_current)) AS previous_p50,
+                round(quantileIf(0.95)(duration_ms, NOT is_current)) AS previous_p95
+            FROM (
+                SELECT
+                    timestamp >= {current_from} AS is_current,
+                    toBool(properties.$mcp_is_error) AS is_error,
+                    toFloat(properties.$mcp_duration_ms) AS duration_ms
+                FROM events
+                WHERE {where}
+            )
+            """,
+            placeholders={
+                "current_from": self.query_date_range.date_from_as_hogql(),
+                "where": ast.And(
+                    exprs=[
+                        _named_tool_where(
+                            _both_windows(
+                                self.query_date_range,
+                                _previous_window(self.query_date_range, self.query.dateRange, self.team),
+                            ),
+                            self.query.categories,
+                            self.team,
+                            self.query.properties,
+                            self.query.filterTestAccounts,
+                            tool_name=self.query.toolName,
+                        ),
+                        *_tool_search((self.query.search or "").strip()),
+                    ]
+                ),
+            },
+        )
+
+    def _totals(self) -> MCPToolQualityTotals:
+        response = execute_hogql_query(
+            query=self._totals_query(),
+            team=self.team,
+            user=self.user,
+            query_type="mcp_tool_quality_totals_query",
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+        row = (response.results or [[0, 0, None, None, 0, 0, None, None]])[0]
+        return MCPToolQualityTotals(
+            calls=int(row[0] or 0),
+            errors=int(row[1] or 0),
+            p50=_finite_or_none(row[2]) or 0.0,
+            p95=_finite_or_none(row[3]) or 0.0,
+            previous_calls=int(row[4] or 0),
+            previous_errors=int(row[5] or 0),
+            previous_p50=_finite_or_none(row[6]),
+            previous_p95=_finite_or_none(row[7]),
         )
 
     def _calculate(self) -> MCPToolQualityDailyStatsQueryResponse:
@@ -489,6 +670,7 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
+            totals = self._totals() if self.query.includeTotals else None
 
         results = [
             MCPToolQualityDailyStatItem(
@@ -509,7 +691,7 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
             for row in (response.results or [])
         ]
         return MCPToolQualityDailyStatsQueryResponse(
-            results=results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
+            results=results, totals=totals, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
         )
 
 
