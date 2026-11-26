@@ -56,6 +56,7 @@ runs:
               # Paths that do not exist add nothing to the hash.
               hashed = [
                   "rust", "proto", ".cargo", "rust-toolchain", "rust-toolchain.toml",
+                  ".gitattributes",
                   ".github/workflows/ci-mcp.yml",
                   ".github/actions/setup-protoc",
                   ".github/actions/feature-flags-binary-key",

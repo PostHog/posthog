@@ -638,7 +638,8 @@ jobs:
             - name: Download MaxMind Database
               run: ./bin/download-mmdb
 
-            # The token stays out of the job env, so no other step's processes see it.
+            # The token stays out of the job env, so no other step's processes see it,
+            # and the job logs out once the image pulls finish.
             # Fork runs get no secrets and skip the login.
             - name: Check for Docker Hub credentials
               id: dockerhub
@@ -671,6 +672,10 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal
               run: bin/ci-wait-for-docker wait temporal
+
+            - name: Log out of Docker Hub
+              if: steps.dockerhub.outputs.available == 'true'
+              run: docker logout
 
             - name: Fetch PR history and current base for merge-base
               if: github.event_name == 'pull_request'
@@ -854,6 +859,7 @@ jobs:
                   PERSONS_WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons
                   REDIS_URL: redis://localhost:6379/
                   CACHE_TTL_SECONDS: '0'
+                  MAXMIND_DB_PATH: ${{ github.workspace }}/share/GeoLite2-City.mmdb
                   RUST_BACKTRACE: '1'
               run: |
                   ./target/debug/feature-flags > /tmp/rust-flags.log 2>&1 &
