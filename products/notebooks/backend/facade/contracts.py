@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import JsonValue
 from pydantic.dataclasses import dataclass
 
 
@@ -45,6 +46,27 @@ class AppRelease:
     layout: dict[str, Any]
     variables: list[dict[str, Any]]
     has_previous: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppViewGrantResult:
+    url: str | None
+    expires_at: datetime | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppOutputTab:
+    title: str
+    blocks: list[dict[str, JsonValue]]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppOutput:
+    title: str
+    description: str | None
+    revision: int
+    published_at: datetime
+    tabs: list[AppOutputTab]
 
 
 @dataclass(frozen=True, kw_only=True)

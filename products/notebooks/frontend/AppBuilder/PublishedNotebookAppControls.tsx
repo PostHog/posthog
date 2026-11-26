@@ -8,6 +8,7 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
+import { NotebookAppAccess } from './NotebookAppAccess'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 
 function ResultTimestamp({
@@ -73,6 +74,7 @@ export function PublishedNotebookAppControls({
             >
                 Copy app link
             </LemonButton>
+            {canEditNotebook && !isTemplate && <NotebookAppAccess project={viewer.project} shortId={shortId} />}
             {variables.length > 0 && <LemonCheckbox label="Auto-update results" checked={auto} onChange={setAuto} />}
             {(hasNativeSql || variables.length > 0) && (
                 <LemonButton type="secondary" size="small" loading={busy} onClick={() => refresh(!dirty)}>

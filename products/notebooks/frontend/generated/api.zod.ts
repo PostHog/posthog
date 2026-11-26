@@ -1403,6 +1403,19 @@ export const NotebooksAppQueriesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksAppViewGrantsCreateBodyRevokeDefault = false
+
+export const NotebooksAppViewGrantsCreateBody = /* @__PURE__ */ zod.object({
+    email: zod.email().describe('Email address of the project member who can open the published output.'),
+    revoke: zod
+        .boolean()
+        .default(notebooksAppViewGrantsCreateBodyRevokeDefault)
+        .describe("Remove this member's access to every revision of this app."),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCollabMarkdownSaveCreateBodyTextContentDefault = ``
 export const notebooksCollabMarkdownSaveCreateBodyCursorOneHeadMin = 0
 

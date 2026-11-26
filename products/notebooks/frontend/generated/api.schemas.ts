@@ -998,6 +998,26 @@ export interface NotebookAppReleaseApi {
     has_previous: boolean
 }
 
+export interface AppViewGrantRequestApi {
+    /** Email address of the project member who can open the published output. */
+    email: string
+    /** Remove this member's access to every revision of this app. */
+    revoke?: boolean
+}
+
+export interface AppViewGrantResultApi {
+    /**
+     * Recipient-specific path for the pinned release.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * When this app-only grant expires.
+     * @nullable
+     */
+    expires_at: string | null
+}
+
 export interface NotebookCollabCursorApi {
     /**
      * ProseMirror selection head position (rich v1 notebooks).

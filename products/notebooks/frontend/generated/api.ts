@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AppViewGrantRequestApi,
+    AppViewGrantResultApi,
     NotebookApi,
     NotebookAppLayoutApi,
     NotebookAppReleaseApi,
@@ -528,6 +530,27 @@ export const notebooksAppReleaseRetrieve = async (
     return apiMutator<NotebookAppReleaseApi>(getNotebooksAppReleaseRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksAppViewGrantsCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_view_grants/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppViewGrantsCreate = async (
+    projectId: string,
+    shortId: string,
+    appViewGrantRequestApi: AppViewGrantRequestApi,
+    options?: RequestInit
+): Promise<AppViewGrantResultApi> => {
+    return apiMutator<AppViewGrantResultApi>(getNotebooksAppViewGrantsCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(appViewGrantRequestApi),
     })
 }
 

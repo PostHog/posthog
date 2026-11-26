@@ -17087,6 +17087,26 @@ export namespace Schemas {
       files: AppSourceFileContract[];
     }
 
+    export interface AppViewGrantRequest {
+      /** Email address of the project member who can open the published output. */
+      email: string;
+      /** Remove this member's access to every revision of this app. */
+      revoke?: boolean;
+    }
+
+    export interface AppViewGrantResult {
+      /**
+         * Recipient-specific path for the pinned release.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * When this app-only grant expires.
+         * @nullable
+         */
+      expires_at: string | null;
+    }
+
     export interface AppfiguresReviewSignalExtra {
       stars: string | null;
       version: string | null;

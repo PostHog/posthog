@@ -3,11 +3,13 @@ from django.urls import URLPattern, path
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
+from products.notebooks.backend.presentation.app_view_access import notebook_app_view_grant
 from products.notebooks.backend.presentation.views.notebook import NotebookViewSet
 from products.notebooks.backend.presentation.views.reusable_widget import ReusableWidgetViewSet
 from products.notebooks.backend.presentation.views.sandbox_heartbeat import notebook_sql_v2_data_plane_heartbeat
 
 api_urlpatterns: list[URLPattern] = [
+    path("apps/<int:team_id>/<uuid:grant_id>/", notebook_app_view_grant, name="notebook_app_view_grant"),
     path(
         "sandbox/heartbeat/",
         notebook_sql_v2_data_plane_heartbeat,

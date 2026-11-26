@@ -74,6 +74,7 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
+from products.notebooks.backend.facade.app_delivery import change_app_view_grant, revoke_app_view_grants
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
     read_published_run_rows,
@@ -143,6 +144,10 @@ from products.notebooks.backend.presentation.app_serializers import (
     NotebookAppLayoutSerializer,
     notebook_app_builder_enabled,
     update_app_revision,
+)
+from products.notebooks.backend.presentation.app_view_access import (
+    AppViewGrantRequestSerializer,
+    AppViewGrantResultSerializer,
 )
 from products.notebooks.backend.presentation.notebook_throttles import (
     NotebookAppQueryBurstThrottle,
@@ -630,6 +635,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
+                if "app_published" in validated_data and updated_notebook.app_published is None:
+                    revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
@@ -915,6 +922,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             notebook.team_id, notebook.pk, [AppBlockSource(**block) for block in layout.validated_data["blocks"]]
         )
         return Response(NotebookAppReleaseReviewSerializer(review).data)
+
+    @extend_schema(request=AppViewGrantRequestSerializer, responses=AppViewGrantResultSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_view_grants",
+        required_scopes=["notebook:write", "sharing_configuration:write"],
+    )
+    def app_view_grants(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        if not self.user_access_control.is_organization_admin:
+            raise PermissionDenied("An organization admin can grant app-only access.")
+        self._require_query_access()
+        data = AppViewGrantRequestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        result = change_app_view_grant(notebook.team_id, notebook.pk, **data.validated_data)
+        return Response(AppViewGrantResultSerializer(result).data)
 
     @extend_schema(responses=NotebookAppReleaseSerializer)
     @action(methods=["GET"], detail=True, url_path="app_release", required_scopes=["notebook:read"])
