@@ -5849,17 +5849,24 @@ describe('CDP API', () => {
                             }),
                         ])
 
-                    const first = sendAs(ownTeam, `ada-${new UUIDT().toString()}@example.com`)
-                    await heldAt(read.reached, first)
-                    const secondRead = read.next()
-                    const second = sendAs(sameOrg, `bo-${new UUIDT().toString()}@example.com`)
-                    await heldAt(secondRead, second)
-                    read.pass()
-                    const thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
-                    const ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
-                    read.release()
-                    expiries.forEach((expire) => expire())
-                    const held = await Promise.all([first, second])
+                    const holders: Promise<supertest.Response>[] = []
+                    let thirdOfOrg: supertest.Response
+                    let ofOtherOrg: supertest.Response
+                    try {
+                        holders.push(sendAs(ownTeam, `ada-${new UUIDT().toString()}@example.com`))
+                        await heldAt(read.reached, holders[0])
+                        const secondRead = read.next()
+                        holders.push(sendAs(sameOrg, `bo-${new UUIDT().toString()}@example.com`))
+                        await heldAt(secondRead, holders[1])
+                        read.pass()
+                        thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
+                        ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
+                    } finally {
+                        read.release()
+                        expiries.forEach((expire) => expire())
+                        await Promise.allSettled(holders)
+                    }
+                    const held = await Promise.all(holders)
 
                     expect([thirdOfOrg.status, thirdOfOrg.body]).toEqual([503, { error: 'over_capacity' }])
                     expect([ofOtherOrg.status, ofOtherOrg.body.results]).toEqual([
