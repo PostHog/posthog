@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from itertools import batched
 from uuid import UUID, uuid5
 
 from django.db import transaction
@@ -45,23 +46,22 @@ def _first_billable_emails(since: datetime) -> dict[tuple[int, UUID], datetime]:
             hog_flow_id = UUID(app_source_id)
         except ValueError:
             continue
-        first_sends[(team_id, hog_flow_id)] = first_send if first_send.tzinfo else first_send.replace(tzinfo=UTC)
+        first_sends[(team_id, hog_flow_id)] = first_send
     return first_sends
 
 
 def capture_first_real_sends(now: datetime) -> int:
     first_sends = _first_billable_emails(now - FIRST_REAL_SEND_LOOKBACK)
-    keys = list(first_sends)
     captured = 0
-    for start in range(0, len(keys), CANDIDATE_BATCH_SIZE):
-        captured += _record_batch(keys[start : start + CANDIDATE_BATCH_SIZE], first_sends)
+    for batch in batched(first_sends.items(), CANDIDATE_BATCH_SIZE, strict=False):
+        captured += _record_batch(dict(batch))
     logger.info("workflows_first_real_sends_captured", captured=captured)
     return captured
 
 
-def _record_batch(keys: list[tuple[int, UUID]], first_sends: dict[tuple[int, UUID], datetime]) -> int:
+def _record_batch(first_sends: dict[tuple[int, UUID], datetime]) -> int:
     hog_flow_ids_by_team: dict[int, list[UUID]] = defaultdict(list)
-    for team_id, hog_flow_id in keys:
+    for team_id, hog_flow_id in first_sends:
         hog_flow_ids_by_team[team_id].append(hog_flow_id)
     candidates = [
         flow
@@ -74,32 +74,32 @@ def _record_batch(keys: list[tuple[int, UUID]], first_sends: dict[tuple[int, UUI
         ).only("id", "team_id", "entry_attempt_id", "origin_product")
     ]
     teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({flow.team_id for flow in candidates})
+    recorded = []
     with transaction.atomic():
-        recorded = []
         for flow in candidates:
-            first_send = first_sends.get((flow.team_id, flow.id))
             team = teams.get(flow.team_id)
-            if first_send is None or team is None:
+            if team is None:
                 continue
+            first_send = first_sends[(flow.team_id, flow.id)]
             if HogFlow.objects.filter(pk=flow.pk, first_real_send_at__isnull=True).update(
                 first_real_send_at=first_send
             ):
                 recorded.append((flow, team, first_send))
-        if not recorded:
-            return 0
-        with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
-            for flow, team, first_send in recorded:
-                capture(
-                    distinct_id=str(team.uuid),
-                    event=WORKFLOW_FIRST_REAL_SEND_EVENT,
-                    timestamp=first_send,
-                    uuid=str(uuid5(flow.id, WORKFLOW_FIRST_REAL_SEND_EVENT)),
-                    properties={
-                        "hog_flow_id": str(flow.id),
-                        "entry_attempt_id": str(flow.entry_attempt_id) if flow.entry_attempt_id else None,
-                        "origin_product": flow.origin_product,
-                        "first_real_send_at": first_send.isoformat(),
-                    },
-                    groups=groups(team=team),
-                )
+    if not recorded:
+        return 0
+    with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
+        for flow, team, first_send in recorded:
+            capture(
+                distinct_id=str(team.uuid),
+                event=WORKFLOW_FIRST_REAL_SEND_EVENT,
+                timestamp=first_send,
+                uuid=str(uuid5(flow.id, WORKFLOW_FIRST_REAL_SEND_EVENT)),
+                properties={
+                    "hog_flow_id": str(flow.id),
+                    "entry_attempt_id": str(flow.entry_attempt_id) if flow.entry_attempt_id else None,
+                    "origin_product": flow.origin_product,
+                    "first_real_send_at": first_send.isoformat(),
+                },
+                groups=groups(team=team),
+            )
     return len(recorded)

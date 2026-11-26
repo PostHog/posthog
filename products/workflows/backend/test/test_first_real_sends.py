@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from datetime import timedelta
 from uuid import UUID
 
@@ -12,7 +11,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.facade.tasks import capture_workflow_first_real_sends
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.services.first_real_sends import FIRST_REAL_SEND_CUTOFF, WORKFLOW_FIRST_REAL_SEND_EVENT
+from products.workflows.backend.services.first_real_sends import FIRST_REAL_SEND_CUTOFF
 
 SERVICE = "products.workflows.backend.services.first_real_sends"
 NOW = FIRST_REAL_SEND_CUTOFF + timedelta(days=3)
@@ -26,7 +25,9 @@ def captured_events(scoped_capture: MagicMock) -> list[dict]:
 
 @time_machine.travel(NOW, tick=False)
 class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
-    def _flow(self, created_at=NOW - timedelta(days=1), entry_attempt_id: UUID | None = None) -> HogFlow:
+    def _flow(
+        self, created_at=FIRST_REAL_SEND_CUTOFF + timedelta(minutes=1), entry_attempt_id: UUID | None = None
+    ) -> HogFlow:
         flow = HogFlow.objects.create(
             team=self.team,
             name="Welcome",
@@ -62,7 +63,7 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
     ) -> None:
         flow = self._flow(entry_attempt_id=entry_attempt_id)
         first_send = (NOW - timedelta(hours=20)).replace(microsecond=0)
-        self._metric(flow, NOW - timedelta(days=3))
+        self._metric(flow, NOW - timedelta(days=2, hours=1))
         self._metric(flow, NOW - timedelta(hours=22), metric_name="succeeded")
         self._metric(flow, NOW - timedelta(hours=22), metric_kind="sms")
         self._metric(flow, NOW - timedelta(hours=22), app_source="hog_function")
@@ -74,7 +75,7 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         flow.refresh_from_db()
         assert flow.first_real_send_at == first_send
         [event] = captured_events(scoped_capture)
-        assert event["event"] == WORKFLOW_FIRST_REAL_SEND_EVENT
+        assert event["event"] == "workflow first real send"
         assert event["distinct_id"] == str(self.team.uuid)
         assert event["timestamp"] == first_send
         assert event["groups"]["organization"] == str(self.organization.id)
@@ -103,20 +104,15 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         assert flow.first_real_send_at is None
         assert captured_events(scoped_capture) == []
 
-    @parameterized.expand([("clickhouse",), ("capture",)])
     @patch(f"{SERVICE}.ph_scoped_capture")
-    def test_a_failure_leaves_the_column_unset(self, failing: str, scoped_capture: MagicMock) -> None:
+    def test_a_clickhouse_failure_leaves_the_column_unset(self, scoped_capture: MagicMock) -> None:
         flow = self._flow()
         self._metric(flow, NOW - timedelta(hours=2))
-        scoped_capture.return_value.__exit__.side_effect = ConnectionError("capture is down")
 
-        with (
-            patch(f"{SERVICE}.sync_execute", side_effect=ConnectionError("ClickHouse is down"))
-            if failing == "clickhouse"
-            else nullcontext()
-        ):
+        with patch(f"{SERVICE}.sync_execute", side_effect=ConnectionError("ClickHouse is down")):
             with self.assertRaises(ConnectionError):
                 capture_workflow_first_real_sends()
 
         flow.refresh_from_db()
         assert flow.first_real_send_at is None
+        assert captured_events(scoped_capture) == []

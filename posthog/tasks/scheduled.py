@@ -385,7 +385,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="workflows email sending tier recomputation",
     )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         crontab(hour="7", minute="45"),
         capture_workflow_first_real_sends.s(),
         name="workflows first real send capture",
