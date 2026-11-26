@@ -8,7 +8,7 @@ use super::dom::{DomInspector, FlushBudgets, UrlLimit};
 use super::edits::EventEdits;
 use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
-use super::json_ld::{self, MAX_JSON_LD_ROOT_TYPES};
+use super::json_ld::{self, MAX_JSON_LD_MOMENTS_PER_BLOCK, MAX_JSON_LD_ROOT_TYPES};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
 };
@@ -52,6 +52,7 @@ pub struct BlockInspection {
     counter: EventCounter,
     features: FeatureRecorder,
     moments: Vec<Moment>,
+    json_ld_moments: usize,
     image_urls: Vec<String>,
     font_urls: Vec<String>,
     url_limit: Option<UrlLimit>,
@@ -281,7 +282,9 @@ impl SessionInspector {
             moment = Some("click");
         }
         if let Some(kind) = moment {
-            if block.moments.len() < MAX_MOMENTS_PER_BLOCK {
+            let json_ld_room = !json_ld || block.json_ld_moments < MAX_JSON_LD_MOMENTS_PER_BLOCK;
+            if block.moments.len() < MAX_MOMENTS_PER_BLOCK && json_ld_room {
+                block.json_ld_moments += usize::from(json_ld);
                 block.moments.push(Moment {
                     kind,
                     window_id: Arc::clone(window),
@@ -328,6 +331,10 @@ mod tests {
         (inspected.stats, inspected.moments)
     }
 
+    fn json_ld(ts: i64, payload: Value) -> Value {
+        json!({"type": 5, "timestamp": ts, "data": {"tag": "$json_ld", "payload": payload}})
+    }
+
     fn big_mutation(ts: i64) -> Value {
         let adds: Vec<Value> = (0..100)
             .map(|i| json!({"parentId": 1, "node": {"type": 3, "id": 1000 + i}}))
@@ -344,8 +351,8 @@ mod tests {
             click(3),
             big_mutation(4),
             {"type": 2, "timestamp": 5, "data": "not gzip", "cv": "2024-10"},
-            {"type": 5, "timestamp": 6, "data": {"tag": "$json_ld", "payload": [{"@type": "WebSite"}, {"@type": "Product"}]}},
-            {"type": 5, "timestamp": 7, "data": {"tag": "$json_ld", "payload": {"@type": "Product"}}},
+            json_ld(6, json!([{"@context": "https://schema.org", "@type": "WebSite"}, {"@context": "https://schema.org", "@type": "Product"}])),
+            json_ld(7, json!({"@context": "https://schema.org", "@type": "Product"})),
         ]));
         let mut session = SessionInspector::default();
         let (stats, moments) = inspect(&mut session, &first);
@@ -379,6 +386,22 @@ mod tests {
             .collect::<Vec<_>>()));
         let (stats, moments) = inspect(&mut session, &crowded);
         assert_eq!(moments.len(), MAX_MOMENTS_PER_BLOCK);
+        assert!(stats.moments_truncated);
+
+        // A page that sends JSON-LD again and again leaves room for the moments after it.
+        let mut chatty: Vec<Value> = (0..=MAX_JSON_LD_MOMENTS_PER_BLOCK as i64)
+            .map(|i| json_ld(1_000_000 + i, json!({})))
+            .collect();
+        chatty.push(click(2_000_000));
+        let (stats, moments) = inspect(&mut session, &message(json!(chatty)));
+        let kinds: Vec<_> = moments.iter().map(|m| m.kind).collect();
+        let mut expected = vec!["json_ld"; MAX_JSON_LD_MOMENTS_PER_BLOCK];
+        expected.push("click");
+        assert_eq!(kinds, expected);
+        assert_eq!(
+            stats.json_ld_events,
+            MAX_JSON_LD_MOMENTS_PER_BLOCK as u32 + 1
+        );
         assert!(stats.moments_truncated);
     }
 
