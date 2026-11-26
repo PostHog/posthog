@@ -182,24 +182,26 @@ class TestFanout:
         ]
         assert result.rows == [{"id": 3, "overall_rating": 101, "ticket_id": 9}]
 
-    def test_solution_articles_bind_each_folder_in_the_query_string(self) -> None:
+    def test_solution_articles_bind_each_folder_and_follow_its_pages(self) -> None:
+        next_url = "https://acme.freshservice.com/api/v2/solutions/articles?folder_id=4&per_page=100&page=2"
         result = _driver().run(
             "solution_articles",
             [
                 _response({"folders": [{"id": 4}, {"id": 5}]}),
-                _response({"articles": [{"id": 1, "folder_id": 4}]}),
+                _response({"articles": [{"id": 1, "folder_id": 4}]}, next_url=next_url),
+                _response({"articles": [{"id": 3, "folder_id": 4}]}),
                 _response({"articles": [{"id": 2, "folder_id": 5}]}),
             ],
         )
 
         assert result.raised is None
-        assert [request.path for request in result.requests] == [
-            "/api/v2/solutions/folders",
-            "/api/v2/solutions/articles",
-            "/api/v2/solutions/articles",
+        assert [(request.path, request.param("folder_id"), request.param("page")) for request in result.requests] == [
+            ("/api/v2/solutions/folders", None, None),
+            ("/api/v2/solutions/articles", "4", None),
+            ("/api/v2/solutions/articles", "4", "2"),
+            ("/api/v2/solutions/articles", "5", None),
         ]
-        assert [request.param("folder_id") for request in result.requests[1:]] == ["4", "5"]
-        assert result.rows == [{"id": 1, "folder_id": 4}, {"id": 2, "folder_id": 5}]
+        assert result.rows == [{"id": 1, "folder_id": 4}, {"id": 3, "folder_id": 4}, {"id": 2, "folder_id": 5}]
 
 
 class TestApprovals:
