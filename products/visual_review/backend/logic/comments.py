@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from django.db import connections, transaction
-from django.db.models import Exists, F, JSONField, OuterRef, QuerySet, Value
+from django.db.models import F, JSONField, Value
 from django.db.models.expressions import CombinedExpression
 from django.db.models.functions import Coalesce
 
@@ -15,7 +14,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from ..db import WRITER_DB
 from ..facade.enums import DecisionChannel, ReviewDecision, RunPurpose
-from ..models import Repo, Run, RunSnapshot
+from ..models import Repo, Run
 from . import comment_markdown, github_api, review_decisions, run_queries
 
 logger = structlog.get_logger(__name__)
@@ -87,8 +86,7 @@ def _retire_previous_comment(repo: Repo, previous_run: Run, comment_id: int) -> 
 def _set_metadata_key(run: Run, key: str, value: object) -> None:
     """Write one key of the run's metadata in place, keeping every other key.
 
-    A save of the whole dict from a copy read before another writer's update drops that writer's
-    key, and both comment IDs can land on the same run.
+    A save of the whole dict from a copy read before another writer's update drops that writer's key.
     """
     Run.objects.using(WRITER_DB).filter(id=run.id, team_id=run.team_id).update(
         metadata=CombinedExpression(
@@ -281,141 +279,3 @@ def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None, add_
     if run is None:
         return
     _post_approval_comment(run, run.repo, add_images=add_images)
-
-
-REJECTION_COMMENT_KEY = "github_rejection_comment_id"
-
-
-def _pull_request_runs(head: Run) -> QuerySet[Run]:
-    return Run.objects.using(WRITER_DB).filter(
-        team_id=head.team_id, repo_id=head.repo_id, pr_number=head.pr_number, run_type=head.run_type
-    )
-
-
-def _rejection_comment_id(head: Run) -> int | None:
-    """The ID of the pull request's rejection comment, from whichever of its runs holds it."""
-    holder = _pull_request_runs(head).filter(metadata__has_key=REJECTION_COMMENT_KEY).order_by("-created_at").first()
-    if holder is None:
-        return None
-    value = holder.metadata.get(REJECTION_COMMENT_KEY)
-    return value if isinstance(value, int) else None
-
-
-def _remember_rejection_comment(head: Run, comment_id: int) -> None:
-    """Keep the comment ID on the oldest run of the pull request that holds a decision.
-
-    Retention deletes the decided runs of a pull request only together, so the ID lasts as long as
-    any rejection it lists can.
-    """
-    holder = (
-        _pull_request_runs(head)
-        .filter(
-            Exists(RunSnapshot.objects.using(WRITER_DB).filter(review_decisions.has_decisions(), run_id=OuterRef("id")))
-        )
-        .order_by("created_at")
-        .first()
-    )
-    _set_metadata_key(holder or head, REJECTION_COMMENT_KEY, comment_id)
-
-
-def _open_rejections(head: Run) -> list[comment_markdown.OpenRejection]:
-    rejections = review_decisions.review_run(head).rejections()
-    rejecters = {by_id: comment_markdown._resolve_approver(by_id) for by_id in {r.by_id for r in rejections}}
-    return [
-        comment_markdown.OpenRejection(
-            identifier=rejection.key.identifier,
-            commit_sha=rejection.commit_sha,
-            rejecter=rejecters[rejection.by_id],
-            via_agent=rejection.via == DecisionChannel.MCP,
-            reason=rejection.reason,
-        )
-        for rejection in rejections
-    ]
-
-
-def _lock_rejection_comment(head: Run) -> None:
-    """Serialize the syncs of one pull request's rejection comment until the transaction ends.
-
-    Each sync reads the rejections once it holds the lock, so the last one to run posts the current
-    list, whatever order the tasks ran in, and a second reject never posts a second comment.
-    """
-    with connections[WRITER_DB].cursor() as db_cursor:
-        db_cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtext(%s))",
-            [f"visual_review_rejection_comment:{head.repo_id}:{head.run_type}:{head.pr_number}"],
-        )
-
-
-def _sync_rejection_comment(run: Run, head: Run, repo: Repo) -> None:
-    rejections = _open_rejections(head)
-    body = comment_markdown._build_rejection_comment_body(head, repo, rejections)
-    comment_id = _rejection_comment_id(head)
-    if comment_id is not None:
-        response = github_api._github_api_request(
-            method="PATCH", repo=repo, path=f"issues/comments/{comment_id}", json={"body": body}
-        )
-        # Only a deleted comment is fixed by posting a new one.
-        if response.status_code != 404:
-            if response.status_code != 200:
-                logger.warning(
-                    "visual_review.rejection_comment_update_failed",
-                    run_id=str(run.id),
-                    status_code=response.status_code,
-                )
-            return
-    if not rejections:
-        return
-    response = github_api._github_api_request(
-        method="POST", repo=repo, path=f"issues/{head.pr_number}/comments", json={"body": body}
-    )
-    posted_id = response.json().get("id") if response.status_code == 201 else None
-    if isinstance(posted_id, int):
-        _remember_rejection_comment(head, posted_id)
-
-
-def schedule_rejection_comment_sync(run: Run) -> None:
-    """Sync the rejection comment of the run's pull request once the transaction commits."""
-    from ..tasks.tasks import sync_rejection_comment  # noqa: PLC0415 — avoids the logic/tasks circular import
-
-    team_id, run_id = run.team_id, str(run.id)
-    transaction.on_commit(lambda: sync_rejection_comment.delay(team_id, run_id), using=WRITER_DB, robust=True)
-
-
-def schedule_rejection_comment_sync_if_tracked(run: Run) -> None:
-    """Sync the rejection comment after a run completes or finalizes, when the pull request has one to keep true.
-
-    A new picture can make a rejection stop counting, and a finalize unblocks the pull request, so
-    the comment can say finalize is blocked when it is not. A pull request without the comment and
-    without an open rejection has nothing to sync, so its runs make no GitHub call.
-    """
-    if not review_decisions.decides_by_pull_request(run):
-        return
-    if not run.repo.enable_pr_comments or not run.repo.repo_full_name:
-        return
-    if _rejection_comment_id(run) is None and not review_decisions.pull_request_decisions(run).open_rejections():
-        return
-    schedule_rejection_comment_sync(run)
-
-
-def sync_rejection_comment(run_id: UUID, team_id: int) -> None:
-    """Post or edit the one PR comment per run type that lists the rejections blocking the pull request.
-
-    A reject posts the comment, which notifies the author. An undo or an accept over a rejection edits
-    it in place, which notifies nobody, because it unblocks. Best-effort: a failure leaves the comment
-    as it was. Lets a GitHub rate limit through, so the task retries.
-    """
-    run = Run.objects.using(WRITER_DB).select_related("repo").filter(id=run_id, team_id=team_id).first()
-    if run is None or run.pr_number is None:
-        return
-    repo = run.repo
-    if not repo.enable_pr_comments or not repo.repo_full_name:
-        return
-    head = review_decisions.head_run(run)
-    try:
-        with transaction.atomic(using=WRITER_DB):
-            _lock_rejection_comment(head)
-            _sync_rejection_comment(run, head, repo)
-    except GitHubRateLimitError:
-        raise
-    except Exception:
-        logger.warning("visual_review.rejection_comment_error", run_id=str(run.id), exc_info=True)

@@ -1245,7 +1245,6 @@ def test_every_order_of_review_decisions_keeps_the_decision_guarantees(
     scenario, order, team, user, mocker, django_capture_on_commit_callbacks
 ) -> None:
     repo = decision_repo(team.id)
-    mocker.patch("products.visual_review.backend.tasks.tasks.sync_rejection_comment.delay")
     second = User.objects.create_and_join(team.organization, "second-reviewer@example.com", None, first_name="h2")
     player = DecisionPlayer(
         scenario,

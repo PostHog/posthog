@@ -39,7 +39,6 @@ from ..logic import (
     baseline_overview,
     baseline_record,
     baselines,
-    comments,
     commit_status,
     errors,
     flakiness,
@@ -88,7 +87,6 @@ User = get_user_model()
 _RESERVED_RUN_METADATA_KEYS = frozenset(
     {
         "github_comment_id",
-        comments.REJECTION_COMMENT_KEY,
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
         # The frozen baseline record names the approvals a run counted. A client that could send it

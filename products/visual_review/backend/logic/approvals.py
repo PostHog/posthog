@@ -45,7 +45,6 @@ from . import (
     baselines,
     ci_status,
     comment_markdown,
-    comments,
     commit_status,
     errors,
     gating,
@@ -508,7 +507,6 @@ def _finalize_run(
         commit_status.publish_for_run(run)
     elif commit_to_github:
         ci_status._post_commit_status(run, repo, "success", "Visual changes approved")
-    comments.schedule_rejection_comment_sync_if_tracked(run)
 
     # A baseline commit starts a new CI run. Without one, the job that completed a `ci_job` run
     # keeps the red verdict it read before the review, so it has to read it again. A
@@ -941,8 +939,6 @@ def _decide_on_pull_request(
 
     if writes:
         commit_status.publish_for_run(head)
-    if writes and (call.action == DecisionAction.REJECT or replaces_rejection):
-        comments.schedule_rejection_comment_sync(head)
     return DecisionOutcome(
         run=run,
         head=head,

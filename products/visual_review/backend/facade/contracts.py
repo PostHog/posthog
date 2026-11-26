@@ -160,7 +160,7 @@ class ApproveRunInput:
     override_rejection: bool = False
 
 
-# The longest rejection reason a decision keeps. The PR comment and the API refusal texts quote it.
+# The longest rejection reason a decision keeps. The API refusal texts quote it.
 REASON_MAX_LENGTH = 500
 
 

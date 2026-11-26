@@ -304,7 +304,7 @@ export const VisualReviewRunsLiftOnMergeCreateBody = /* @__PURE__ */ zod.object(
  * Reject snapshots of a pull request run with a reason, in ledger mode.
  *
  * A rejected snapshot blocks finalize until the pull request renders a different picture or
- * the rejection is undone. The pull request gets a comment that lists the open rejections.
+ * the rejection is undone.
  */
 export const visualReviewRunsRejectCreateBodySnapshotsItemIdentifierMax = 512
 

@@ -28,7 +28,6 @@ from . import (
     baseline_resolution,
     baselines,
     ci_status,
-    comments,
     commit_status,
     errors,
     gating,
@@ -501,7 +500,6 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     run.save(update_fields=["status", "error_message", "completed_at", *gating.COUNT_FIELDS])
 
     gating._post_status(run, snapshots)
-    comments.schedule_rejection_comment_sync_if_tracked(run)
     _enqueue_quarantine_lift_check(run)
     _enqueue_clean_quarantine_release(run)
     _compare_shadow(run)

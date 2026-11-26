@@ -700,7 +700,7 @@ export const getVisualReviewRunsRejectCreateUrl = (projectId: string, id: string
  * Reject snapshots of a pull request run with a reason, in ledger mode.
  *
  * A rejected snapshot blocks finalize until the pull request renders a different picture or
- * the rejection is undone. The pull request gets a comment that lists the open rejections.
+ * the rejection is undone.
  */
 export const visualReviewRunsRejectCreate = async (
     projectId: string,

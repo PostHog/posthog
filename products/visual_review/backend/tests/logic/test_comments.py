@@ -10,7 +10,6 @@ from parameterized import parameterized
 from posthog.models import User
 
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.contracts import REASON_MAX_LENGTH
 from products.visual_review.backend.facade.enums import (
     BaselineMode,
     ReviewDecision,
@@ -812,77 +811,6 @@ class TestReviewDecisionComments:
             )
         return run
 
-    @pytest.mark.parametrize(
-        ("history", "stored_id", "responses", "calls", "body_part", "stored_after"),
-        [
-            pytest.param(
-                ["reject"],
-                None,
-                [_GitHubResponse(201, 555)],
-                [("POST", "issues/42/comments")],
-                "\\[x\\]\\(http://evil\\)",
-                555,
-                id="a_reject_posts_the_list_with_its_reason_escaped",
-            ),
-            pytest.param(
-                ["reject", "clear"],
-                555,
-                [_GitHubResponse(200)],
-                [("PATCH", "issues/comments/555")],
-                "No visual changes are rejected",
-                555,
-                id="an_undo_edits_the_same_comment",
-            ),
-            pytest.param(
-                ["reject"],
-                555,
-                [_GitHubResponse(404), _GitHubResponse(201, 777)],
-                [("PATCH", "issues/comments/555"), ("POST", "issues/42/comments")],
-                "Rejected a visual change",
-                777,
-                id="a_deleted_comment_is_posted_again",
-            ),
-        ],
-    )
-    def test_the_rejection_comment_follows_the_open_rejections(
-        self, repo, user, mocker, history, stored_id, responses, calls, body_part, stored_after
-    ):
-        entries = [
-            _decision(action, by=user.id, seq=seq, reason="[x](http://evil)")
-            for seq, action in enumerate(history, start=1)
-        ]
-        head = self._run(repo, "h" * 40, {"Button": []})
-        # The decision is on an older run, which retention keeps as long as the decision counts.
-        older = self._run(
-            repo,
-            "s" * 40,
-            {"Button": entries},
-            superseded_by=head,
-            metadata={comments.REJECTION_COMMENT_KEY: stored_id} if stored_id else {},
-        )
-        request = mocker.patch.object(github_api, "_github_api_request", side_effect=responses)
-
-        comments.sync_rejection_comment(head.id, team_id=repo.team_id)
-
-        assert [(c.kwargs["method"], c.kwargs["path"]) for c in request.call_args_list] == calls
-        assert body_part in request.call_args.kwargs["json"]["body"]
-        older.refresh_from_db()
-        head.refresh_from_db()
-        assert (older.metadata.get(comments.REJECTION_COMMENT_KEY), head.metadata) == (stored_after, {})
-
-    def test_a_review_prompt_saved_from_a_stale_copy_keeps_the_rejection_comment_id(self, repo, user, mocker):
-        run = self._run(repo, "h" * 40, {"Button": [_decision("reject", by=user.id, seq=1, reason="Too blue")]})
-        stale = Run.objects.get(id=run.id)
-        mocker.patch.object(
-            github_api, "_github_api_request", side_effect=[_GitHubResponse(201, 555), _GitHubResponse(201, 9001)]
-        )
-
-        comments.sync_rejection_comment(run.id, team_id=repo.team_id)
-        comments._post_review_prompt_comment(stale, repo)
-
-        run.refresh_from_db()
-        assert run.metadata == {comments.REJECTION_COMMENT_KEY: 555, "github_comment_id": 9001}
-
     def test_the_approval_comment_names_who_accepted_what(self, repo, team, user, mocker):
         alice = User.objects.create_and_join(team.organization, "alice@example.com", None, first_name="Alice")
         bob = User.objects.create_and_join(team.organization, "bob@example.com", None, first_name="Bob")
@@ -945,26 +873,6 @@ class TestReviewDecisionComments:
         body = comment_markdown._build_approval_comment_body(run, repo, None, accepted_by=accepted_by)
 
         assert line in body
-
-    def test_the_rejection_comment_fits_github_body_limit(self, repo):
-        run = self._run(repo, "h" * 40, {"Button": []})
-        rejecter = comment_markdown._Approver(label="alice", is_github_login=True)
-        rejections = [
-            comment_markdown.OpenRejection(
-                identifier=f"components-button--state-{index}",
-                commit_sha="h" * 40,
-                rejecter=rejecter,
-                via_agent=False,
-                reason="*" * REASON_MAX_LENGTH,
-            )
-            for index in range(150)
-        ]
-
-        body = comment_markdown._build_rejection_comment_body(run, repo, rejections)
-
-        assert len(body) <= 65_536
-        assert "more, listed on the run page." in body
-        assert body.rstrip().endswith(")")
 
     def test_the_review_prompt_counts_the_accepts_that_still_count(self, repo, user, mocker):
         head = self._run(repo, "h" * 40, {"Button": [], "Card": []})

@@ -131,7 +131,6 @@ class TestRunAPI:
                 metadata={
                     "pr_title": "kept",
                     "github_comment_id": 99999,
-                    "github_rejection_comment_id": 99998,
                     "baseline_commit_sha": "deadbeef",
                     "baseline_healed_from_merge_base": 1,
                     "baseline": {"candidate_approval_ids": ["0190a1b2-0000-7000-8000-000000000001"]},

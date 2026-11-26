@@ -12,7 +12,6 @@ from django.db import models as db_models
 from posthog.egress.limiter.policies import Priority
 
 from ..db import READER_DB
-from ..facade.contracts import REASON_MAX_LENGTH
 from ..facade.enums import ReviewState, SnapshotResult
 from ..models import Artifact, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
@@ -358,50 +357,3 @@ def approver_labels(user_ids: set[int]) -> dict[int, str]:
         if approver is not None:
             labels[user_id] = approver.label
     return labels
-
-
-@dataclass(frozen=True)
-class OpenRejection:
-    """One rejection that blocks the head run of a pull request, as the rejection comment lists it."""
-
-    identifier: str
-    commit_sha: str
-    rejecter: _Approver | None
-    via_agent: bool
-    reason: str
-
-
-# GitHub refuses a comment body over 65,536 characters. The list stops below that, so the
-# text around it and the link still fit.
-_REJECTION_LIST_MAX_LENGTH = 60_000
-
-
-def _build_rejection_comment_body(run: Run, repo: Repo, rejections: list[OpenRejection]) -> str:
-    """The PR comment that lists the rejections blocking the pull request, edited in place as they change."""
-    link = f"[View in PostHog Visual Review]({app_urls.run_url(run, repo)})"
-    if not rejections:
-        return (
-            "✅ **No visual changes are rejected** on this PR any more. Each rejection was undone, accepted anyway, "
-            f"or the story renders a new picture.\n\n{link}\n"
-        )
-    noun = "a visual change" if len(rejections) == 1 else f"{len(rejections)} visual changes"
-    lines = [f"❌ **Rejected {noun}** on this PR:", ""]
-    listed_length = 0
-    for listed, rejection in enumerate(rejections):
-        who = _approver_text(rejection.rejecter)
-        if rejection.via_agent:
-            who = f"an agent for {who}"
-        reason = _escape_markdown(_TABLE_BREAKING_CHARS_RE.sub(" ", rejection.reason[:REASON_MAX_LENGTH]))
-        line = f"- {_snapshot_name_cell(rejection.identifier)} on `{rejection.commit_sha[:7]}`, by {who}: {reason}"
-        if listed_length + len(line) > _REJECTION_LIST_MAX_LENGTH:
-            lines.append(f"- …and {len(rejections) - listed} more, listed on the run page.")
-            break
-        lines.append(line)
-        listed_length += len(line) + 1
-    lines += [
-        "",
-        "Finalize stays blocked until each story renders a different picture or its rejection is undone.",
-        "",
-        link,
-    ]
-    return "\n".join(lines) + "\n"

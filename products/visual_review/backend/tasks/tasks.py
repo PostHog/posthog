@@ -156,31 +156,6 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
 
 
 @shared_task(
-    name="products.visual_review.backend.tasks.sync_rejection_comment",
-    bind=True,
-    ignore_result=True,
-    acks_late=True,
-    reject_on_worker_lost=True,
-    max_retries=3,
-)
-@with_team_scope()
-def sync_rejection_comment(self, team_id: int, run_id: str) -> None:
-    """Post or edit the PR comment that lists the rejections blocking a pull request. Retries on rate limits only."""
-    from posthog.egress.github.transport import GitHubRateLimitError
-
-    from ..logic import comments
-
-    try:
-        comments.sync_rejection_comment(UUID(run_id), team_id=team_id)
-    except GitHubRateLimitError as e:
-        logger.warning("visual_review.rejection_comment_rate_limited", run_id=run_id, retry=self.request.retries)
-        try:
-            self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
-        except self.MaxRetriesExceededError:
-            logger.warning("visual_review.rejection_comment_retries_exhausted", run_id=run_id)
-
-
-@shared_task(
     name="products.visual_review.backend.tasks.post_approval_comment",
     bind=True,
     ignore_result=True,
