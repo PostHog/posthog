@@ -15810,7 +15810,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         client = self._oauth_client(client_id) if client_id else self.client
         headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
 
-        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", headers=headers)
+        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", **headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task.refresh_from_db()

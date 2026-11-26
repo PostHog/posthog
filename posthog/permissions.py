@@ -1119,9 +1119,9 @@ class APIScopePermission(ScopeBasePermission):
         # An ID-JAG token lives only as long as the identity provider allows, so it must not start or drive a run,
         # directly or through a PostHog connection.
         if (
-            is_id_jag_origin_request(request)
-            and "task:write" in required_scopes
+            "task:write" in required_scopes
             and not getattr(view, "id_jag_may_write_tasks", False)
+            and is_id_jag_origin_request(request)
         ):
             self.message = ID_JAG_CANNOT_WRITE_TASKS
             return False
