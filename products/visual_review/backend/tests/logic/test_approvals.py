@@ -452,7 +452,16 @@ class TestFinalizeByBaselineMode:
         assert not run.snapshots.filter(metadata__has_key="review_decisions").exists()
 
     @pytest.mark.parametrize("mode", [BaselineMode.YAML, BaselineMode.SHADOW])
-    def test_an_accept_without_a_hash_outside_ledger_mode_is_refused_by_name(self, team, user, mocker, mode):
+    @pytest.mark.parametrize(
+        ("request_fields", "code"),
+        [
+            pytest.param({"identifier": "Button", "new_hash": None}, "hash_required", id="removed_without_hash"),
+            pytest.param(
+                {"identifier": "Card", "new_hash": "b1", "old_hash": "b0"}, "hash_mismatch", id="another_baseline"
+            ),
+        ],
+    )
+    def test_an_accept_outside_ledger_mode_is_refused_by_name(self, team, user, mocker, mode, request_fields, code):
         _repo, git, flow = button_flow(team.id, mode, mocker, external_id=99997)
         git.open_pull_request(1, git.commit("p1a", SEED))
         run = flow.run("p1a", {"Card": "b1"}, branch="feat", pr_number=1)
@@ -462,12 +471,13 @@ class TestFinalizeByBaselineMode:
                 run.id,
                 user.id,
                 DecisionAction.ACCEPT,
-                [approvals.DecisionRequest(identifier="Button", new_hash=None)],
+                [approvals.DecisionRequest(**request_fields)],
                 via=DecisionChannel.MCP,
                 team_id=run.team_id,
             )
 
-        assert [(r.identifier, r.code) for r in refused.value.refusals] == [("Button", "hash_required")]
+        assert [(r.identifier, r.code) for r in refused.value.refusals] == [(request_fields["identifier"], code)]
+        assert not run.snapshots.filter(review_state=ReviewState.APPROVED).exists()
 
     def test_a_snapshot_list_outside_ledger_mode_shows_no_decision(self, team, user, mocker):
         _repo, git, flow = button_flow(team.id, BaselineMode.YAML, mocker, external_id=99997)

@@ -548,6 +548,9 @@ def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict]
 
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
     _validate_approval(run, approvals)
+    refusals = _baseline_refusals(run, approved_snapshots)
+    if refusals:
+        raise errors.DecisionRefusedError(refusals)
 
     now = timezone.now()
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
@@ -584,6 +587,28 @@ def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
     for identifier, new_hash in approvals.items():
         if new_hash in missing_hashes:
             raise errors.ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")
+
+
+def _baseline_refusals(run: Run, approved_snapshots: list[dict]) -> list[errors.DecisionRefusal]:
+    """Refuse an accept whose `old_hash` names another baseline than the one the snapshot compares against."""
+    old_hashes = {s["identifier"]: s["old_hash"] for s in approved_snapshots if s.get("old_hash") is not None}
+    if not old_hashes:
+        return []
+    baselines = dict(run.snapshots.filter(identifier__in=old_hashes).values_list("identifier", "baseline_hash"))
+    return [
+        errors.DecisionRefusal(
+            identifier=identifier,
+            code="hash_mismatch",
+            detail=(
+                f"{identifier} on run {_short_id(run.id)} compares against "
+                f"{baselines[identifier][:12] or 'no baseline'}, not {old_hash[:12] or 'no baseline'}. "
+                "Read the snapshot again from the run you pass as id."
+            ),
+            conflict=False,
+        )
+        for identifier, old_hash in old_hashes.items()
+        if old_hash != baselines[identifier]
+    ]
 
 
 @frozen
@@ -982,7 +1007,10 @@ def decide(
         approved = approve_snapshots(
             run_id,
             user_id,
-            [{"identifier": request.identifier, "new_hash": request.new_hash} for request in requests],
+            [
+                {"identifier": request.identifier, "new_hash": request.new_hash, "old_hash": request.old_hash}
+                for request in requests
+            ],
             team_id=team_id,
         )
         return DecisionOutcome(
