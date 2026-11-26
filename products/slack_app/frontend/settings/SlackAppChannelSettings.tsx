@@ -3,35 +3,25 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { SlackAppChannelSettingsModal } from './SlackAppChannelSettingsModal'
 import { SlackAppChannelSettingsTable } from './SlackAppChannelSettingsTable'
-import { SlackAppInstallPicker } from './SlackAppInstallPicker'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 export function SlackAppChannelSettings(): JSX.Element {
-    const { selectedIntegration, channels, channelsLoading, channelsLoadFailed, integrationsLoading } =
-        useValues(slackAppSettingsLogic)
+    const { selectedIntegration, channels, channelsLoading, channelsLoadFailed } = useValues(slackAppSettingsLogic)
     const { openChannelModal, loadChannels } = useActions(slackAppSettingsLogic)
 
-    if (integrationsLoading && !selectedIntegration) {
-        return <LemonSkeleton className="h-40" />
-    }
     if (!selectedIntegration) {
-        return (
-            <LemonBanner
-                type="info"
-                action={{ children: 'Go to integrations', to: urls.settings('environment-integrations') }}
-            >
-                Connect Slack to this project to give channels their own settings.
-            </LemonBanner>
-        )
+        return <LemonSkeleton className="h-40" />
     }
 
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-secondary m-0 max-w-160">
+                    A channel's project and repository win over each person's own. Its question mode can only make
+                    things stricter. Each organization keeps its own channel settings.
+                </p>
                 <LemonButton
                     type="primary"
                     size="small"
@@ -43,7 +33,6 @@ export function SlackAppChannelSettings(): JSX.Element {
                 >
                     Add channel
                 </LemonButton>
-                <SlackAppInstallPicker />
             </div>
             {channelsLoading && channels === null ? (
                 <LemonSkeleton className="h-32" />
