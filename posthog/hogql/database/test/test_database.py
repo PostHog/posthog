@@ -5197,6 +5197,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with pytest.raises(ValueError):
                 Database.create_for(team_id=other_team.pk, team=self.team, user=self.user)
 
+    def test_a_sharing_scope_rebuilds_a_database_past_its_age_so_revoked_access_applies(self) -> None:
+        with sharing_databases(SharedDatabases(max_age_seconds=30)):
+            with patch("posthog.hogql.database.request_scope.monotonic", side_effect=[0, 10, 40, 40, 40]):
+                first = Database.create_for(team=self.team, user=self.user)
+                assert Database.create_for(team=self.team, user=self.user) is first
+                assert Database.create_for(team=self.team, user=self.user) is not first
+
     def test_a_sharing_scope_stops_keeping_databases_past_its_limit(self) -> None:
         modifiers = [
             HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),

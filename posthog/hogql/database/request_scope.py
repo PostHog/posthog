@@ -2,6 +2,7 @@ import threading
 from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from time import monotonic
 from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.hogql.database.sources_cache import modifiers_fingerprint
@@ -44,17 +45,26 @@ class SharedDatabases:
     A Database is built to be read by concurrent query threads (its deferred builds take their own locks),
     so the only coordination needed here is that one thread builds each key while the others wait.
 
-    Each stored catalog can be large, so past max_databases distinct keys a build is handed out but not kept."""
+    Each stored catalog can be large, so past max_databases distinct keys a build is handed out but not kept.
+    A catalog holds the access decision it was built with, so it is rebuilt after max_age_seconds: a revoked
+    grant reaches the rest of a long batch within that window instead of at the stream's end."""
 
-    def __init__(self, max_databases: int = 4) -> None:
+    def __init__(self, max_databases: int = 4, max_age_seconds: float = 30.0) -> None:
         self._max_databases = max_databases
+        self._max_age_seconds = max_age_seconds
         self._lock = threading.Lock()
-        self._databases: dict[SharedDatabaseKey, Database] = {}
+        self._databases: dict[SharedDatabaseKey, tuple[Database, float]] = {}
         self._build_locks: dict[SharedDatabaseKey, threading.Lock] = {}
+
+    def _fresh(self, key: SharedDatabaseKey) -> Optional["Database"]:
+        entry = self._databases.get(key)
+        if entry is None or monotonic() - entry[1] > self._max_age_seconds:
+            return None
+        return entry[0]
 
     def get_or_build(self, key: SharedDatabaseKey, build: Callable[[], "Database"]) -> "Database":
         with self._lock:
-            database = self._databases.get(key)
+            database = self._fresh(key)
             if database is not None:
                 return database
             if key not in self._build_locks and len(self._build_locks) >= self._max_databases:
@@ -65,12 +75,12 @@ class SharedDatabases:
             return build()
         with build_lock:
             with self._lock:
-                database = self._databases.get(key)
+                database = self._fresh(key)
             if database is not None:
                 return database
             database = build()
             with self._lock:
-                self._databases[key] = database
+                self._databases[key] = (database, monotonic())
             return database
 
     def clear(self) -> None:
