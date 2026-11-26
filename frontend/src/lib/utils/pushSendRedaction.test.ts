@@ -1,6 +1,7 @@
 import { redactPushSendsInReplay } from './pushSendRedaction'
 
 const BODY = JSON.stringify({ template_id: 't', distinct_id: 'ada', message_data: { code: '123456' } })
+const RESPONSE = JSON.stringify({ logs: [{ message: 'Sending push: Your code is 123456' }] })
 const REDACTED = '[SessionRecording] body redacted as it holds the values of a push send'
 
 const recorded = (requests: unknown[]): any => ({
@@ -24,12 +25,18 @@ describe('push send redaction', () => {
         ['the workflow list', '/api/projects/1/hog_flows/', BODY],
         ['an email send', '/api/projects/1/messaging/send/email/', BODY],
         ['the push page', '/api/projects/1/messaging_templates/push/', BODY],
-    ])('redacts only the body of a push send: %s', (_name, name, requestBody) => {
-        const event = redactPushSendsInReplay(
-            recorded([{ name, requestBody: BODY, responseBody: '{"message_id":"m"}' }])
-        )
+    ])('redacts only the bodies of a push send: %s', (_name, name, body) => {
+        const response = body === BODY ? RESPONSE : REDACTED
+        const event = redactPushSendsInReplay(recorded([{ name, requestBody: BODY, responseBody: RESPONSE }]))
 
-        expect(requestsOf(event)).toEqual([{ name, requestBody, responseBody: '{"message_id":"m"}' }])
+        expect(requestsOf(event)).toEqual([{ name, requestBody: body, responseBody: response }])
+    })
+
+    it('redacts a test send response recorded without its request', () => {
+        const name = '/api/projects/1/hog_flows/new/invocations/'
+        const event = redactPushSendsInReplay(recorded([{ name, responseBody: RESPONSE }]))
+
+        expect(requestsOf(event)).toEqual([{ name, responseBody: REDACTED }])
     })
 
     it('leaves an event without a push send as it is', () => {
