@@ -1,6 +1,11 @@
 // Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
 import path from 'path'
+import { Pool } from 'pg'
+import { v7 as uuidv7 } from 'uuid'
 
+import { EMAIL_QUEUE_CONSUMERS } from '../src/cdp/consumers/cdp-cyclotron-worker-email.consumer'
+import { CyclotronV2Manager } from '../src/cdp/services/cyclotron-v2/manager'
+import { CYCLOTRON_QUEUE_ROLES } from '../src/cdp/types'
 import { defaultConfig } from '../src/common/config/config'
 import { StallingValkeyProxy } from '../src/common/redis/_tests/stalling-valkey-proxy'
 import { PluginServer } from '../src/server'
@@ -53,6 +58,40 @@ describe('server', () => {
         })
         await pluginsServer.start()
         expect(process.exit).not.toHaveBeenCalledWith(1)
+    })
+
+    it.each(Object.keys(EMAIL_QUEUE_CONSUMERS))('starts a worker that claims jobs on the %s queue', async (queue) => {
+        const dbUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
+        const manager = new CyclotronV2Manager({
+            pool: { dbUrl },
+            depthLimit: 1_000_000,
+            depthCheckIntervalMs: 0,
+            ...CYCLOTRON_QUEUE_ROLES,
+        })
+        const pool = new Pool({ connectionString: dbUrl })
+        await manager.connect()
+        const [id] = await manager.bulkCreateJobs([
+            { teamId: 1, queueName: queue, functionId: uuidv7(), scheduled: new Date(), state: null },
+        ])
+        try {
+            pluginsServer = new PluginServer({
+                LOG_LEVEL: 'warn',
+                PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_email,
+                PERSONHOG_ENABLED: true,
+                PERSONHOG_ADDR: 'localhost:50052',
+            })
+            await pluginsServer.start()
+            expect(process.exit).not.toHaveBeenCalledWith(1)
+
+            await waitForExpect(async () => {
+                const { rows } = await pool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
+                expect(rows[0]?.status).not.toBe('available')
+            }, 15_000)
+        } finally {
+            await pool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+            await pool.end()
+            await manager.disconnect()
+        }
     })
 
     it('keeps batch resolver healthy for the configured audience budget plus processing headroom', async () => {
