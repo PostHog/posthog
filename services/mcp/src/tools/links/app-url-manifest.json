@@ -2129,6 +2129,11 @@
         "params": [],
         "scope": "project"
     },
+    "workflowsAdventCalendar": {
+        "template": "/workflows/advent",
+        "params": [],
+        "scope": "project"
+    },
     "workflowsEmailDomain": {
         "template": "/workflows/channels/email/{id}",
         "params": ["id"],
