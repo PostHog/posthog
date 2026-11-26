@@ -24,7 +24,7 @@ from requests import Response, get
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.current_alias_deprecation import CURRENT_ALIAS_SUNSET, STATE_DEPENDENT_REQUESTS_DOCS_URL
+from posthog.api.current_alias_deprecation import STATE_DEPENDENT_REQUESTS_DOCS_URL, STATE_DEPENDENT_REQUESTS_SUNSET
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.constants import AvailableFeature
@@ -1428,7 +1428,7 @@ class TestActivateBillingAPI(APILicensedTest):
             assert "Deprecation" not in response
             return
         assert response["Deprecation"] == FLAT_BILLING_DEPRECATION
-        assert response["Sunset"] == CURRENT_ALIAS_SUNSET
+        assert response["Sunset"] == STATE_DEPENDENT_REQUESTS_SUNSET
         assert response["Link"] == (
             f'<{successor.format(organization_id=self.organization.id)}>; rel="successor-version", '
             f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"'

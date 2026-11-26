@@ -31,8 +31,8 @@ from rest_framework.response import Response
 
 from posthog.api.current_alias_deprecation import (
     CURRENT_ALIAS_DEPRECATION,
-    CURRENT_ALIAS_SUNSET,
     STATE_DEPENDENT_REQUESTS_DOCS_URL,
+    STATE_DEPENDENT_REQUESTS_SUNSET,
 )
 from posthog.api.request_scope import ScopeLevel, resolve_request_scope
 from posthog.api.routing import DefaultRouterPlusPlus, PathParameter, RouterRegistry, TeamAndOrgViewSetMixin
@@ -853,7 +853,7 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
-        self.assertEqual(response["Sunset"], CURRENT_ALIAS_SUNSET)
+        self.assertEqual(response["Sunset"], STATE_DEPENDENT_REQUESTS_SUNSET)
         docs_link = f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"'
         if successor is None:
             self.assertEqual(response["Link"], docs_link)
