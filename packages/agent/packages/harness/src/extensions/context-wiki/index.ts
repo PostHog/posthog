@@ -2,7 +2,7 @@ export {
   applyContextWikiEnv,
   buildContextWikiInstructions,
   type ContextWikiEnv,
-  contextWikiPagePath,
+  contextWikiPageKind,
   resolveContextWikiPath,
 } from "./context-wiki";
 export { createPiContextWikiExtension } from "./extension";

@@ -22,7 +22,8 @@ import {
   type Attributes,
   asRecord,
   asString,
-  contextWikiPagesAttribute,
+  collectContextWikiPages,
+  contextWikiReadAttributes,
   DEFAULT_FLUSH_INTERVAL_MS,
   EXPORT_TIMEOUT_MS,
   entryTime,
@@ -74,6 +75,17 @@ export interface RunTraceBuilderConfig {
  * Spans carry the same allowlist stance as the log export: lifecycle, status,
  * usage, and identifiers only — never prompts, tool arguments, or output.
  */
+interface OpenTool {
+  span: Span;
+  context: Context;
+  kind: string;
+  /** Wiki pages the tool names, by path. Only completed reads report them. */
+  wikiPages: Map<string, string>;
+}
+
+// The tool kinds whose wiki pages count as reads: an edit or a run command is not one.
+const WIKI_READ_TOOL_KINDS = new Set(["read", "search"]);
+
 export class RunTraceBuilder {
   private provider: BasicTracerProvider;
   private tracer: Tracer;
@@ -85,9 +97,9 @@ export class RunTraceBuilder {
   private turnSpan?: Span;
   private turnContext?: Context;
   private turnIndex = 0;
-  private toolSpans = new Map<string, { span: Span; context: Context }>();
+  private toolSpans = new Map<string, OpenTool>();
   private ended = false;
-  private contextWikiPath = resolveContextWikiPath();
+  private contextWikiPath?: string;
 
   constructor(config: RunTraceBuilderConfig, resource: Resource) {
     const exporter = new OTLPTraceExporter({
@@ -268,10 +280,6 @@ export class RunTraceBuilder {
     const attributes: Attributes = { tool_kind: kind };
     if (toolCallId) attributes.tool_call_id = toolCallId;
     strAttr(attributes, "tool_name", toolNameAttribute(update));
-    Object.assign(
-      attributes,
-      contextWikiPagesAttribute(update, this.contextWikiPath),
-    );
 
     const span = this.tracer.startSpan(
       // Kind (read/edit/execute/...) is a small enum, so per-kind span names
@@ -281,16 +289,18 @@ export class RunTraceBuilder {
       parentContext,
     );
     const context = trace.setSpan(parentContext, span);
+    const tool: OpenTool = { span, context, kind, wikiPages: new Map() };
+    collectContextWikiPages(update, this.wikiMount(), tool.wikiPages);
     // A tool call can arrive already terminal, as a memory recall does. No
     // later update follows it, so settling it here keeps it out of the sweep,
     // which would otherwise report a known outcome as unterminated.
     const status = update.status;
     if (status === "completed" || status === "failed") {
-      this.settleTool(span, status, update, time);
+      this.settleTool(tool, status, update, time);
       return context;
     }
     if (toolCallId) {
-      this.toolSpans.set(toolCallId, { span, context });
+      this.toolSpans.set(toolCallId, tool);
     } else {
       // Without an id there is no terminal update to match; record a marker.
       span.end(time);
@@ -300,12 +310,16 @@ export class RunTraceBuilder {
 
   /** Records a terminal tool outcome on its span and ends it. */
   private settleTool(
-    span: Span,
+    tool: OpenTool,
     status: "completed" | "failed",
     update: Record<string, unknown>,
     time: Date,
   ): void {
+    const { span } = tool;
     span.setAttribute("tool_status", status);
+    if (status === "completed" && WIKI_READ_TOOL_KINDS.has(tool.kind)) {
+      span.setAttributes(contextWikiReadAttributes(tool.wikiPages));
+    }
     if (status === "failed") {
       span.setAttribute("tool_failure_reason", toolFailureReason(update));
     }
@@ -324,16 +338,25 @@ export class RunTraceBuilder {
     if (!open || !toolCallId) return this.currentContext();
 
     // Tool input can finish streaming after the call starts, so a later update
-    // may be the first to carry the locations.
-    const pages = contextWikiPagesAttribute(update, this.contextWikiPath);
-    if (Object.keys(pages).length) open.span.setAttributes(pages);
+    // may name more pages than the first one did.
+    collectContextWikiPages(update, this.wikiMount(), open.wikiPages);
 
     const status = update.status;
     if (status === "completed" || status === "failed") {
-      this.settleTool(open.span, status, update, time);
+      this.settleTool(open, status, update, time);
       this.toolSpans.delete(toolCallId);
     }
     return open.context;
+  }
+
+  /**
+   * The wiki mount, looked up until it exists: the sandbox can mount the wiki
+   * after the agent server starts, and a run without a wiki has no env var, so
+   * the lookup costs nothing there.
+   */
+  private wikiMount(): string | undefined {
+    this.contextWikiPath ??= resolveContextWikiPath();
+    return this.contextWikiPath;
   }
 
   private handleError(params: Record<string, unknown>, time: Date): Context {

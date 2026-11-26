@@ -2,7 +2,7 @@ import {
   readAgentToolName,
   readMcpToolDescriptor,
 } from "@posthog/agent-contracts";
-import { contextWikiPagePath } from "@posthog/harness/extensions/context-wiki";
+import { contextWikiPageKind } from "@posthog/harness/extensions/context-wiki";
 
 const MAX_BODY_CHARS = 2000;
 // PostHog Logs only facets attribute key/value pairs shorter than 256 chars,
@@ -58,24 +58,31 @@ export function toolNameAttribute(
 }
 
 /**
- * Context wiki pages a tool call touched, as paths relative to the wiki mount.
- * A page path names a shared wiki page, not repository or user content, so it
- * is the only tool location exported; every other location stays in the sandbox.
+ * Adds the context wiki pages a tool update names to `pages`, keyed by path
+ * with the page's kind as the value. The paths stay in the sandbox: page names
+ * are written by customers, so only the count and the kinds are exported.
  */
-export function contextWikiPagesAttribute(
+export function collectContextWikiPages(
   update: Record<string, unknown>,
   wikiPath: string | undefined,
-): Attributes {
-  const attrs: Attributes = {};
-  if (!wikiPath || !Array.isArray(update.locations)) return attrs;
-  const pages = new Set<string>();
+  pages: Map<string, string>,
+): void {
+  if (!wikiPath || !Array.isArray(update.locations)) return;
   for (const location of update.locations) {
     const path = asString(asRecord(location)?.path);
-    const page = path && contextWikiPagePath(path, wikiPath);
-    if (page) pages.add(page);
+    const kind = path && contextWikiPageKind(path, wikiPath);
+    if (path && kind) pages.set(path, kind);
   }
-  if (pages.size) strAttr(attrs, "context_wiki_pages", [...pages].join(","));
-  return attrs;
+}
+
+export function contextWikiReadAttributes(
+  pages: Map<string, string>,
+): Attributes {
+  if (!pages.size) return {};
+  return {
+    context_wiki_page_reads: pages.size,
+    context_wiki_page_kinds: [...new Set(pages.values())].sort().join(","),
+  };
 }
 
 export function toolFailureReason(

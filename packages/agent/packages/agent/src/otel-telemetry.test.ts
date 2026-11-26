@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
@@ -731,75 +731,81 @@ describe("OtelRunTelemetry", () => {
       expect(surface).not.toContain(".env");
     });
 
-    it("records context wiki pages a tool read, and no other location", async () => {
+    it("counts completed reads of wiki content pages, and exports no path", async () => {
       await telemetry.shutdown();
       mockSpanExport.mockClear();
       const wiki = mkdtempSync(join(tmpdir(), "context-wiki-"));
-      vi.stubEnv("POSTHOG_CONTEXT_LAYER_PATH", `${wiki}/`);
-      telemetry = new OtelRunTelemetry(
-        {
-          url: "https://us.i.posthog.com/i/v1/logs",
-          token: "phc_test_key",
-          tracesUrl: "https://us.i.posthog.com/i/v1/traces",
-          flushIntervalMs: 100,
-        },
-        RESOURCE,
-      );
-      telemetry.append(RUN_ID, makeEntry("session/prompt", { prompt: [] }));
-      telemetry.append(
-        RUN_ID,
-        sessionUpdate({
-          sessionUpdate: "tool_call",
-          toolCallId: "t1",
-          kind: "read",
-          status: "pending",
-          locations: [{ path: `${wiki}/areas/slack-app.md` }],
-        }),
-      );
-      telemetry.append(
-        RUN_ID,
-        sessionUpdate({
-          sessionUpdate: "tool_call_update",
-          toolCallId: "t1",
-          status: "completed",
-          locations: [
-            { path: `${wiki}/../repos/app/SECRET.md` },
-            { path: wiki },
-            { path: "/tmp/workspace/repos/app/notes.md" },
+      try {
+        vi.stubEnv("POSTHOG_CONTEXT_LAYER_PATH", `${wiki}/`);
+        telemetry = new OtelRunTelemetry(
+          {
+            url: "https://us.i.posthog.com/i/v1/logs",
+            token: "phc_test_key",
+            tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+            flushIntervalMs: 100,
+          },
+          RESOURCE,
+        );
+        telemetry.append(RUN_ID, makeEntry("session/prompt", { prompt: [] }));
+        const tool = (
+          toolCallId: string,
+          kind: string,
+          status: string,
+          start: string[],
+          update: string[],
+        ): void => {
+          telemetry.append(
+            RUN_ID,
+            sessionUpdate({
+              sessionUpdate: "tool_call",
+              toolCallId,
+              kind,
+              status: "pending",
+              locations: start.map((path) => ({ path })),
+            }),
+          );
+          telemetry.append(
+            RUN_ID,
+            sessionUpdate({
+              sessionUpdate: "tool_call_update",
+              toolCallId,
+              status,
+              locations: update.map((path) => ({ path })),
+            }),
+          );
+        };
+        tool(
+          "read",
+          "read",
+          "completed",
+          [`${wiki}/areas/secret-acquisition.md`, `${wiki}/AGENTS.md`],
+          [
+            `${wiki}/projects/1/spaces/growth.md`,
+            `${wiki}/index.md`,
+            `${wiki}/../repos/app/notes.md`,
           ],
-        }),
-      );
-      telemetry.append(
-        RUN_ID,
-        sessionUpdate({
-          sessionUpdate: "tool_call",
-          toolCallId: "t2",
-          kind: "search",
-          status: "pending",
-        }),
-      );
-      telemetry.append(
-        RUN_ID,
-        sessionUpdate({
-          sessionUpdate: "tool_call_update",
-          toolCallId: "t2",
-          status: "completed",
-          locations: [{ path: `${wiki}/decisions/d.md` }],
-        }),
-      );
-      await telemetry.shutdown();
+        );
+        tool("failed", "read", "failed", [`${wiki}/areas/missing.md`], []);
+        tool("edit", "edit", "completed", [`${wiki}/decisions/d.md`], []);
+        await telemetry.shutdown();
 
-      expect(spanByName("tool_call:read").attributes).toMatchObject({
-        context_wiki_pages: "areas/slack-app.md",
-      });
-      expect(spanByName("tool_call:search").attributes).toMatchObject({
-        context_wiki_pages: "decisions/d.md",
-      });
-      const surface = JSON.stringify(
-        exportedSpans().map((span) => span.attributes),
-      );
-      expect(surface).not.toContain("SECRET");
-      expect(surface).not.toContain("notes.md");
+        const byId = (id: string) =>
+          exportedSpans().find((span) => span.attributes.tool_call_id === id)
+            ?.attributes;
+        expect(byId("read")).toMatchObject({
+          context_wiki_page_reads: 2,
+          context_wiki_page_kinds: "areas,spaces",
+        });
+        expect(byId("failed")).not.toHaveProperty("context_wiki_page_reads");
+        expect(byId("edit")).not.toHaveProperty("context_wiki_page_reads");
+        const surface = JSON.stringify(
+          exportedSpans().map((span) => span.attributes),
+        );
+        expect(surface).not.toContain("secret-acquisition");
+        expect(surface).not.toContain("growth");
+      } finally {
+        rmSync(wiki, { recursive: true, force: true });
+      }
     });
 
     it("keeps correlation context attached to its run during concurrent turns", async () => {

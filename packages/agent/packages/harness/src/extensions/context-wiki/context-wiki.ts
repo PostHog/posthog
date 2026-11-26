@@ -28,19 +28,40 @@ export function resolveContextWikiPath(
     : undefined;
 }
 
+// The directories that hold content pages, as the server's wiki linter defines them.
+const CONTENT_PAGE_DIRECTORIES = new Set([
+  "org",
+  "areas",
+  "decisions",
+  "projects",
+]);
+
 /**
- * The wiki-relative path of a Markdown page under the mount, or undefined for any
- * other path. Normalizing first keeps a `..` path that leaves the mount out.
+ * The kind of wiki content page a path names: `org`, `areas`, `decisions`, a
+ * project subdirectory such as `spaces`, or `project` for a project's own page.
+ * Undefined for any other path, including generated indexes and the
+ * instruction files every agent reads, which would make each run look like a
+ * wiki read. Normalizing first keeps a `..` path that leaves the mount out.
  */
-export function contextWikiPagePath(
+export function contextWikiPageKind(
   path: string,
   mountPath: string,
 ): string | undefined {
   const root = `${posix.normalize(mountPath).replace(/\/+$/, "")}/`;
   const normalized = posix.normalize(path);
-  return normalized.startsWith(root) && normalized.endsWith(".md")
-    ? normalized.slice(root.length)
-    : undefined;
+  if (!normalized.startsWith(root) || !normalized.endsWith(".md")) {
+    return undefined;
+  }
+  const parts = normalized.slice(root.length).split("/");
+  if (
+    !CONTENT_PAGE_DIRECTORIES.has(parts[0]) ||
+    parts[parts.length - 1] === "index.md" ||
+    parts.some((part) => part.startsWith("."))
+  ) {
+    return undefined;
+  }
+  if (parts[0] !== "projects") return parts[0];
+  return parts.length >= 4 ? parts[2] : "project";
 }
 
 /**
