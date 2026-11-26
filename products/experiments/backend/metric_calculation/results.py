@@ -36,7 +36,7 @@ Every query filters on the experiment first, so the `(experiment, metric_uuid, q
 """
 
 import hashlib
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import field
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -85,14 +85,6 @@ _TERMINAL_RECALC_STATUSES = frozenset(
 )
 
 logger = structlog.get_logger(__name__)
-
-
-def _in_pages[T](rows: QuerySet[Any, T], page_size: int) -> Iterator[T]:
-    """The rows in their order, one query per page, so a reader that stops early queries no further pages."""
-    offset = 0
-    while page := list(rows[offset : offset + page_size]):
-        yield from page
-        offset += page_size
 
 
 def _recalc_fingerprint(config_fingerprint: str) -> str:
@@ -192,9 +184,6 @@ class SignificanceHistory:
 # The keys of the variants whose stored `significant` is true. A null means that validation stopped the analysis, so it
 # doesn't count as significant.
 _SIGNIFICANT_VARIANT_KEYS = "$.variant_results[*] ? (@.significant == true).key"
-# Reading the significant variants decodes each row's whole stored result, which for a funnel holds sample sessions per
-# step. Most runs end within a few rows, so the reader asks for small pages and stops at the end of the run.
-_HISTORY_PAGE_SIZE = 10
 
 
 @frozen
@@ -411,7 +400,9 @@ class MetricResultStore:
         current_until: datetime | None = None
         running: set[str] = set()
         since: dict[str, datetime] = {}
-        for until, significant_variants in _in_pages(rows, _HISTORY_PAGE_SIZE):
+        # One query for the whole history, because Postgres reads the significant variants of every matching row before
+        # it sorts, so each page of a paged read would read them all again.
+        for until, significant_variants in rows:
             significant = {key for key in significant_variants or () if isinstance(key, str)}
             if current_until is None:
                 current_until, running = until, significant

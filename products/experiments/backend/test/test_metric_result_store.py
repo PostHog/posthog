@@ -481,7 +481,6 @@ class TestMetricResultStore(BaseTest):
         [
             ("no_result", [], False, None),
             ("every_result_significant", [True, True, True], False, 0),
-            ("a_run_longer_than_a_page_of_rows", [True] * 12, False, 0),
             ("a_result_without_significance_ends_the_run", [True, False, True], False, 2),
             ("a_result_without_an_analysis_ends_the_run", [True, None, True], False, 2),
             ("not_significant_now", [True, True, False], False, None),
