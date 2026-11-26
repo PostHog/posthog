@@ -102,24 +102,66 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+export const getMessagingSendEmailCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/email/`
 }
 
 /**
- * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
- * @summary Prepare attachment uploads
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional email
  */
-export const messagingAttachmentsUploadsCreate = async (
+export const messagingSendEmailCreate = async (
     projectId: string,
-    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    sendEmailApi: SendEmailApi,
     options?: RequestInit
-): Promise<AttachmentUploadsResponseApi> => {
-    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+): Promise<SendTransactionalEmailResponseApi> => {
+    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(attachmentUploadsRequestApi),
+        body: JSON.stringify(sendEmailApi),
+    })
+}
+
+export const getMessagingSendPushCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/push/`
+}
+
+/**
+ * Send one push notification from a push template made transactional to every device of one person. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional push notifications skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the notification twice. Needs the `transactional_push:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional push notification
+ */
+export const messagingSendPushCreate = async (
+    projectId: string,
+    sendPushApi: SendPushApi,
+    options?: RequestInit
+): Promise<SendTransactionalPushResponseApi> => {
+    return apiMutator<SendTransactionalPushResponseApi>(getMessagingSendPushCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendPushApi),
+    })
+}
+
+export const getMessagingSendPushBatchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/push_batch/`
+}
+
+/**
+ * Send one push notification from a push template made transactional to up to 100 people in one request. Each person gets their own notification on every device they registered, with its own `message_id` and `idempotency_key`, the same notification a single send to that person makes. Each recipient's `message_data` is merged over the shared `message_data`. The response holds one result per recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no `results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` scope.
+ * @summary Send a transactional push notification to a batch of people
+ */
+export const messagingSendPushBatchCreate = async (
+    projectId: string,
+    sendPushBatchApi: SendPushBatchApi,
+    options?: RequestInit
+): Promise<SendPushBatchResponseApi> => {
+    return apiMutator<SendPushBatchResponseApi>(getMessagingSendPushBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendPushBatchApi),
     })
 }
 
@@ -173,6 +215,27 @@ export const messagingEmailsStatusRetrieve = async (
     return apiMutator<EmailStatusApi>(getMessagingEmailsStatusRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+}
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreate = async (
+    projectId: string,
+    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadsResponseApi> => {
+    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(attachmentUploadsRequestApi),
     })
 }
 
@@ -247,69 +310,6 @@ export const messagingPushesStatusRetrieve = async (
     return apiMutator<PushStatusApi>(getMessagingPushesStatusRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getMessagingSendEmailCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/send/email/`
-}
-
-/**
- * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
- * @summary Send a transactional email
- */
-export const messagingSendEmailCreate = async (
-    projectId: string,
-    sendEmailApi: SendEmailApi,
-    options?: RequestInit
-): Promise<SendTransactionalEmailResponseApi> => {
-    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sendEmailApi),
-    })
-}
-
-export const getMessagingSendPushCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/send/push/`
-}
-
-/**
- * Send one push notification from a push template made transactional to every device of one person. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional push notifications skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the notification twice. Needs the `transactional_push:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
- * @summary Send a transactional push notification
- */
-export const messagingSendPushCreate = async (
-    projectId: string,
-    sendPushApi: SendPushApi,
-    options?: RequestInit
-): Promise<SendTransactionalPushResponseApi> => {
-    return apiMutator<SendTransactionalPushResponseApi>(getMessagingSendPushCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sendPushApi),
-    })
-}
-
-export const getMessagingSendPushBatchCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/send/push_batch/`
-}
-
-/**
- * Send one push notification from a push template made transactional to up to 100 people in one request. Each person gets their own notification on every device they registered, with its own `message_id` and `idempotency_key`, the same notification a single send to that person makes. Each recipient's `message_data` is merged over the shared `message_data`. The response holds one result per recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no `results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` scope.
- * @summary Send a transactional push notification to a batch of people
- */
-export const messagingSendPushBatchCreate = async (
-    projectId: string,
-    sendPushBatchApi: SendPushBatchApi,
-    options?: RequestInit
-): Promise<SendPushBatchResponseApi> => {
-    return apiMutator<SendPushBatchResponseApi>(getMessagingSendPushBatchCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sendPushBatchApi),
     })
 }
 

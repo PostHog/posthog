@@ -234,6 +234,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
         "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
         "cloud": in_cloud,
+        "batch_exports_enabled": settings.BATCH_EXPORTS_ENABLED,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),
