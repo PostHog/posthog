@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from posthog.schema import QueryTiming
+
 from posthog.hogql.timings import HogQLTimings
 
 EPSILON = 1e-10
@@ -89,3 +91,16 @@ class TestHogQLTimings(SimpleTestCase):
             results = timings.to_dict()
             self.assertAlmostEqual(results["./a"], 0.1)
             self.assertAlmostEqual(results["."], 0.25)
+
+    def test_include_files_timings_under_the_open_measure(self):
+        with patch("posthog.hogql.timings.perf_counter", fake_perf_counter):
+            timings = HogQLTimings()
+
+            with timings.measure("runner"):
+                timings.include(
+                    [QueryTiming(k=".", t=9.0), QueryTiming(k="./query", t=0.5), QueryTiming(k="./query", t=0.25)]
+                )
+
+            self.assertEqual(timings.timings["./runner/query"], 0.75)
+            self.assertAlmostEqual(timings.timings["./runner"], 0.05)
+            self.assertEqual(timings.timings.keys(), {"./runner/query", "./runner"})
