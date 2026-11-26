@@ -1637,6 +1637,17 @@ def test_rejects_excessive_select_alias_expansion() -> None:
         prepare_and_print_ast(parse_select(f"SELECT {', '.join(projections)}"), _context_with_trino_table(), "trino")
 
 
+def test_layers_select_alias_chains_over_a_subquery_instead_of_expanding_them() -> None:
+    projections = ["id AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 18)]]
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH s AS (SELECT 1 AS id) SELECT {', '.join(projections)} FROM s"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == [tuple(2**i for i in range(18))]
+
+
 def test_rejects_excessive_rendered_expression_size() -> None:
     expression = "user_id"
     for _ in range(6):
