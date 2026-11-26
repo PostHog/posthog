@@ -2,7 +2,18 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
+import {
+    Button,
+    Card,
+    CardContent,
+    CardDescription,
+    CardFooter,
+    CardGroup,
+    CardHeader,
+    CardTitle,
+    Spinner,
+    Text,
+} from '@posthog/quill'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -53,109 +64,114 @@ export const ContentAutopilotFirstRunCard = ({
     const skipReason =
         firstRunStep?.status === 'skipped' && firstRunStep.detail ? SKIP_REASONS[firstRunStep.detail] : undefined
 
+    const runNow = paused
+        ? {
+              title: 'Your prompts are saved, paused',
+              description: `Nothing runs and nothing is spent until you turn them on. Run your ${prompts} prompts once to see your first results.`,
+              label: 'Turn on and run once',
+              dataAttr: 'content-autopilot-first-run-activate',
+          }
+        : {
+              title: 'Your prompts are ready',
+              description: 'Each engine runs the first checks on its schedule. To see results sooner, run them now.',
+              label: 'Run checks now',
+              dataAttr: 'content-autopilot-first-run-now',
+          }
+
     return (
-        <LemonCard hoverEffect={false} className="p-6" data-attr="content-autopilot-first-run">
-            {firstRunQueued ? (
-                <div data-attr="content-autopilot-first-run-queued">
-                    <h3 className="m-0">The first checks are running</h3>
-                    <p className="m-0 mt-1 text-muted">
-                        Each engine is answering your prompts. This page updates as the checks finish, which takes a few
-                        minutes.
-                    </p>
-                </div>
-            ) : jobRunning ? (
-                <div className="flex items-center gap-2" data-attr="content-autopilot-first-run-starting">
-                    <Spinner />
-                    <h3 className="m-0">Queuing the first checks</h3>
-                </div>
-            ) : paused ? (
-                <>
-                    <h3 className="m-0">Your prompts are saved, paused</h3>
-                    <p className="m-0 mt-1 text-muted">
-                        Nothing runs and nothing is spent until you turn them on. Run your {prompts} prompts once to see
-                        your first results.
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-                        <div className="min-w-0 flex-1 basis-80">
-                            <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => startFirstRun(true)}
-                            loading={starting}
-                            disabledReason={firstRunDisabledReason}
-                            data-attr="content-autopilot-first-run-activate"
-                        >
-                            Turn on and run once
-                        </LemonButton>
-                    </div>
-                </>
-            ) : (
-                <>
-                    <h3 className="m-0">Your prompts are ready</h3>
-                    <p className="m-0 mt-1 text-muted">
-                        Each engine runs the first checks on its schedule. To see results sooner, run them now.
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-                        <div className="min-w-0 flex-1 basis-80">
-                            <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => startFirstRun(false)}
-                            loading={starting}
-                            disabledReason={firstRunDisabledReason}
-                            data-attr="content-autopilot-first-run-now"
-                        >
-                            Run checks now
-                        </LemonButton>
-                    </div>
-                </>
-            )}
-            {startError ? (
-                <AiVisibilityBanner type="error" className="mt-4">
-                    {startError}
-                </AiVisibilityBanner>
-            ) : firstRunStep?.status === 'failed' ? (
-                <AiVisibilityBanner
-                    type="error"
-                    className="mt-4"
-                    action={{ children: 'Try again', onClick: () => startFirstRun(paused) }}
-                >
-                    {firstRunStep.detail || "The checks couldn't be queued. Try again."}
-                </AiVisibilityBanner>
-            ) : skipReason && !firstRunQueued ? (
-                <AiVisibilityBanner type="info" className="mt-4" onClose={dismissJob}>
-                    {skipReason}
-                </AiVisibilityBanner>
-            ) : null}
-            {pollError ? (
-                <AiVisibilityBanner
-                    type="error"
-                    className="mt-4"
-                    action={{ children: 'Try again', onClick: retryJob }}
-                    onClose={dismissJob}
-                >
-                    {pollError}
-                </AiVisibilityBanner>
-            ) : null}
-            <ul className="m-0 mt-5 flex list-none flex-col gap-2 border-t p-0 pt-4">
+        <div className="flex flex-col gap-4" data-attr="content-autopilot-first-run">
+            <Card>
+                {firstRunQueued ? (
+                    <CardHeader data-attr="content-autopilot-first-run-queued">
+                        <CardTitle role="heading" aria-level={3}>
+                            The first checks are running
+                        </CardTitle>
+                        <CardDescription>
+                            Each engine is answering your prompts. This page updates as the checks finish, which takes a
+                            few minutes.
+                        </CardDescription>
+                    </CardHeader>
+                ) : jobRunning ? (
+                    <CardHeader data-attr="content-autopilot-first-run-starting">
+                        <CardTitle role="heading" aria-level={3} className="flex items-center gap-2">
+                            <Spinner />
+                            Queuing the first checks
+                        </CardTitle>
+                    </CardHeader>
+                ) : (
+                    <>
+                        <CardHeader>
+                            <CardTitle role="heading" aria-level={3}>
+                                {runNow.title}
+                            </CardTitle>
+                            <CardDescription>{runNow.description}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-wrap items-end justify-between gap-4">
+                            <div className="min-w-0 flex-1 basis-80">
+                                <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
+                            </div>
+                            <Button
+                                variant="primary"
+                                onClick={() => startFirstRun(paused)}
+                                loading={starting}
+                                disabledReason={firstRunDisabledReason}
+                                data-attr={runNow.dataAttr}
+                            >
+                                {runNow.label}
+                            </Button>
+                        </CardContent>
+                    </>
+                )}
+                {startError || firstRunStep?.status === 'failed' || (skipReason && !firstRunQueued) || pollError ? (
+                    <CardFooter className="flex flex-col items-stretch gap-2">
+                        {startError ? (
+                            <AiVisibilityBanner type="error">{startError}</AiVisibilityBanner>
+                        ) : firstRunStep?.status === 'failed' ? (
+                            <AiVisibilityBanner
+                                type="error"
+                                action={{ children: 'Try again', onClick: () => startFirstRun(paused) }}
+                            >
+                                {firstRunStep.detail || "The checks couldn't be queued. Try again."}
+                            </AiVisibilityBanner>
+                        ) : skipReason && !firstRunQueued ? (
+                            <AiVisibilityBanner type="info" onClose={dismissJob}>
+                                {skipReason}
+                            </AiVisibilityBanner>
+                        ) : null}
+                        {pollError ? (
+                            <AiVisibilityBanner
+                                type="error"
+                                action={{ children: 'Try again', onClick: retryJob }}
+                                onClose={dismissJob}
+                            >
+                                {pollError}
+                            </AiVisibilityBanner>
+                        ) : null}
+                    </CardFooter>
+                ) : null}
+            </Card>
+            <CardGroup role="list">
                 {CHECKLIST.map((item) => (
-                    <li key={item.tab}>
-                        <LemonButton
-                            fullWidth
-                            sideIcon={<IconArrowRight />}
+                    <Card key={item.tab} size="sm" className="p-0" role="listitem">
+                        <button
+                            type="button"
                             onClick={() => setWorkspaceTab(item.tab)}
+                            className="flex w-full min-w-0 cursor-pointer items-center gap-3 px-3 py-2.5 text-start hover:bg-fill-hover"
                             data-attr={`content-autopilot-first-run-${item.tab}`}
                         >
-                            <span className="flex flex-col items-start">
-                                <span>{item.label}</span>
-                                <span className="text-xs font-normal text-secondary">{item.detail}</span>
+                            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                <Text size="sm" weight="medium" render={<span className="m-0" />}>
+                                    {item.label}
+                                </Text>
+                                <Text size="xs" variant="muted" render={<span className="m-0" />}>
+                                    {item.detail}
+                                </Text>
                             </span>
-                        </LemonButton>
-                    </li>
+                            <IconArrowRight className="shrink-0 text-muted-foreground" />
+                        </button>
+                    </Card>
                 ))}
-            </ul>
-        </LemonCard>
+            </CardGroup>
+        </div>
     )
 }

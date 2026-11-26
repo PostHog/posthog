@@ -61,7 +61,7 @@ export const ContentAutopilotPageMoversTable = ({
                 render: (_, { citation_rate, answers_citing }) => (
                     <span className="tabular-nums whitespace-nowrap">
                         {percentage(citation_rate, 1)}{' '}
-                        <span className="text-secondary">({answers_citing.toLocaleString()})</span>
+                        <span className="text-muted-foreground">({answers_citing.toLocaleString()})</span>
                     </span>
                 ),
             },
@@ -73,7 +73,7 @@ export const ContentAutopilotPageMoversTable = ({
                 render: (_, { previous_citation_rate, previous_answers_citing }) => (
                     <span className="tabular-nums whitespace-nowrap">
                         {percentage(previous_citation_rate, 1)}{' '}
-                        <span className="text-secondary">({previous_answers_citing.toLocaleString()})</span>
+                        <span className="text-muted-foreground">({previous_answers_citing.toLocaleString()})</span>
                     </span>
                 ),
             },
