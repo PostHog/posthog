@@ -404,6 +404,13 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<Option<i32>, CapturedError> {
+        if let Commands::Jvm {
+            cmd: JvmSubcommand::Upload(args),
+        } = &self.command
+        {
+            crate::jvm::upload::remove_previous_meta(args)?;
+        }
+
         if self.dry_run {
             if let Some(kind) = dry_run_skipped_command(&self.command) {
                 warn!(
@@ -655,6 +662,28 @@ mod tests {
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
+    }
+
+    #[test]
+    fn a_skipped_jvm_upload_leaves_no_meta_file_from_an_earlier_upload() {
+        let out = tempfile::tempdir().unwrap();
+        let previous = out.path().join(crate::jvm::sources::META_PROPERTIES_FILE);
+        std::fs::write(&previous, "io.posthog.proguard.mapid=earlier-upload\n").unwrap();
+
+        let cli = Cli::try_parse_from([
+            "posthog-cli",
+            "--dry-run",
+            "jvm",
+            "upload",
+            "--source",
+            "src/main/java",
+            "--meta-out",
+            out.path().to_str().unwrap(),
+        ])
+        .unwrap();
+
+        assert!(matches!(cli.run_impl(), Ok(None)));
+        assert!(!previous.exists());
     }
 
     #[test]

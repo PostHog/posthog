@@ -28,12 +28,23 @@ const SOURCE_EXTENSIONS: [&str; 2] = ["java", "kt"];
 // at, and they would only push the symbol set toward the server's size limit.
 const MAX_SOURCE_FILE_BYTES: u64 = 1024 * 1024;
 
-// Directories that hold build output or tooling state when they are outside a `src` tree. Inside
-// one, the same names are ordinary package directories (`com/acme/build`), so they are kept there.
+// Directories that build tools fill with build output. A build tool puts them next to the
+// module's `src` directory or build file. A package directory with the same name
+// (`com/acme/build`) has neither next to it, so it is kept.
 const BUILD_OUTPUT_DIRS: [&str; 3] = ["build", "target", "out"];
+const MODULE_MARKERS: [&str; 8] = [
+    "src",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "settings.gradle",
+    "settings.gradle.kts",
+    "build.sbt",
+    "build.xml",
+];
 
-// Test source sets, skipped when they sit directly under `src`. No production stack frame points
-// at test code, and a test class can share a package and file name with a production class.
+// Test source sets, skipped when their parent directory is `src`. No production stack frame
+// points at test code, and a test class can share a package and file name with a production class.
 const TEST_SOURCE_SETS: [&str; 4] = ["test", "androidTest", "testFixtures", "integrationTest"];
 
 pub struct SourceBundle {
@@ -49,12 +60,10 @@ pub fn collect_sources(roots: &[PathBuf]) -> Result<BTreeMap<String, String>> {
         if !root.is_dir() {
             bail!("Source directory {} does not exist", root.display());
         }
+        // The root itself is always read, also when it is inside a build output directory.
         let walker = WalkDir::new(root).into_iter().filter_entry(|entry| {
-            !(entry.file_type().is_dir()
-                && entry
-                    .path()
-                    .strip_prefix(root)
-                    .is_ok_and(is_skipped_directory))
+            entry.depth() == 0
+                || !(entry.file_type().is_dir() && is_skipped_directory(entry.path()))
         });
         for entry in walker {
             let entry = entry?;
@@ -144,21 +153,20 @@ pub fn bundle_sources(
     })
 }
 
-fn is_skipped_directory(relative: &Path) -> bool {
-    let parts: Vec<&str> = relative
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .collect();
-    let Some((name, parents)) = parts.split_last() else {
+fn is_skipped_directory(dir: &Path) -> bool {
+    let (Some(name), Some(parent)) = (dir.file_name().and_then(|n| n.to_str()), dir.parent())
+    else {
         return false;
     };
-    if name.starts_with('.') || *name == "node_modules" {
+    if name.starts_with('.') || name == "node_modules" {
         return true;
     }
-    if !parents.contains(&"src") && BUILD_OUTPUT_DIRS.contains(name) {
-        return true;
+    if BUILD_OUTPUT_DIRS.contains(&name) {
+        return MODULE_MARKERS
+            .iter()
+            .any(|marker| parent.join(marker).exists());
     }
-    parents.last() == Some(&"src") && TEST_SOURCE_SETS.contains(name)
+    parent.file_name().is_some_and(|parent| parent == "src") && TEST_SOURCE_SETS.contains(&name)
 }
 
 /// The package a Java or Kotlin file declares, or `None` for the default package. Comments and
@@ -351,6 +359,49 @@ mod tests {
                 "com/acme/build/Tool.java",
             ]
         );
+    }
+
+    #[test]
+    fn the_layout_around_the_root_decides_what_is_skipped() {
+        let repo = tempfile::tempdir().unwrap();
+        let root = repo.path();
+        write(root, "app/build.gradle", "");
+        write(
+            root,
+            "app/src/main/java/com/acme/build/Tool.java",
+            "package com.acme.build;\nclass Tool {}\n",
+        );
+        write(
+            root,
+            "app/src/main/java/com/acme/test/Probe.java",
+            "package com.acme.test;\n",
+        );
+        write(
+            root,
+            "app/src/test/java/com/acme/build/Tool.java",
+            "package com.acme.build;\nclass Tool { boolean fake; }\n",
+        );
+        write(
+            root,
+            "app/build/generated/sources/annotationProcessor/java/main/com/acme/out/Gen.java",
+            "package com.acme.out;\n",
+        );
+
+        let main = ["com/acme/build/Tool.java", "com/acme/test/Probe.java"];
+        let cases: [(&str, &[&str]); 4] = [
+            ("", &main),
+            ("app/src", &main),
+            ("app/src/main/java", &main),
+            (
+                "app/build/generated/sources/annotationProcessor/java/main",
+                &["com/acme/out/Gen.java"],
+            ),
+        ];
+        for (relative, expected) in cases {
+            let sources = collect_sources(&[root.join(relative)]).unwrap();
+            let keys: Vec<&str> = sources.keys().map(String::as_str).collect();
+            assert_eq!(keys, expected, "root {relative:?}");
+        }
     }
 
     #[test]
