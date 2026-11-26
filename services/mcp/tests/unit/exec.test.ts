@@ -473,9 +473,8 @@ describe('exec tool', () => {
 
         it('counts a result it shortens, since the executor then sees one that fits', async () => {
             const shortened = async (): Promise<number> =>
-                (await toolResponsesShortenedTotal.get()).values.find(
-                    ({ labels }) => labels.tool === 'mock-tool' && labels.budget === 'client'
-                )?.value ?? 0
+                (await toolResponsesShortenedTotal.get()).values.find(({ labels }) => labels.tool === 'mock-tool')
+                    ?.value ?? 0
             const exec = createExec(
                 [
                     makeMockTool({
