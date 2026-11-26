@@ -1,5 +1,5 @@
-import type { ContentWidget } from '../../dashboard/dashboardTypes'
-import type { MenuAction } from '../../dashboard/menuAction'
+import type { ContentWidget } from '../../dashboard/document/dashboardTypes'
+import type { MenuAction } from '../../menu/menuAction'
 import { chartMenuActions } from './chartMenuActions'
 import type { ChartConfig } from './chartSpec'
 import { barSpec } from './viz/bar/barSpec'

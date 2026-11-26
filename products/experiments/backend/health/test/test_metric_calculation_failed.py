@@ -40,7 +40,7 @@ from products.experiments.backend.health.test.factories import ENDED, RUNNING_CO
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.recalculation import RUN_ENTRY_CALCULATION_KEY
+from products.experiments.backend.recalculation.payloads import RUN_ENTRY_CALCULATION_KEY
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 CODE = ExperimentHealthFindingCode.METRIC_CALCULATION_FAILED

@@ -7,8 +7,8 @@ import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger } from '@p
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType } from '~/types'
 
+import { FilterPillContent } from '../bar/FilterPillContent'
 import { type FilterControlProps, INCOMPLETE_LABEL } from '../filterDefinition'
-import { FilterPillContent } from '../FilterPillContent'
 import { ConditionEditor } from './ConditionEditor'
 import type { PropertyFilterConfig, PropertyFilterValue, PropertyValues } from './propertyFilterSpec'
 import { type PropertyCondition, describeCondition, isCompleteCondition, operatorsFor } from './propertyOperators'
@@ -68,7 +68,6 @@ export function PropertyFilter({
             <PopoverContent align="start" className="flex w-96 flex-col gap-2 p-2">
                 <span className="truncate text-xs font-medium">{filter.label ?? key}</span>
                 {drafts.map((draft, index) => (
-                    // The joining word sits beside its condition, so the list reads top to bottom as one sentence.
                     <div key={draft.id} className="flex items-start gap-2">
                         <span className="w-9 shrink-0 pt-1 text-right text-xs text-muted-foreground">
                             {index === 0 ? 'where' : 'and'}
