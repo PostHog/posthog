@@ -663,7 +663,7 @@ def repair_missing_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> N
         # Created after the lock check, so a skipped run pushes no counts rather than zeros.
         missing_gauge = Gauge(
             "posthog_flag_definitions_v2_miss_repair_missing_count",
-            "Number of flag definitions v2 entries missing from the primary tier",
+            "Number of flag definitions v2 entries the run found missing from the primary tier",
             registry=self.metrics_registry,
         )
         repaired_gauge = Gauge(
@@ -676,20 +676,26 @@ def repair_missing_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> N
             "Number of missing flag definitions v2 entries that failed to rebuild; a failed rebuild does not fail the run",
             registry=self.metrics_registry,
         )
+        unscanned_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_unscanned_count",
+            "Number of teams holding a live config version 2 flag that the run did not check before its deadline",
+            registry=self.metrics_registry,
+        )
 
         result = repair_missing_flag_definitions_v2_entries(stop_time=time.monotonic() + self.soft_time_limit / 2)
 
         missing_gauge.set(result.missing)
         repaired_gauge.set(result.repaired)
         failed_gauge.set(result.failed)
+        unscanned_gauge.set(result.holders - result.scanned)
         logger.info(
             "Completed flag definitions v2 miss repair",
             holders=result.holders,
+            scanned=result.scanned,
             missing=result.missing,
             repaired=result.repaired,
             failed=result.failed,
             skipped_by_cap=result.skipped_by_cap,
-            skipped_by_time=result.skipped_by_time,
         )
     finally:
         django_cache.delete(lock_key)

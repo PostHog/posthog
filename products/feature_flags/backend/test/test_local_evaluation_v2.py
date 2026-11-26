@@ -758,7 +758,7 @@ class TestDefinitionsV2MissRepair(PushGatewayTaskTestMixin, DefinitionsV2TestCas
     def _pushed_counts(self) -> dict[str, float | None]:
         return {
             name: self.registry.get_sample_value(f"posthog_flag_definitions_v2_miss_repair_{name}_count")
-            for name in ("missing", "repaired", "failed")
+            for name in ("missing", "repaired", "failed", "unscanned")
         }
 
     def _fail_writes_for(self, failing: Team) -> Any:
@@ -782,7 +782,7 @@ class TestDefinitionsV2MissRepair(PushGatewayTaskTestMixin, DefinitionsV2TestCas
         completed = next(log for log in logs if log["event"] == "Completed flag definitions v2 miss repair")
         counts = {key: completed[key] for key in ("holders", "missing", "repaired", "failed")}
         assert counts == {"holders": 1, "missing": 1, "repaired": 1, "failed": 0}
-        assert (completed["skipped_by_cap"], completed["skipped_by_time"]) == (0, 0)
+        assert (completed["scanned"], completed["skipped_by_cap"]) == (1, 0)
         assert django_cache.get(self.LOCK_KEY) is None
 
     def test_a_present_entry_is_not_rewritten_and_its_payload_is_not_read(self) -> None:
@@ -839,7 +839,6 @@ class TestDefinitionsV2MissRepair(PushGatewayTaskTestMixin, DefinitionsV2TestCas
         _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
         other = self._other_team()
         _create_flag(other, "v2-other", BOOLEAN_V2)
-        assert self.team.id < other.id
 
         with self._fail_writes_for(self.team):
             result = repair_missing_flag_definitions_v2_entries()
@@ -857,30 +856,67 @@ class TestDefinitionsV2MissRepair(PushGatewayTaskTestMixin, DefinitionsV2TestCas
         with self._fail_writes_for(self.team):
             repair_missing_flag_definitions_v2_cache_entries()
 
-        assert self._pushed_counts() == {"missing": 3, "repaired": 2, "failed": 1}
+        assert self._pushed_counts() == {"missing": 3, "repaired": 2, "failed": 1, "unscanned": 0}
+
+    def test_the_task_pushes_the_teams_it_did_not_check(self) -> None:
+        for team in (self.team, self._other_team()):
+            _create_flag(team, "v2-boolean", BOOLEAN_V2)
+
+        with patch(f"{MODULE}.time", wraps=time) as clock:
+            clock.monotonic.return_value = float("inf")
+            repair_missing_flag_definitions_v2_cache_entries()
+
+        assert self._pushed_counts() == {"missing": 0, "repaired": 0, "failed": 0, "unscanned": 2}
 
     def test_the_cap_leaves_the_other_teams_for_the_next_run(self) -> None:
-        teams = [self.team, self._other_team("Second"), self._other_team("Third")]
+        teams = [self.team, self._other_team("Second"), self._other_team("Third"), self._other_team("Fourth")]
         for team in teams:
             _create_flag(team, "v2-boolean", BOOLEAN_V2)
 
         first = repair_missing_flag_definitions_v2_entries(limit=2)
 
-        assert (first.missing, first.repaired, first.skipped_by_cap) == (3, 2, 1)
-        assert [_stored(V2, team) != ABSENT for team in teams] == [True, True, False]
+        assert (first.scanned, first.missing, first.repaired, first.skipped_by_cap) == (4, 4, 2, 2)
+        assert sum(_stored(V2, team) != ABSENT for team in teams) == 2
 
         second = repair_missing_flag_definitions_v2_entries(limit=2)
 
-        assert (second.missing, second.repaired, second.skipped_by_cap) == (1, 1, 0)
+        assert (second.missing, second.repaired, second.skipped_by_cap) == (2, 2, 0)
         assert all(_stored(V2, team) != ABSENT for team in teams)
 
-    def test_a_run_past_its_deadline_starts_no_repair(self) -> None:
-        self._create_v2_flags()
+    def test_failing_teams_do_not_hold_the_cap_on_every_run(self) -> None:
+        _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        other = self._other_team()
+        _create_flag(other, "v2-other", BOOLEAN_V2)
 
-        result = repair_missing_flag_definitions_v2_entries(stop_time=time.monotonic() - 1)
+        with self._fail_writes_for(self.team):
+            # Each run tries one of the two teams at random, so 40 runs all missing the other one is a 1 in 2^40 chance.
+            for _ in range(40):
+                if repair_missing_flag_definitions_v2_entries(limit=1).repaired:
+                    break
 
-        assert (result.missing, result.repaired, result.skipped_by_time) == (1, 0, 1)
+        assert _keys(_body(V2, other)) == ["v2-other"]
         assert _stored(V2, self.team) == ABSENT
+
+    def test_the_deadline_also_stops_the_presence_checks(self) -> None:
+        teams = [self.team, self._other_team("Second"), self._other_team("Third")]
+        for team in teams:
+            _create_flag(team, "v2-boolean", BOOLEAN_V2)
+        now = [0.0]
+        has_key = V2.cache_client.has_key
+
+        def slow_has_key(*args: Any, **kwargs: Any) -> bool:
+            now[0] += 1
+            return has_key(*args, **kwargs)
+
+        with (
+            patch(f"{MODULE}.time", wraps=time) as clock,
+            patch.object(V2.cache_client, "has_key", side_effect=slow_has_key),
+        ):
+            clock.monotonic.side_effect = lambda: now[0]
+            result = repair_missing_flag_definitions_v2_entries(stop_time=1.5)
+
+        assert (result.holders, result.scanned, result.missing, result.repaired) == (3, 2, 2, 2)
+        assert sum(_stored(V2, team) == ABSENT for team in teams) == 1
 
     def test_the_task_skips_while_another_run_holds_its_lock(self) -> None:
         self._create_v2_flags()
@@ -890,7 +926,7 @@ class TestDefinitionsV2MissRepair(PushGatewayTaskTestMixin, DefinitionsV2TestCas
         repair_missing_flag_definitions_v2_cache_entries()
 
         assert _stored(V2, self.team) == ABSENT
-        assert self._pushed_counts() == {"missing": None, "repaired": None, "failed": None}
+        assert self._pushed_counts() == {"missing": None, "repaired": None, "failed": None, "unscanned": None}
 
     def test_the_hourly_upkeep_lock_does_not_block_the_repair(self) -> None:
         self._create_v2_flags()

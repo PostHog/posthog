@@ -14,6 +14,7 @@ an object-storage copy would outlive every expiry.
 """
 
 import time
+import random
 from collections import defaultdict
 from typing import Any
 
@@ -240,11 +241,11 @@ def _get_teams_with_flag_definitions_v2_queryset() -> "QuerySet[Team]":
 @frozen
 class MissRepairResult:
     holders: int
+    scanned: int
     missing: int
     repaired: int
     failed: int
     skipped_by_cap: int
-    skipped_by_time: int
 
 
 def repair_missing_flag_definitions_v2_entries(
@@ -254,20 +255,26 @@ def repair_missing_flag_definitions_v2_entries(
 
     A reader takes a missing entry for "no v2 flags" and serves the legacy feed. The check reads
     key existence only: a payload can be large, and its ETag is a separate key that can outlive it.
-    The teams past ``limit``, or left when ``stop_time`` (from ``time.monotonic()``) passes, wait
-    for the next run.
+    Teams are checked in random order and repaired as they are found, so neither a slow Redis nor
+    teams whose repair keeps failing hold back the same teams on every run. After ``limit`` repairs
+    the run only counts misses. Those, and the teams not checked before ``stop_time`` (from
+    ``time.monotonic()``), wait for the next run.
     """
     cache = flag_definitions_v2_hypercache
-    holder_ids = sorted(_holder_team_ids())
-    # One key per call: the keys can hash to different cluster slots.
-    missing_ids = [team_id for team_id in holder_ids if not cache.cache_client.has_key(cache.get_cache_key(team_id))]
-    selected_ids = missing_ids[:limit]
+    holder_ids = list(_holder_team_ids())
+    random.shuffle(holder_ids)
 
-    repaired = failed = attempted = 0
-    for team_id in selected_ids:
+    scanned = missing = repaired = failed = 0
+    for team_id in holder_ids:
         if stop_time is not None and time.monotonic() >= stop_time:
             break
-        attempted += 1
+        scanned += 1
+        # One key per call: the keys can hash to different cluster slots.
+        if cache.cache_client.has_key(cache.get_cache_key(team_id)):
+            continue
+        missing += 1
+        if repaired + failed >= limit:
+            continue
         # Not skip_if_unchanged: an ETag that outlived its payload would skip the write.
         if update_flag_definitions_v2_cache(team_id):
             repaired += 1
@@ -276,11 +283,11 @@ def repair_missing_flag_definitions_v2_entries(
 
     return MissRepairResult(
         holders=len(holder_ids),
-        missing=len(missing_ids),
+        scanned=scanned,
+        missing=missing,
         repaired=repaired,
         failed=failed,
-        skipped_by_cap=len(missing_ids) - len(selected_ids),
-        skipped_by_time=len(selected_ids) - attempted,
+        skipped_by_cap=missing - repaired - failed,
     )
 
 

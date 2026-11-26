@@ -237,10 +237,15 @@ A reader takes a missing entry for "no v2 flags" and serves the legacy feed, and
 So `repair_missing_flag_definitions_v2_cache_entries` runs every 5 minutes and rebuilds the entries that Redis lost.
 It finds the teams that hold a live config version 2 flag through the partial index `featureflag_live_v2_team_idx`, and checks that each one's payload key exists on the primary tier.
 It checks the payload key and not the ETag key, because Redis can evict the two separately, and it reads no payload.
-A run repairs at most 100 teams and stops starting repairs halfway to its soft time limit; the next run continues.
-Its log line counts the holders, the missing entries, the repairs, the failures and the teams skipped by the cap or the time limit.
-Each run pushes its counts as gauges: `posthog_flag_definitions_v2_miss_repair_missing_count`, `_repaired_count` and `_failed_count`.
+It checks the teams in random order and repairs a missing entry as soon as it finds it.
+So neither a slow Redis nor teams whose repair keeps failing hold back the same teams on every run.
+A run repairs at most 100 teams, then only counts the misses it finds.
+It stops halfway to its soft time limit, also in the middle of the checks; the next run continues.
+Its log line counts the holders, the teams checked, the missing entries, the repairs, the failures and the misses skipped by the cap.
+Each run pushes its counts as gauges: `posthog_flag_definitions_v2_miss_repair_missing_count`, `_repaired_count`, `_failed_count` and `_unscanned_count`.
+The missing count covers only the teams the run checked.
 A failed repair does not fail the run, so the failed count is the signal that repairs fail.
+An unscanned count above zero means the checks did not finish before the deadline.
 So a `cache_miss` fix by the hourly verification counts only a miss that this task did not repair first.
 For the legacy entry, it already counts only the misses that the self-heal queue did not repair.
 The hourly `maintain_flag_definitions_v2_cache_entries` still verifies the bodies, refreshes expiring entries and removes stale ones.
