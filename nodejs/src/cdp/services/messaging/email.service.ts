@@ -991,7 +991,11 @@ export class EmailService {
                 result.finished = false
                 result.parked = true
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = invocation.queueMetadata
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStepOf(invocation) } : {}),
+                }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else if (
