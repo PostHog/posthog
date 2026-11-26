@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG, MCP_SELF_DRIVING_NUDGE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -181,22 +181,52 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
     it.each([
         {
-            name: 'flag on with both tools',
-            flag: true,
+            name: 'both flags on with both tools',
+            first: true,
+            nudge: true,
             tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
-            expected: true,
+            expected: { inboxFirstEnabled: true, inboxNudgeEnabled: true },
         },
-        { name: 'flag off', flag: false, tools: ['inbox-reports-list', 'inbox-reports-retrieve'], expected: false },
-        { name: 'flag on without retrieve', flag: true, tools: ['inbox-reports-list'], expected: false },
-    ])('derives inboxFirstEnabled from the flag and the advertised tools: $name', ({ flag, tools, expected }) => {
-        const state = {
-            allTools: tools.map((name) => ({ name })),
-            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
-            toolFeatureFlags: { [MCP_INBOX_FIRST_FLAG]: flag },
-        } as unknown as ResolvedState
+        {
+            name: 'both flags off',
+            first: false,
+            nudge: false,
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            expected: { inboxFirstEnabled: false, inboxNudgeEnabled: false },
+        },
+        {
+            name: 'only the nudge flag on',
+            first: false,
+            nudge: true,
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            expected: { inboxFirstEnabled: false, inboxNudgeEnabled: true },
+        },
+        {
+            name: 'both flags on without retrieve',
+            first: true,
+            nudge: true,
+            tools: ['inbox-reports-list'],
+            expected: { inboxFirstEnabled: false, inboxNudgeEnabled: true },
+        },
+        {
+            name: 'both flags on without the list',
+            first: true,
+            nudge: true,
+            tools: ['inbox-reports-retrieve'],
+            expected: { inboxFirstEnabled: false, inboxNudgeEnabled: false },
+        },
+    ])(
+        'derives the inbox sections from their flags and the advertised tools: $name',
+        ({ first, nudge, tools, expected }) => {
+            const state = {
+                allTools: tools.map((name) => ({ name })),
+                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+                toolFeatureFlags: { [MCP_INBOX_FIRST_FLAG]: first, [MCP_SELF_DRIVING_NUDGE_FLAG]: nudge },
+            } as unknown as ResolvedState
 
-        expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state).inboxFirstEnabled).toBe(expected)
-    })
+            expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state)).toMatchObject(expected)
+        }
+    )
 
     // ------------------------------------------------------------------------------------------------
     // DO NOT modify, weaken, raise, skip, or delete this test or its 16,384 budget —
@@ -227,7 +257,11 @@ describe('InstructionsFormatter prompt snapshots', () => {
                 'inbox-reports-claim',
             ].map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true, [MCP_INBOX_FIRST_FLAG]: true },
+            toolFeatureFlags: {
+                [MCP_EXEC_SKILLS_FEATURE_FLAG]: true,
+                [MCP_INBOX_FIRST_FLAG]: true,
+                [MCP_SELF_DRIVING_NUDGE_FLAG]: true,
+            },
             renderUiEnabled: true,
             requestContext: { mcpConsumer: undefined },
             sessionContext: null,

@@ -446,35 +446,30 @@ describe('InstructionsFormatter', () => {
                 {
                     surface: 'tools instructions',
                     render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildToolsInstructions(ctx),
-                    ref: 'the `inbox-digest-get` tool',
+                    ref: 'the `inbox-reports-list` tool',
                 },
                 {
                     surface: 'exec command reference',
                     render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildExecCommandReference(ctx),
-                    ref: '`call inbox-digest-get <json_input>`',
+                    ref: '`call inbox-reports-list <json_input>`',
                 },
                 {
-                    surface: 'Claude exec command reference',
+                    surface: 'compact exec command reference for claude.ai',
                     render: (f: InstructionsFormatter, ctx: InstructionsContext) =>
-                        f.buildClaudeExecCommandReference(ctx),
-                    ref: '`call inbox-digest-get <json_input>`',
+                        f.buildCompactExecCommandReference(ctx, { claudeChat: true }),
+                    ref: '`call inbox-reports-list <json_input>`',
                 },
-            ].flatMap((surface) => [true, false].map((available) => ({ ...surface, available })))
+            ].flatMap((surface) => [true, false].map((enabled) => ({ ...surface, enabled })))
         )(
-            '$surface points to the digest without the inbox-first section only when it is advertised: $available',
-            ({ render, ref, available }) => {
+            '$surface points to the inbox list without the inbox-first section only when the nudge is on: $enabled',
+            ({ render, ref, enabled }) => {
                 const rendered = render(new InstructionsFormatter(), {
                     ...fullCtx,
                     inboxFirstEnabled: false,
-                    inboxDigestEnabled: available,
+                    inboxNudgeEnabled: enabled,
                 })
 
-                expect(
-                    rendered.includes(
-                        `To see which inbox reports need the user and what changed in their product, use ${ref}.`
-                    )
-                ).toBe(available)
-                expect(rendered.includes('inbox-digest-get')).toBe(available)
+                expect(rendered.includes(`To see which Inbox reports need the user, use ${ref}.`)).toBe(enabled)
             }
         )
     })

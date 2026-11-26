@@ -42,6 +42,7 @@ import {
     MCP_CURSOR_EXEC_MODE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     MCP_INBOX_FIRST_FLAG,
+    MCP_SELF_DRIVING_NUDGE_FLAG,
     MCP_TIME_SERIES_CHARTS_FLAG,
 } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
@@ -270,8 +271,8 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG a prompt section,
-        // and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG and
+        // MCP_SELF_DRIVING_NUDGE_FLAG a prompt section each, and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
@@ -281,6 +282,7 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
+                MCP_SELF_DRIVING_NUDGE_FLAG,
                 MCP_TIME_SERIES_CHARTS_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
@@ -623,7 +625,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent, guidance, Inbox-first and chart experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent, guidance, Inbox-first, Inbox nudge and chart experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
@@ -632,6 +634,7 @@ export class RequestStateResolver {
                         key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
                             key !== MCP_INTENT_PROMPT_FLAG &&
                             key !== MCP_INBOX_FIRST_FLAG &&
+                            key !== MCP_SELF_DRIVING_NUDGE_FLAG &&
                             key !== MCP_TIME_SERIES_CHARTS_FLAG &&
                             !GUIDANCE_RULE_FLAGS.includes(key),
                     ])

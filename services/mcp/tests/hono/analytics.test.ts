@@ -25,7 +25,7 @@ import {
     trackToolsList,
     trackToolSpan,
 } from '@/hono/analytics'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG, MCP_SELF_DRIVING_NUDGE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
@@ -368,6 +368,7 @@ describe('Hono MCP analytics contexts', () => {
         [MCP_INBOX_FIRST_FLAG, true],
         [MCP_INBOX_FIRST_FLAG, false],
         [MCP_INBOX_FIRST_FLAG, undefined],
+        [MCP_SELF_DRIVING_NUDGE_FLAG, true],
     ])('records the evaluated experiment flag %s: %s', async (flagKey, flagValue) => {
         const state = makeState({ toolFeatureFlags: { [flagKey]: flagValue } })
 

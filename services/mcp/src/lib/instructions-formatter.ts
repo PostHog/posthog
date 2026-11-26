@@ -35,8 +35,8 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
-import INBOX_DIGEST from '@/templates/sections/inbox-digest.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
+import INBOX_NUDGE from '@/templates/sections/inbox-nudge.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
 import METRIC_DISCOVERY_EMPTY from '@/templates/sections/metric-discovery-empty.md'
@@ -103,8 +103,8 @@ export interface InstructionsContext {
     inboxFirstEnabled?: boolean | undefined
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
-    /** Independent of `inboxFirstEnabled`: the digest has its own flag and scopes, which decide whether the tool is advertised. */
-    inboxDigestEnabled?: boolean | undefined
+    /** Set only when the nudge flag is on and `inbox-reports-list` is advertised. Independent of `inboxFirstEnabled`. */
+    inboxNudgeEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
     learnToolEnabled?: boolean | undefined
     splitWrites?: boolean | undefined
@@ -120,8 +120,6 @@ const ENDPOINTS_ROUTING =
 
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
-
-const INBOX_DIGEST_TOOL = 'inbox-digest-get'
 
 function inboxToolRef(name: string, execSyntax: boolean): string {
     return execSyntax ? `\`call ${name} <json_input>\`` : `the \`${name}\` tool`
@@ -322,11 +320,11 @@ export class InstructionsFormatter {
         ]
     }
 
-    private inboxDigestSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
-        if (!ctx.inboxDigestEnabled) {
+    private inboxNudgeSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
+        if (!ctx.inboxNudgeEnabled) {
             return []
         }
-        return [formatPrompt(INBOX_DIGEST, { inbox_digest: inboxToolRef(INBOX_DIGEST_TOOL, execSyntax) })]
+        return [formatPrompt(INBOX_NUDGE, { inbox_list: inboxToolRef('inbox-reports-list', execSyntax) })]
     }
 
     buildLearnToolDescription(): string {
@@ -383,7 +381,7 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
-                ...this.inboxDigestSections(ctx, false),
+                ...this.inboxNudgeSections(ctx, false),
                 TOOL_SEARCH,
                 ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
                 RETRIEVING_DATA,
@@ -599,7 +597,7 @@ export class InstructionsFormatter {
                 ...(learnSection ? [learnSection] : []),
                 // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
                 ...(claudeChat ? [] : this.inboxFirstSections(ctx, true)),
-                ...this.inboxDigestSections(ctx, true),
+                ...this.inboxNudgeSections(ctx, true),
                 ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection }),
                 ...(ctx.cliLearnLayout ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
@@ -629,7 +627,7 @@ export class InstructionsFormatter {
         const sections = [
             CLI_SYNTAX,
             ...this.inboxFirstSections(ctx, true),
-            ...this.inboxDigestSections(ctx, true),
+            ...this.inboxNudgeSections(ctx, true),
             ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
