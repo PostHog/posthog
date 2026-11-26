@@ -45,6 +45,7 @@ import {
     baselineOf,
     janitorResetsOf,
     measure,
+    phasesOf,
     startSampler,
 } from '../judge/measurements'
 import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
@@ -93,6 +94,8 @@ export type RunTarget = { name: Target; open(loaded: LoadedCard, runId: string):
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError' | 'pair'>
 
+export type RunWindow = { from: string; to: string }
+
 export type RunResult = {
     runId: string
     status: Status
@@ -103,6 +106,8 @@ export type RunResult = {
     stored?: true
     storeError?: string
     pair?: ScorecardPair
+    warmUp?: RunWindow
+    baseline?: RunWindow
     cardId: string
     cardHash: string
     profileHash: string
@@ -335,6 +340,22 @@ const admittedWindowOf = (
     drive.stopOnBreak && first
         ? { startedAt: first.startedAt, endedAt: first.endedAt }
         : firstStepOf(window, stepsOf(drive))
+
+const runWindowOf = (from: number, to: number): RunWindow => ({
+    from: new Date(from).toISOString(),
+    to: new Date(to).toISOString(),
+})
+
+function windowsOf(
+    drive: DriveWindow,
+    timeline: readonly ValveTimelineEntry[]
+): Pick<RunResult, 'warmUp' | 'baseline'> {
+    const { baseline } = phasesOf(drive, timeline)
+    return {
+        ...(drive.warmedAt !== undefined && { warmUp: runWindowOf(drive.startedAt, baseline.from) }),
+        baseline: runWindowOf(baseline.from, baseline.to),
+    }
+}
 
 function cdpApiUrlsOf(environment: Environment): string[] {
     const urls = environment
@@ -598,6 +619,7 @@ export function createRunner(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
                 probes = await opened.probes(seeded.teamIds)
+                const offers = await opened.offers()
                 const driveStartedAt = Date.now()
                 live.write({
                     type: 'phase',
@@ -620,10 +642,13 @@ export function createRunner(
                     teams: seeded.teamIds,
                     commits: probes.commits,
                     manifest,
+                    startedAt: driveStartedAt,
+                    endsAt: driveStartedAt + durationMs(card.drive.for),
                 })
-                const offers = await opened.offers()
                 const windowOpen = new AbortController()
-                void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
+                void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {
+                    signal: windowOpen.signal,
+                })
                     .then(() => valves.releaseAll())
                     .catch(() => undefined)
                 const liveSignal = AbortSignal.any([signal, judging.signal])
@@ -659,6 +684,7 @@ export function createRunner(
                 const units = await drive(loaded, seeded, recorder, AbortSignal.any([signal, valves.refusal]), {
                     ...offers,
                     runId,
+                    startedAt: driveStartedAt,
                     halt: watch?.halt,
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
@@ -666,6 +692,9 @@ export function createRunner(
                 const driveWindow: DriveWindow = {
                     startedAt: driveStartedAt,
                     endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
+                    ...(card.drive.warmUp !== undefined && {
+                        warmedAt: driveStartedAt + durationMs(card.drive.warmUp),
+                    }),
                 }
                 driven = driveWindow
                 offered = { targetUnits: units.targetUnits, offeredUnits: units.offeredUnits }
@@ -751,6 +780,7 @@ export function createRunner(
                 })
                 outcome = {
                     ...verdict,
+                    ...windowsOf(admittedWindowOf(card.drive, driveWindow, units.steps), evidence.timeline),
                     units,
                     convergence,
                     janitorResets,

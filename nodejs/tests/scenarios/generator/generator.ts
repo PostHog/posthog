@@ -34,7 +34,7 @@ export type StepWindow = Omit<DrivenStep, 'offeredUnits' | 'waitedFor'>
 
 export type StepGate = (step: StepWindow, offered: () => number) => Promise<void>
 
-export type DriveContext = OfferContext & { runId: string; halt?: AbortSignal; gate?: StepGate }
+export type DriveContext = OfferContext & { runId: string; startedAt?: number; halt?: AbortSignal; gate?: StepGate }
 
 function trafficKind(name: string): TrafficKind {
     const kind = TRAFFIC.find((traffic) => traffic.name === name)
@@ -216,7 +216,7 @@ export async function drive(
 
     const fixedSteps = card.drive.stopOnBreak === true
     const judged: { settled: boolean; done: Promise<void> }[] = []
-    const driveStartedAt = Date.now()
+    const driveStartedAt = context.startedAt ?? Date.now()
     const driveEnd = driveStartedAt + (planned.at(-1)?.toMs ?? 0)
     let stretchedMs = 0
     for (const [index, { scale, fromMs, toMs }] of planned.entries()) {
