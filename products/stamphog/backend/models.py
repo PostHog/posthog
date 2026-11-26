@@ -78,8 +78,6 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     routing_fork_labels = models.JSONField(default=dict, db_default={})
     # Off by default: a clean external review starts a review outside review_mode, which widens when stamphog runs.
     review_on_clean_external_review = models.BooleanField(default=False, db_default=False)
-    # Off by default: when on, `stamp --express` posts a pull request that stamphog did not approve to
-    # this Slack channel, so a person reviews it. db_default on all three for the same deploy reason.
     express_enabled = models.BooleanField(default=False, db_default=False)
     express_slack_channel_id = models.CharField(max_length=64, blank=True, default="", db_default="")
     express_slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
@@ -475,20 +473,15 @@ class ExpressRequest(ProductTeamModel):
     status = models.CharField(
         max_length=32, choices=ExpressRequestStatus.choices, default=ExpressRequestStatus.PENDING.value
     )
-    # The head the request follows now. A push moves it, and the status is decided for this head.
     head_sha = models.CharField(max_length=64)
     # The PostHog user who asked (plain id, no FK: multi-DB product). Null when a Slack user who
     # asked has no PostHog account.
     requested_by_user_id = models.BigIntegerField(null=True, blank=True)
     requested_via = models.CharField(max_length=16, choices=ExpressRequestSource.choices)
-    # Blank unless the request came from Slack.
     requester_slack_user_id = models.CharField(max_length=64, blank=True, default="")
-    # The commenter's GitHub login. Blank unless the request came from a pull request comment.
     requester_github_login = models.CharField(max_length=255, blank=True, default="")
     # A request from a pull request comment never carries a note, because pull request comments are public.
-    # The note never goes to GitHub.
     note = models.CharField(max_length=200, blank=True, default="")
-    # The GitHub login of the person whose approval of head_sha set APPROVED.
     approved_by_login = models.CharField(max_length=255, blank=True, default="")
     # The head that already sent its one thread reply to the people looking, so a retry does not reply twice.
     pinged_head_sha = models.CharField(max_length=64, blank=True, default="")
@@ -534,10 +527,8 @@ class ExpressRequestDelivery(ProductTeamModel):
     channel_id = models.CharField(max_length=64, blank=True, default="")
     message_ts = models.CharField(max_length=32, blank=True, default="")
     # The link Slack itself returned for the posted message, so the API never builds a Slack URL.
-    # Blank when the lookup failed.
     permalink = models.CharField(max_length=512, blank=True, default="")
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
-    # When the message went out. The requester's weekly card count reads it.
     posted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -105,7 +105,6 @@ class ExpressRequestDeliveryDTO:
     """Where an Express request was posted."""
 
     kind: ExpressRequestDeliveryKind
-    # The link Slack returned for the message. None when Slack gave none.
     url: str | None
 
 
@@ -123,7 +122,6 @@ class ExpressRequestDTO:
     approved_by_login: str = ""
     deliveries: list[ExpressRequestDeliveryDTO] = Field(default_factory=list)
     # How many cards the requester caused in the 7 days up to this request's card, that card included.
-    # None until the card is posted.
     requester_card_count: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -208,7 +206,6 @@ class ReviewRunDTO:
     posted_review_id: int | None = None
     verdict_posted_at: datetime | None = None
     approval_dismissed_at: datetime | None = None
-    # The newest Express request of the run's pull request, as on PullRequestDTO.
     express_request: ExpressRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -313,7 +310,6 @@ class ReviewRequestResultDTO:
     express_request: ExpressRequestDTO | None = None
     # The Slack channel name the repository sends Express requests to, without the '#'. Blank when unknown.
     express_request_channel_name: str = ""
-    # Whether this request created ``express_request``. False when it returned one that someone asked for earlier.
     express_request_created: bool = False
     # True when the request is open with no posted card and the card cannot go out: the team has no Slack
     # integration, or Slack refused the post.

@@ -12,6 +12,7 @@ import dataclasses
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from django.db import IntegrityError, connections, router, transaction
 from django.db.models import Q
@@ -20,8 +21,9 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models import User
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import ph_background_capture, ph_scoped_capture
 
 from ..facade.enums import (
     ACTIVE_EXPRESS_REQUEST_STATUSES,
@@ -57,11 +59,11 @@ CARD_POSTED_EVENT = "stamphog_express_card_posted"
 LOOK_CLICKED_EVENT = "stamphog_express_look_clicked"
 STATUS_CHANGED_EVENT = "stamphog_express_request_status_changed"
 
-# The rolling window of the requester's card count on the card.
 CARD_COUNT_WINDOW = timedelta(days=7)
 
-# The outcomes that send a pull request to people. A WAIT is absent because stamphog reviews the head again.
-_NOT_APPROVED_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
+# The outcomes that send a pull request to people. An ERROR is here because nothing reviews that head again on its own.
+# A WAIT is absent because stamphog reviews the head again.
+_NOT_APPROVED_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE, ReviewVerdict.ERROR})
 
 
 @frozen
@@ -71,9 +73,7 @@ class ExpressRequestAsk:
     requested_by_user_id: int | None
     requested_via: ExpressRequestSource
     requester_slack_user_id: str = ""
-    # The commenter's login, for a request from a pull request comment.
     requester_github_login: str = ""
-    # Shown in Slack only. It is never written to GitHub, because pull request comments are public.
     note: str = ""
 
 
@@ -114,7 +114,8 @@ def open_express_request(
     the request commits, so the finished-review path always sees the request.
 
     A new request takes its status from ``run``. A request for a head that stamphog already approved
-    is created as STAMPHOG_APPROVED, which is final, so it does not block a later request.
+    is created as STAMPHOG_APPROVED, which is final, so it does not block a later request. A repeated
+    ask for that head returns the newest request when that request already records this approval.
     """
     active = (
         ExpressRequest.objects.for_team(pull_request.team_id)
@@ -124,6 +125,21 @@ def open_express_request(
     existing = active.first()
     if existing is not None:
         return OpenedExpressRequest(request=existing, created=False)
+    status = status_for_run(run)
+    if status == ExpressRequestStatus.STAMPHOG_APPROVED:
+        latest = (
+            ExpressRequest.objects.for_team(pull_request.team_id)
+            .using(using)
+            .filter(pull_request=pull_request)
+            .order_by("-created_at")
+            .first()
+        )
+        if (
+            latest is not None
+            and latest.status == ExpressRequestStatus.STAMPHOG_APPROVED
+            and latest.head_sha == run.head_sha
+        ):
+            return OpenedExpressRequest(request=latest, created=False)
     try:
         # The savepoint keeps the outer transaction usable when a concurrent ask wins the unique constraint.
         with transaction.atomic(using=using):
@@ -133,7 +149,7 @@ def open_express_request(
                 .create(
                     team_id=pull_request.team_id,
                     pull_request=pull_request,
-                    status=status_for_run(run),
+                    status=status,
                     head_sha=run.head_sha,
                     requested_by_user_id=ask.requested_by_user_id,
                     requested_via=ask.requested_via,
@@ -160,7 +176,6 @@ def open_express_request(
 
 # The review states that replace a person's earlier review. A COMMENTED review leaves an approval standing.
 _DECIDING_REVIEW_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
-# The statuses that a card shows a person can still pick up.
 _REVIEWABLE_STATUSES = frozenset({ExpressRequestStatus.OPEN, ExpressRequestStatus.PENDING})
 
 
@@ -174,8 +189,9 @@ def stamphog_status_at_head(
     posted its approval. Until then it can show nothing, and no stamphog verdict follows a withheld one.
 
     "No run" means that no run is coming only once the review path has decided the head. Callers check
-    that through ``head_decided`` in ``refresh``. A head that approval retention kept also has no run,
-    because the push skipped the review, and the retained approval approves it.
+    that through ``decided_head_sha`` in ``refresh``, which names the head the review path decided. A
+    head that approval retention kept also has no run, because the push skipped the review, and the
+    retained approval approves it.
     """
     runs = ReviewRun.objects.for_team(pull_request.team_id).using(using).filter(pull_request=pull_request)
     at_head = runs.filter(head_sha=head_sha).exclude(status=ReviewRunStatus.SUPERSEDED).order_by("-created_at")
@@ -362,7 +378,12 @@ class _NextState:
 
 
 def _next_state(
-    request: ExpressRequest, client: StamphogGitHubClient, pr: Mapping[str, Any], *, head_decided: bool, using: str
+    request: ExpressRequest,
+    client: StamphogGitHubClient,
+    pr: Mapping[str, Any],
+    *,
+    decided_head_sha: str,
+    using: str,
 ) -> _NextState | None:
     """The request's next state, or None while the review path has not yet decided a new head."""
     if request.status not in ACTIVE_EXPRESS_REQUEST_STATUSES:
@@ -378,7 +399,12 @@ def _next_state(
     status, run = stamphog_status_at_head(pull_request, head_sha, using=using)
     # Other GitHub deliveries for a push, such as review_requested, can refresh before the review path creates
     # the new head's run. That missing run does not mean that no review is coming, so the request waits.
-    if run is None and status == ExpressRequestStatus.OPEN and head_sha != request.head_sha and not head_decided:
+    if (
+        run is None
+        and status == ExpressRequestStatus.OPEN
+        and head_sha != request.head_sha
+        and head_sha != decided_head_sha
+    ):
         return None
     if status == ExpressRequestStatus.STAMPHOG_APPROVED:
         return _NextState(status=status, approved_by_login="", run=run)
@@ -391,21 +417,21 @@ def _next_state(
     return _NextState(status=status, approved_by_login="", run=run)
 
 
-def _capture(request: ExpressRequest, event: str, properties: dict[str, Any]) -> None:
+def _capture(request: ExpressRequest, event: str, properties: dict[str, Any], *, background: bool = False) -> None:
     repo_config = request.pull_request.repo_config
+    all_properties = {
+        "stamphog_repo": repo_config.repository,
+        "stamphog_team_id": request.team_id,
+        "stamphog_express_request_id": str(request.id),
+        "stamphog_express_request_via": request.requested_via,
+        **properties,
+    }
     try:
+        if background:
+            ph_background_capture()(distinct_id=repo_config.repository, event=event, properties=all_properties)
+            return
         with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=repo_config.repository,
-                event=event,
-                properties={
-                    "stamphog_repo": repo_config.repository,
-                    "stamphog_team_id": request.team_id,
-                    "stamphog_express_request_id": str(request.id),
-                    "stamphog_express_request_via": request.requested_via,
-                    **properties,
-                },
-            )
+            capture(distinct_id=repo_config.repository, event=event, properties=all_properties)
     except Exception:
         logger.exception("stamphog_express_request_capture_failed", express_request_id=str(request.id))
 
@@ -444,6 +470,8 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         posted_at = timezone.now()
         card_count = requester_card_count(request, at=posted_at, using=using)
         card = dataclasses.replace(card, requester_card_count=card_count)
+        # When Slack accepts the post and the commit then fails, the retry posts one more card. That is accepted,
+        # because recording the post before Slack accepts it could leave a card that never posts.
         try:
             ts = post_card(card, repo_config.express_slack_channel_id, repo_config.express_slack_channel_name)
         except ExpressRequestSlackError as e:
@@ -456,7 +484,6 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         delivery.integration_id = card.integration_id
         delivery.channel_id = repo_config.express_slack_channel_id
         delivery.message_ts = ts
-        delivery.permalink = card_permalink(card, delivery.channel_id, ts)
         delivery.state = ExpressRequestDelivery.State.POSTED
         delivery.posted_at = posted_at
         delivery.save(
@@ -464,7 +491,6 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
                 "integration_id",
                 "channel_id",
                 "message_ts",
-                "permalink",
                 "state",
                 "posted_at",
                 "updated_at",
@@ -475,7 +501,22 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         ExpressRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
             pinged_head_sha=head_sha, requester_card_count=card_count, updated_at=timezone.now()
         )
+        channel_id = delivery.channel_id
+        transaction.on_commit(
+            lambda: _record_permalink(request.team_id, delivery.id, card, channel_id, ts, using=using), using=using
+        )
     _capture(request, CARD_POSTED_EVENT, {"stamphog_express_request_status": card.status.value})
+
+
+def _record_permalink(
+    team_id: int, delivery_id: UUID, card: ExpressRequestCard, channel_id: str, ts: str, *, using: str
+) -> None:
+    permalink = card_permalink(card, channel_id, ts)
+    if not permalink:
+        return
+    ExpressRequestDelivery.objects.for_team(team_id).using(using).filter(id=delivery_id, permalink="").update(
+        permalink=permalink, updated_at=timezone.now()
+    )
 
 
 def _post_if_open(
@@ -509,14 +550,15 @@ def _post_if_open(
     _post_once(request, card, head_sha, using=using)
 
 
-def refresh(team_id: int, express_request_id: str, *, head_decided: bool = False) -> None:
+def refresh(team_id: int, express_request_id: str, *, decided_head_sha: str = "") -> None:
     """Recompute one Express request from the database and GitHub, then post or edit its Slack card.
 
     Idempotent: a retry, or a second refresh for the same state, posts nothing new. Every read that
     decides a post is pinned to the writer.
 
-    ``head_decided`` is True only for the refresh that the review path queues after it created the run
-    for the pull request's head or skipped that head. Only that refresh may read a new head with no run
+    ``decided_head_sha`` is set only by the refresh that the review path queues after it created the run
+    for the pull request's head or skipped that head, and it names the head the review path decided.
+    Only that refresh, and only while the live head is still that head, may read a new head with no run
     as a head that stamphog will not review. Any other refresh leaves the request unchanged until then.
 
     Refreshes of one request run one at a time under the request's row lock, which is held across the
@@ -538,17 +580,19 @@ def refresh(team_id: int, express_request_id: str, *, head_decided: bool = False
         )
         if request is None:
             return
-        _refresh_locked(request, head_decided=head_decided, using=db)
+        _refresh_locked(request, decided_head_sha=decided_head_sha, using=db)
 
 
-def _refresh_locked(request: ExpressRequest, *, head_decided: bool, using: str) -> None:
+def _refresh_locked(request: ExpressRequest, *, decided_head_sha: str, using: str) -> None:
     team_id = request.team_id
     pull_request = request.pull_request
     repo_config = pull_request.repo_config
-    client = StamphogGitHubClient(repo_config.installation_id)
+    # These reads are not review writes, so they leave the CRITICAL reserve to verdicts and dismissals.
+    # NORMAL and not BATCH, because a person who clicked waits on them, and a shed refresh only retries.
+    client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.NORMAL)
     pr = client.get_pr(repo_config.repository, pull_request.pr_number)
     head_sha = pr["head"]["sha"]
-    state = _next_state(request, client, pr, head_decided=head_decided, using=using)
+    state = _next_state(request, client, pr, decided_head_sha=decided_head_sha, using=using)
     if state is None:
         return
 
@@ -607,7 +651,7 @@ def record_look(click: LookClick) -> bool:
     Returns True when the card must be refreshed. The click counts only on the card that the request
     posted, and only from a person in the workspace that the card was posted in, because a button value
     can be copied into another message. Slack expects an answer in 3 seconds, so the refresh is queued
-    by the caller.
+    by the caller, and the click event goes through the background client, which does not wait for a flush.
     """
     db = router.db_for_write(ExpressRequest)
     request = (
@@ -661,5 +705,5 @@ def record_look(click: LookClick) -> bool:
             )
         )
     if changed:
-        _capture(request, LOOK_CLICKED_EVENT, {"stamphog_express_request_looking": click.looking})
+        _capture(request, LOOK_CLICKED_EVENT, {"stamphog_express_request_looking": click.looking}, background=True)
     return changed

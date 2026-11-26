@@ -1204,7 +1204,7 @@ def _refresh_express_requests_after_review_decision(payload: dict[str, Any]) -> 
             repository=repository,
             pr_number=pr_number,
             installation_id=str((payload.get("installation") or {}).get("id", "")),
-            head_decided=True,
+            decided_head_sha=((payload.get("pull_request") or {}).get("head") or {}).get("sha") or "",
         )
     except Exception:
         logger.exception("stamphog_express_request_refresh_after_review_failed", repo=repository, pr_number=pr_number)
@@ -1656,6 +1656,8 @@ _UNPUBLISHED_SILENT_RUN = Q(
 
 EVIDENCE_RERUN_OUTPUT_KEY = "evidence_rerun_of"
 _EVIDENCE_RERUNS_PER_HEAD = 3
+EXPRESS_REVISIT_OUTPUT_KEY = "express_revisit_of"
+_EXPRESS_REVISITS_PER_HEAD = 3
 _DELIVERED_STATUSES = (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
 
 
@@ -1667,6 +1669,16 @@ def _covering_run(runs_at_head: QuerySet[ReviewRun], *, visible: bool) -> Review
     return covering.order_by("-created_at").first()
 
 
+def _reruns_used(runs_at_head: QuerySet[ReviewRun], key: str) -> int:
+    """How many re-runs stamped with ``key`` count against a per-head cap. A re-run that failed or was
+    superseded reviewed nothing, so it does not count."""
+    return (
+        runs_at_head.filter(output__has_key=key)
+        .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+        .count()
+    )
+
+
 def _may_rerun_on_evidence(runs_at_head: QuerySet[ReviewRun], covering: ReviewRun) -> bool:
     """Whether new evidence may review the head again: the covering run is a refusal or an escalation that
     the PR saw, and the head has an evidence re-run left. A gate denial is stored as a GATED WAIT, so it
@@ -1675,13 +1687,7 @@ def _may_rerun_on_evidence(runs_at_head: QuerySet[ReviewRun], covering: ReviewRu
         return False
     if covering.is_silent:
         return False
-    # A re-run that failed or was superseded reviewed nothing, so it does not use up the cap.
-    used = (
-        runs_at_head.filter(output__has_key=EVIDENCE_RERUN_OUTPUT_KEY)
-        .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
-        .count()
-    )
-    return used < _EVIDENCE_RERUNS_PER_HEAD
+    return _reruns_used(runs_at_head, EVIDENCE_RERUN_OUTPUT_KEY) < _EVIDENCE_RERUNS_PER_HEAD
 
 
 def _reviewed_evidence(runs_at_head: QuerySet[ReviewRun], base_ref: str) -> set[str]:
@@ -1736,7 +1742,8 @@ def _queue_review_at_head(
     ``revisit_wait`` stops a delivered WAIT at this head, engine or gated, from counting as covering
     it, because the caller wants that verdict revisited. A newer run at this head still counts, so
     repeated requests collapse into one run. ``revisit_engine_wait`` does the same for an engine WAIT
-    only, so a gate denial, stored as a GATED WAIT, still covers the head.
+    only, so a gate denial, stored as a GATED WAIT, still covers the head. It revisits a head at most
+    ``_EXPRESS_REVISITS_PER_HEAD`` times, and a re-run that failed or was superseded does not count.
 
     ``evidence`` is the caller's evidence fingerprint of the PR as it is now. When the newest run at
     this head is a delivered refusal, the head is reviewed again only for evidence that no finished
@@ -1775,15 +1782,16 @@ def _queue_review_at_head(
         existing = _covering_run(runs_at_head.select_for_update(), visible=visible)
         # Only the newest run counts. An older verdict at this head, from before the WAIT, does not
         # cover it either, because the WAIT replaced that verdict.
-        if (
-            existing is not None
-            and existing.verdict == ReviewVerdict.WAIT
-            and (
-                (revisit_wait and existing.status in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED))
-                or (revisit_engine_wait and existing.status == ReviewRunStatus.COMPLETED)
-            )
-        ):
-            existing = None
+        if existing is not None and existing.verdict == ReviewVerdict.WAIT:
+            if revisit_wait and existing.status in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED):
+                existing = None
+            elif (
+                revisit_engine_wait
+                and existing.status == ReviewRunStatus.COMPLETED
+                and _reruns_used(runs_at_head, EXPRESS_REVISIT_OUTPUT_KEY) < _EXPRESS_REVISITS_PER_HEAD
+            ):
+                output = {**output, EXPRESS_REVISIT_OUTPUT_KEY: str(existing.id)}
+                existing = None
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
         reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
@@ -2005,11 +2013,8 @@ class QueuedReview:
 
     run: ReviewRun
     created: bool
-    # Set only when the request asked for people to review.
     express_request: ExpressRequest | None = None
-    # Whether this request created ``express_request``. False when it found an active one.
     express_request_created: bool = False
-    # The repository's configured channel name, for replies. Blank unless the request asked for people.
     express_request_channel_name: str = ""
 
 
@@ -2237,8 +2242,8 @@ def request_manual_review(
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
         evidence=evidence,
         # A delivered engine WAIT can wait on something that never wakes it, such as a reviewer bot's 👀 that ages
-        # out. The Express request opens only on a verdict, so this ask reviews such a head again. A gate denial
-        # already opens the request.
+        # out. The Express request opens only on a verdict, so this ask reviews such a head again, at most
+        # _EXPRESS_REVISITS_PER_HEAD times. A gate denial already opens the request.
         revisit_engine_wait=express is not None,
         express=express,
     )

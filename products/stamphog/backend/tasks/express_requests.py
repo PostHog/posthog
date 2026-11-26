@@ -7,7 +7,7 @@ from django.db import router
 import structlog
 from celery import Task, shared_task
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 
 from products.stamphog.backend.facade.enums import ACTIVE_EXPRESS_REQUEST_STATUSES, ReviewRunStatus
 from products.stamphog.backend.logic import express_requests
@@ -20,40 +20,43 @@ _RETRY_BASE_SECONDS = 30
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_MAX_RETRIES)
-def refresh_express_request(self: Task, team_id: int, express_request_id: str, head_decided: bool = False) -> None:
+def refresh_express_request(self: Task, team_id: int, express_request_id: str, decided_head_sha: str = "") -> None:
     """Recompute one Express request from the database and GitHub, then post or edit its Slack card.
 
     Every change to a request goes through this task, so it must be idempotent: a retry or a second
     queue for the same state posts nothing new. GitHub and Slack errors retry with backoff.
-    ``head_decided`` is described in ``express_requests.refresh``.
+    ``decided_head_sha`` is described in ``express_requests.refresh``.
     """
     try:
-        express_requests.refresh(team_id, express_request_id, head_decided=head_decided)
-    except GitHubRateLimitError as e:
-        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+        express_requests.refresh(team_id, express_request_id, decided_head_sha=decided_head_sha)
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as e:
+        raise self.retry(exc=e, countdown=max(getattr(e, "retry_after", None) or 0, 60))
     except Exception as e:
         logger.exception("stamphog_express_request_refresh_failed", express_request_id=express_request_id)
         raise self.retry(exc=e, countdown=_RETRY_BASE_SECONDS * 2**self.request.retries)
 
 
-def queue_express_request_refresh(team_id: int, express_request_id: str, *, head_decided: bool = False) -> None:
+def queue_express_request_refresh(team_id: int, express_request_id: str, *, decided_head_sha: str = "") -> None:
     """Queue ``refresh_express_request``. Never raises, because the caller's own write already committed."""
     try:
-        refresh_express_request.delay(team_id=team_id, express_request_id=express_request_id, head_decided=head_decided)
+        refresh_express_request.delay(
+            team_id=team_id, express_request_id=express_request_id, decided_head_sha=decided_head_sha
+        )
     except Exception:
         logger.exception("stamphog_express_request_refresh_queue_failed", express_request_id=express_request_id)
 
 
-@shared_task(ignore_result=True)
+@shared_task(bind=True, ignore_result=True, max_retries=_MAX_RETRIES)
 def refresh_express_requests_for_pull_request(
-    repository: str, pr_number: int, installation_id: str = "", head_decided: bool = False
+    self: Task, repository: str, pr_number: int, installation_id: str = "", decided_head_sha: str = ""
 ) -> None:
     """Refresh every active Express request of one pull request, in every team that has one.
 
     A GitHub delivery only says that something changed, so each refresh reads the state from GitHub
     itself. The PostHog App's installation is not stamphog's, so a delivery from it passes no
     ``installation_id`` and matches on the repository and number alone. Only the review path sets
-    ``head_decided``, after it decided the pull request's head.
+    ``decided_head_sha``, to the head it decided. A database error retries with backoff, because
+    ingress already acknowledged the delivery.
     """
     requests = ExpressRequest.objects.unscoped().using(router.db_for_write(ExpressRequest))
     requests = requests.filter(
@@ -63,8 +66,13 @@ def refresh_express_requests_for_pull_request(
     )
     if installation_id:
         requests = requests.filter(pull_request__repo_config__installation_id=installation_id)
-    for team_id, request_id in requests.values_list("team_id", "id"):
-        queue_express_request_refresh(team_id, str(request_id), head_decided=head_decided)
+    try:
+        targets = list(requests.values_list("team_id", "id"))
+    except Exception as e:
+        logger.exception("stamphog_express_requests_enumeration_failed", repo=repository, pr_number=pr_number)
+        raise self.retry(exc=e, countdown=_RETRY_BASE_SECONDS * 2**self.request.retries)
+    for team_id, request_id in targets:
+        queue_express_request_refresh(team_id, str(request_id), decided_head_sha=decided_head_sha)
 
 
 def queue_express_request_refresh_after_verdict(run: ReviewRun, status: ReviewRunStatus) -> None:

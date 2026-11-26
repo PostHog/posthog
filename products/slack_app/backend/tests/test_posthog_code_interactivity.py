@@ -522,8 +522,12 @@ class TestInteractivityRegionRouting(TestCase):
         self, _name, local, mock_config, mock_proxy
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_proxy.return_value = self._proxy_response(200)
-        handler = MagicMock()
+        mock_proxy.return_value = self._proxy_response(200, b'{"forwarded": true}')
+        clicked: list[dict] = []
+
+        def handler(_payload: dict, clicked_action: dict) -> None:
+            clicked.append(clicked_action)
+
         integration_id = self.posthog_code_integration.id if local else self.posthog_code_integration.id + 1000
         action = {"action_id": "test_product.look", "value": json.dumps({"integration_id": integration_id})}
 
@@ -531,10 +535,8 @@ class TestInteractivityRegionRouting(TestCase):
             response = self._post({"type": "block_actions", "user": {"id": "U123"}, "actions": [action]})
 
         assert response.status_code == 200
-        assert handler.call_count == int(local)
-        assert mock_proxy.call_count == int(not local)
-        if local:
-            assert handler.call_args.args[1] == action
+        assert clicked == ([action] if local else [])
+        assert response.content == (b"" if local else b'{"forwarded": true}')
 
 
 class TestSignalsDismissReport(TestCase):

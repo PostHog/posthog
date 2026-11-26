@@ -72,6 +72,8 @@ from products.stamphog.backend.tasks.express_requests import (
     refresh_express_requests_for_pull_request,
 )
 from products.stamphog.backend.tasks.tasks import (
+    _EXPRESS_REVISITS_PER_HEAD,
+    EXPRESS_REVISIT_OUTPUT_KEY,
     pending_attestation_checks,
     process_inbox_pr_review,
     request_manual_review,
@@ -4494,8 +4496,10 @@ def _rendered(blocks: list[dict]) -> str:
     return json.dumps(blocks, ensure_ascii=False)
 
 
-def _refresh(request: ExpressRequest, *, head_decided: bool = False) -> ExpressRequest:
-    refresh_express_request(team_id=request.team_id, express_request_id=str(request.id), head_decided=head_decided)
+def _refresh(request: ExpressRequest, *, decided_head_sha: str = "") -> ExpressRequest:
+    refresh_express_request(
+        team_id=request.team_id, express_request_id=str(request.id), decided_head_sha=decided_head_sha
+    )
     request.refresh_from_db()
     return request
 
@@ -4637,8 +4641,6 @@ def test_a_card_counts_the_cards_its_requester_caused_this_week(
     _earlier_request(team.id, earlier, days_ago=1, requested_by_user_id=ASKER_USER_ID)
     _earlier_request(team.id, earlier, days_ago=2, requester_github_login="dev-example")
     _earlier_request(team.id, earlier, days_ago=3, requester_slack_user_id="U0ASKER")
-    # Never counted: a card from before the week, a request that asked nobody, a card Slack refused, and
-    # someone else's card.
     _earlier_request(team.id, earlier, days_ago=8, **everyone_of_theirs)
     _earlier_request(team.id, earlier, days_ago=1, delivery=None, **everyone_of_theirs)
     _earlier_request(team.id, earlier, days_ago=1, delivery=ExpressRequestDelivery.State.FAILED, **everyone_of_theirs)
@@ -4711,7 +4713,6 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
         team_id=team.id, express_request=request, slack_user_id="U0LOOKER", display_name="Lou"
     )
 
-    # A person approves the head: the card says who, and nobody else is asked to look.
     recorder.pr_reviews[(REPO, 172)] = [
         {
             "user": {"login": "maintainer", "type": "User"},
@@ -4723,7 +4724,6 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
     with patch("products.stamphog.backend.logic.express_requests.ph_scoped_capture") as scoped_capture:
         request = _refresh(request)
     assert (request.status, request.approved_by_login) == (ExpressRequestStatus.APPROVED, "maintainer")
-    # The outcome of a posted card is what shows whether Express got a person to review.
     (captured,) = scoped_capture.return_value.__enter__.return_value.call_args_list
     assert captured.kwargs["event"] == "stamphog_express_request_status_changed"
     assert (
@@ -4737,13 +4737,15 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
     # A push makes that approval stale. A delivery such as review_requested can refresh before the review path
     # decided the new head, and then the request and the card wait for that decision.
     recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b"), _pr_files())
-    request = _refresh(request)
-    assert (request.status, request.head_sha) == (ExpressRequestStatus.APPROVED, "sha172a")
-    assert _thread_replies() == []
+    # The review path decided an older head, so its refresh must not read this head as decided either.
+    for decided_head_sha in ("", "sha172a"):
+        request = _refresh(request, decided_head_sha=decided_head_sha)
+        assert (request.status, request.head_sha) == (ExpressRequestStatus.APPROVED, "sha172a")
+        assert _thread_replies() == []
     # Nothing reviews the new head, so the card opens again, and the people looking hear about the push once
     # however often the request refreshes.
-    request = _refresh(request, head_decided=True)
-    request = _refresh(request, head_decided=True)
+    request = _refresh(request, decided_head_sha="sha172b")
+    request = _refresh(request, decided_head_sha="sha172b")
     assert (request.status, request.head_sha, request.approved_by_login) == (ExpressRequestStatus.OPEN, "sha172b", "")
     (ping,) = _thread_replies()
     assert ping["thread_ts"] == card["ts"]
@@ -4763,7 +4765,6 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
 @pytest.mark.parametrize(
     "review_mode, expect_status, expect_cards",
     [
-        # Label mode with no label: nothing reviews the new head, so the request opens and its card is posted.
         pytest.param(ReviewMode.LABEL, ExpressRequestStatus.OPEN, 1, id="push_nothing_reviews"),
         # The review of the new head is queued but has not started. A refresh that ran before the run existed
         # would read the head as unreviewed and post the card.
@@ -4833,34 +4834,45 @@ def test_a_head_that_kept_stamphogs_approval_asks_nobody(
     )
     stamphog_chain.recorder.register_pr(REPO, 177, _silent_review_pr(177, "sha177b"), _pr_files())
 
-    request = _refresh(request, head_decided=True)
+    request = _refresh(request, decided_head_sha="sha177b")
 
     assert (request.status, request.head_sha) == (expect_status, "sha177b")
     assert len(_cards()) == expect_cards
 
 
+@pytest.mark.parametrize(
+    "revisits_used, expect_status",
+    [
+        pytest.param(0, ExpressRequestStatus.OPEN, id="reviewed_again"),
+        pytest.param(_EXPRESS_REVISITS_PER_HEAD, ExpressRequestStatus.PENDING, id="revisits_used_up"),
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_asking_people_reviews_again_a_head_that_waits(team, stamphog_chain: StamphogChain) -> None:
-    # A delivered WAIT can wait on something that never wakes it, such as a reviewer bot's reaction that ages out.
-    # If the ask reused it, the request would wait forever and nobody would be asked.
+def test_asking_people_reviews_again_a_head_that_waits(
+    team, stamphog_chain: StamphogChain, revisits_used: int, expect_status: ExpressRequestStatus
+) -> None:
     repo_config = _express_repo_config(team.id)
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=178, author_login="devex-dev"
     )
-    ReviewRun.objects.for_team(team.id).create(
-        team_id=team.id,
-        pull_request=pull_request,
-        head_sha="sha178a",
-        status=ReviewRunStatus.COMPLETED,
-        verdict=ReviewVerdict.WAIT,
-        verdict_posted_at=VERDICT_POSTED_AT,
-    )
+    for _ in range(max(revisits_used, 1)):
+        covering = ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha="sha178a",
+            status=ReviewRunStatus.COMPLETED,
+            verdict=ReviewVerdict.WAIT,
+            verdict_posted_at=VERDICT_POSTED_AT,
+            output={EXPRESS_REVISIT_OUTPUT_KEY: "earlier"} if revisits_used else {},
+        )
     stamphog_chain.recorder.register_pr(REPO, 178, _silent_review_pr(178, "sha178a"), _pr_files())
 
     request = _ask_people(team.id, 178, fakes.make_fake_sandbox_class(_refused_engine_output()))
 
-    assert request.status == ExpressRequestStatus.OPEN
-    assert len(_cards()) == 1
+    assert request.status == expect_status
+    assert len(_cards()) == int(expect_status == ExpressRequestStatus.OPEN)
+    newest = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).order_by("-created_at").first()
+    assert (newest == covering) is bool(revisits_used)
 
 
 @pytest.mark.parametrize("slack_connected", [True, False], ids=["card_on_its_way", "no_slack_integration"])
@@ -4882,7 +4894,6 @@ def test_asking_again_shows_no_weekly_count_of_the_first_requester(
         verdict=ReviewVerdict.REFUSED,
         verdict_posted_at=VERDICT_POSTED_AT,
     )
-    # The first requester caused three cards this week, and their request has no card yet.
     for days_ago in (1, 2, 3):
         _earlier_request(team.id, pull_request, days_ago=days_ago, requested_by_user_id=ASKER_USER_ID)
     ExpressRequest.objects.for_team(team.id).create(
@@ -4940,7 +4951,6 @@ def _click(
         # A person from another workspace in a Slack Connect channel sees the card, but the request is not theirs.
         pytest.param({"user_workspace": "T0GUEST"}, False, id="slack_connect_guest"),
         pytest.param({"workspace": "T0OTHER", "user_workspace": "T0OTHER"}, False, id="other_workspace"),
-        # A button value copied into another message must not act on the request.
         pytest.param({"ts": "9999.0001"}, False, id="copied_to_another_message"),
     ],
 )

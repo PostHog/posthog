@@ -634,7 +634,6 @@ class TestDispatchCommentCommand(BaseTest):
             express_request_channel_name=channel_name,
             express_request_card_count=card_count,
         )
-        # Notes only work from Slack.
         note = "ask Jane about billing" if asked_from == "slack" else ""
 
         with patch(REQUEST_STAMPHOG_REVIEW, return_value=result):

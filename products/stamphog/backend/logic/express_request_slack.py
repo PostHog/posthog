@@ -118,7 +118,6 @@ class ExpressRequestCard:
     additions: int
     deletions: int
     changed_files: int
-    # Logins and team slugs that GitHub lists as requested reviewers now.
     requested_on_github: tuple[str, ...]
     # Only from a run whose verdict GitHub already shows. Empty otherwise.
     findings: tuple[str, ...]
@@ -128,7 +127,6 @@ class ExpressRequestCard:
     requester_name: str
     lookers: tuple[CardLooker, ...]
     approved_by_login: str
-    # How many cards the requester caused this week, this one included. None until the first post counts it.
     requester_card_count: int | None = None
 
 
@@ -369,8 +367,7 @@ def post_card(card: ExpressRequestCard, channel_id: str, channel_name: str) -> s
 def card_permalink(card: ExpressRequestCard, channel_id: str, ts: str) -> str:
     """The link Slack gives for the posted card, or "" when Slack does not give one. Never raises.
 
-    The caller has posted the card but has not recorded it yet. An exception here would make the task
-    retry and post a second card.
+    It runs after the post committed, and nothing retries it, so a card without a link stays without one.
     """
     try:
         response = _slack(card.team_id, card.integration_id).client.chat_getPermalink(channel=channel_id, message_ts=ts)

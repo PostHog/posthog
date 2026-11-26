@@ -172,7 +172,7 @@ def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
     )
 
 
-# The attribute that _with_express_requests prefetches onto each pull request, newest request first.
+# The attribute that _with_express_requests prefetches onto each pull request. It holds only the newest request.
 _EXPRESS_REQUESTS_ATTR = "prefetched_express_requests"
 
 
@@ -214,11 +214,11 @@ def _express_request_reads(team_id: int) -> QuerySet[ExpressRequest]:
 
 
 def _with_express_requests(qs: _QS, team_id: int, pull_request_path: str) -> _QS:
-    """Prefetch the Express requests of each row's pull request, so a page of rows reads them in three queries."""
+    """Prefetch the newest Express request of each row's pull request, so a page of rows reads them in three queries."""
     return qs.prefetch_related(
         Prefetch(
             pull_request_path,
-            queryset=_express_request_reads(team_id).order_by("-created_at"),
+            queryset=_express_request_reads(team_id).order_by("-created_at")[:1],
             to_attr=_EXPRESS_REQUESTS_ATTR,
         )
     )

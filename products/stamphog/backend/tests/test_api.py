@@ -1301,7 +1301,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert second.json()["run"]["express_request"]["note"] == "Touches billing."
         assert (
             refresh.call_args_list
-            == [call(team_id=self.team.id, express_request_id=str(request.id), head_decided=False)] * 2
+            == [call(team_id=self.team.id, express_request_id=str(request.id), decided_head_sha="")] * 2
         )
         captured = scoped_capture.return_value.__enter__.return_value.call_args_list
         assert [(c.kwargs["event"], c.kwargs["properties"]["stamphog_express_request_has_note"]) for c in captured] == [
@@ -1322,6 +1322,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         [
             ("in_flight", ReviewRunStatus.REVIEWING, ReviewVerdict.NONE, False, ExpressRequestStatus.PENDING),
             ("gate_denial", ReviewRunStatus.GATED, ReviewVerdict.WAIT, True, ExpressRequestStatus.OPEN),
+            ("engine_error", ReviewRunStatus.COMPLETED, ReviewVerdict.ERROR, True, ExpressRequestStatus.OPEN),
             (
                 "approved",
                 ReviewRunStatus.COMPLETED,
@@ -1349,10 +1350,13 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self._turn_on_express_requests()
 
         response = self._request(express=True)
+        repeated = self._request(express=True)
 
         assert response.status_code == (status.HTTP_201_CREATED if new_run else status.HTTP_200_OK), response.content
         assert (response.json()["run"]["id"] != run_id) is new_run
         assert response.json()["express_request"]["status"] == expected
+        assert repeated.json()["express_request"]["id"] == response.json()["express_request"]["id"]
+        assert ExpressRequest.objects.unscoped().filter(team_id=self.team.id).count() == 1
 
     def test_request_needs_the_write_scope(self) -> None:
         key_value = generate_random_token_personal()

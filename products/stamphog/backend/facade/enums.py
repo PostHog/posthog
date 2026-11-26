@@ -190,16 +190,13 @@ class ReviewRequestRefusal(StrEnum):
     NOT_FOUND = "not_found"
     NOT_REVIEWABLE = "not_reviewable"
     GITHUB_UNAVAILABLE = "github_unavailable"
-    # The request asked for people to review, and the repository has Express turned off.
     EXPRESS_OFF = "express_off"
 
 
 class ExpressRequestStatus(LabeledStrEnum):
     """Where a request for a person to review one pull request stands."""
 
-    # Stamphog has not decided the head yet, so nothing is posted.
     PENDING = "pending", "Waiting for Stamphog"
-    # Stamphog did not approve, so the request is posted and waits for a person.
     OPEN = "open", "Waiting for a person"
     # A person approved the current head. A push that makes the approval stale sets OPEN again.
     APPROVED = "approved", "Approved by a person"
