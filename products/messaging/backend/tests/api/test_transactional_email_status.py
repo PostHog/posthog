@@ -336,9 +336,9 @@ class TestMatchSentMessageIds(ClickhouseTestMixin, BaseTest):
                 "<0100018c-ours-000000@email.amazonses.com>",
             ),
             (
-                "past_the_id_cap",
-                " ".join(f"<0100018c-unknown-{n}@email.amazonses.com>" for n in range(100))
-                + " <0100018c-ours-000000@email.amazonses.com>",
+                "older_than_the_newest_ten",
+                "<0100018c-ours-000000@email.amazonses.com> "
+                + " ".join(f"<0100018c-unknown-{n}@email.amazonses.com>" for n in range(10)),
                 "",
             ),
             ("not_an_ses_domain", "<0100018c-ours-000000@example.com>", ""),

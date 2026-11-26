@@ -156,8 +156,9 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     )
 
 
-# Anyone can send these headers, and each extra id weakens the bloom index. Sends cap References at 100.
-_MAX_WIRE_IDS = 100
+# Anyone can send these headers, and each extra id weakens the bloom index. References lists the newest ids last, and
+# those name the reply's parent, so only the last few are read.
+_MAX_WIRE_IDS = 10
 # SES writes `<MessageId@email.amazonses.com>` or `@<region>.amazonses.com`, and the sent row keeps only the MessageId.
 _SES_WIRE_MESSAGE_ID = re.compile(r"<([^<>@\s]+)@[a-z0-9-]+\.amazonses\.com>", re.IGNORECASE)
 _SENT_MESSAGE_QUERY = f"""
@@ -172,12 +173,8 @@ GROUP BY provider_message_id
 @events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMessageMatch, ...]:
     """The sends of this team named in these header values, such as a reply's raw In-Reply-To and References."""
-    wire_ids: dict[str, str] = {}
-    for header in headers:
-        for match in _SES_WIRE_MESSAGE_ID.finditer(header):
-            if len(wire_ids) == _MAX_WIRE_IDS:
-                break
-            wire_ids.setdefault(match[1], match[0])
+    found = {match[1]: match[0] for header in headers for match in _SES_WIRE_MESSAGE_ID.finditer(header)}
+    wire_ids = dict(list(found.items())[-_MAX_WIRE_IDS:])
     if not wire_ids:
         return ()
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
