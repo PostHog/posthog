@@ -16,6 +16,7 @@ import {
     notePanel,
     reportBuilder,
 } from './importReport'
+import { own } from './nrql'
 import {
     fillVariables,
     logqlLegend,
@@ -190,13 +191,13 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
             [target.rawSql, target.expr, target.expression, target.query, target.sqlExpression].find(
                 (candidate) => typeof candidate === 'string' && candidate.trim()
             ) ?? ''
-        const language = DATASOURCE_NAMES[type ?? ''] ?? type ?? 'an unknown datasource'
+        const language = own(DATASOURCE_NAMES, type ?? '') ?? type ?? 'an unknown datasource'
         report.query(false)
         skipped.push({ language: /sql/i.test(language) ? 'sql' : '', text: `-- ${refId} · ${language}\n${text}` })
         reasons.push(`${refId} queries ${language}, which PostHog can't run.`)
     }
 
-    const viz = VIZ[panel.type]
+    const viz = own(VIZ, String(panel.type))
     if (!viz) {
         reasons.unshift(`Grafana panel type "${panel.type}" has no equivalent yet.`)
         const original = [
