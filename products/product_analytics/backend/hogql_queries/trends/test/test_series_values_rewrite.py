@@ -241,6 +241,7 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (Blocker.OTHER_AGGREGATE, {"series": [_UNIQUE_USERS]}, "UTC"),
+            (Blocker.MULTIPLE_SERIES, {"series": [_COUNT, _OTHER]}, "UTC"),
             (Blocker.BREAKDOWN, {"breakdownFilter": BreakdownFilter(breakdown="plan", breakdown_type="event")}, "UTC"),
             (Blocker.OTHER_INTERVAL, {"interval": IntervalType.WEEK, "dateRange": DateRange(date_from="-30d")}, "UTC"),
             (

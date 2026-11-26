@@ -12,6 +12,7 @@ today, and the hour that holds the upper bound. A SELECT around the two sums `to
 the query around the rewrite still gets one row per bucket.
 """
 
+import math
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -394,9 +395,9 @@ class _Rewriter(CloningVisitor):
         self.count_queries = 0
 
     def _decline(self, blocker: Blocker, node: ast.SelectQuery) -> ast.SelectQuery:
+        self.request.declined.append(blocker)
         if self.request.mode == "stored_only":
             raise _Declined(blocker)
-        self.request.declined.append(blocker)
         return node
 
     def _build_deadline(self) -> float | None:
@@ -438,6 +439,10 @@ class _Rewriter(CloningVisitor):
         if (jobs_end - jobs_start).days > MAX_RANGE_DAYS:
             return self._decline(Blocker.DATE_RANGE_TOO_LONG, cloned)
 
+        # The series of one query run in parallel. Once one of them is declined the whole call is, so the
+        # others start no build.
+        if self.request.mode == "stored_only" and self.request.declined:
+            raise _Declined(self.request.declined[0])
         deadline = self._build_deadline()
         seconds_left = None if deadline is None else deadline - time.monotonic()
         if seconds_left is not None and seconds_left <= 0:
@@ -464,6 +469,11 @@ class _Rewriter(CloningVisitor):
                 wait_timeout_seconds=seconds_left,
                 read_after_write=True,
                 cache_key_context={"engine": "series_values_v1"},
+                # The wait only stops the next INSERT from starting. Without a limit of its own, an INSERT
+                # that starts late runs on while the query waits to compile.
+                insert_settings=None
+                if seconds_left is None
+                else {"max_execution_time": max(1, math.ceil(seconds_left))},
             )
         finally:
             hogql_select_rewrite.reset(hook)
@@ -531,6 +541,10 @@ def _finished_buckets(runner: TrendsQueryRunner, today_start: datetime) -> set[d
 def precomputed_series_values(
     runner: TrendsQueryRunner, *, wait_timeout_seconds: float | None = None
 ) -> PrecomputedSeriesValues | SeriesValuesUnavailable:
+    # The values returned are those of the first series, so a query with several is declined until a
+    # caller can say which series it wants.
+    if len(runner.query.series) > 1:
+        return SeriesValuesUnavailable(reason=Blocker.MULTIPLE_SERIES)
     with rewriting_series_values("stored_only", wait_timeout_seconds=wait_timeout_seconds) as request:
         finished = _finished_buckets(runner, request.today_start)
         if not finished:

@@ -77,6 +77,7 @@ class SeriesValuesBlocker(StrEnum):
     """Why a query gets no stored values."""
 
     NO_COUNT_QUERY = "no_count_query"
+    MULTIPLE_SERIES = "multiple_series"
     BREAKDOWN = "breakdown"
     OTHER_AGGREGATE = "other_aggregate"
     OTHER_INTERVAL = "other_interval"
