@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconExternal } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -122,16 +121,10 @@ export function QuillSearchPerformanceTab({
                                 <Button
                                     variant="outline"
                                     nativeButton={false}
-                                    render={
-                                        <LinkPrimitive
-                                            to={urls.dataWarehouseSource(`managed-${sourceId}`)}
-                                            target="_blank"
-                                        />
-                                    }
+                                    render={<LinkPrimitive to={urls.dataWarehouseSource(`managed-${sourceId}`)} />}
                                     data-attr="marketing-search-manage-source"
                                 >
                                     Manage source
-                                    <IconExternal />
                                 </Button>
                             }
                         >

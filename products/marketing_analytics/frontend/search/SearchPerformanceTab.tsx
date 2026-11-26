@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -154,14 +153,12 @@ export function SearchPerformanceTab({
                                         // The setup panel's accordion underlines every link inside it.
                                         <LinkPrimitive
                                             to={urls.dataWarehouseSource(`managed-${sourceId}`)}
-                                            target="_blank"
                                             className="no-underline!"
                                         />
                                     }
                                     data-attr="marketing-search-manage-source"
                                 >
                                     Manage source
-                                    <IconExternal />
                                 </Button>
                             </div>
                         ) : (
@@ -181,7 +178,6 @@ export function SearchPerformanceTab({
                                     type="secondary"
                                     size="small"
                                     to={urls.dataWarehouseSource(`managed-${sourceId}`)}
-                                    targetBlank
                                     data-attr="marketing-search-manage-source"
                                 >
                                     Manage source
@@ -233,7 +229,6 @@ export function SearchPerformanceTab({
                             action={{
                                 children: 'Manage source',
                                 to: urls.dataWarehouseSource(`managed-${sourceId}`),
-                                targetBlank: true,
                                 'data-attr': 'marketing-search-manage-source',
                             }}
                         >

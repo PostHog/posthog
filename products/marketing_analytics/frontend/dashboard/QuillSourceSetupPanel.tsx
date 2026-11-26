@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
-import { IconCheckCircle, IconExternal, IconInfo } from '@posthog/icons'
+import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import {
     Accordion,
     AccordionContent,
@@ -207,15 +207,12 @@ export function QuillSourceSetupPanel({
                                                     <Button
                                                         variant="outline"
                                                         nativeButton={false}
-                                                        render={
-                                                            <LinkPrimitive to={connection.manageUrl} target="_blank" />
-                                                        }
+                                                        render={<LinkPrimitive to={connection.manageUrl} />}
                                                         data-attr={manageSourceDataAttr}
                                                         // Accordion panels underline every link inside them.
                                                         className="no-underline!"
                                                     >
                                                         Manage source
-                                                        <IconExternal />
                                                     </Button>
                                                 </div>
                                             ) : null}

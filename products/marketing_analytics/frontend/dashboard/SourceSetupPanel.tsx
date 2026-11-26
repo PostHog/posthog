@@ -289,7 +289,6 @@ export function SourceSetupPanel({
                                                             type="secondary"
                                                             size="small"
                                                             to={manageSourceUrl(connection)}
-                                                            targetBlank
                                                             data-attr={manageSourceDataAttr}
                                                         >
                                                             Manage source
