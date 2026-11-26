@@ -681,6 +681,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "benjamin_enabled",
         "claude_model_access",
         "claude_subscription_user_id",
+        "codex_apps_disabled",
         "codex_max_subagents",
         "codex_model_access",
         "codex_shared_prompt_cache",
@@ -3592,6 +3593,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "claude_subscription_user_id",
         "codex_model_access",
         "codex_subscription_user_id",
+        # Keeps the apps of the plan owner out of a run that other Slack users can drive.
+        "codex_apps_disabled",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
