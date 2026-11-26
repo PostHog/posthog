@@ -1,9 +1,26 @@
-import { createContext } from 'react'
-
 import type { WidgetFrameApi } from '../generated/api.schemas'
+import type { WidgetFrameSession } from '../NotebookNodeGeneratedWidget/widgetFrameSession'
 import type { ViewerOutput } from './notebookAppViewerLogic'
 
-export const ViewerWidgetOutputs = createContext<Record<string, ViewerOutput>>({})
+export function viewerWidgetSession(
+    outputs: Record<string, ViewerOutput>,
+    widgetId: string,
+    versionId: string | null
+): WidgetFrameSession {
+    const frames = viewerWidgetFrames(outputs, widgetId, versionId)
+    return {
+        revision: JSON.stringify(
+            Array.from(frames, ([name, { sourceNodeId, output }]) => [name, sourceNodeId, output.generation])
+        ),
+        read: async (slot, offset, limit, load) => {
+            const viewer = frames.get(slot)
+            if (!viewer) {
+                return await load(offset, limit)
+            }
+            return viewerWidgetPage(await load(0, 1), viewer.sourceNodeId, viewer.output, offset, limit)
+        },
+    }
+}
 
 export function viewerWidgetFrames(
     outputs: Record<string, ViewerOutput>,
@@ -31,15 +48,7 @@ export function viewerWidgetPage(
     if (frame.sourceNodeId !== sourceNodeId) {
         throw new Error('The widget input changed. Refresh the app to load the new binding.')
     }
-    if (
-        result.columns?.length !== frame.columns.length ||
-        frame.columns.some(
-            ({ name, type }, index) =>
-                name !== result.columns?.[index] || (type !== 'unknown' && type !== result.types?.[index]?.[1])
-        )
-    ) {
-        throw new Error('The filtered columns changed. Update the widget input to use this result.')
-    }
+    validateWidgetColumns(frame.columns, result)
     if (offset >= 5000) {
         throw new Error('Widget data is limited to 5,000 rows per dataframe.')
     }
@@ -76,5 +85,17 @@ export function viewerWidgetPage(
         totalRowCount: result.results.length,
         nextOffset: end < Math.min(result.results.length, 5000) ? end : null,
         truncated: end < result.results.length || !!result.hasMore,
+    }
+}
+
+function validateWidgetColumns(columns: WidgetFrameApi['columns'], result: ViewerOutput['result']): void {
+    if (
+        result.columns?.length !== columns.length ||
+        columns.some(
+            ({ name, type }, index) =>
+                name !== result.columns?.[index] || (type !== 'unknown' && type !== result.types?.[index]?.[1])
+        )
+    ) {
+        throw new Error('The filtered columns changed. Update the widget input to use this result.')
     }
 }

@@ -12,12 +12,13 @@ import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
+import { WidgetFrameSessionContext } from '../NotebookNodeGeneratedWidget/widgetFrameSession'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
-import { ViewerWidgetOutputs } from './viewerWidgetFrames'
+import { viewerWidgetSession } from './viewerWidgetFrames'
 
 export default function PublishedNotebookApp({ shortId }: { shortId: string }): JSX.Element {
     const project = String(ApiConfig.getCurrentTeamId())
@@ -92,7 +93,9 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 onChange={setActiveTab}
                 tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
             />
-            <ViewerWidgetOutputs.Provider value={results?.outputs ?? {}}>
+            <WidgetFrameSessionContext.Provider
+                value={(nodeId, versionId) => viewerWidgetSession(results?.outputs ?? {}, nodeId, versionId)}
+            >
                 <NotebookAppCanvas
                     layout={layout}
                     activeTab={activeTab}
@@ -116,7 +119,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                     }
                     onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
                 />
-            </ViewerWidgetOutputs.Provider>
+            </WidgetFrameSessionContext.Provider>
         </main>
     )
 }

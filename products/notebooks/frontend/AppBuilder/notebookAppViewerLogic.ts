@@ -14,7 +14,7 @@ import {
 } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import { notebooksAppQueriesCreate, notebooksAppReleaseRetrieve } from '../generated/api'
 import type { NotebookAppReleaseApi, NotebookAppViewerQueryApi } from '../generated/api.schemas'
@@ -58,7 +58,7 @@ async function executeViewerQuery(
     controller.signal.addEventListener('abort', cancel, { once: true })
     try {
         return await performQuery<HogQLQuery>(
-            { kind: NodeKind.HogQLQuery, query },
+            { kind: NodeKind.HogQLQuery, query, tags: { productKey: ProductKey.NOTEBOOKS } },
             { signal: controller.signal, queryTelemetry: 'metadata' },
             force ? 'force_blocking' : 'blocking',
             queryId

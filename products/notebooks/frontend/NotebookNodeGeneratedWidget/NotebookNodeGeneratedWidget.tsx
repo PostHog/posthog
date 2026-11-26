@@ -14,7 +14,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ViewerWidgetOutputs, viewerWidgetFrames, viewerWidgetPage } from '../AppBuilder/viewerWidgetFrames'
 import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
 import { applyReusableWidgetBinding, getReusableWidgetInputBinding } from '../ReusableWidget/reusableWidgetBindings'
 import {
@@ -31,6 +30,7 @@ import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
+import { WidgetFrameSessionContext } from './widgetFrameSession'
 import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS, isWidgetModel, type WidgetModel } from './widgetModels'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
@@ -145,10 +145,7 @@ function ExpandedWidget({
         persistNotebook: logicProps.persistNotebook,
     }
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
-    const viewerFrames = viewerWidgetFrames(useContext(ViewerWidgetOutputs), attributes.nodeId, selectedVersionId)
-    const viewerRevision = JSON.stringify(
-        Array.from(viewerFrames, ([name, { sourceNodeId, output }]) => [name, sourceNodeId, output.generation])
-    )
+    const frameSession = useContext(WidgetFrameSessionContext)(attributes.nodeId, selectedVersionId)
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
@@ -345,33 +342,26 @@ function ExpandedWidget({
                             </div>
                         ) : null}
                         <WidgetArtifactFrame
-                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${viewerRevision}`}
+                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${frameSession.revision}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={async (name, offset, limit, runId, signal) => {
-                                const viewerFrame = viewerFrames.get(name)
-                                const frame = await loadWidgetFrame(
-                                    String(currentTeamId),
-                                    notebookShortId,
-                                    attributes.nodeId,
-                                    selectedVersionId,
-                                    name,
-                                    viewerFrame ? 0 : offset,
-                                    viewerFrame ? 1 : limit,
-                                    runId,
-                                    signal
+                                const frame = await frameSession.read(name, offset, limit, (pageOffset, pageLimit) =>
+                                    loadWidgetFrame(
+                                        String(currentTeamId),
+                                        notebookShortId,
+                                        attributes.nodeId,
+                                        selectedVersionId,
+                                        name,
+                                        pageOffset,
+                                        pageLimit,
+                                        runId,
+                                        signal
+                                    )
                                 )
                                 return applyReusableWidgetBinding(
-                                    viewerFrame
-                                        ? viewerWidgetPage(
-                                              frame,
-                                              viewerFrame.sourceNodeId,
-                                              viewerFrame.output,
-                                              offset,
-                                              limit
-                                          )
-                                        : frame,
+                                    frame,
                                     name,
                                     getReusableWidgetInputBinding(status?.input_bindings ?? {}, name),
                                     status?.input_contract
