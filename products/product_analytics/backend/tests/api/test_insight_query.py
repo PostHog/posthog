@@ -49,6 +49,11 @@ class TestMetricsSqlInsight(APIBaseTest):
             ("quoted_query_variable", "SELECT count() FROM events WHERE event = '$event'", None),
             ("quoted_dashboard_variable", "SELECT count() FROM events WHERE properties.service = '$service'", None),
             (
+                "quoted_dashboard_variable_with_a_format",
+                "SELECT count() FROM events WHERE properties.service = '${service:raw}'",
+                None,
+            ),
+            (
                 "quoted_text",
                 "SELECT count() FROM events WHERE event = '$pageview'",
                 "SELECT count() FROM events WHERE event = '$pageview'",

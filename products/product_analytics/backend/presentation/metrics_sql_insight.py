@@ -42,13 +42,15 @@ _DATE_PLACEHOLDERS = {
 }
 # Metrics SQL fills in `$name` and a whole quoted `'$name'`. `properties.$browser` is a field, not a reference.
 _UNQUOTED_REFERENCE = re.compile(r"(?<![\w.'\"`])\$\{?[A-Za-z0-9_]")
-_QUOTED_REFERENCE = re.compile(r"(['\"])\$\{?([A-Za-z0-9_]+)\}?\1")
+_QUOTED_REFERENCE = re.compile(
+    r"(['\"])\$(?:\{(?P<braced>[A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|(?P<plain>[A-Za-z0-9_]+))\1"
+)
 
 
 def _uses_dashboard_variables(team: Team, query: dict[str, Any], sql: str) -> bool:
     if _UNQUOTED_REFERENCE.search(sql):
         return True
-    quoted = {match.group(2) for match in _QUOTED_REFERENCE.finditer(sql)}
+    quoted = {match.group("braced") or match.group("plain") for match in _QUOTED_REFERENCE.finditer(sql)}
     if not quoted:
         return False
     variables = query.get("variables")
