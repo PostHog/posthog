@@ -7573,6 +7573,10 @@
                     "key": "source_record"
                 },
                 {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
+                },
+                {
                     "param": "trigger_masking",
                     "key": "trigger_masking"
                 },
@@ -57359,6 +57363,10 @@
                 {
                     "param": "source_record",
                     "key": "source_record"
+                },
+                {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
                 },
                 {
                     "param": "trigger_masking",
