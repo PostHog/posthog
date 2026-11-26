@@ -73,6 +73,20 @@ class TestAdventCalendarAPI(APIBaseTest):
             "shares": [{"option": "coffee", "share": 0}, {"option": "tea", "share": 0}],
         }
 
+    def test_answers_of_deleted_accounts_leave_the_tally(self) -> None:
+        leaver = User.objects.create_and_join(self.organization, "leaver@example.com", "password")
+        self._answer_as(leaver, self.team, 18, "no")
+        AdventCalendarAnswer.objects.create(user_id=leaver.id + 1000, day=18, option="no")
+        self._answer_as(self.user, self.team, 18, "yes")
+        leaver.organization_memberships.all().delete()
+        self.client.force_login(leaver)
+
+        deletion = self.client.delete("/api/users/@me/")
+
+        assert deletion.status_code == status.HTTP_204_NO_CONTENT
+        day_18 = next(question for question in self._results() if question["day"] == 18)
+        assert day_18["shares"] == [{"option": "yes", "share": 100}, {"option": "no", "share": 0}]
+
     def test_the_first_answer_for_a_day_stands(self) -> None:
         self._answer_as(self.user, self.team, 13, "dark")
 

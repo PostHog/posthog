@@ -32,7 +32,7 @@ class AdventCalendarAnswerSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         day = AdventCalendarDay(attrs["day"])
         option = AdventCalendarOption(attrs["option"])
-        if option not in ADVENT_CALENDAR_QUESTIONS[day]:
+        if option not in ADVENT_CALENDAR_QUESTIONS.get(day, ()):
             raise serializers.ValidationError({"option": f"Day {day.value} has no option {option.value!r}."})
         return {"day": day, "option": option}
 

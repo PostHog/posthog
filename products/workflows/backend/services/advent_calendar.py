@@ -1,6 +1,8 @@
 from collections.abc import Mapping
 
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
+
+from posthog.models.user import User
 
 from products.workflows.backend.facade.contracts import AdventCalendarQuestionResult, AdventCalendarShare
 from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
@@ -24,8 +26,10 @@ def answer_advent_calendar(
 
 
 def advent_calendar_results(user_id: int) -> list[AdventCalendarQuestionResult]:
-    rows = AdventCalendarAnswer.objects.values("day", "option").annotate(
-        count=Count("id"), own=Count("id", filter=Q(user_id=user_id))
+    rows = (
+        AdventCalendarAnswer.objects.filter(Exists(User.objects.filter(pk=OuterRef("user_id"))))
+        .values("day", "option")
+        .annotate(count=Count("id"), own=Count("id", filter=Q(user_id=user_id)))
     )
     counts = {(row["day"], row["option"]): row["count"] for row in rows}
     own_answers = {row["day"]: AdventCalendarOption(row["option"]) for row in rows if row["own"]}
