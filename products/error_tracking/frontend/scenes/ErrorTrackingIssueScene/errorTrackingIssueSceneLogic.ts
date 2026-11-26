@@ -1213,7 +1213,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateStatus: ({ status, resolvedUntil }) => actions.updateIssueStatus(props.id, status, resolvedUntil),
             updateSeverity: ({ severity }) => actions.updateIssueSeverity(props.id, severity),
             mutationFailure: ({ mutationName, issueId }) => {
-                if (mutationName === 'updateIssueSeverity' && issueId === props.id) {
+                // Both writes update the issue optimistically, so a failure restores what the server holds.
+                if (['updateIssueSeverity', 'updateIssueStatus'].includes(mutationName) && issueId === props.id) {
                     actions.loadIssue()
                 }
             },

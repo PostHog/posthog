@@ -196,6 +196,31 @@ describe('errorTrackingIssueSceneLogic', () => {
         }
     )
 
+    it('restores the persisted issue when a status change fails', async () => {
+        const persisted = {
+            ...ISSUE,
+            status: 'resolved' as const,
+            resolved_at: '2026-01-01T00:00:00Z',
+            resolved_until: 'next_occurrence' as const,
+        }
+        useMocks({
+            get: { '/api/environments/:team_id/error_tracking/issues/:id/': persisted },
+            patch: { '/api/projects/:team_id/error_tracking/issues/:id/': () => [500, { detail: 'Server error' }] },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIssue(persisted)
+
+        logic.actions.updateStatus('resolved', 'new_release')
+
+        await expectLogic(logic)
+            .toDispatchActions([issueActionsLogic.actionTypes.mutationFailure, 'loadIssueSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.issue).toMatchObject({
+            resolved_at: persisted.resolved_at,
+            resolved_until: 'next_occurrence',
+        })
+    })
+
     it.each([
         {
             name: 'seen after a resolve until a new release',

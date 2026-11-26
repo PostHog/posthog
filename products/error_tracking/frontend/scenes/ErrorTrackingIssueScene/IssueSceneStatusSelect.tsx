@@ -8,10 +8,13 @@ import {
     DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    Text,
 } from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -23,6 +26,11 @@ import { RESOLVE_MODES } from '../../components/resolveModes'
 import type { ErrorTrackingIssueReadApi, ResolvedUntilEnumApi } from '../../generated/api.schemas'
 
 type IssueStatus = ErrorTrackingIssue['status']
+
+const RESOLVED_LABEL_BY_MODE: Record<ResolvedUntilEnumApi, string> = {
+    next_occurrence: 'Resolved until the next occurrence',
+    new_release: 'Resolved in the next release',
+}
 
 function CurrentCheck(): JSX.Element {
     return <IconCheck data-icon="inline-end" className="ms-auto" />
@@ -46,6 +54,7 @@ export function IssueSceneStatusSelect({
 
     // An issue resolved before its mode was recorded reopens on the next exception.
     const currentMode = status === 'resolved' ? (resolvedUntil ?? 'next_occurrence') : null
+    const statusLabel = currentMode ? RESOLVED_LABEL_BY_MODE[currentMode] : getIssueStatusConfig(status).label
 
     const statusItem = (itemStatus: IssueStatus): JSX.Element => (
         <DropdownMenuItem onClick={() => itemStatus !== status && onChange(itemStatus)}>
@@ -57,14 +66,7 @@ export function IssueSceneStatusSelect({
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
-                render={
-                    <Button
-                        variant="outline"
-                        left
-                        className="gap-1"
-                        aria-label={`Status: ${getIssueStatusConfig(status).label}`}
-                    />
-                }
+                render={<Button variant="outline" left className="gap-1" aria-label={`Status: ${statusLabel}`} />}
             >
                 <StatusIndicator
                     status={status}
@@ -87,18 +89,36 @@ export function IssueSceneStatusSelect({
                             <StatusIndicator status="resolved" size="xsmall" />
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
-                            {RESOLVE_MODES.map((mode) => (
-                                <DropdownMenuItem
-                                    key={mode.value}
-                                    description={
-                                        <IssueResolvedRule resolvedUntil={mode.value} latestRelease={latestRelease} />
-                                    }
-                                    onClick={() => mode.value !== currentMode && onChange('resolved', mode.value)}
-                                >
-                                    {mode.action}
-                                    {mode.value === currentMode && <CurrentCheck />}
-                                </DropdownMenuItem>
-                            ))}
+                            {/* A radio group, so assistive technology announces which mode is current. */}
+                            <DropdownMenuRadioGroup
+                                value={currentMode ?? ''}
+                                onValueChange={(mode: ResolvedUntilEnumApi) =>
+                                    mode !== currentMode && onChange('resolved', mode)
+                                }
+                            >
+                                {RESOLVE_MODES.map((mode) => (
+                                    <DropdownMenuRadioItem
+                                        key={mode.value}
+                                        value={mode.value}
+                                        closeOnClick
+                                        className="h-auto items-start py-1.5"
+                                    >
+                                        <span className="flex flex-col items-start text-start">
+                                            {mode.action}
+                                            <Text
+                                                size="xs"
+                                                variant="muted"
+                                                render={<span className="max-w-80 whitespace-normal" />}
+                                            >
+                                                <IssueResolvedRule
+                                                    resolvedUntil={mode.value}
+                                                    latestRelease={latestRelease}
+                                                />
+                                            </Text>
+                                        </span>
+                                    </DropdownMenuRadioItem>
+                                ))}
+                            </DropdownMenuRadioGroup>
                         </DropdownMenuSubContent>
                     </DropdownMenuSub>
                     {statusItem('suppressed')}

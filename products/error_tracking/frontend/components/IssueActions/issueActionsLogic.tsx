@@ -266,7 +266,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
             resolveIssues: async ({ ids }) => {
                 await runMutation('resolveIssues', async () => {
                     posthog.capture('error_tracking_issue_bulk_resolve')
-                    await errorTrackingIssuesBulkCreate(String(teamLogic.values.currentProjectId), {
+                    await errorTrackingIssuesBulkCreate(String(teamLogic.values.currentTeamId), {
                         action: 'set_status',
                         ids,
                         status: 'resolved',
@@ -278,7 +278,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
             suppressIssues: async ({ ids }) => {
                 await runMutation('suppressIssues', async () => {
                     posthog.capture('error_tracking_issue_bulk_suppress')
-                    await errorTrackingIssuesBulkCreate(String(teamLogic.values.currentProjectId), {
+                    await errorTrackingIssuesBulkCreate(String(teamLogic.values.currentTeamId), {
                         action: 'set_status',
                         ids,
                         status: 'suppressed',
@@ -288,7 +288,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
             activateIssues: async ({ ids }) => {
                 await runMutation('activateIssues', async () => {
                     posthog.capture('error_tracking_issue_bulk_activate')
-                    await errorTrackingIssuesBulkCreate(String(teamLogic.values.currentProjectId), {
+                    await errorTrackingIssuesBulkCreate(String(teamLogic.values.currentTeamId), {
                         action: 'set_status',
                         ids,
                         status: 'active',

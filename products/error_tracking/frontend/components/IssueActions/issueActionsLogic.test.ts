@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import type { TeamType } from '~/types'
 
 import { errorTrackingIssuesBulkCreate, errorTrackingIssuesPartialUpdate } from '../../generated/api'
 import { issueActionsLogic } from './issueActionsLogic'
@@ -14,6 +17,8 @@ jest.mock('../../generated/api', () => ({
 
 const mockErrorTrackingIssuesBulkCreate = jest.mocked(errorTrackingIssuesBulkCreate)
 const mockErrorTrackingIssuesPartialUpdate = jest.mocked(errorTrackingIssuesPartialUpdate)
+// A child environment's id differs from its project's, so a request sent with the project id reaches another team.
+const CHILD_ENVIRONMENT: TeamType = { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 1, project_id: MOCK_TEAM_ID }
 
 function pendingRequest<T>(): { promise: Promise<T>; settle: (outcome: 'success' | 'failure') => void } {
     let settle: (outcome: 'success' | 'failure') => void = () => undefined
@@ -27,7 +32,7 @@ describe('issueActionsLogic', () => {
     let logic: ReturnType<typeof issueActionsLogic.build>
 
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(true, CHILD_ENVIRONMENT)
         mockErrorTrackingIssuesPartialUpdate.mockResolvedValue({} as never)
         mockErrorTrackingIssuesBulkCreate.mockResolvedValue({} as never)
         logic = issueActionsLogic()
@@ -51,15 +56,19 @@ describe('issueActionsLogic', () => {
         })
     })
 
-    it('resolves issues in bulk without a mode, so the server default applies', async () => {
+    it.each([
+        { action: 'resolveIssues' as const, status: 'resolved' },
+        { action: 'suppressIssues' as const, status: 'suppressed' },
+        { action: 'activateIssues' as const, status: 'active' },
+    ])('$action sends the environment id and no mode', async ({ action, status }) => {
         await expectLogic(logic, () => {
-            logic.actions.resolveIssues(['issue-a', 'issue-b'])
+            logic.actions[action](['issue-a', 'issue-b'])
         }).toDispatchActions(['mutationSuccess'])
 
-        expect(mockErrorTrackingIssuesBulkCreate).toHaveBeenCalledWith(expect.any(String), {
+        expect(mockErrorTrackingIssuesBulkCreate).toHaveBeenCalledWith(String(CHILD_ENVIRONMENT.id), {
             action: 'set_status',
             ids: ['issue-a', 'issue-b'],
-            status: 'resolved',
+            status,
         })
     })
 
