@@ -8,6 +8,7 @@ same rules.
 """
 
 import json
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -83,20 +84,23 @@ def check_size(spec: dict[str, Any]) -> None:
         raise BoardSpecInvalid(f"The board document is {size} bytes. The limit is {MAX_BOARD_SPEC_BYTES} bytes.")
 
 
-def _has_nul(value: Any) -> bool:
-    if isinstance(value, str):
-        return "\x00" in value
-    if isinstance(value, dict):
-        return any(_has_nul(key) or _has_nul(item) for key, item in value.items())
-    if isinstance(value, list):
-        return any(_has_nul(item) for item in value)
-    return False
-
-
 def check_storable(spec: dict[str, Any]) -> None:
-    # Postgres refuses a NUL character anywhere in a jsonb value, so the save would fail with a 500.
-    if _has_nul(spec):
-        raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
+    """Raise `BoardSpecInvalid` for a value Postgres refuses in jsonb, which would otherwise fail the save with a 500."""
+    # A loop over a stack, not recursion, so a deeply nested hostile document cannot exhaust Python's stack.
+    pending: list[Any] = [spec]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            if "\x00" in value:
+                raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
+        elif isinstance(value, float):
+            if not math.isfinite(value):
+                raise BoardSpecInvalid("The board document contains NaN or an infinite number, which cannot be saved.")
+        elif isinstance(value, dict):
+            pending.extend(value.keys())
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
 
 
 def title_of(spec: dict[str, Any]) -> str:

@@ -182,7 +182,7 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             409: OpenApiResponse(description="The board is not at `base_version`. Nothing was saved."),
         },
     )
-    def partial_update(self, request: ValidatedRequest, uid: str, **kwargs: Any) -> Response:
+    def update(self, request: ValidatedRequest, uid: str, **kwargs: Any) -> Response:
         """Replace a board's document and add 1 to its version."""
         self.get_object()
         try:
