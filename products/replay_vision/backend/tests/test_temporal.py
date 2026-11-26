@@ -1476,6 +1476,7 @@ class TestObservationStateActivities:
             (MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9), "rene@customer.example", "yes", True),
             (MonitorOutput(verdict="inconclusive", reasoning="ok", confidence=0.4), None, "inconclusive", False),
             (ScorerOutput(score=3.0, reasoning="ok", confidence=0.9), "", None, False),
+            (ScorerOutput(score=3.0, reasoning="ok", confidence=0.9), "rene@customer.example", None, True),
         ],
     )
     def test_mark_succeeded_captures_scan_completed_telemetry_once(
@@ -1512,9 +1513,9 @@ class TestObservationStateActivities:
             requests_sent = [call.request for call in capture.calls]
 
         assert len(requests_sent) == 1
-        body = requests_sent[0].body
-        assert not subject_email or subject_email not in body
-        [event] = json.loads(body)["batch"]
+        payload = json.loads(requests_sent[0].body)
+        assert not subject_email or subject_email not in repr(payload)
+        [event] = payload["batch"]
         assert event["event"] == "replay_vision_scan_completed"
         assert event["distinct_id"] == f"replay-vision:{observation.team_id}"
         properties = event["properties"]
