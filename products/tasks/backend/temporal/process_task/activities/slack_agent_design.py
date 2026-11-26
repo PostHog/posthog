@@ -244,5 +244,6 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         # Last, so a file this answer delivered already counts as used when the tip is picked.
         if answer_delivered and input.answer_markdown is not None:
             handler.offer_feature_tip()
+            handler.clear_working_reaction()
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

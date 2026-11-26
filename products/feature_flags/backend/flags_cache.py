@@ -1665,18 +1665,21 @@ def team_created_flags_cache(sender, instance: "Team", created: bool, **kwargs):
 
 @receiver(post_delete, sender=Team)
 def team_deleted_flags_cache(sender, instance: "Team", **kwargs):
-    """
-    Clear flags cache when a team is deleted.
+    """Clear the flags cache when a team is deleted."""
+    # A Celery worker clears the entry, because the process that deletes the team can lack FLAGS_REDIS_URL.
+    # The S3 copy has no TTL, and /flags falls back to it when Redis misses.
+    from products.feature_flags.backend.tasks import clear_team_evaluation_cache
 
-    This ensures we don't have stale cache entries for deleted teams.
-    Only operates when FLAGS_REDIS_URL is configured.
-    """
-    if not settings.FLAGS_REDIS_URL:
-        return
+    team_id = instance.id
 
-    # For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
-    kinds = ["redis"] if settings.TEST else None
-    clear_flags_cache(instance, kinds=kinds)
+    def enqueue_clear() -> None:
+        try:
+            clear_team_evaluation_cache.delay(team_id)
+        except Exception:
+            # A broker failure must not fail the delete. The daily cleanup then deletes the entry.
+            logger.exception("Failed to enqueue flags cache clear for deleted team", team_id=team_id)
+
+    transaction.on_commit(enqueue_clear)
 
 
 @receiver(post_save, sender=FeatureFlagEvaluationContext)

@@ -107,6 +107,7 @@ export const POSTHOG_NOTIFICATIONS = {
   CREDENTIAL_REQUEST: "_posthog/credential_request",
   CREDENTIAL_RESPONSE: "_posthog/credential_response",
   PROCESS_KILLED: "_posthog/process_killed",
+  SESSION_LOG_GAP: "_posthog/session_log_gap",
 } as const;
 
 export type ProcessKilledParams = {

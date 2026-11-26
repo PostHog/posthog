@@ -4,10 +4,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 
@@ -20,6 +21,10 @@ from products.error_tracking.backend.logic.issue_tags.rules import (
 )
 from products.error_tracking.backend.logic.issue_tags.runner import run_issue_taggers
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
+from products.error_tracking.backend.presentation.views.issue_tag_rules import (
+    ErrorTrackingIssueTagRuleCreateRequestSerializer,
+    ErrorTrackingIssueTagRuleUpdateRequestSerializer,
+)
 from products.event_definitions.backend.models import PropertyDefinition
 
 from common.hogvm.python.utils import MAX_REGEX_PATTERN_LENGTH
@@ -39,6 +44,22 @@ UNTYPED_PRO_PLAN = {"type": "AND", "values": [{"type": "AND", "values": [{"key":
 CHECKOUT_PAGE = _event_filter("$pathname", ["/checkout"])
 ENTERPRISE_OR_PRO_PLAN = _event_filter("plan", ["enterprise", "pro"])
 DISABLED = {"message": "Rule timed out"}
+
+
+class TestIssueTagRuleRequestSerializers(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("create", ErrorTrackingIssueTagRuleCreateRequestSerializer),
+            ("update", ErrorTrackingIssueTagRuleUpdateRequestSerializer),
+        ]
+    )
+    def test_a_color_outside_the_set_is_rejected(
+        self, _name: str, serializer_class: type[serializers.Serializer]
+    ) -> None:
+        serializer = serializer_class(data={"color": "grey"})
+
+        assert not serializer.is_valid()
+        assert serializer.errors["color"][0].code == "invalid_choice"
 
 
 @patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)
@@ -166,6 +187,25 @@ class TestIssueTagRuleAPI(APIBaseTest):
         run_issue_taggers(self.team.id, checkout.id, lambda team: {"$pathname": "/checkout"})
         checkout_tags = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=checkout)
         assert list(checkout_tags.values_list("question_version", flat=True)) == checkout_tag_versions
+
+    def test_a_rule_color_shows_on_its_tag_until_cleared(self) -> None:
+        created = self.client.post(
+            self._url(), data={"label": "Enterprise", "filters": ENTERPRISE_PLAN, "color": "teal"}, format="json"
+        ).json()
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        self._tag(created, issue)
+
+        after_create = self._colors_shown(created, issue)
+        self.client.patch(self._url(created["id"]), data={"label": "Big customer"}, format="json")
+        after_label_edit = self._colors_shown(created, issue)
+        self.client.patch(self._url(created["id"]), data={"color": None}, format="json")
+        after_clear = self._colors_shown(created, issue)
+
+        assert [after_create, after_label_edit, after_clear] == [
+            ("teal", ["teal"], ["teal"]),
+            ("teal", ["teal"], ["teal"]),
+            (None, [None], [None]),
+        ]
 
     def test_delete_removes_the_rule_and_only_its_tags(self) -> None:
         deleted, kept = self._create(), self._create("Checkout", CHECKOUT_PAGE)
@@ -325,6 +365,16 @@ class TestIssueTagRuleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json()["detail"] == "Issue tags are off for this project."
         assert not [query for query in queries if ErrorTrackingIssueTagRule._meta.db_table in query["sql"]]
+
+    def _colors_shown(self, rule: dict[str, Any], issue: ErrorTrackingIssue) -> tuple[Any, list[Any], list[Any]]:
+        issues_url = f"/api/projects/{self.team.id}/error_tracking/issues/"
+        definitions = self.client.get(f"{issues_url}tag_definitions/").json()["results"]
+        issue_tags = self.client.get(f"{issues_url}{issue.id}/").json()["tags"]
+        return (
+            self.client.get(self._url(rule["id"])).json()["color"],
+            [definition["color"] for definition in definitions if definition["key"] == rule["key"]],
+            [tag["color"] for tag in issue_tags],
+        )
 
     def _restrict_revenue_and_email_for_the_user(self) -> None:
         self.organization.available_product_features = [

@@ -1,8 +1,11 @@
-import { CardError, LoadedCard, Target, load } from '.'
+import { CardError, LoadedCard, Target, load, loadText } from '.'
 import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
+
+import { pairProblemsOf } from '../runner/pair'
+import { admissionsOf } from '../runner/status'
 
 const card = {
     id: 'test-card',
@@ -59,6 +62,23 @@ const emailWorkerKill = {
 
 const edgeAccepted = { name: 'edge_accepted', params: { channel: 'ses' } }
 
+const fullTraffic = {
+    ...profile,
+    traffic: {
+        event_email: { ratePerSecond: 3, parks: 1 },
+        event_webhook: { ratePerSecond: 2 },
+        transactional_email: { ratePerSecond: 1, parks: 2 },
+    },
+    settings: sesSettings,
+    load: { targets: { claimsPerSecond: { hogflow: 8, email: 6 }, newJobsPerSecond: 6 }, tolerance: 0.1 },
+}
+
+const hogflowChaos = {
+    ...card,
+    drive: { ...card.drive, for: '60s', traffic: [{ name: 'event_email' }, { name: 'event_webhook' }] },
+    valves: [{ ...emailWorkerKill, at: '37s' }],
+}
+
 describe('load', () => {
     let dir: string
 
@@ -96,6 +116,13 @@ describe('load', () => {
     it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
+        [
+            'a card that runs paired and names a reason it runs unpaired',
+            { ...card, pair: true, unpaired: 'it judges no no_loss' },
+            undefined,
+            'unpaired: a card that runs paired names no reason to run unpaired',
+        ],
+        ['a blank reason the card runs unpaired', { ...card, unpaired: ' ' }, undefined, 'unpaired: '],
         [
             'an unknown traffic kind',
             { ...card, drive: { ...card.drive, traffic: [{ name: 'event_sms' }] } },
@@ -220,6 +247,28 @@ describe('load', () => {
             'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
         ],
         [
+            'a warm-up that lasts the whole drive',
+            { ...card, drive: { ...card.drive, warmUp: '30s' } },
+            undefined,
+            'drive.warmUp: the warm-up must end before the drive does',
+        ],
+        [
+            'a warm-up on a ramp',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    warmUp: '5s',
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.warmUp: a drive with a ramp takes no warm-up',
+        ],
+        [
             'a stop on break with a valve the stop could leave due',
             {
                 ...card,
@@ -320,6 +369,48 @@ describe('load', () => {
             "valves.0.at: the valve can fire 36s into the drive, inside the 30s fault-free baseline and the role scrape that closes it, which load admission's claim rates need; set at to 37s or later",
         ],
         [
+            'a valve that fires inside the warm-up on a profile without admission',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '100s' }],
+            },
+            undefined,
+            'valves.0.at: the valve can fire 100s into the drive, inside its 160s warm-up; set at to 160s or later',
+        ],
+        [
+            'a valve inside the baseline after a warm-up on a profile with host admission only',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '189999ms' }],
+            },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'valves.0.at: the valve can fire 189.999s into the drive, inside the 160s warm-up and the 30s fault-free baseline after it that load and host admission measure; set at to 190s or later',
+        ],
+        [
+            'a warm-up whose floor is no whole second, which the floor names in milliseconds',
+            { ...card, drive: { ...card.drive, for: '30s', warmUp: '548ms' } },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'drive.for: the drive ends 30s in, inside the 0.548s warm-up and the 30s fault-free baseline after it that load and host admission measure; run it for 30548ms or longer',
+        ],
+        [
+            'a warm-up that leaves the paired control too short a baseline',
+            { ...card, drive: { ...card.drive, for: '227s', warmUp: '210s' } },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'drive.for: the drive ends 227s in, inside the 210s warm-up and the 30s fault-free baseline after it that load and host admission measure; run it for 240s or longer',
+        ],
+        [
+            'a when valve armed before the slowest scrape that closes the baseline after a warm-up',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, at: '190s' }],
+            },
+            { ...profile, settings: sesSettings, load: emailLoad },
+            "valves.0.at: the valve can fire 190s into the drive, inside the 160s warm-up, the 30s fault-free baseline after it and the role scrape that closes it, which load admission's claim rates need; set at to 197s or later",
+        ],
+        [
             'a valve offset longer than a timer can wait',
             { ...card, valves: [{ ...emailWorkerKill, at: '2147483648ms' }] },
             undefined,
@@ -372,6 +463,22 @@ describe('load', () => {
             card,
             { ...profile, traffic: {} },
             'profile.traffic.event_email: ',
+        ],
+        [
+            'a synthetic padding label without a backlog',
+            card,
+            { ...profile, synthetic: ['backlog_padding'] },
+            'profile.synthetic: backlog_padding requires a backlog',
+        ],
+        [
+            'a synthetic transactional parks label without parks',
+            card,
+            {
+                ...profile,
+                traffic: { ...profile.traffic, transactional_email: { ratePerSecond: 1 } },
+                synthetic: ['transactional_email_parks'],
+            },
+            'profile.synthetic: transactional_email_parks requires positive transactional email parks',
         ],
         [
             'a profile the repository does not ship',
@@ -526,6 +633,28 @@ describe('load', () => {
                 load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
             },
             'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+        ],
+        [
+            'a card whose traffic never reaches a queue load admission judges',
+            { ...hogflowChaos, drive: { ...hogflowChaos.drive, traffic: [{ name: 'event_webhook' }] } },
+            fullTraffic,
+            'drive.traffic: event_webhook makes no email claims, and load admission would judge the card on them (profile.load.targets.claimsPerSecond.email); drive traffic that reaches the email queue, or run the card on a profile without that target',
+        ],
+        [
+            'a card on a load profile whose traffic load admission cannot derive targets from',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'bounce_followup' }] } },
+            { ...fullTraffic, traffic: { ...fullTraffic.traffic, bounce_followup: { ratePerSecond: 1 } } },
+            'profile.traffic.bounce_followup: load admission cannot derive targets from bounce_followup, since its claims per unit are not modelled',
+        ],
+        [
+            'a load profile with a malformed entry for traffic the card does not drive',
+            card,
+            {
+                ...fullTraffic,
+                traffic: { ...fullTraffic.traffic, event_webhook: { ratePerSecond: 0 } },
+                load: { ...fullTraffic.load, targets: { claimsPerSecond: { hogflow: 8, email: 60 } } },
+            },
+            'profile.traffic.event_webhook.ratePerSecond: ',
         ],
         [
             'a load block without an email claim target and an SES limiter capacity under one batch',
@@ -696,6 +825,43 @@ describe('load', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
 
+    it("finds a profile's alert files next to the profile, wherever the runner starts", () => {
+        const alerts = { rules: 'alerts/rules.yaml', labels: '../labels.yaml', exclude: ['SyntheticLeftOut'] }
+
+        expect(loadCard(card, { ...profile, alerts }).alerts).toEqual({
+            rules: path.join(dir, 'alerts', 'rules.yaml'),
+            labels: path.join(path.dirname(dir), 'labels.yaml'),
+            exclude: ['SyntheticLeftOut'],
+        })
+    })
+
+    it('refuses an alerts profile on the dev target, and one read from text with no directory for its files', () => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] }
+        const problemsOfText = (): string[] => {
+            try {
+                loadText('card.yaml', { card: stringify(card), profile: stringify({ ...profile, alerts }) })
+            } catch (error) {
+                if (error instanceof CardError) {
+                    return error.problems
+                }
+                throw error
+            }
+            throw new Error('the card loaded')
+        }
+
+        expect({
+            dev: problemsOf(devCard, { ...devProfile, alerts }, 'dev'),
+            text: problemsOfText(),
+        }).toEqual({
+            dev: [
+                'profile.alerts: the dev target exposes no role metrics to scrape, so only --target local runs alerts',
+            ],
+            text: [
+                'profile.alerts: a profile read from text has no directory to resolve its rules and label map against',
+            ],
+        })
+    })
+
     it.each<[string, Record<string, string>]>([
         [
             'the settings a role reads straight from the process environment',
@@ -770,6 +936,29 @@ describe('load', () => {
             { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
         ],
         [
+            'a when valve armed once the slowest scrape that closes the baseline after a warm-up is in',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, at: '197s' }],
+            },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a valve at the end of the baseline after a warm-up whose sum has no exact float',
+            {
+                ...card,
+                drive: { ...card.drive, for: '60s', warmUp: '548ms' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '30548ms' }],
+            },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a valve-free drive shorter than the floor whose warm-up is spelled 0s, which runs as one without a warm-up',
+            { ...card, drive: { ...card.drive, for: '35s', warmUp: '0s' }, valves: [] },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
             'a when valve armed at the end of the baseline on a profile with host admission only',
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '30s' }] },
             { ...profile, host: { cpuCeiling: 0.5 } },
@@ -793,6 +982,13 @@ describe('load', () => {
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
         ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
+        ['leaves out the seed opt-in', [card, profile], [{ ...card, seedable: true }, profile], true],
+        [
+            'leaves out why the card runs unpaired',
+            [card, profile],
+            [{ ...card, unpaired: 'it judges no no_loss' }, profile],
+            true,
+        ],
         [
             'ignores the key order of the profile settings',
             [card, { ...profile, settings }],
@@ -822,7 +1018,67 @@ describe('load', () => {
         expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+    it('runs every shipped card that applies valves as a pair, or names why it runs unpaired', () => {
+        const shipped = readdirSync(__dirname)
+            .filter((file) => file.endsWith('.yaml'))
+            .map((file) => load(path.join(__dirname, file)))
+            .filter(({ card }) => card.valves.length > 0)
+
+        expect(
+            shipped.filter(({ card }) => !card.pair && card.unpaired === undefined).map(({ card }) => card.id)
+        ).toEqual([])
+        expect(shipped.filter(({ card }) => card.pair).flatMap((loaded) => pairProblemsOf(loaded, true))).toEqual([])
+    })
+
+    it('admits a chaos card on a full-traffic profile against the targets its own traffic derives', () => {
+        const { admission } = loadCard(hogflowChaos, fullTraffic)
+        const baseline = {
+            seconds: 30,
+            scrapedSeconds: 30,
+            claimsPerSecond: { hogflow: 8, email: 3 },
+            newJobsPerSecond: 5,
+        }
+
+        expect(admissionsOf(admission, baseline)).toEqual([
+            { name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' },
+        ])
+    })
+
+    it.each([
+        ['keeps', undefined, 1],
+        ['scales', 0.25, 0.25],
+    ] as const)('%s the offered rates and targets for a card that drives the full profile', (_, scale, factor) => {
+        const { admission, profile } = loadCard(
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    traffic: [{ name: 'transactional_email' }, { name: 'event_webhook' }, { name: 'event_email' }],
+                },
+                invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
+            },
+            scale === undefined ? fullTraffic : { ...fullTraffic, scale }
+        )
+
+        expect(profile.traffic).toEqual(
+            Object.fromEntries(
+                Object.entries(fullTraffic.traffic).map(([kind, shape]) => [
+                    kind,
+                    { ...shape, ratePerSecond: shape.ratePerSecond * factor },
+                ])
+            )
+        )
+        const {
+            claimsPerSecond: { hogflow, email },
+            newJobsPerSecond,
+        } = fullTraffic.load.targets
+        expect(admission.load?.targets).toEqual({
+            claimsPerSecond: { hogflow: hogflow * factor, email: email * factor },
+            newJobsPerSecond: newJobsPerSecond * factor,
+        })
+    })
+
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay', 'chaos-under-load'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {

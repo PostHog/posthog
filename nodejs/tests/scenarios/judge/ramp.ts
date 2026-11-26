@@ -1,5 +1,5 @@
 import type { Named, Step } from '../cards'
-import type { Profile } from '../cards/schema'
+import type { AdmissionTargets } from '../cards/load-targets'
 import { pause } from '../duration'
 import type { DrivenStep, StepGate, StepWindow } from '../generator/generator'
 import { type Admission, admissionsOf } from '../runner/status'
@@ -71,7 +71,7 @@ export type LiveRamp = {
     judgesRefusals: boolean
     driveStartedAt: number
     hostCpuCeiling?: number
-    profile: Pick<Profile, 'load' | 'host'>
+    admission: AdmissionTargets
     journal(): readonly JournalEntry[]
     samples(): readonly MetricSample[]
     queue(): readonly QueueSample[]
@@ -263,7 +263,7 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
         step.index === 0
             ? admissionLimitOf(
                   admissionsOf(
-                      live.profile,
+                      live.admission,
                       baselineOf({
                           samples: [...live.samples()],
                           queue: [...live.queue()],

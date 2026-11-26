@@ -129,6 +129,7 @@ describe('email step variants', () => {
         ['a Reply-To', { replyTo: 'support@example.com' }, {}, ['reply_to']],
         ['CC or BCC', { cc: '', bcc: 'audit@example.com' }, {}, ['cc_bcc']],
         ['tracking turned off', {}, { tracking_enabled: false }, ['tracking_off']],
+        ['click tracking turned off', {}, { click_tracking_enabled: false }, ['click_tracking_off']],
         ['UTM tags', {}, { utm_tags_enabled: true }, ['utm_tags']],
     ])('lists %s as settings the sandbox sender drops', (_name, value, config, expected) => {
         expect(

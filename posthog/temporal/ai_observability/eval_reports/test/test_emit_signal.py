@@ -137,8 +137,8 @@ async def _setup_org_not_ai_approved(ateam):
     )
 
 
-# `ai_product` is the Go-gateway opt-in. Dropping it reverts this site to the Python gateway
-# and unattributes its spend, with no call failing to show it.
+# `ai_product` attributes this site's spend. Dropping it leaves the spend unattributed, with no
+# call failing to show it.
 @pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.test/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_eval_report_summary_opts_in_as_aio_eval_reports_for_signals():

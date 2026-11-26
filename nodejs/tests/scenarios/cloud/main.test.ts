@@ -45,6 +45,7 @@ const pairedCard = (driveFor = '60s'): string => {
         ...card,
         id: PAIRED_CARD,
         pair: true,
+        unpaired: undefined,
         drive: { ...card.drive, for: driveFor },
         invariants: [...card.invariants, { name: 'no_loss' }],
     })
@@ -287,6 +288,28 @@ describe('cloud controller', () => {
             unknown
         >
 
+    it('puts the override in the manifest read by the host for both runs of a pair', async () => {
+        const { controller } = prepare({ cards: { [PAIRED_CARD]: `${pairedCard()}seedable: true\n` } })
+
+        await expect(main(['run', profilePath(), PAIRED_CARD, '--seed', '0'], controller)).resolves.toBe(0)
+
+        const manifest = parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)
+        expect(manifest).toMatchObject({ card: PAIRED_CARD, seed: 0, pair: true })
+    })
+
+    it.each([
+        ['2', 'seedable: true'],
+        ['2.5', 'between 0 and 4294967295'],
+        ['4294967296', 'between 0 and 4294967295'],
+    ])('refuses seed %s before leasing an ineligible run', async (seed, refusal) => {
+        const { controller } = prepare()
+
+        await expect(main(['run', profilePath(), 'cyclotron-scale', '--seed', seed], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(refusal)
+        expect([...cloud.objects.keys()].filter((key) => key.endsWith('/manifest.json'))).toEqual([])
+    })
+
     it.each([
         ['invalid', 'passed', 'unjudged', 2],
         ['failed', 'invalid', 'open', 2],
@@ -456,6 +479,7 @@ describe('cloud controller', () => {
                         ...parse(readFileSync(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'), 'utf8')),
                         id: PAIRED_CARD,
                         pair: true,
+                        unpaired: undefined,
                     }),
                 },
             },

@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: '/agent_transcript_*.html'
+      owners: team-growth
     - match: '/ai_observability_*.html'
       owners: team-ai-observability
     - match: '/proxy_provisioned.html'

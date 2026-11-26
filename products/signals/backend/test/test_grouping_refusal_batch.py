@@ -1,11 +1,17 @@
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import Mock, patch
 
-from temporalio.exceptions import ActivityError, RetryState
+from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.signals.backend.temporal import grouping
+from products.signals.backend.temporal.drop_telemetry import CaptureSignalDroppedInput
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalTypeExamplesOutput,
     RunSignalSemanticSearchOutput,
@@ -159,3 +165,119 @@ async def test_quarantined_signals_do_not_block_healthy_batch_members(
         if signal.source_id == "source-sync" or not quarantined[int(signal.source_id)]
     ]
     assert len(query_requests) == 2
+
+
+@workflow.defn
+class _EmbeddingRetryBatchWorkflow:
+    @workflow.run
+    async def run(self, signal: EmitSignalInputs) -> int:
+        dropped, _ = await grouping._process_signal_batch([signal], FetchSignalTypeExamplesOutput(examples=[]))
+        return dropped
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unavailable_content", ["signal", "query"])
+@pytest.mark.parametrize("recovers", [True, False])
+async def test_embedding_outage_preserves_batch_until_recovery_or_timeout(
+    unavailable_content: str, recovers: bool
+) -> None:
+    signal = EmitSignalInputs(
+        team_id=1,
+        signal_id="signal-id",
+        source_product="test",
+        source_type="issue",
+        source_id="source-id",
+        description="signal",
+    )
+    emitted: list[str] = []
+    completed: list[str] = []
+    drops: list[CaptureSignalDroppedInput] = []
+
+    @activity.defn(name="get_embedding_activity")
+    async def embed(input: grouping.GenerateEmbeddingInput) -> grouping.GenerateEmbeddingOutput:
+        if input.content == unavailable_content and (
+            not recovers or activity.info().current_attempt_scheduled_time < outage_end
+        ):
+            raise ApplicationError("Embedding service unavailable")
+        return grouping.GenerateEmbeddingOutput(embedding=[1.0])
+
+    @activity.defn(name="generate_search_queries_activity")
+    async def queries(_input: grouping.GenerateSearchQueriesInput) -> grouping.GenerateSearchQueriesOutput:
+        return grouping.GenerateSearchQueriesOutput(queries=["query"])
+
+    @activity.defn(name="run_signal_semantic_search_activity")
+    async def search(_input: grouping.RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
+        return RunSignalSemanticSearchOutput(candidates=[])
+
+    @activity.defn(name="fetch_report_contexts_activity")
+    async def contexts(_input: grouping.FetchReportContextsInput) -> grouping.FetchReportContextsOutput:
+        return grouping.FetchReportContextsOutput(contexts={})
+
+    @activity.defn(name="match_signal_to_report_activity")
+    async def match(_input: grouping.MatchSignalToReportInput) -> NewReportMatch:
+        return NewReportMatch(
+            title="Example report", summary="Example summary", match_metadata=NoMatchMetadata(reason="new")
+        )
+
+    @activity.defn(name="assign_and_emit_signal_activity")
+    async def emit(input: grouping.AssignAndEmitSignalInput) -> grouping.AssignAndEmitSignalOutput:
+        emitted.append(input.signal_id)
+        return grouping.AssignAndEmitSignalOutput(
+            report_id="report-id", promoted=False, timestamp=datetime.now(UTC), run_count=0
+        )
+
+    @activity.defn(name="wait_for_signal_in_clickhouse_activity")
+    async def visible(_input: grouping.WaitForClickHouseInput) -> None:
+        return None
+
+    @activity.defn(name="complete_signal_grouping_activity")
+    async def complete(input: list[grouping.SignalGroupingCompletion]) -> None:
+        completed.extend(item.signal_id for item in input)
+
+    @activity.defn(name="capture_signal_dropped_activity")
+    async def capture_drop(input: CaptureSignalDroppedInput) -> None:
+        drops.append(input)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        started_at = await env.get_current_time()
+        outage_end = started_at + timedelta(minutes=20)
+        task_queue = f"embedding-retry-{uuid.uuid4()}"
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[_EmbeddingRetryBatchWorkflow],
+            activities=[embed, queries, search, contexts, match, emit, visible, complete, capture_drop],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                _EmbeddingRetryBatchWorkflow.run,
+                signal,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                execution_timeout=timedelta(hours=2),
+            )
+            if recovers:
+                assert await handle.result() == 0
+                assert emitted == [signal.signal_id]
+                assert completed == [signal.signal_id]
+                assert drops == []
+                assert await env.get_current_time() >= outage_end
+            else:
+                with pytest.raises(WorkflowFailureError) as error:
+                    await handle.result()
+                assert isinstance(error.value.cause, ActivityError)
+                assert error.value.cause.retry_state == RetryState.TIMEOUT
+                history = await handle.fetch_history()
+                failed = next(
+                    event for event in history.events if event.HasField("activity_task_failed_event_attributes")
+                )
+                scheduled = next(
+                    event
+                    for event in history.events
+                    if event.event_id == failed.activity_task_failed_event_attributes.scheduled_event_id
+                )
+                elapsed = failed.event_time.ToDatetime(tzinfo=UTC) - scheduled.event_time.ToDatetime(tzinfo=UTC)
+                assert timedelta(minutes=59) <= elapsed <= timedelta(hours=1)
+                assert emitted == []
+                assert completed == []
+                assert [drop.stage for drop in drops] == ["grouping_prep"]

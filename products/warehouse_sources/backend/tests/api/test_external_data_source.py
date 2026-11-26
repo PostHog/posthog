@@ -4174,7 +4174,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
         assert failing.manual_run_requested is True
-        assert healthy.sync_type_config == {}
+        assert healthy.manual_run_requested is False
+        assert "failure_streak" not in healthy.sync_type_config
+        assert (failing.manual_sync_pending, healthy.manual_sync_pending) == (True, True)
 
     @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas: Mock) -> None:

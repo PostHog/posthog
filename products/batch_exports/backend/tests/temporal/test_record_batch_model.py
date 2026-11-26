@@ -587,7 +587,7 @@ class TestHogQLQueryRecordBatchModel:
             "timeout_overflow_mode": "throw",
         }
 
-    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     async def test_request_settings_unescape_dotted_keys_on_the_native_table(self, ateam: "Team", auser: User) -> None:
         # The printed query carries no SETTINGS clause, so the native read setting travels with the request.
         model = HogQLQueryRecordBatchModel(
@@ -760,7 +760,7 @@ class TestHogQLQueryRecordBatchModel:
             "WITH source AS (SELECT properties.secret_field AS secret, properties AS all_properties FROM events) "
             "SELECT secret, all_properties FROM source"
         )
-        with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_new_events_schema else 0):
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
             _, model, _, _, _, _ = resolve_batch_exports_model(
                 ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})

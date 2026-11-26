@@ -26,7 +26,7 @@ import {
     createInlineMarkdownSlashCommandsExtension,
 } from 'lib/components/MarkdownEditor/inline/inlineMarkdownSlashCommands'
 
-import type { PanelComponentProps } from '../panelDefinition'
+import type { PanelComponentProps } from '../core/panelDefinition'
 import { MARKDOWN_EXTENSIONS, markdownContent, serializeMarkdown } from './markdownContent'
 import type { MarkdownConfig } from './markdownSpec'
 

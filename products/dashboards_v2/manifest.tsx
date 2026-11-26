@@ -5,7 +5,7 @@ export const manifest: ProductManifest = {
     scenes: {
         DashboardV2: {
             name: 'Dashboard v2',
-            import: () => import('./frontend/DashboardV2Scene'),
+            import: () => import('./frontend/scene/DashboardScene'),
             projectBased: true,
         },
     },
