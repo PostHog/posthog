@@ -366,24 +366,25 @@ def _build_bot_array_lookup(
         branch = _custom_group_branch(group, args, attr)
         if branch is not None:
             branches.extend([branch.matched, branch.label])
-    if expected_missing is not None:
-        branches.extend([expected_missing, fallback])
     builtin_index = ast.Call(
         name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
     )
+    builtin_matched = _matched(builtin_index)
+    user_agent_empty: ast.Expr = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq, left=safe_user_agent, right=ast.Constant(value="")
+    )
+    if expected_missing is not None:
+        builtin_matched = ast.And(exprs=[ast.Not(expr=expected_missing), builtin_matched])
+        user_agent_empty = ast.And(exprs=[ast.Not(expr=expected_missing), user_agent_empty])
     branches.extend(
         [
-            _matched(builtin_index),
+            builtin_matched,
             ast.ArrayAccess(array=_string_array(builtin_labels), property=builtin_index, nullish=False),
-        ]
-    )
-    branches.extend(
-        [
-            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=safe_user_agent, right=ast.Constant(value="")),
+            user_agent_empty,
             ast.Constant(value=empty_ua_value),
+            fallback,
         ]
     )
-    branches.append(fallback)
     return ast.Call(name="multiIf", args=branches)
 
 
