@@ -127,7 +127,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
     }
 
     return (
-        <LemonCard hoverEffect={false} className="w-full mt-6 p-0 overflow-hidden">
+        <LemonCard hoverEffect={false} className="w-full p-0 overflow-hidden">
             <div className="p-6 space-y-3">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-4">

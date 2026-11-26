@@ -47,7 +47,7 @@ export function QuillSourceCatalog({
     const visibleGroups = groups.filter((group) => group.sources.length > 0)
 
     return (
-        <Card className="mt-6 w-full">
+        <Card className="w-full">
             <CardContent className="flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex min-w-0 flex-1 flex-col gap-1">

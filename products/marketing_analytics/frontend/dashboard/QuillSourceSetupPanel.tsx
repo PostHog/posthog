@@ -114,7 +114,7 @@ export function QuillSourceSetupPanel({
     ) : null
 
     return (
-        <Card size={compact ? 'sm' : 'default'} className="mt-6 w-full">
+        <Card size={compact ? 'sm' : 'default'} className="w-full">
             <CardContent className={compact ? 'flex flex-col gap-3' : 'flex flex-col gap-5'}>
                 {showScanBadge && (
                     <div>
