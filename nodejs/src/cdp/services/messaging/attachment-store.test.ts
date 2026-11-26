@@ -81,7 +81,7 @@ const settledWithin = async <T>(ms: number, promise: Promise<T>): Promise<T> => 
 }
 
 type FileBody = 'stall after its first byte' | 'change its last byte'
-type BucketFault = FileBody | 'stall every copy' | 'pass every request'
+type BucketFault = FileBody | 'stall every copy' | 'pass every request' | 'serve bodies without their length'
 
 type BucketProxy = {
     endpoint: string
@@ -127,6 +127,9 @@ const bucketProxyThat = async (fault: BucketFault): Promise<BucketProxy> => {
             new URL(request.url!, config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT),
             { method: request.method, headers: request.headers },
             (answer) => {
+                if (fault === 'serve bodies without their length') {
+                    delete answer.headers['content-length']
+                }
                 response.writeHead(answer.statusCode!, answer.headers)
                 if (
                     (fault === 'stall after its first byte' || fault === 'change its last byte') &&
@@ -681,28 +684,14 @@ describe('S3AttachmentStore', () => {
                 'the caller aborts while the file body stalls',
                 'stall after its first byte',
                 (_: BucketProxy, caller: AbortController) => caller.abort(),
-                0,
             ],
             [
                 'the connection is cut while the file body stalls',
                 'stall after its first byte',
                 (bucket: BucketProxy) => bucket.cut(),
-                0,
             ],
-            ['the file body arrives with a changed byte', 'change its last byte', () => undefined, 0],
-            [
-                'the stored body is longer than declared, without reading the body',
-                'stall after its first byte',
-                () => undefined,
-                -1,
-            ],
-            [
-                'the stored body is shorter than declared, without reading the body',
-                'stall after its first byte',
-                () => undefined,
-                1,
-            ],
-        ] as const)('throws unavailable at once when %s', async (_, body, interrupt, declaredBeyondStored) => {
+            ['the file body arrives with a changed byte', 'change its last byte', () => undefined],
+        ] as const)('throws unavailable at once when %s', async (_, body, interrupt) => {
             const f = file()
             await uploaded(1, f)
             const bucket = await bucketProxyThat(body)
@@ -712,7 +701,7 @@ describe('S3AttachmentStore', () => {
                 const loading = admittedLoad(
                     viaBucket,
                     1,
-                    [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length + declaredBeyondStored }],
+                    [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }],
                     caller.signal
                 )
                 const settled = expect(settledWithin(3000, loading)).rejects.toThrow(AttachmentStoreUnavailableError)
@@ -721,6 +710,52 @@ describe('S3AttachmentStore', () => {
 
                 await settled
                 await settledWithin(3000, bucket.bodyClosed)
+            } finally {
+                viaBucket.s3.destroy()
+                await bucket.close()
+            }
+        })
+
+        it.each([
+            ['longer', -1],
+            ['shorter', 1],
+        ])(
+            'throws unavailable without reading a stored body %s than declared, and closes it',
+            async (_, declaredBeyondStored) => {
+                const f = file()
+                await uploaded(1, f)
+                const bucket = await bucketProxyThat('stall after its first byte')
+                const viaBucket = buildAttachmentStore({
+                    ...config,
+                    CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
+                })!
+                try {
+                    const loading = admittedLoad(
+                        viaBucket,
+                        1,
+                        [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length + declaredBeyondStored }],
+                        AbortSignal.timeout(10000)
+                    )
+
+                    await expect(settledWithin(3000, loading)).rejects.toThrow(AttachmentStoreUnavailableError)
+                    await settledWithin(3000, bucket.bodyClosed)
+                } finally {
+                    viaBucket.s3.destroy()
+                    await bucket.close()
+                }
+            }
+        )
+
+        it('loads a body the bucket serves without its length', async () => {
+            const f = file()
+            await uploaded(1, f)
+            const bucket = await bucketProxyThat('serve bodies without their length')
+            const viaBucket = buildAttachmentStore({ ...config, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint })!
+            const files = [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }]
+            try {
+                const loaded = await admittedLoad(viaBucket, 1, files, AbortSignal.timeout(10000))
+
+                expect(loaded).toEqual([{ file: files[0], bytes: new Uint8Array(f.bytes) }])
             } finally {
                 viaBucket.s3.destroy()
                 await bucket.close()

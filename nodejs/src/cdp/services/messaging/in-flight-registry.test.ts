@@ -138,6 +138,19 @@ describe('InFlightRegistry', () => {
                 () => admissionHeldBy(oneFileOf(MIB), () => requireAdmission(oneFileOf(MIB + 1))),
             ],
             [
+                'for the admitted files and one more',
+                'other_files',
+                () => {
+                    const files = oneFileOf(MIB)
+                    return admissionHeldBy(files, () => requireAdmission([...files, ...oneFileOf(MIB)]))
+                },
+            ],
+            [
+                'for files the caller rehashed after their admission',
+                'other_files',
+                changedAfterAdmission({ sha256: 'f'.repeat(64) }),
+            ],
+            [
                 'for files the caller resized after their admission',
                 'other_files',
                 changedAfterAdmission({ sizeBytes: 64 * MIB }),

@@ -277,7 +277,7 @@ export class S3AttachmentStore implements AttachmentStore {
 }
 
 function bodyOfTheDeclaredSize(object: GetObjectCommandOutput, sizeBytes: number): Promise<Uint8Array> {
-    if (object.ContentLength !== sizeBytes) {
+    if (object.ContentLength !== undefined && object.ContentLength !== sizeBytes) {
         if (object.Body instanceof Readable) {
             object.Body.destroy()
         }
