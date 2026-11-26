@@ -49,7 +49,7 @@ database "posthog" {
     }
   }
   materialized_view "ai_events_json_ws_mv" {
-    to_table = "posthog.ai_events"
+    to_table = "posthog.sharded_ai_events"
     query    = <<SQL
 SELECT
   uuid,
@@ -303,6 +303,15 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
+    }
+  }
+
+  table "sharded_ai_events" {
+    extend = "_ai_events_data"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/ai_events/tables/{shard}/posthog.sharded_ai_events"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
 }
