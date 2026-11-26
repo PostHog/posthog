@@ -775,7 +775,7 @@ class TestDeliverSlackReport(SimpleTestCase):
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.integrations.IntegrationManager")
-    def test_defangs_urls_in_the_header_title(self, mock_integration, mock_slack_integration):
+    def test_defangs_urls_in_the_evaluation_name_and_title(self, mock_integration, mock_slack_integration):
         client = MagicMock()
         client.chat_postMessage.return_value = {"ts": "123.456"}
         mock_slack_integration.return_value.client = client
@@ -783,7 +783,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         deliver_slack_report(
             self._make_report_run(title="Re-authenticate at https://evil.example/login"),
             [{"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH"}],
-            evaluation_name="Test Eval",
+            evaluation_name="Sign in at https://name.example <https://name.example|here>",
             evaluation_id="eval-1",
             team_id=7,
             project_id=1,
@@ -791,9 +791,11 @@ class TestDeliverSlackReport(SimpleTestCase):
             period_end="2026-03-02T00:00:00+00:00",
         )
 
-        header = client.chat_postMessage.call_args_list[0].kwargs["blocks"][0]
+        header, context = client.chat_postMessage.call_args_list[0].kwargs["blocks"][:2]
         self.assertEqual(header["type"], "header")
         self.assertNotIn("https://evil.example", header["text"]["text"])
+        self.assertNotIn("https://name.example", header["text"]["text"])
+        self.assertNotIn("<https://name.example", context["elements"][0]["text"])
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.integrations.IntegrationManager")
