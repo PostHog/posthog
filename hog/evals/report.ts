@@ -71,18 +71,27 @@ async function sessionEvents(id: string): Promise<SessionEvent[]> {
 }
 
 if (values.session) {
+    const session = await get<Session>(`/api/sessions/${values.session}`)
+    // Each harness stores its own native events, and only Pi's carry the command in `args.command`.
+    if (session.harness !== 'pi') {
+        console.error(`--session prints shell commands for Pi sessions only. This one ran on ${session.harness}.`)
+    }
+
     for (const { event } of await sessionEvents(values.session)) {
         if (event.type === 'tool_execution_start' && event.args?.command) {
             console.info(`$ ${event.args.command}`)
         }
     }
-    const session = await get<Session>(`/api/sessions/${values.session}`)
     console.info(`\n${session.agentResult?.text || session.error || '(no final message)'}`)
 
     process.exit(0)
 }
 
-const sessions = (await get<Session[]>('/api/sessions')).filter((session) => session.eval.title.startsWith('hog '))
+// `/api/sessions` answers only the newest 500 sessions across every eval, so each hog eval is asked for its own.
+const hogEvals = (await get<{ id: string; title: string }[]>('/api/evals')).filter((e) => e.title.startsWith('hog '))
+const sessions = (
+    await Promise.all(hogEvals.map(({ id }) => get<Session[]>(`/api/sessions?evalId=${encodeURIComponent(id)}`)))
+).flat()
 
 // The latest judged session for each eval and model, so a rerun of one model keeps the others in the table,
 // and a rerun the provider refused at once doesn't hide the last real result.
