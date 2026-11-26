@@ -264,25 +264,30 @@ describe('pairOf', () => {
 })
 
 describe('pairProblemsOf', () => {
-    it.each<[string, typeof CARD, RegExp | undefined]>([
-        ['a card with valves that judges no_loss', CARD, undefined],
+    const FAILING_OVER = {
+        ...CARD,
+        card: {
+            ...CARD.card,
+            valves: [{ valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '5s', for: '10s' }],
+        },
+    }
+
+    it.each<[string, typeof CARD, boolean, RegExp | undefined]>([
+        ['a card with valves that judges no_loss', CARD, false, undefined],
         [
             'a card without valves',
             { ...CARD, card: { ...CARD.card, valves: [] } },
+            false,
             /needs a card that applies valves and judges no_loss/,
         ],
         [
             'a card with a valve that runs only on a run host',
-            {
-                ...CARD,
-                card: {
-                    ...CARD.card,
-                    valves: [{ valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '5s', for: '10s' }],
-                },
-            },
+            FAILING_OVER,
+            false,
             /pg\.failover runs only on a run host/,
         ],
-    ])('takes or refuses %s', (_story, loaded, refusal) => {
-        expect(pairProblemsOf(loaded)).toEqual(refusal === undefined ? [] : [expect.stringMatching(refusal)])
+        ['that card on a run host', FAILING_OVER, true, undefined],
+    ])('takes or refuses %s', (_story, loaded, onHost, refusal) => {
+        expect(pairProblemsOf(loaded, onHost)).toEqual(refusal === undefined ? [] : [expect.stringMatching(refusal)])
     })
 })

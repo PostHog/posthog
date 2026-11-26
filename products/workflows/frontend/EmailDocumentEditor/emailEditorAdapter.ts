@@ -3,9 +3,11 @@ import posthog from 'posthog-js'
 
 import {
     EMAIL_DOCUMENT_DESIGN_KEY,
+    EMAIL_DOCUMENT_SECTION_VERSION,
     EMAIL_DOCUMENT_VERSION,
     EmailDocument,
     emailDocumentFromValue,
+    hasSection,
     isEmailDocEmpty,
 } from './emailDocument'
 import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
@@ -23,7 +25,11 @@ export function designForDocument(doc: Record<string, any>, html: string): Recor
     if (isEmailDocEmpty(doc)) {
         return null
     }
-    const document: EmailDocument = { version: EMAIL_DOCUMENT_VERSION, doc, html }
+    const document: EmailDocument = {
+        version: hasSection(doc) ? EMAIL_DOCUMENT_SECTION_VERSION : EMAIL_DOCUMENT_VERSION,
+        doc,
+        html,
+    }
     return { ...emailDocumentToUnlayer(doc), [EMAIL_DOCUMENT_DESIGN_KEY]: document }
 }
 

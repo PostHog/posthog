@@ -4,6 +4,7 @@ import { parseArgs } from 'util'
 
 import { seedBacklog } from './backlog/backlog'
 import { Backlog, CardError, LoadedCard, Profile, Target, load, readProfile } from './cards'
+import { runManifestOf } from './cloud/lease'
 import { DevConfig, devConfigOf } from './dev-target/config'
 import { devEnvironment, devTarget } from './dev-target/target'
 import { createEnvironment, defaultStateDir } from './environment/environment'
@@ -56,6 +57,14 @@ function preflight(
     return problems.length > 0 ? { problems } : { loaded, dev }
 }
 
+function manifestAsksForPair(env: NodeJS.ProcessEnv): boolean {
+    try {
+        return runManifestOf(env)?.pair === true
+    } catch {
+        return false
+    }
+}
+
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
     const { positionals, values } = parseArgs({
         args: argv,
@@ -86,14 +95,24 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
     }
-    if (pair && (target !== 'local' || env.SCENARIO_RUN_MANIFEST)) {
+    const onHost = Boolean(env.SCENARIO_RUN_MANIFEST)
+    if (pair && (target !== 'local' || (onHost && !manifestAsksForPair(env)))) {
         process.stderr.write(
-            '--pair runs on the local target only: dev cards apply no valves, and a run host runs one card per manifest.\n'
+            '--pair runs on the local target only, or on a run host whose manifest asks for the pair: dev cards apply no valves, and a run host otherwise runs one card per manifest.\n'
         )
         return EXIT_CODE.invalid
     }
+    if (onHost && cards.length > 1) {
+        process.stderr.write('A run host runs one card per manifest, so it takes one card id.\n')
+        return EXIT_CODE.invalid
+    }
     const checked = preflight(cards, values.profile, target, env)
-    const problems = 'problems' in checked ? checked.problems : pair ? checked.loaded.flatMap(pairProblemsOf) : []
+    const problems =
+        'problems' in checked
+            ? checked.problems
+            : pair
+              ? checked.loaded.flatMap((loaded) => pairProblemsOf(loaded, onHost))
+              : []
     if (problems.length > 0 || 'problems' in checked) {
         process.stderr.write(`${problems.join('\n\n')}\n`)
         return EXIT_CODE.invalid

@@ -7,7 +7,7 @@ from anthropic import Anthropic, APIConnectionError
 from anthropic.types import TextBlockParam
 from pydantic import BaseModel, Field, ValidationError
 
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_id_from_seed
+from posthog.llm.gateway_client import build_anthropic_client, trace_id_from_seed
 
 from ..backend.facade.contracts import CriterionResult
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
@@ -64,7 +64,7 @@ class Decision:
 
 
 def judge_client(commit_sha: str) -> Anthropic:
-    return build_ai_gateway_anthropic_client(
+    return build_anthropic_client(
         ai_product=JUDGE_AI_PRODUCT,
         trace_id=trace_id_from_seed(f"knowledge_writer:merge:{commit_sha}"),
         properties={"commit_sha": commit_sha},

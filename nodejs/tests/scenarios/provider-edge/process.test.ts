@@ -27,6 +27,15 @@ const runs = (pid: number | undefined): boolean => {
     }
 }
 const blockRunnerFor = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+const blockRunnerUntil = (done: () => boolean, withinMs: number): boolean => {
+    const deadline = Date.now() + withinMs
+    while (!done() && Date.now() < deadline) {
+        blockRunnerFor(10)
+    }
+    return done()
+}
+const bytesWrittenBy = (pid: number): number =>
+    Number(/^wchar: (\d+)$/m.exec(readFileSync(`/proc/${pid}/io`, 'utf8'))![1])
 
 describe('provider edge process', () => {
     let edge: EdgeProcess
@@ -134,23 +143,59 @@ describe('provider edge process', () => {
         })
     }, 10_000)
 
-    it('drops a reply that reaches the runner after it gave up on the call', async () => {
+    it('rejects a call it gave up on when it cannot kill the edge process', async () => {
         await edge.close()
         edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
-        await withFakeTimers(async () => {
-            process.kill(edge.pid!, 'SIGSTOP')
-            const holding = outcomeOf(edge.hold(REJECT))
-            process.kill(edge.pid!, 'SIGCONT')
-            blockRunnerFor(300)
-            jest.advanceTimersByTime(500)
-            jest.advanceTimersByTime(1)
-
-            expect({ outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
-                outcome: 'the provider edge process did not answer add within 500 ms',
-                edgeRuns: false,
-            })
+        const signal = process.kill.bind(process)
+        const kill = jest.spyOn(process, 'kill').mockImplementation((pid, name) => {
+            if (pid < 0) {
+                throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' })
+            }
+            return signal(pid, name)
         })
+        try {
+            await withFakeTimers(async () => {
+                process.kill(edge.pid!, 'SIGSTOP')
+                const holding = outcomeOf(edge.hold(REJECT))
+                jest.advanceTimersByTime(500)
+                jest.advanceTimersByTime(1)
+
+                expect({ outcome: await holding, later: await outcomeOf(edge.clearFaults()) }).toEqual({
+                    outcome: 'the provider edge process did not answer add within 500 ms, and could not be killed',
+                    later: 'the provider edge process did not answer add within 500 ms, and could not be killed',
+                })
+            })
+        } finally {
+            kill.mockRestore()
+        }
     }, 10_000)
+
+    // The test knows the edge wrote its reply from the edge's write count in /proc, which only Linux has.
+    const itOnLinux = process.platform === 'linux' ? it : it.skip
+
+    itOnLinux(
+        'drops a reply that reaches the runner after it gave up on the call',
+        async () => {
+            await edge.close()
+            edge = await startEdgeProcess({ port: 0 }, { answersWithinMs: 500 })
+            await withFakeTimers(async () => {
+                process.kill(edge.pid!, 'SIGSTOP')
+                const holding = outcomeOf(edge.hold(REJECT))
+                const writtenBefore = bytesWrittenBy(edge.pid!)
+                process.kill(edge.pid!, 'SIGCONT')
+                const replyWritten = blockRunnerUntil(() => bytesWrittenBy(edge.pid!) > writtenBefore, 5000)
+                jest.advanceTimersByTime(500)
+                jest.advanceTimersByTime(1)
+
+                expect({ replyWritten, outcome: await holding, edgeRuns: runs(edge.pid) }).toEqual({
+                    replyWritten: true,
+                    outcome: 'the provider edge process did not answer add within 500 ms',
+                    edgeRuns: false,
+                })
+            })
+        },
+        10_000
+    )
 
     it('settles a reply that waits on the channel when the runner was blocked past the deadline', async () => {
         await edge.close()
@@ -174,22 +219,39 @@ describe('provider edge process', () => {
         })
     })
 
-    it('rejects a start whose options it could not send, and leaves nothing to reject later', async () => {
-        const runner = `require(${EDGE_PROCESS})
+    it.each([
+        ['and kills the edge', '', '', 'Do not know how to serialize a BigInt'],
+        [
+            'when it cannot kill the edge',
+            `const signal = process.kill.bind(process)
+            process.kill = (pid, name) => {
+                if (pid < 0) throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' })
+                return signal(pid, name)
+            }`,
+            'process.exit()',
+            'kill EPERM',
+        ],
+    ])(
+        'rejects a start whose options it could not send, and leaves nothing to reject later, %s',
+        async (_, signalBoundary, afterOutcome, expected) => {
+            const runner = `${signalBoundary}
+            require(${EDGE_PROCESS})
             .startEdgeProcess(Object.assign({ port: 0 }, { unsendable: 1n }), { startsWithinMs: 300 })
             .then((edge) => edge.close().then(() => 'started'), (error) => error.message)
-            .then((outcome) => setTimeout(() => process.stdout.write(outcome), 1000))`
-        const outcome = await new Promise<string>((resolve) =>
-            execFile(
-                process.execPath,
-                ['--import', TSX, '-e', runner],
-                { cwd: NODEJS_DIR, env: WITHOUT_LOG_THREAD, timeout: 20_000 },
-                (error, stdout, stderr) => resolve(error ? `${stdout}, then ${error.message}\n${stderr}` : stdout)
+            .then((outcome) => setTimeout(() => process.stdout.write(outcome, () => { ${afterOutcome} }), 1000))`
+            const outcome = await new Promise<string>((resolve) =>
+                execFile(
+                    process.execPath,
+                    ['--import', TSX, '-e', runner],
+                    { cwd: NODEJS_DIR, env: WITHOUT_LOG_THREAD, timeout: 20_000 },
+                    (error, stdout, stderr) => resolve(error ? `${stdout}, then ${error.message}\n${stderr}` : stdout)
+                )
             )
-        )
 
-        expect(outcome).toBe('Do not know how to serialize a BigInt')
-    }, 30_000)
+            expect(outcome).toBe(expected)
+        },
+        30_000
+    )
 
     it('gives up on an edge process that does not start, and kills what it started', async () => {
         const bin = mkdtempSync(path.join(tmpdir(), 'edge-openssl-'))
