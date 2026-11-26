@@ -507,7 +507,7 @@ export const MismatchStartingMidRun: Story = {
         findings: [MISMATCH_STARTS_FINDING],
         exposures: MISMATCH_STARTS_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
     parameters: { testOptions: { snapshotBrowsers: [] } },
     play: async ({ canvasElement }) => {
@@ -559,7 +559,7 @@ export const SplitChangedMidRun: Story = {
         findings: [SPLIT_CHANGE_FINDING],
         exposures: SPLIT_CHANGE_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
     parameters: { testOptions: { snapshotBrowsers: [] } },
     play: async ({ canvasElement }) => {
