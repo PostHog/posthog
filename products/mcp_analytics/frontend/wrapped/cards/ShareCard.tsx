@@ -18,7 +18,7 @@ import {
     wrappableToolName,
 } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
-import { ARCHETYPE_HOGGIES, shareTheme } from '../wrappedTheme'
+import { shareTheme } from '../wrappedTheme'
 import { SharePlug } from './SharePlug'
 
 // Each number gets its own brand colour, so the list reads like a poster rather than a table.
@@ -75,28 +75,24 @@ function valueClassName(tile: ShareTile): string {
 export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi; projectName: string; year: number }>(
     function ShareCard({ cards, projectName, year }, ref): JSX.Element {
         const { archetype } = cards.archetype
-        const Hoggie = ARCHETYPE_HOGGIES[archetype]
+        const theme = shareTheme(archetype)
+        const Hoggie = theme.hoggie
         const tiles = shareTiles(cards)
         return (
-            <WrappedCard
-                ref={ref}
-                cardKey="share"
-                kicker={`MCP Wrapped ${year} · by PostHog`}
-                theme={shareTheme(archetype)}
-                hideHoggie
-            >
-                <div className="MCPWrapped__rise">
-                    <div className="text-base opacity-75">
-                        <strong>{projectName}</strong>'s MCP server is
+            <WrappedCard ref={ref} cardKey="share" kicker="MCP Wrapped · by PostHog" theme={theme} hideHoggie>
+                <h2 className="MCPWrapped__rise m-0 text-2xl font-bold leading-tight [overflow-wrap:anywhere]">
+                    {projectName}'s MCP {cards.intro.server_count > 1 ? 'servers' : 'server'} in{' '}
+                    {year}
+                </h2>
+                {/* The hedgehog takes the space the title and stats leave, so a long project or tool name shrinks
+                    it rather than pushing the stats off the poster. */}
+                <div className="MCPWrapped__pop flex min-h-0 flex-1 flex-col items-center gap-1 text-center">
+                    <div className="relative flex min-h-0 flex-1 items-end justify-center">
+                        <span className="absolute bottom-[10%] size-32 rounded-full bg-white/15 blur-2xl" />
+                        <Hoggie className="MCPWrapped__hero-hoggie relative h-full max-h-40 w-auto" loading="eager" />
                     </div>
-                    <h2 className="m-0 text-4xl font-bold leading-tight">{ARCHETYPE_NAMES[archetype]}</h2>
-                </div>
-                <div className="MCPWrapped__pop flex flex-col items-center gap-1 text-center">
-                    <div className="relative flex justify-center">
-                        <span className="absolute top-6 size-32 rounded-full bg-white/15 blur-2xl" />
-                        <Hoggie className="MCPWrapped__hero-hoggie relative size-40" loading="eager" />
-                    </div>
-                    <p className="m-0 text-base font-bold">{ARCHETYPE_TAGLINES[archetype]}</p>
+                    <p className="m-0 text-3xl font-bold leading-tight">{ARCHETYPE_NAMES[archetype]}</p>
+                    <p className="m-0 text-sm opacity-75">{ARCHETYPE_TAGLINES[archetype]}</p>
                 </div>
                 <dl className="MCPWrapped__rise m-0 grid grid-cols-2 gap-x-5">
                     {tiles.map((tile, index) => (

@@ -61,6 +61,10 @@
     width: 42%;
     filter: drop-shadow(0 16px 18px rgb(10 8 30 / 35%));
     animation: MCPWrapped__float 5s ease-in-out infinite;
+
+    &--inset {
+        right: 5%;
+    }
 }
 
 // The personality card's hedgehog, floating large in the lower half instead of sitting in the corner.
@@ -208,4 +212,37 @@
 
 .MCPWrapped__teaser h2 {
     color: inherit;
+}
+
+// The pop-up sits on the dark intro ground, where the app's light and dark button themes both lose contrast, so
+// its buttons are painted for that ground: a solid white button to play and a see-through one to dismiss.
+.MCPWrapped__teaser-play,
+.MCPWrapped__teaser-later {
+    min-width: 6rem;
+    height: 2.25rem;
+    padding-inline: 1.25rem;
+    font-size: 0.875rem;
+    transition: background-color 150ms ease;
+}
+
+.MCPWrapped__teaser-play {
+    color: #151515;
+    background: white;
+    border-color: white;
+
+    &:hover {
+        color: #151515;
+        background: rgb(255 255 255 / 88%);
+    }
+}
+
+.MCPWrapped__teaser-later {
+    color: white;
+    background: rgb(255 255 255 / 10%);
+    border-color: rgb(255 255 255 / 30%);
+
+    &:hover {
+        color: white;
+        background: rgb(255 255 255 / 18%);
+    }
 }

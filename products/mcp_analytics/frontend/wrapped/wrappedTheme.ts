@@ -5,24 +5,25 @@ import * as campfirePng from '@posthog/brand/hoggies/png/campfire-cowboy'
 import * as coffeeCupPng from '@posthog/brand/hoggies/png/coffee-cup'
 import * as constructionPng from '@posthog/brand/hoggies/png/construction-1'
 import * as coolCarPng from '@posthog/brand/hoggies/png/cool-car'
-import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
-import * as finalEvolutionPng from '@posthog/brand/hoggies/png/final-evolution'
+import * as djPng from '@posthog/brand/hoggies/png/dj'
+import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
+import * as evelPng from '@posthog/brand/hoggies/png/evel'
+import * as gladiatorPng from '@posthog/brand/hoggies/png/gladiator-2'
 import * as hootPng from '@posthog/brand/hoggies/png/hoot'
 import * as hourglassPng from '@posthog/brand/hoggies/png/hourglass'
+import * as ipadPng from '@posthog/brand/hoggies/png/ipad'
+import * as maestroPng from '@posthog/brand/hoggies/png/maestro'
 import * as marathonPng from '@posthog/brand/hoggies/png/marathon'
-import * as mixmasterPng from '@posthog/brand/hoggies/png/mixmaster'
 import * as panicPng from '@posthog/brand/hoggies/png/panic'
 import * as partyPng from '@posthog/brand/hoggies/png/party'
 import * as phoneCallPng from '@posthog/brand/hoggies/png/phone-call'
-import * as puzzlePng from '@posthog/brand/hoggies/png/puzzle'
 import * as robotPng from '@posthog/brand/hoggies/png/robot'
 import * as rocketPng from '@posthog/brand/hoggies/png/rocket'
-import * as selfiePng from '@posthog/brand/hoggies/png/selfie'
+import * as scientistPng from '@posthog/brand/hoggies/png/scientist'
 import * as sleepyPng from '@posthog/brand/hoggies/png/sleepy'
 import * as starPng from '@posthog/brand/hoggies/png/star'
 import * as superheroPng from '@posthog/brand/hoggies/png/superhero'
-import * as surferPng from '@posthog/brand/hoggies/png/surfer'
-import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
+import * as workflowsPng from '@posthog/brand/hoggies/png/workflows'
 import * as workmaxxingPng from '@posthog/brand/hoggies/png/workmaxxing'
 
 import { HoggiePngProps, pngHoggie } from 'lib/brand/hoggies'
@@ -58,28 +59,42 @@ const ground = (glowColor: string, from: string, to: string): string =>
 
 const hoggies = {
     party: pngHoggie(partyPng),
-    rocket: pngHoggie(rocketPng),
-    star: pngHoggie(starPng),
     phoneCall: pngHoggie(phoneCallPng),
+    dj: pngHoggie(djPng),
+    ipad: pngHoggie(ipadPng),
+    scientist: pngHoggie(scientistPng),
     robot: pngHoggie(robotPng),
-    experiment: pngHoggie(experimentPng),
     coffeeCup: pngHoggie(coffeeCupPng),
     workmaxxing: pngHoggie(workmaxxingPng),
     campfire: pngHoggie(campfirePng),
-    hoot: pngHoggie(hootPng),
     sleepy: pngHoggie(sleepyPng),
-    superhero: pngHoggie(superheroPng),
+    doctor: pngHoggie(doctorPng),
     construction: pngHoggie(constructionPng),
     panic: pngHoggie(panicPng),
     marathon: pngHoggie(marathonPng),
-    hourglass: pngHoggie(hourglassPng),
-    wizard: pngHoggie(wizardPng),
-    mixmaster: pngHoggie(mixmasterPng),
-    surfer: pngHoggie(surferPng),
     coolCar: pngHoggie(coolCarPng),
-    finalEvolution: pngHoggie(finalEvolutionPng),
-    puzzle: pngHoggie(puzzlePng),
-    selfie: pngHoggie(selfiePng),
+    hourglass: pngHoggie(hourglassPng),
+    star: pngHoggie(starPng),
+    workflows: pngHoggie(workflowsPng),
+    hoot: pngHoggie(hootPng),
+    gladiator: pngHoggie(gladiatorPng),
+    evel: pngHoggie(evelPng),
+    rocket: pngHoggie(rocketPng),
+    superhero: pngHoggie(superheroPng),
+    maestro: pngHoggie(maestroPng),
+}
+
+// These hedgehogs' art runs to the edge of the image, so the card's edge would cut them off in the corner.
+const EDGE_TO_EDGE_HOGGIES: ReadonlySet<Hoggie> = new Set([
+    hoggies.campfire,
+    hoggies.sleepy,
+    hoggies.construction,
+    hoggies.marathon,
+    hoggies.coolCar,
+])
+
+export function hoggieReachesEdge(hoggie: Hoggie): boolean {
+    return EDGE_TO_EDGE_HOGGIES.has(hoggie)
 }
 
 // Every card takes its color from what it shows. A card with one subject takes its hedgehog's colors, and a card
@@ -102,7 +117,8 @@ export const RUSH_HOUR_THEMES: Record<DayPart, WrappedCardTheme> = {
     },
     night: {
         background: `${glow(colors.violet.core, '100% 100%', '90% 55%')}, ${deep(colors.violet.darker)}`,
-        hoggie: hoggies.hoot,
+        // The agents worked the night shift while you slept. Not the owl, which the Night Owl personality shows.
+        hoggie: hoggies.sleepy,
     },
 }
 
@@ -110,7 +126,9 @@ export const RUSH_HOUR_THEMES: Record<DayPart, WrappedCardTheme> = {
 export const RELIABILITY_THEMES: Record<ReliabilityTier, WrappedCardTheme> = {
     healthy: {
         background: ground(colors.green.core, rich(colors.green.darker, 70), rich(colors.green.darker, 55)),
-        hoggie: hoggies.superhero,
+        // A clean bill of health. Not the superhero: the Superhero personality needs a healthy year, so it
+        // would show the same hedgehog twice.
+        hoggie: hoggies.doctor,
     },
     bumpy: {
         background: ground(colors.yellow.core, rich(colors.yellow.core, 55), rich(colors.yellow.darker, 50)),
@@ -140,24 +158,25 @@ export const SPEED_THEMES: Record<SpeedTier, WrappedCardTheme> = {
 }
 
 export const ARCHETYPE_HOGGIES: Record<ArchetypeEnumApi, Hoggie> = {
-    one_hit_wonder: hoggies.mixmaster,
-    swiss_army_knife: hoggies.wizard,
-    night_owl: hoggies.sleepy,
-    weekend_warrior: hoggies.surfer,
-    speed_demon: hoggies.coolCar,
-    rocket: hoggies.finalEvolution,
+    one_hit_wonder: hoggies.star,
+    swiss_army_knife: hoggies.workflows,
+    night_owl: hoggies.hoot,
+    weekend_warrior: hoggies.gladiator,
+    speed_demon: hoggies.evel,
+    rocket: hoggies.rocket,
     superhero: hoggies.superhero,
-    all_rounder: hoggies.puzzle,
+    all_rounder: hoggies.maestro,
 }
 
-// Each personality's color comes from its hedgehog: the surfer's ocean, the superhero's cape, the car's yellow.
+// Each personality's color comes from its hedgehog or sets it off: the star's gold, the superhero's cape, the
+// night sky the red rocket climbs into, the sea green behind the gladiator's bronze.
 const ARCHETYPE_COLORS: Record<ArchetypeEnumApi, string> = {
-    one_hit_wonder: colors.lime.core,
+    one_hit_wonder: colors.yellow.core,
     swiss_army_knife: colors.cobalt.core,
     night_owl: colors.blue.core,
     weekend_warrior: colors.teal.core,
-    speed_demon: colors.yellow.core,
-    rocket: colors.tangerine.core,
+    speed_demon: colors.tangerine.core,
+    rocket: colors.violet.core,
     superhero: colors.coral.core,
     all_rounder: colors.purple.core,
 }
@@ -171,11 +190,11 @@ export function archetypeTheme(archetype: ArchetypeEnumApi): WrappedCardTheme {
     }
 }
 
-/** The poster: PostHog's dark ground, lit in the corner by the personality's color. */
+/** The poster: PostHog's dark ground, lit in the corner by the personality's color, with its hedgehog. */
 export function shareTheme(archetype: ArchetypeEnumApi): WrappedCardTheme {
     return {
         background: `${soft(ARCHETYPE_COLORS[archetype], '95% 5%', '60% 35%')}, ${soft(colors.yellow.core, '50% 38%', '70% 30%')}, ${soft(colors.violet.core, '0% 100%', '70% 40%')}, ${POSTHOG_DARK}`,
-        hoggie: hoggies.selfie,
+        hoggie: ARCHETYPE_HOGGIES[archetype],
     }
 }
 
@@ -185,29 +204,29 @@ export const CARD_THEMES: Record<WrappedCardKey, WrappedCardTheme> = {
         background: `${glow(colors.violet.core, '90% 5%')}, ${glow(colors.tangerine.core, '0% 100%')}, ${deep(colors.violet.darker)}`,
         hoggie: hoggies.party,
     },
-    // The rocket's red, with its exhaust glowing behind it.
+    // A calm sea teal between the violet intro and the cobalt top tool card.
     tool_calls: {
-        background: ground(colors.lemon.core, rich(colors.tangerine.darker, 78), rich(colors.coral.darker, 66)),
-        hoggie: hoggies.rocket,
+        background: ground(colors.teal.lighter, rich(colors.teal.darker, 58), rich(colors.teal.darker, 40)),
+        hoggie: hoggies.phoneCall,
     },
-    // The gold of the star the hedgehog holds.
+    // The most-called tool is the year's top track, so the DJ plays it, in the blue of its hoodie under club lights.
     top_tools: {
-        background: ground(colors.lemon.core, rich(colors.yellow.darker, 66), rich(colors.yellow.darker, 48)),
-        hoggie: hoggies.star,
+        background: ground(colors.purple.core, colors.cobalt.core, colors.cobalt.darker),
+        hoggie: hoggies.dj,
     },
     apps: {
         background: ground(colors['corn-blue'].core, colors.violet.core, colors.violet.darker),
-        hoggie: hoggies.phoneCall,
+        hoggie: hoggies.ipad,
+    },
+    // The pink of the flask on the scientist's bench.
+    labs: {
+        background: ground(colors.coral.lighter, colors.purple.core, colors.purple.darker),
+        hoggie: hoggies.scientist,
     },
     // The robot's steel, with its lights glowing teal.
-    labs: {
+    models: {
         background: ground(colors.teal.core, rich(colors['corn-blue'].darker, 90), rich(colors.blue.darker, 70)),
         hoggie: hoggies.robot,
-    },
-    // The potion's purple and pink.
-    models: {
-        background: ground(colors.coral.lighter, colors.purple.core, colors.purple.darker),
-        hoggie: hoggies.experiment,
     },
     rush_hour: RUSH_HOUR_THEMES.evening,
     reliability: RELIABILITY_THEMES.healthy,

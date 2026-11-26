@@ -1,7 +1,9 @@
 import { forwardRef } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
+
 import type { WrappedCardKey } from './storyCards'
-import { CARD_THEMES, type WrappedCardTheme } from './wrappedTheme'
+import { CARD_THEMES, hoggieReachesEdge, type WrappedCardTheme } from './wrappedTheme'
 
 export interface WrappedCardProps {
     cardKey: WrappedCardKey
@@ -30,7 +32,12 @@ export const WrappedCard = forwardRef<HTMLDivElement, WrappedCardProps>(function
                 {kicker}
             </span>
             {children}
-            {!hideHoggie && <Hoggie className="MCPWrapped__hoggie" loading="eager" />}
+            {!hideHoggie && (
+                <Hoggie
+                    className={cn('MCPWrapped__hoggie', hoggieReachesEdge(Hoggie) && 'MCPWrapped__hoggie--inset')}
+                    loading="eager"
+                />
+            )}
         </div>
     )
 })
