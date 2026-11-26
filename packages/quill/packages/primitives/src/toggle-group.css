@@ -28,15 +28,15 @@
     /*
      * The selected item sinks onto a brand-color shelf, so a column of groups
      * shows at a glance which item each row has on. The press dips the item 2px
-     * onto a 1px shelf; the bar covers the bottom border and that shelf, and ends
-     * level with the 3px shelf of the raised items beside it. A pseudo-element
-     * draws it, so the item keeps its size and its focus ring.
+     * onto a 1px shelf, which ends level with the 3px shelf of the raised items
+     * beside it. A pseudo-element paints that shelf, so the item keeps its size
+     * and its focus ring.
      */
     .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed])::after {
         position: absolute;
         inset-inline: -1px;
         inset-block-end: -2px;
-        height: 3px;
+        height: 1px;
         pointer-events: none;
         content: '';
         background-color: var(--primary);
