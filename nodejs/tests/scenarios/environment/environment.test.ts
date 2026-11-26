@@ -22,7 +22,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
-import { Environment, createEnvironment } from './environment'
+import { Environment, createEnvironment, proxiesOf } from './environment'
 import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
@@ -50,6 +50,7 @@ import {
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
+    cyclotronUrlOf,
     forgetSesBucket,
     lagOf,
     membersOf,
@@ -413,6 +414,25 @@ describe('scenario environment', () => {
             expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
         })
 
+        it("lists the database behind the edge's proxy, not the proxy, for a role that reaches Cyclotron through it", () => {
+            const cyclotron = 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
+            const [spec] = roleSpecs(
+                base,
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                {},
+                undefined,
+                {},
+                {
+                    urls: { [cyclotron]: 'postgres://posthog:posthog@127.0.0.1:7001/cyclotron_node' },
+                    fallback: cyclotron,
+                }
+            )
+
+            expect(postgresServersOf(spec, POSTHOG)).toEqual([POSTHOG])
+        })
+
         const hogflowWorker = (settings: Record<string, string>) =>
             roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings).find(
                 ({ role }) => role === 'cdp-cyclotron-worker-hogflow'
@@ -532,6 +552,42 @@ describe('scenario environment', () => {
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
             expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
+        })
+
+        const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+        const SECOND = 'postgres://a@127.0.0.1:5432/cyclotron_second'
+        const proxyFor = (database: string): string => `postgres://a@127.0.0.1:7000/proxy-for-${database}`
+        const routed = (env: NodeJS.ProcessEnv, settings: Record<string, string>) => {
+            const args = [{ ...base, ...env }, EDGE, secretsOf({}), STATE_DIR, settings, undefined, {}] as const
+            const direct = roleSpecs(...args)
+            return {
+                direct,
+                through: (proxies: Record<string, string>) =>
+                    roleSpecs(...args, { urls: proxies, fallback: POOLERS[0] }),
+            }
+        }
+
+        it.each<[string, NodeJS.ProcessEnv, Record<string, string>, (index: number) => string]>([
+            ['each pooler', { SCENARIO_POOLER_URLS: POOLERS.join(',') }, {}, (index) => POOLERS[index % 2]],
+            ['the database a profile names', {}, { CYCLOTRON_NODE_DATABASE_URL: SECOND }, () => SECOND],
+        ])(
+            "reaches %s through the edge's proxy for it, while the runner reads that database itself",
+            async (_story, env, settings, databaseOf) => {
+                const { direct, through } = routed(env, settings)
+                const specs = through(await proxiesOf((database) => Promise.resolve(proxyFor(database)), direct))
+
+                expect(specs.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
+                    specs.map((_, index) => [proxyFor(databaseOf(index)), databaseOf(index)])
+                )
+            }
+        )
+
+        it('refuses to route a role to a database the edge has no proxy for', () => {
+            const { through } = routed({}, { CYCLOTRON_NODE_DATABASE_URL: SECOND })
+
+            expect(() => through({ [POOLERS[0]]: proxyFor(POOLERS[0]) })).toThrow(
+                'the edge has no Postgres proxy for the Cyclotron database the profile names'
+            )
         })
 
         it.each(CdpRole.options)(
