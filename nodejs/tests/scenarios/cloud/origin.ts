@@ -55,7 +55,6 @@ function retryWaitMs(headers: Record<string, string>, now: Date): number {
     return Math.min(Math.max(untilAllowedMs, 0), RETRY_WAIT_CAP_MS)
 }
 
-// A git fetch of the public repository does not spend the API's per-IP quota, so the API is only the fallback.
 async function onMasterInGit(repo: string, remote: string, commit: string): Promise<boolean> {
     const git = async (...args: string[]): Promise<string> =>
         (
