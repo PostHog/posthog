@@ -80,40 +80,37 @@ def _record_batch(first_sends: dict[tuple[int, UUID], datetime]) -> int:
     hog_flow_ids_by_team: dict[int, list[UUID]] = defaultdict(list)
     for team_id, hog_flow_id in first_sends:
         hog_flow_ids_by_team[team_id].append(hog_flow_id)
-    candidates = sorted(
-        (
-            flow
-            for team_id, hog_flow_ids in hog_flow_ids_by_team.items()
-            for flow in HogFlow.objects.filter(
-                team_id=team_id,
-                pk__in=hog_flow_ids,
-                created_at__gte=FIRST_REAL_SEND_CUTOFF,
-                first_real_send_at__isnull=True,
-            ).only("id", "team_id", "entry_attempt_id", "origin_product")
-        ),
-        key=lambda flow: flow.id,
-    )
+    candidates = [
+        flow
+        for team_id, hog_flow_ids in hog_flow_ids_by_team.items()
+        for flow in HogFlow.objects.filter(
+            team_id=team_id,
+            pk__in=hog_flow_ids,
+            created_at__gte=FIRST_REAL_SEND_CUTOFF,
+            first_real_send_at__isnull=True,
+        ).only("id", "team_id", "entry_attempt_id", "origin_product")
+    ]
     teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({flow.team_id for flow in candidates})
-    recorded = []
-    with transaction.atomic():
-        for flow in candidates:
-            team = teams.get(flow.team_id)
-            if team is None:
-                continue
-            first_send = first_sends[(flow.team_id, flow.id)]
-            if HogFlow.objects.filter(pk=flow.pk, first_real_send_at__isnull=True).update(
-                first_real_send_at=first_send
-            ):
-                recorded.append((flow, team, first_send))
-    if not recorded:
+    pending = sorted(
+        (
+            (flow, teams[flow.team_id], first_sends[(flow.team_id, flow.id)])
+            for flow in candidates
+            if flow.team_id in teams
+        ),
+        key=lambda item: item[0].id,
+    )
+    if not pending:
         return 0
     try:
-        _capture(recorded)
+        _capture(pending)
     except Exception as error:
-        hog_flow_ids = [str(flow.id) for flow, _, _ in recorded]
+        hog_flow_ids = [str(flow.id) for flow, _, _ in pending]
         logger.exception("workflows_first_real_send_capture_failed", hog_flow_ids=hog_flow_ids)
         raise FirstRealSendCaptureError(hog_flow_ids) from error
-    return len(recorded)
+    with transaction.atomic():
+        for flow, _, first_send in pending:
+            HogFlow.objects.filter(pk=flow.pk, first_real_send_at__isnull=True).update(first_real_send_at=first_send)
+    return len(pending)
 
 
 def _capture(recorded: list[tuple[HogFlow, Team, datetime]]) -> None:

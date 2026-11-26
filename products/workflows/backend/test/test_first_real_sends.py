@@ -136,22 +136,36 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
 
     @patch(f"{SERVICE}.CANDIDATE_BATCH_SIZE", 1)
     @patch(f"{SERVICE}.ph_scoped_capture")
-    def test_a_failed_flush_keeps_its_stamp_and_later_batches_still_capture(self, scoped_capture: MagicMock) -> None:
+    def test_a_failed_flush_leaves_its_workflows_unstamped_and_later_batches_still_capture(
+        self, scoped_capture: MagicMock
+    ) -> None:
         flows = [self._flow(), self._flow()]
         for flow in flows:
             self._metric(flow, NOW - timedelta(hours=2))
-        scoped_capture.return_value.__exit__.side_effect = [ConnectionError("capture is down"), None]
+        queued: list[str] = []
+        flushes: list[list[str]] = []
+        scoped_capture.return_value.__enter__.return_value.side_effect = lambda **event: queued.append(
+            event["properties"]["hog_flow_id"]
+        )
+
+        def flush(*_) -> None:
+            flushes.append(queued.copy())
+            queued.clear()
+            if len(flushes) == 1:
+                raise ConnectionError("capture is down")
+
+        scoped_capture.return_value.__exit__.side_effect = flush
 
         with self.assertRaises(FirstRealSendCaptureError):
             capture_workflow_first_real_sends()
 
-        for flow in flows:
-            flow.refresh_from_db()
-            assert flow.first_real_send_at is not None
-        assert scoped_capture.return_value.__exit__.call_count == 2
-        assert sorted(event["properties"]["hog_flow_id"] for event in captured_events(scoped_capture)) == sorted(
-            str(flow.id) for flow in flows
-        )
+        [lost, delivered] = flushes
+        stamped = {
+            str(flow.id)
+            for flow in HogFlow.objects.filter(pk__in=[flow.id for flow in flows]).exclude(first_real_send_at=None)
+        }
+        assert stamped == set(delivered)
+        assert sorted(lost + delivered) == sorted(str(flow.id) for flow in flows)
 
     @patch(f"{SERVICE}.CANDIDATE_BATCH_SIZE", 1)
     @patch(f"{SERVICE}.ph_scoped_capture")
@@ -184,6 +198,12 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
 
         stamped = {flow.id for flow in HogFlow.objects.filter(pk__in=flow_ids, first_real_send_at__isnull=False)}
         assert len(stamped) == 1
-        assert [event["properties"]["hog_flow_id"] for event in captured_events(scoped_capture)] == [
-            str(flow_id) for flow_id in stamped
-        ]
+        first_uuids = {event["properties"]["hog_flow_id"]: event["uuid"] for event in captured_events(scoped_capture)}
+        assert set(first_uuids) == {str(flow_id) for flow_id in flow_ids}
+
+        scoped_capture.reset_mock()
+        capture_workflow_first_real_sends()
+
+        assert HogFlow.objects.filter(pk__in=flow_ids, first_real_send_at__isnull=True).count() == 0
+        [retried] = captured_events(scoped_capture)
+        assert first_uuids[retried["properties"]["hog_flow_id"]] == retried["uuid"]
