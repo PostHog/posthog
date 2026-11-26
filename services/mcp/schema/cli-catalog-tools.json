@@ -11509,6 +11509,64 @@
             "validators": []
         }
     },
+    "cohorts-set-realtime": {
+        "name": "cohorts-set-realtime",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/cohorts/{id}/realtime/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "enabled",
+                    "key": "enabled"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "omit",
+                "fields": [
+                    "filters.properties.values.*.values.*.bytecode",
+                    "filters.properties.values.*.values.*.bytecode_error",
+                    "filters.properties.values.*.values.*.conditionHash",
+                    "filters.properties.values.*.bytecode",
+                    "filters.properties.values.*.bytecode_error",
+                    "filters.properties.values.*.conditionHash"
+                ],
+                "expandable": []
+            },
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/cohorts",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {
+                "id": "castStringToInt"
+            },
+            "validators": []
+        }
+    },
     "comment-count": {
         "name": "comment-count",
         "kind": "http",
@@ -27684,6 +27742,11 @@
                     "param": "offset",
                     "key": "offset",
                     "csv": false
+                },
+                {
+                    "param": "type",
+                    "key": "type",
+                    "csv": false
                 }
             ],
             "body": null,
@@ -27699,7 +27762,7 @@
                 "kind": "list",
                 "baseUrl": "/inbox"
             },
-            "agentNote": "Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n",
+            "agentNote": "Find the newest applicable `## Verification plan`, which is a `note` artefact. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n",
             "informational": null,
             "textInclude": []
         },

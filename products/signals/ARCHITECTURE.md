@@ -643,6 +643,7 @@ Notes:
 - A report's `source_issue` artefacts count as source issues too. Scout and user-authored reports skip research, so their writeback runs from a Celery task queued after the write commits (`source_issues.py`). A source issue gets a comment only after the team's GitHub source ingests that issue; grouping queues the writeback again when the issue's signal joins the report.
 - Grouping attaches a GitHub issue signal to the oldest open report whose `source_issue` names the same issue, before similarity matching and without the specificity check. Resolved, suppressed, failed, closed, and deleted reports do not take it.
 - Grouping records the issue of each GitHub issue signal as a `source_issue` on the report the signal opens or joins, in the assignment transaction. A scout that later files about the same issue can then find that report through `open_report_for_source_issue`.
+- A scout or member filing (`emit_report`) creates no report for an issue that an open report already names, and returns that report with `source_issue_already_reported`. A `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link to that report allows a separate report. The check runs again inside the create transaction under a per-issue advisory lock, so concurrent filings for one issue create one report.
 - See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`

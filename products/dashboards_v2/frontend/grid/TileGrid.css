@@ -4,6 +4,11 @@
     }
 }
 
+.TileGrid__text {
+    cursor: text;
+    user-select: text;
+}
+
 .TileGrid {
     /* An empty grid still needs height to take a drop: one row (GRID.rowPx), or all of the section it is in. */
     min-height: 32px;
@@ -14,8 +19,8 @@
 
     .react-grid-placeholder,
     .TileGrid__drop-preview {
-        background: color-mix(in oklab, var(--color-accent) 14%, transparent);
-        border: 1px dashed var(--color-accent);
+        background: color-mix(in oklab, var(--dv2-interaction-color) 14%, transparent);
+        border: 1px dashed var(--dv2-interaction-color);
         border-radius: var(--radius-lg, var(--radius));
         opacity: 1;
     }
@@ -61,7 +66,7 @@
             width: auto;
             height: auto;
             content: '';
-            background: var(--color-accent);
+            background: var(--dv2-interaction-color);
             border: 0;
             border-radius: 2px;
         }
@@ -175,7 +180,7 @@
         > .TileContextMenu__trigger > .dash-WidgetCard,
         > .SectionTile,
         > .TileContextMenu__trigger > .SectionTile {
-            outline: 2px solid var(--color-accent);
+            outline: 2px solid var(--dv2-interaction-color);
             outline-offset: -1px;
         }
     }

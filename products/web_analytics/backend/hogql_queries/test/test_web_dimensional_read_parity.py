@@ -848,7 +848,7 @@ def _host(value, operator=PropertyOperator.EXACT) -> EventPropertyFilter:
     return EventPropertyFilter(key="$host", value=value, operator=operator)
 
 
-class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
+class _HostParityBase(WebAnalyticsPreAggregatedTestBase):
     def setUp(self):
         for table in ("sharded_web_stats_dimensional_preaggregated", "sharded_web_bounces_dimensional_preaggregated"):
             sync_execute(f"SYSTEM STOP TTL MERGES {table}")
@@ -896,6 +896,8 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
         ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
         ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
 
+
+class TestOverviewDimensionalHostParity(_HostParityBase):
     def _run(self, web_query_modifiers, properties, date_range, compare) -> tuple[list[str], dict]:
         runner = WebOverviewQueryRunner(
             team=self.team,
@@ -970,3 +972,55 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
 
         assert "web_overview_dimensional_query" not in dimensional_types
         assert dimensional == live
+
+
+HOST_OPERATOR_CASES = [
+    ("no_filter", []),
+    ("exact_app_host", [_host(APP_HOST)]),
+    ("exact_site_host", [_host(SITE_HOST)]),
+    ("contains", [_host("app.", PropertyOperator.ICONTAINS)]),
+    ("is_not", [_host(APP_HOST, PropertyOperator.IS_NOT)]),
+    ("is_not_set_app_session", [_host(None, PropertyOperator.IS_NOT_SET)]),
+]
+
+
+class TestStatsTableDimensionalHostParity(_HostParityBase):
+    def _run(self, web_query_modifiers, breakdown: WebStatsBreakdown, properties) -> tuple[str, dict]:
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                properties=properties,
+                breakdownBy=breakdown,
+                includeBounceRate=True,
+                limit=100,
+                webQueryModifiers=web_query_modifiers,
+            ),
+        )
+        response = runner.calculate()
+        columns = response.columns or []
+        visitors, views, bounce_rate = (
+            columns.index(f"context.columns.{name}") for name in ("visitors", "views", "bounce_rate")
+        )
+        rows = {row[0]: (row[visitors][0], row[views][0], _rounded(row[bounce_rate][0])) for row in response.results}
+        return runner.query_strategy(), rows
+
+    @parameterized.expand(
+        [
+            (f"{breakdown.value}_{name}", breakdown, properties)
+            for breakdown in (
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                WebStatsBreakdown.DEVICE_TYPE,
+                WebStatsBreakdown.PAGE,
+                WebStatsBreakdown.INITIAL_PAGE,
+            )
+            for name, properties in HOST_OPERATOR_CASES
+        ]
+    )
+    def test_stats_breakdown_dimensional_matches_live(self, _name, breakdown, properties):
+        live_strategy, live = self._run(LIVE, breakdown, properties)
+        dimensional_strategy, dimensional = self._run(OPT_IN, breakdown, properties)
+
+        assert not live_strategy.startswith("stats_table_dimensional")
+        assert dimensional_strategy.startswith("stats_table_dimensional")
+        assert dimensional == live, f"{_name}\nlive={live}\ndimensional={dimensional}"

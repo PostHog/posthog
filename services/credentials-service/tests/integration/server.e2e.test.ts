@@ -179,7 +179,7 @@ describe('credentials server end to end', () => {
                 port,
                 await mint({ signingKey: CALLER_SIGNING_KEY, keys: [KEY, RECOVERED_KEY, REMOVED_KEY] })
             )
-            const refusedBody = await refused.json()
+            const refusedBody = (await refused.json()) as { secrets: Record<string, unknown> }
             expect(refusedBody).toMatchObject({
                 secrets: { [KEY]: { value: 'current-value-1' }, [RECOVERED_KEY]: { state: 'recovery' } },
                 missing: [REMOVED_KEY],

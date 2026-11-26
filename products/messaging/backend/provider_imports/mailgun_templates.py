@@ -1,8 +1,8 @@
 """Turns a Mailgun template version into PostHog's Liquid, and says what did not carry over.
 
-Mailgun renders versions with Handlebars or Go templates, then replaces `%recipient.x%` style variables. Handlebars
-converts one tag at a time (see handlebars_liquid.py). Go converts only plain values, `{{.Name}}` in page text, and a
-Go template with anything else stays as plain text with a note, so a person rewrites it. See
+Mailgun renders versions with Handlebars or Go templates, then replaces `%recipient.x%` style variables. Both convert
+one tag at a time (see handlebars_liquid.py and mailgun_go.py). A Go template with a part that doesn't convert stays as
+plain text with a note, so a person rewrites it. See
 https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-templates.
 """
 
@@ -15,7 +15,7 @@ from typing import Any, Literal
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.provider_imports.handlebars_liquid import HandlebarsToLiquid, OutputTooLarge, TextValue
-from products.messaging.backend.provider_imports.html_context import HtmlContext
+from products.messaging.backend.provider_imports.mailgun_go import GoToLiquid, GoUnsupported
 from products.messaging.backend.provider_imports.sendgrid_handlebars import _Malformed, _parse_nodes, _tokenize
 
 _MAX_NOTED_TAGS = 5
@@ -84,7 +84,7 @@ def convert_text(text: str | None, *, engine: Engine = "handlebars", is_html: bo
     if _too_many_values(text):
         return ConvertedText(text=_as_text(text, is_html), has_tags=True, too_large=True)
     if engine == "go":
-        return _GoConverter(text, is_html).convert()
+        return _convert_go(text, is_html)
     return _convert_handlebars(text, is_html)
 
 
@@ -118,6 +118,10 @@ def _convert_handlebars(text: str, is_html: bool) -> ConvertedText:
         return ConvertedText(text=_as_text(text, is_html), has_tags=True, malformed=True)
     except OutputTooLarge:
         return ConvertedText(text=_as_text(text, is_html), has_tags=True, too_large=True)
+    return _converted(converter, converted, text)
+
+
+def _converted(converter: HandlebarsToLiquid, converted: str, text: str) -> ConvertedText:
     # Only the variables that converted need a value from the app or point at PostHog's preferences page.
     done = converter.converted
     return ConvertedText(
@@ -129,6 +133,20 @@ def _convert_handlebars(text: str, is_html: bool) -> ConvertedText:
         list_unsubscribe="%mailing_list_unsubscribe_url%" in done,
         unsubscribe_email="%unsubscribe_email%" in text,
     )
+
+
+def _convert_go(text: str, is_html: bool) -> ConvertedText:
+    converter = GoToLiquid(is_html=is_html, split_text=_split_mailgun_variables)
+    try:
+        converted = converter.convert_go(text)
+    except GoUnsupported as e:
+        return ConvertedText(text=_as_text(text, is_html), unsupported=(e.source,), has_tags=True)
+    except OutputTooLarge:
+        return ConvertedText(text=_as_text(text, is_html), has_tags=True, too_large=True)
+    if converter.unsupported:
+        # A Go template only converts as a whole, because Mailgun refuses all of one it can't read.
+        return ConvertedText(text=_as_text(text, is_html), unsupported=tuple(converter.unsupported), has_tags=True)
+    return _converted(converter, converted, text)
 
 
 def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
@@ -150,8 +168,8 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
         more = f" and {len(unsupported) - _MAX_NOTED_TAGS} more" if len(unsupported) > _MAX_NOTED_TAGS else ""
         if engine == "go":
             notes.append(
-                f"PostHog only converts plain values, such as {{{{.Name}}}}, and this template uses {shown}{more}. It "
-                "appears as plain text, so rewrite it in Liquid."
+                f"PostHog can't convert {shown}{more}, so the email shows this whole template as plain text. Rewrite it "
+                "in Liquid."
             )
         else:
             them = "it" if len(unsupported) == 1 else "them"
@@ -205,163 +223,12 @@ def _header(headers: Mapping[str, Any], name: str) -> Any:
     return next((value for key, value in headers.items() if key.lower() == name.lower()), None)
 
 
-@frozen
-class _Value:
-    start: int
-    end: int
-    source: str
-    liquid: str
-
-
-class _Unsupported(Exception):
-    def __init__(self, source: str) -> None:
-        super().__init__(source)
-        self.source = source
-
-
-class _GoConverter:
-    """Converts a Go template, which only converts as a whole."""
-
-    def __init__(self, text: str, is_html: bool) -> None:
-        self.text = text
-        self.is_html = is_html
-        self.recipient_variables: list[str] = []
-        self.tag_unsubscribe = False
-        self.list_unsubscribe = False
-        self.unsubscribe_email = False
-        self.go_kinds: dict[str, str] = {}
-
-    def convert(self) -> ConvertedText:
-        try:
-            values = self._values()
-            if self.is_html:
-                self._check_contexts(values)
-        except _Unsupported as e:
-            return ConvertedText(text=_as_text(self.text, self.is_html), unsupported=(e.source,), has_tags=True)
-        out: list[str] = []
-        cursor = 0
-        for value in values:
-            _append(out, _literal(self.text[cursor : value.start]))
-            _append(out, value.liquid)
-            cursor = value.end
-        _append(out, _literal(self.text[cursor:]))
-        setup = "".join(f"{{% assign {kind} = {path} | json | slice: 0 %}}" for path, kind in self.go_kinds.items())
-        converted = setup + "".join(out)
-        # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
-        if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
-            return ConvertedText(text=_as_text(self.text, self.is_html), has_tags=True, too_large=True)
-        return ConvertedText(
-            text=converted,
-            recipient_variables=tuple(dict.fromkeys(self.recipient_variables)),
-            has_tags=any(value.source.startswith("{{") for value in values),
-            tag_unsubscribe=self.tag_unsubscribe,
-            list_unsubscribe=self.list_unsubscribe,
-            unsubscribe_email=self.unsubscribe_email,
-        )
-
-    def _values(self) -> list[_Value]:
-        """Every value in the text, in order. Raises _Unsupported for anything in braces that isn't a plain value."""
-        values: list[_Value] = []
-        position = 0
-        while (opening := self.text.find("{{", position)) >= 0:
-            tag = _TAG.match(self.text, opening)
-            go = _GO_VALUE.fullmatch(tag.group(0)) if tag else None
-            if tag is None or go is None or _LIQUID_PROPERTIES.intersection(go[1].split(".")):
-                shown = tag.group(0) if tag else self.text[opening : opening + 60].split("\n", 1)[0]
-                raise _Unsupported(shown)
-            values.append(
-                _Value(start=opening, end=tag.end(), source=tag.group(0), liquid=self._value(f"variables.{go[1]}"))
-            )
-            position = tag.end()
-        for match in _FIXED_VARIABLE.finditer(self.text):
-            values.append(
-                _Value(start=match.start(), end=match.end(), source=match.group(0), liquid=self._fixed_variable(match))
-            )
-        for match in _RECIPIENT_VARIABLE.finditer(self.text):
-            if match[1] in _LIQUID_PROPERTIES:
-                raise _Unsupported(match.group(0))
-            self.recipient_variables.append(match.group(0))
-            values.append(
-                _Value(
-                    start=match.start(),
-                    end=match.end(),
-                    source=match.group(0),
-                    liquid=self._value(f"variables.{match[1]}"),
-                )
-            )
-        values.sort(key=lambda value: value.start)
-        if any(previous.end > value.start for previous, value in zip(values, values[1:])):
-            raise _Unsupported("a Mailgun variable inside braces")
-        return values
-
-    def _fixed_variable(self, match: re.Match[str]) -> str:
-        name = match[1]
-        if name == "tag_unsubscribe_url":
-            self.tag_unsubscribe = True
-        elif name == "mailing_list_unsubscribe_url":
-            self.list_unsubscribe = True
-        elif name == "unsubscribe_email":
-            self.unsubscribe_email = True
-            return _literal(match.group(0))
-        if name in _UNSUBSCRIBE_URLS:
-            return "{{ unsubscribe_url }}"
-        self.recipient_variables.append(match.group(0))
-        return self._value(f"variables.{name}")
-
-    def _value(self, path: str) -> str:
-        show = _escaped if self.is_html else (lambda shown: f"{{{{ {shown} }}}}")
-        # Go prints a list as [a b] and a map as map[key:value], so the value's JSON says which it is. Each value's
-        # answer is worked out once, at the top of the template, so every use can read it.
-        kind = self.go_kinds.setdefault(path, f"go_value{len(self.go_kinds) + 1}")
-        return (
-            f'{{% if {kind} == "[" %}}[{show(f"{path} | join: ' '")}]'
-            f'{{% elsif {kind} == "{{" %}}map[{{% for pair in {path} %}}{{% unless forloop.first %}} {{% endunless %}}'
-            f"{show('pair[0]')}:{show('pair[1]')}{{% endfor %}}]"
-            f"{{% else %}}{show(path)}{{% endif %}}"
-        )
-
-    def _check_contexts(self, values: list[_Value]) -> None:
-        """Raises _Unsupported for a value anywhere but page text and the page title. Go escapes an attribute value by
-        what the attribute holds, such as a link, and Liquid can't."""
-        context = HtmlContext()
-        cursor = 0
-        for value in values:
-            context.feed(self.text[cursor : value.start])
-            if context.untrusted:
-                raise _Unsupported(f"{value.source} after a script")
-            if (where := context.where()) not in ("text", "title"):
-                raise _Unsupported(f"{value.source} {_PLACES.get(where, 'inside an HTML tag')}")
-            context.feed("x")
-            cursor = value.end
-
-
 def _as_text(text: str, is_html: bool) -> str:
     """The source as text, so its markup can't render, as nothing would where Mailgun's blocks were false."""
     # Escaping makes a character at most five long, so this much of the source always fits what Liquid parses, and a
     # huge template is cut before it's copied.
     source = text[: _MAX_OUTPUT_CHARS // 5]
     return _literal(html.escape(source, quote=False) if is_html else source)
-
-
-_PLACES = {
-    "value": "in an attribute PostHog can't escape the way Mailgun does",
-    "raw": "inside a script, style or similar element",
-    "comment": "inside an HTML comment",
-}
-
-
-def _escaped(path: str) -> str:
-    # Handlebars also escapes = and `, so a value can't end an unquoted attribute and start another one.
-    return f'{{{{ {path} | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}}}'
-
-
-def _append(out: list[str], chunk: str) -> None:
-    """Adds a chunk, so a `{` that ends one chunk and a `{` or `%` that starts the next never join into a Liquid tag."""
-    if not chunk:
-        return
-    if out and out[-1].endswith("{") and chunk[0] in "{%":
-        out[-1] = out[-1][:-1] + '{{ "{" }}'
-    out.append(chunk)
 
 
 def _literal(text: str) -> str:

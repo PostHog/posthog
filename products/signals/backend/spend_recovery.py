@@ -92,7 +92,7 @@ def _recover_spend(*, team_id: int, spend_id: str) -> None:
                     signal_id=str(spend.signal_id),
                     source_id=source_id,
                     stage=source["stage"],
-                    token_cost_microusd=cost.cost_microusd,
+                    token_cost_microusd=cost.standard_cost_microusd,
                 )
                 recovered = True
         except SoftTimeLimitExceeded:

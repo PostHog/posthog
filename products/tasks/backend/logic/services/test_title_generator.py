@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from products.tasks.backend.logic.services.title_generator import _fallback_title, generate_task_title
 
-BUILDER = "posthog.llm.gateway_client.build_ai_gateway_anthropic_client"
+BUILDER = "posthog.llm.gateway_client.build_anthropic_client"
 
 
 def _blocks(*blocks: tuple[str, str]) -> SimpleNamespace:
