@@ -490,3 +490,80 @@ class WidgetCatalogEntry:
     product_access_denied_message: str | None
     availability_requirements: tuple[str, ...]
     live: bool
+
+
+@frozen
+class WidgetRun:
+    """A widget tile of a dashboard that can run, with the config it runs with."""
+
+    tile_id: int
+    widget_type: str
+    config: JsonValue
+    # The API scopes a key needs to run this widget. A `:read` scope is also met by the matching `:write` scope.
+    required_scopes: tuple[str, ...]
+
+
+@frozen
+class WidgetRunRefusal:
+    """A requested tile that cannot run, because it is not a widget tile of the dashboard or its widget type is not registered."""
+
+    tile_id: int
+    widget_type: str | None
+    error: str
+
+
+@frozen
+class WidgetRunResult:
+    """The outcome of one widget run. A failed run has `error` and no `result`."""
+
+    tile_id: int
+    widget_type: str
+    # The widget type's own payload. It can hold values such as datetimes that the API renderer serializes.
+    result: dict[str, Any] | None
+    error: str | None
+
+
+@frozen
+class NewWidgetTile:
+    """A widget tile to add to a dashboard. Without `layouts`, the tile goes below the dashboard's other tiles."""
+
+    widget_type: str
+    # The config as the request sent it. The widget type's config model validates it before the write.
+    config: JsonValue
+    name: str | None = None
+    description: str = ""
+    layouts: dict[str, JsonValue] | None = None
+    # None keeps the tile default.
+    show_description: bool | None = None
+
+
+@frozen
+class ValidatedWidget:
+    """A widget type and config that passed the checks for a new widget."""
+
+    widget_type: str
+    config: dict[str, JsonValue]
+
+
+@frozen
+class WidgetPatch:
+    """Changes to the settings of a widget. Only the fields named in `fields_set` change."""
+
+    fields_set: frozenset[str]
+    # The widget type cannot change. A patch names it only to pick the config shape.
+    widget_type: str | None = None
+    # Merged over the stored config.
+    config: JsonValue = None
+    # An empty name clears it.
+    name: str | None = None
+    description: str = ""
+
+
+@frozen
+class UpdatedWidget:
+    """A widget after a patch, with what the caller's analytics event reads."""
+
+    widget_type: str
+    # True when the patch changed the config fields that hold the filters of the tile.
+    filters_changed: bool
+    filters_count: int

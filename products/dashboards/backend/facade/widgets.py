@@ -1,5 +1,9 @@
 """
-Dashboard widget types, for the dashboards API.
+Dashboard widget types and widget runs, for the dashboards API.
+
+The widget functions that check the requester's product access take a `UserAccessControl`, so they
+live in `api.py` with the other functions that take one: `widget_product_access_error`,
+`validate_new_widget`, `create_widget_tiles` and `update_widget`.
 """
 
 from collections.abc import Mapping, Sequence
@@ -8,8 +12,14 @@ from functools import cache
 from pydantic import JsonValue
 
 from posthog.models.team import Team
+from posthog.models.user import User
 
-from products.dashboards.backend.facade.contracts import WidgetCatalogEntry
+from products.dashboards.backend.facade.contracts import (
+    WidgetCatalogEntry,
+    WidgetRun,
+    WidgetRunRefusal,
+    WidgetRunResult,
+)
 from products.dashboards.backend.logic import widgets as widgets_logic
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
@@ -53,9 +63,21 @@ def public_widget_config(*, widget_type: str, config: Mapping[str, JsonValue]) -
     return widgets_logic.public_widget_config(widget_type, config)
 
 
+def plan_widget_runs(*, dashboard_id: int, tile_ids: Sequence[int]) -> tuple[WidgetRun | WidgetRunRefusal, ...]:
+    """One plan per requested tile id, in request order. The caller checks access and throttles before it runs a plan."""
+    return widgets_logic.plan_widget_runs(dashboard_id=dashboard_id, tile_ids=tile_ids)
+
+
+def run_widget(*, team: Team, user: User, dashboard_id: int, run: WidgetRun) -> WidgetRunResult:
+    """Run one widget query, inside the dashboard widget delivery SLO. A failed query gives a result with an error."""
+    return widgets_logic.run_widget(team=team, user=user, dashboard_id=dashboard_id, run=run)
+
+
 __all__ = [
     "EXPECTED_WIDGET_TYPES",
+    "plan_widget_runs",
     "public_widget_config",
+    "run_widget",
     "widget_catalog",
     "widget_feature_enabled",
 ]
