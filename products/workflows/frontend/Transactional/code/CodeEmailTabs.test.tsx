@@ -199,20 +199,12 @@ describe('CodeEmailTabs', () => {
                 [['2026-03-13', '2026-03-14'], 'email_bounced', [0, 2]],
             ] as [string[], string, number[]][],
         ],
-        [
-            'counting no deliveries when bounces of earlier sends outnumber the sends, like the Email steps table',
-            [
-                [['2026-03-13', '2026-03-14'], 'email_sent', [5, 0]],
-                [['2026-03-13', '2026-03-14'], 'email_bounced', [0, 7]],
-            ] as [string[], string, number[]][],
-        ],
     ])('shows email outcome cards instead of workflow run cards, %s', async (_, rows) => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs({ trendRows: rows })
 
         expect(await screen.findByText('vs. 5 prior')).toBeInTheDocument()
         expect(screen.getByText('5')).toBeInTheDocument()
-        expect(screen.queryByText(/^vs\. -/)).not.toBeInTheDocument()
         expect(screen.queryByText('Workflows in progress')).not.toBeInTheDocument()
     })
 

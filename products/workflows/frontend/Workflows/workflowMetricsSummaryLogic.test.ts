@@ -20,6 +20,7 @@ import {
     channelSentLabel,
     conversionRateQuery,
     detectMessagingChannels,
+    estimateDeliveries,
     parseEmailLinkTotals,
     subtractSeries,
     withDisplayName,
@@ -99,6 +100,17 @@ describe('subtractSeries', () => {
         },
     ])('$name', ({ minuend, subtrahend, displayName, expected }) => {
         expect(subtractSeries(minuend, subtrahend, displayName)).toEqual(expected)
+    })
+})
+
+describe('estimateDeliveries', () => {
+    it.each([
+        ['nets a bounce against the send it follows', [7, 0], [0, 2], [5, 0]],
+        ['floors at zero when bounces of earlier sends outnumber the sends', [5, 0], [0, 7], [0, 0]],
+        ['nets a bounce before any send in the range against the next send', [0, 3], [1, 0], [0, 2]],
+        ['keeps each bucket when nothing bounced', [2, 3], [0, 0], [2, 3]],
+    ])('%s', (_, sent, bounced, expected) => {
+        expect(estimateDeliveries(sent, bounced)).toEqual(expected)
     })
 })
 
