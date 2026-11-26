@@ -8,7 +8,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery.teams import TeamsTransport, card_for
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+)
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail, MessageLink
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, pinned_post
 
@@ -100,6 +104,7 @@ class TestTeamsTransport(SimpleTestCase):
                 True,
             ),
             ("elsewhere", "https://example.com/hook", False),
+            ("no_url", "", False),
         ]
     )
     def test_only_a_url_teams_issues_is_posted_to(self, _name: str, url: str, posted: bool) -> None:
@@ -109,7 +114,7 @@ class TestTeamsTransport(SimpleTestCase):
             if posted:
                 TeamsTransport().deliver(team_id=2, target=target, message=alert_message())
             else:
-                with pytest.raises(DeliveryError):
+                with pytest.raises(DestinationMisconfigured):
                     TeamsTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert bool(adapter.sent) is posted

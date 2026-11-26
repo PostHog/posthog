@@ -91,9 +91,12 @@ class DeliveryAmbiguous(DeliveryError):
 
 
 class DestinationMisconfigured(DeliveryError):
-    """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
+    """A destination set up so that every send fails until its owner changes it, such as a missing
+    webhook URL or a disconnected Slack workspace.
 
-    The platform did its part, so its own reliability metrics count this apart from a failure.
+    Delivery does not retry a send for this error, and a failed send tells the alert's creator. The
+    platform did its part, so its own reliability metrics count this apart from a failure.
+    `DestinationRefused` is the case where the provider itself rejected the request.
     """
 
     reason: FailureReason = "destination_config"
@@ -124,10 +127,10 @@ class DestinationRefused(DestinationMisconfigured):
 
 
 class RefusedEverywhere(DeliveryError):
-    """A delivery whose every failed send was a refusal only the destination's owner can fix.
+    """A delivery whose every failed send failed in a way only the destination's owner can fix.
 
-    Running the delivery again sends to the same refusing destinations and is refused the same way,
-    so the caller does not retry it.
+    Running the delivery again sends to the same destinations and fails the same way, so the caller
+    does not retry it.
     """
 
 

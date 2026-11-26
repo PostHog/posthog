@@ -15,7 +15,11 @@ from urllib3.exceptions import ProtocolError
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, pagerduty_body
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -191,22 +195,33 @@ class TestPagerDutyTransport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_incident_action", TARGET, None),
-            ("no_routing_key", cast(AlertDestinationData, {"type": "pagerduty"}), IncidentAction.TRIGGER),
+            ("no_incident_action", TARGET, None, DeliveryError),
+            (
+                "no_routing_key",
+                cast(AlertDestinationData, {"type": "pagerduty"}),
+                IncidentAction.TRIGGER,
+                DestinationMisconfigured,
+            ),
             (
                 "unknown_region",
                 cast(AlertDestinationData, {**TARGET, "pagerduty_region": "apac"}),
                 IncidentAction.TRIGGER,
+                DestinationMisconfigured,
             ),
         ]
     )
     def test_an_event_pagerduty_cannot_route_is_refused_before_sending(
-        self, _name: str, target: AlertDestinationData, action: IncidentAction | None
+        self,
+        _name: str,
+        target: AlertDestinationData,
+        action: IncidentAction | None,
+        expected: type[DeliveryError],
     ) -> None:
         with pinned_post() as adapter:
-            with pytest.raises(DeliveryError):
+            with pytest.raises(DeliveryError) as raised:
                 PagerDutyTransport().deliver(team_id=2, target=target, message=_message(action))
 
+        assert type(raised.value) is expected
         assert adapter.sent == []
 
     def test_the_thread_store_never_holds_the_routing_key(self) -> None:

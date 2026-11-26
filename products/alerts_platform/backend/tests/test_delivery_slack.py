@@ -228,7 +228,7 @@ class TestSlackTransport(APIBaseTest):
 
     def test_a_workspace_another_team_owns_is_refused(self) -> None:
         # An unscoped lookup finds the integration by id alone and sends into it.
-        with pytest.raises(DeliveryError):
+        with pytest.raises(DestinationMisconfigured):
             self._send(team_id=self.team.id + 1)
 
     @parameterized.expand(
@@ -402,7 +402,7 @@ class TestSlackTransport(APIBaseTest):
     def test_a_destination_missing_its_channel_is_refused(self) -> None:
         target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": self.integration.id})
 
-        with pytest.raises(DeliveryError):
+        with pytest.raises(DestinationMisconfigured):
             self._send(target=target)
 
 

@@ -20,7 +20,12 @@ from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryAmbiguous, DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+)
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import (
@@ -220,7 +225,7 @@ class TestWebhookTransport(SimpleTestCase):
         target = cast(AlertDestinationData, {"type": "webhook", "webhook_url": "http://hooks.example.com/alerts"})
 
         with pinned_post() as adapter:
-            with pytest.raises(DeliveryError):
+            with pytest.raises(DestinationMisconfigured):
                 WebhookTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert adapter.sent == []

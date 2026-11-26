@@ -194,9 +194,9 @@ async def alerts_platform_emit_transitions_activity(request: AlertDeliveryReques
 
 
 async def _log_refused_everywhere(request: AlertDeliveryRequest, error: RefusedEverywhere) -> None:
-    """Ends the send without raising, because only the destination's owner can fix the refusal.
+    """Ends the send without raising, because only the destination's owner can fix it.
 
-    A retry is refused the same way. Each send already counts as `misconfigured` and the alert's
+    A retry fails the same way. Each send already counts as `misconfigured` and the alert's
     creator is told, so a failed activity would only fail the workflow and page the platform for a
     problem it cannot fix.
     """

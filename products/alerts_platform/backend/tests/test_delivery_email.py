@@ -9,7 +9,7 @@ from django.test import SimpleTestCase
 
 from products.alerts_platform.backend.delivery.email import TEMPLATE_NAME, EmailTransport
 from products.alerts_platform.backend.delivery.message import MessageDetail
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind
 from products.alerts_platform.backend.tests.delivery_messages import alert_message, announced_transition
 
@@ -52,7 +52,7 @@ class TestEmailTransport(SimpleTestCase):
         assert len(key(AlertEventKind.FIRING)) <= 128
 
     def test_a_destination_without_recipients_is_refused(self) -> None:
-        with pytest.raises(DeliveryError):
+        with pytest.raises(DestinationMisconfigured):
             EmailTransport().deliver(
                 team_id=2, target=cast(AlertDestinationData, {"type": "email"}), message=alert_message()
             )

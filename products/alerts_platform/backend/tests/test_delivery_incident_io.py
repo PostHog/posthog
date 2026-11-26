@@ -11,7 +11,11 @@ from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery.incident_io import IncidentIoTransport
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -105,22 +109,33 @@ class TestIncidentIoTransport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_incident_action", TARGET, None),
-            ("no_secret", cast(AlertDestinationData, {**TARGET, "incident_io_secret": ""}), IncidentAction.TRIGGER),
+            ("no_incident_action", TARGET, None, DeliveryError),
+            (
+                "no_secret",
+                cast(AlertDestinationData, {**TARGET, "incident_io_secret": ""}),
+                IncidentAction.TRIGGER,
+                DestinationMisconfigured,
+            ),
             # The ID is a path segment, so a stored value that walks the path must never be sent.
             (
                 "id_that_walks_the_path",
                 cast(AlertDestinationData, {**TARGET, "incident_io_alert_source_config_id": "../../v1/incidents"}),
                 IncidentAction.TRIGGER,
+                DestinationMisconfigured,
             ),
         ]
     )
     def test_an_event_incident_io_cannot_take_is_refused_before_sending(
-        self, _name: str, target: AlertDestinationData, action: IncidentAction | None
+        self,
+        _name: str,
+        target: AlertDestinationData,
+        action: IncidentAction | None,
+        expected: type[DeliveryError],
     ) -> None:
-        with pinned_post() as adapter, pytest.raises(DeliveryError):
+        with pinned_post() as adapter, pytest.raises(DeliveryError) as raised:
             IncidentIoTransport().deliver(team_id=2, target=target, message=_message(action))
 
+        assert type(raised.value) is expected
         assert adapter.sent == []
 
     @parameterized.expand(
