@@ -4,6 +4,9 @@ from products.warehouse_sources.sources.sdk import IncrementalFieldType, increme
 
 BASE_URL = "https://api.peec.ai/customer"
 PAGE_SIZE = 1000
+# Peec's largest allowed page. Rows inside one day have no unique sort key, so offset pages can
+# shift between requests; a page this size holds a whole day for almost every project.
+DAILY_PAGE_SIZE = 10000
 
 
 class PeecAIEndpoint(TypedDict):

@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.peec_ai._config import PeecAISourceConfi
 from products.warehouse_sources.sources.peec_ai.settings import (
     AUTH_ERRORS,
     BASE_URL,
+    DAILY_PAGE_SIZE,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PAGE_SIZE,
@@ -41,7 +42,7 @@ class PeecAIDailyPaginator(OffsetPaginator):
     """Offset pages inside one-day windows, walked from the first day to the last."""
 
     def __init__(self, first_day: date, last_day: date, total_path: str | None) -> None:
-        super().__init__(limit=PAGE_SIZE, total_path=total_path, param_location="json")
+        super().__init__(limit=DAILY_PAGE_SIZE, total_path=total_path, param_location="json")
         self._day = min(first_day, last_day)
         self._last_day = last_day
 
