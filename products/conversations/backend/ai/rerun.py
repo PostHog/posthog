@@ -91,7 +91,7 @@ def _release_claim(ticket_id: str, team_id: int, claim: str) -> None:
 
 def start_manual_rerun(ticket: Ticket, team: Team) -> str:
     """Start a run for `ticket` and return its workflow id. Raises ManualRerunRefused when it does not start."""
-    # The coordinator module loads the Temporal workflows. Importing it here keeps them off the API import path.
+    # Imported here to keep the Temporal workflows off the API import path.
     from products.conversations.backend.temporal.coordinator import _is_master_flag_enabled  # noqa: PLC0415
     from products.conversations.backend.temporal.pipeline import (  # noqa: PLC0415
         SupportReplyInput,

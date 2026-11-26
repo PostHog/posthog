@@ -99,8 +99,7 @@ class EligibleTicket:
 
 
 def _child_workflow_id(ticket_id: str, clarification_round: int = 0, rerun_key: str = "") -> str:
-    # A completed run blocks its id under ALLOW_DUPLICATE_FAILED_ONLY, so a run for a later customer
-    # message needs its own id, and so does the follow-up to a question that such a run asked.
+    # A completed run blocks its id, so a later-message run and the follow-up to its question need their own.
     if rerun_key and clarification_round >= 1:
         return f"support-reply-{ticket_id}-c{rerun_key}-r{clarification_round}"
     if rerun_key:
@@ -506,8 +505,7 @@ class SupportReplyCoordinatorWorkflow:
                 ticket_id=ticket.ticket_id,
                 clarification_round=ticket.clarification_round,
             )
-            # The patch comes before the data check. A history that an older worker recorded
-            # started this child under the first-draft id, and replay must do the same.
+            # The patch comes first: a history from an older worker must replay under the first-draft id.
             if workflow.patched(CUSTOMER_REPLY_RERUN_PATCH) and ticket.rerun_key:
                 child_id = _child_workflow_id(ticket.ticket_id, ticket.clarification_round, ticket.rerun_key)
                 child_input = SupportReplyInput(
