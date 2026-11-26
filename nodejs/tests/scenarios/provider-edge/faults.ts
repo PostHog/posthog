@@ -62,6 +62,13 @@ export const CardFault = z.discriminatedUnion('name', [
             for: Duration.optional(),
         })
         .strict(),
+    z
+        .object({
+            name: z.literal('pg.enqueue_refused'),
+            dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
 ])
 export type CardFault = z.infer<typeof CardFault>
 
@@ -80,15 +87,24 @@ export type WebhookAnswer =
     | { kind: 'webhook-status'; status: number }
     | { kind: 'webhook-ambiguous'; accepted: boolean }
 
+// Postgres itself refuses the insert, so its error, the transaction it fails and the rest of the client's pipeline
+// are the server's own.
+export type PgAnswer = { kind: 'pg-refuse' }
+
+type Answer = SesAnswer | WebhookAnswer | PgAnswer
+
 export type FaultRule = {
     name: string
-    answer: SesAnswer | WebhookAnswer
+    answer: Answer
     match?: { recipient?: string; host?: string }
     dose: z.infer<typeof Dose> | { perSecond: number }
     for?: string
 }
 
-type FaultedRequest = { channel: 'ses'; recipients: string[] } | { channel: 'webhook'; host: string }
+type FaultedRequest =
+    | { channel: 'ses'; recipients: string[] }
+    | { channel: 'webhook'; host: string }
+    | { channel: 'pg' }
 
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
 const THROTTLED: SesStatusAnswer = {
@@ -113,8 +129,12 @@ export function ruleOf(fault: CardFault): FaultRule {
             return { ...fault, answer: { kind: 'ambiguous', accepted: fault.params.accepted } }
         case 'dest.ambiguous':
             return { ...fault, answer: { kind: 'webhook-ambiguous', accepted: fault.params.accepted } }
+        case 'pg.enqueue_refused':
+            return { ...fault, answer: { kind: 'pg-refuse' } }
     }
 }
+
+export const isEnqueue = (statement: string): boolean => /^\s*INSERT\s+INTO\s+cyclotron_jobs\b/i.test(statement)
 
 export const heldAnswerRule = (): FaultRule => ({
     name: 'edge.accepted',
@@ -133,17 +153,24 @@ type ActiveFault = {
 
 const SHARE_TOLERANCE = 1e-9
 
-const isWebhookAnswer = (answer: SesAnswer | WebhookAnswer): answer is WebhookAnswer =>
+const isWebhookAnswer = (answer: Answer): answer is WebhookAnswer =>
     answer.kind === 'webhook-status' || answer.kind === 'webhook-ambiguous'
 
-const reachesSes = (answer: SesAnswer | WebhookAnswer): boolean =>
+const isPgAnswer = (answer: Answer): answer is PgAnswer => answer.kind === 'pg-refuse'
+
+const isSesAnswer = (answer: Answer): answer is SesAnswer => !isWebhookAnswer(answer) && !isPgAnswer(answer)
+
+const reachesSes = (answer: Answer): boolean =>
     answer.kind === 'bounce' || answer.kind === 'hold-answer' || (answer.kind === 'ambiguous' && answer.accepted)
 
 function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean {
     if (request.channel === 'webhook') {
         return isWebhookAnswer(answer) && (match?.host === undefined || match.host === request.host)
     }
-    return !isWebhookAnswer(answer) && (match?.recipient === undefined || request.recipients.includes(match.recipient))
+    if (request.channel === 'pg') {
+        return isPgAnswer(answer)
+    }
+    return isSesAnswer(answer) && (match?.recipient === undefined || request.recipients.includes(match.recipient))
 }
 
 function doseTakes(fault: ActiveFault, now: number): boolean {
@@ -197,7 +224,7 @@ export class FaultList {
 
     takeSes(recipients: string[]): { id: string; name: string; answer: SesAnswer } | undefined {
         const fault = this.take({ channel: 'ses', recipients })
-        return fault && !isWebhookAnswer(fault.rule.answer)
+        return fault && isSesAnswer(fault.rule.answer)
             ? { id: fault.id, name: fault.rule.name, answer: fault.rule.answer }
             : undefined
     }
@@ -205,6 +232,10 @@ export class FaultList {
     takeWebhook(host: string): { name: string; answer: WebhookAnswer } | undefined {
         const rule = this.take({ channel: 'webhook', host })?.rule
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
+    }
+
+    refusesStatement(statement: string): boolean {
+        return isEnqueue(statement) && this.take({ channel: 'pg' }) !== undefined
     }
 
     private take(request: FaultedRequest): ActiveFault | undefined {

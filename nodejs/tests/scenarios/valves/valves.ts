@@ -28,6 +28,7 @@ export type ValveDefinition = Definition & {
     roleExitGraceMs?: number
     restarts?: readonly z.infer<typeof CdpRole>[]
     journalsIntent?: true
+    cyclotronThroughEdge?: true
     apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
 
@@ -170,6 +171,24 @@ export const pgFailover: ValveDefinition = {
             : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits, signal }),
 }
 
+const Dose = z.union([
+    z.object({ count: z.number().int().min(1) }).strict(),
+    z.object({ share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const pgEnqueueRefused: ValveDefinition = {
+    name: 'pg.enqueue_refused',
+    params: Dose,
+    target: z.literal('cyclotron'),
+    strandsRunningJobs: false,
+    cyclotronThroughEdge: true,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'pg.enqueue_refused', dose: Dose.parse(dose) }),
+        }),
+}
+
 export const VALVES: ValveDefinition[] = [
     roleKill,
     roleFreeze,
@@ -180,7 +199,11 @@ export const VALVES: ValveDefinition[] = [
     sesReject,
     sesAmbiguous,
     destAmbiguous,
+    pgEnqueueRefused,
 ]
+
+export const cyclotronThroughEdge = (entries: readonly ValveEntry[]): boolean =>
+    entries.some(({ valve }) => VALVES.find(({ name }) => name === valve)?.cyclotronThroughEdge === true)
 
 const POLL_MS = 1000
 

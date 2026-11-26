@@ -60,7 +60,7 @@ import { Provenance, provenanceOf } from '../scorecard/provenance'
 import { ScorecardProperties, scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
-import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { ValveTimelineEntry, createValves, cyclotronThroughEdge } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { type RunStop, openLiveLog } from './live'
@@ -599,12 +599,16 @@ export function createRunner(
             try {
                 await opened.connect()
                 enter('reset')
-                await environment.reset(profile.settings, profile.replicas).catch((error: unknown) => {
-                    restartRequired = new Error(
-                        `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
-                    )
-                    throw error
-                })
+                await environment
+                    .reset(profile.settings, profile.replicas, {
+                        cyclotronThroughEdge: cyclotronThroughEdge(card.valves),
+                    })
+                    .catch((error: unknown) => {
+                        restartRequired = new Error(
+                            `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
+                        )
+                        throw error
+                    })
                 enter('seed')
                 const seeded = await opened.seed(signal).catch((error: unknown) => {
                     if (error instanceof SeedingCutShort) {

@@ -302,7 +302,14 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
     }
 }
 
-export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
+export const cyclotronUrlOf = (spec: RoleSpec): string =>
+    spec.cyclotronUrl ?? (spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl)
+
+// The databases the roles' Cyclotron connections reach, in the order roleSpecs hands them out.
+export const cyclotronUpstreamsOf = (env: NodeJS.ProcessEnv): string[] =>
+    env.SCENARIO_POOLER_URLS
+        ? env.SCENARIO_POOLER_URLS.split(',')
+        : [env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl]
 
 const settingsOf = (spec: RoleSpec): PluginsServerConfig =>
     overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env)

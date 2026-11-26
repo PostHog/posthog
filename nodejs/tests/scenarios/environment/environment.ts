@@ -37,6 +37,7 @@ import {
     ProbeFailure,
     STACK,
     createTopics,
+    cyclotronUpstreamsOf,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
     forgetSesBucket,
@@ -66,7 +67,11 @@ export type { RoleExit } from './supervisor'
 
 export interface Environment {
     up(signal: AbortSignal): Promise<void>
-    reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
+    reset(
+        settings: Profile['settings'],
+        replicas?: Replicas,
+        through?: { cyclotronThroughEdge?: boolean }
+    ): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
@@ -228,10 +233,10 @@ export function createEnvironment({
             }
         },
 
-        async reset(settings, replicas = {}) {
+        async reset(settings, replicas = {}, through = {}) {
             const edge = startedEdge('reset')
             try {
-                await resetRoles(edge, settings, replicas)
+                await resetRoles(edge, settings, replicas, through.cyclotronThroughEdge === true)
             } catch (error) {
                 await stop()
                 throw error
@@ -317,11 +322,17 @@ export function createEnvironment({
         return edge
     }
 
-    async function resetRoles(edge: EdgeProcess, settings: Profile['settings'], replicas: Replicas): Promise<void> {
+    async function resetRoles(
+        edge: EdgeProcess,
+        settings: Profile['settings'],
+        replicas: Replicas,
+        cyclotronThroughEdge: boolean
+    ): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
-        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const through = cyclotronThroughEdge ? { upstreams: cyclotronUpstreamsOf(env), urls: edge.pgUrls } : undefined
+        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, through)
         running = specs
         await createTopics(intakeTopicsOf(specs), docker)
         const groups = unionOf(consumerGroupsOf(specs), joined)
@@ -425,6 +436,7 @@ export function createEnvironment({
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),
             feedbackUrl: `http://127.0.0.1:${portOf({ role: 'cdp-api', replica: 0 })}/public/m/ses_webhook`,
+            pgUpstreams: cyclotronUpstreamsOf(env),
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs

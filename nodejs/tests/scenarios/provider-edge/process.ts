@@ -4,9 +4,12 @@ import { pathToFileURL } from 'url'
 import { FaultRule } from './faults'
 import { FaultHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge } from './index'
 
-export type EdgeProcessOptions = Pick<ProviderEdgeOptions, 'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl'>
+export type EdgeProcessOptions = Pick<
+    ProviderEdgeOptions,
+    'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl' | 'pgUpstreams'
+>
 
-export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath'> & {
+export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgUrls'> & {
     hold(rule: FaultRule): Promise<FaultHold>
     clearFaults(): Promise<void>
     close(): Promise<void>
@@ -21,7 +24,7 @@ type Call =
 
 type Request = Call & { id: number }
 
-type Started = { kind: 'started'; url: string; caCertPath?: string }
+type Started = { kind: 'started'; url: string; caCertPath?: string; pgUrls: Record<string, string> }
 
 type Message =
     | Started
@@ -59,7 +62,12 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
             process.send!({ kind: 'reply', id: request.id, reason: String(error) } satisfies Message)
         }
     })
-    process.send!({ kind: 'started', url: edge.url, caCertPath: edge.caCertPath } satisfies Message)
+    process.send!({
+        kind: 'started',
+        url: edge.url,
+        caCertPath: edge.caCertPath,
+        pgUrls: edge.pgUrls,
+    } satisfies Message)
 }
 
 export async function startEdgeProcess(
@@ -200,7 +208,7 @@ export async function startEdgeProcess(
         await exited
     }
 
-    const { url, caCertPath } = await started.catch(async (error: unknown) => {
+    const { url, caCertPath, pgUrls } = await started.catch(async (error: unknown) => {
         await close()
         throw error
     })
@@ -208,6 +216,7 @@ export async function startEdgeProcess(
     return {
         url,
         caCertPath,
+        pgUrls,
         hold: async (rule) => {
             const faultId = await call<string>({ op: 'add', rule })
             return holdOf({

@@ -49,6 +49,7 @@ import {
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
+    cyclotronUrlOf,
     forgetSesBucket,
     lagOf,
     membersOf,
@@ -531,6 +532,28 @@ describe('scenario environment', () => {
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
             expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
+        })
+
+        it("reaches each pooler through the edge's proxy for it, while the runner reads the pooler itself", () => {
+            const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const urls = {
+                [poolers[0]]: 'postgres://a@127.0.0.1:7001/cyclotron_node',
+                [poolers[1]]: 'postgres://a@127.0.0.1:7002/cyclotron_node',
+            }
+            const through = roleSpecs(
+                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                {},
+                undefined,
+                {},
+                { upstreams: poolers, urls }
+            )
+
+            expect(through.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
+                through.map((_, index) => [urls[poolers[index % 2]], poolers[index % 2]])
+            )
         })
 
         it.each(CdpRole.options)(

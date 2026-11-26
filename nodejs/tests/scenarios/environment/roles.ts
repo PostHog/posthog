@@ -61,7 +61,10 @@ export type Replicas = Profile['replicas']
 
 export type RoleId = ReplicaOf<Role>
 
-export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
+// cyclotronUrl is the database a role reaches through the edge's Postgres proxy, when it does.
+export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv; cyclotronUrl?: string }
+
+export type ThroughEdge = { upstreams: readonly string[]; urls: Readonly<Record<string, string>> }
 
 const REPLICA_PORT_OFFSET = 100
 
@@ -89,7 +92,8 @@ export function roleSpecs(
     stateDir: string,
     settings: Profile['settings'] = {},
     sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY,
-    replicas: Replicas = {}
+    replicas: Replicas = {},
+    cyclotronThroughEdge?: ThroughEdge
 ): RoleSpec[] {
     const {
         AWS_PROFILE: _profile,
@@ -117,13 +121,21 @@ export function roleSpecs(
         PERSONHOG_ENABLED: 'true',
         ...settings,
     }
+    const upstreamOf = (index: number): string | undefined => {
+        const upstreams = cyclotronThroughEdge?.upstreams ?? []
+        return upstreams.length > 0 ? upstreams[index % upstreams.length] : undefined
+    }
     return roleIdsOf(replicas).map((id, index) => ({
         ...id,
         port: portOf(id),
+        ...(upstreamOf(index) === undefined ? {} : { cyclotronUrl: upstreamOf(index) }),
         env: {
             ...(isIntake(id.role) ? { CDP_DLQ_ENABLED: 'true' } : {}),
             ...configured,
             ...(poolers.length > 0 ? { CYCLOTRON_NODE_DATABASE_URL: poolers[index % poolers.length] } : {}),
+            ...(upstreamOf(index) === undefined
+                ? {}
+                : { CYCLOTRON_NODE_DATABASE_URL: cyclotronThroughEdge!.urls[upstreamOf(index)!] }),
             SES_ENDPOINT: edge.url,
             HTTPS_PROXY: edge.url,
             ...(edge.caCertPath ? { NODE_EXTRA_CA_CERTS: edge.caCertPath } : {}),
