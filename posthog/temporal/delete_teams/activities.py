@@ -221,11 +221,16 @@ async def delete_task_session_storage_activity(inputs: TeamDataActivityInputs) -
             if after_task_id is None:
                 return
             heartbeater.details = (after_task_id,)
-        LOGGER.error(
+        LOGGER.warning(
             "delete_teams.task_session_storage_page_limit_reached",
             team_ids=inputs.team_ids,
             after_task_id=after_task_id,
             pages_max=TASK_SESSION_PAGES_MAX,
+        )
+        raise ApplicationError(
+            f"Swept {TASK_SESSION_PAGES_MAX} pages of task sessions, resuming after task {after_task_id}",
+            type="TaskSessionPageLimitReached",
+            non_retryable=False,
         )
 
 
