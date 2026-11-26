@@ -7,7 +7,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { CURRENT_SCHEMA_VERSION, UnreadableBoardError, upgradeBoard } from './dashboard/boardSchema'
+import { CURRENT_SCHEMA_VERSION, UnreadableBoardError, boardDocument, upgradeBoard } from './dashboard/boardSchema'
+import { loadDashboard } from './dashboard/sharedPanels'
 import { dashboardV2Logic } from './dashboardV2Logic'
 
 // A board as a newer client could store it: a field this client doesn't know sits at every level.
@@ -25,7 +26,7 @@ const STORED_BOARD = {
                     id: 'note',
                     place: { x: 0, y: 0, w: 12, h: 6 },
                     tileFromTheFuture: 'a',
-                    widget: { type: 'markdown', config: { text: 'Hello' }, widgetFromTheFuture: ['b'] },
+                    panel: { type: 'markdown', config: { text: 'Hello' }, panelFromTheFuture: ['b'] },
                 },
             ],
         },
@@ -69,10 +70,74 @@ describe('saved boards', () => {
         expect(savedSpec.boardFromTheFuture).toEqual({ kept: true })
         expect(savedSpec.tabs[0].tabFromTheFuture).toEqual(1)
         expect(savedSpec.tabs[0].tiles[0].tileFromTheFuture).toEqual('a')
-        expect(savedSpec.tabs[0].tiles[0].widget.widgetFromTheFuture).toEqual(['b'])
+        expect(savedSpec.tabs[0].tiles[0].panel.panelFromTheFuture).toEqual(['b'])
         expect(savedSpec.tabs).toHaveLength(2)
         expect(savedSpec).not.toHaveProperty('user_access_level')
         expect(router.values.location.pathname).toContain(urls.dashboardV2Board('copy'))
+    })
+
+    it('loads a version 2 document that names its panels widgets, and saves it with panels', () => {
+        const legacy = {
+            version: 2,
+            title: 'Written before the rename',
+            widgets: { shared: { type: 'markdown', config: { text: 'Shared' } } },
+            tabs: [
+                {
+                    id: 'main',
+                    title: 'Main',
+                    tiles: [
+                        { id: 'a', place: { x: 0, y: 0, w: 12, h: 6 }, widget: { ref: 'shared' } },
+                        {
+                            id: 's',
+                            place: { x: 0, y: 6, w: 24, h: 3 },
+                            widget: {
+                                type: 'section',
+                                title: 'More',
+                                tiles: [
+                                    {
+                                        id: 'b',
+                                        place: { x: 0, y: 0, w: 12, h: 6 },
+                                        widget: { type: 'markdown', config: { text: 'Inside' } },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const saved = boardDocument(loadDashboard(upgradeBoard(legacy)))
+
+        expect(saved).toEqual({
+            version: 2,
+            title: 'Written before the rename',
+            panels: { shared: { type: 'markdown', config: { text: 'Shared' } } },
+            tabs: [
+                {
+                    id: 'main',
+                    title: 'Main',
+                    tiles: [
+                        { id: 'a', place: { x: 0, y: 0, w: 12, h: 6 }, panel: { ref: 'shared' } },
+                        {
+                            id: 's',
+                            place: { x: 0, y: 6, w: 24, h: 3 },
+                            panel: {
+                                type: 'section',
+                                title: 'More',
+                                tiles: [
+                                    {
+                                        id: 'b',
+                                        place: { x: 0, y: 0, w: 12, h: 6 },
+                                        panel: { type: 'markdown', config: { text: 'Inside' } },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            ],
+        })
     })
 
     it('shows the problem instead of the fixture when the board in the URL is missing', async () => {
