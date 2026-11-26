@@ -403,6 +403,9 @@ Add this block to the proxy configuration to enable Git reads:
 ```
 
 The grant endpoint requires HTTPS and its dedicated credential-lookup key, not the registry key.
+Terminate TLS in a local listener that forwards to Django over loopback.
+Django requires a `127.0.0.1` or `::1` transport peer as well as the HTTPS marker; forwarded client-address headers cannot satisfy this check.
+The local listener must restrict the grant route and methods, strip caller headers, set the HTTPS marker, and forward the scoped service authorization.
 `grant_ca_file` and `upstream_ca_file` optionally replace system trust for their respective connections.
 Both default to system certificate validation. Smokescreen is required; denied or failed CONNECT requests never fall back to direct access.
 The grant client connects directly to its configured regional endpoint, refuses redirects and fetches a current grant for each Git request.
