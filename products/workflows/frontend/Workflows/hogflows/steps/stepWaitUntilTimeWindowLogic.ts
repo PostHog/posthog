@@ -418,6 +418,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {
@@ -770,6 +771,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   template_uuid?: string | undefined
               }
             | {
+                  click_tracking_enabled?: boolean | undefined
                   inputs: Record<
                       string,
                       {

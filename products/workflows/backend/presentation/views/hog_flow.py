@@ -215,6 +215,7 @@ from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
     WorkflowActor,
+    WorkflowArchived,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
@@ -1908,6 +1909,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_email also accepts run_link_tag_enabled?: <bool> (default true) - when false, tracked "
             "link clicks in that email are not connected to the sessions they start. The project setting "
             "workflows_config.email_workflow_run_link_tag_enabled turns it off for every email. "
+            "function_email also accepts click_tracking_enabled?: <bool> (defaults to false when sensitive is true, "
+            "true otherwise) to override link click tracking without turning off opens. "
             "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
             "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
             "no variables, so it can't be rerun. "
@@ -2566,6 +2569,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             if fixed_template_id:
                 template_id = _apply_fixed_template_id(config, template_id, fixed_template_id, strict=strict)
             _refuse_a_non_boolean_run_link_tag([data])
+            if data.get("type") == "function_email":
+                if "click_tracking_enabled" in config:
+                    click_tracking = config["click_tracking_enabled"]
+                    if click_tracking is None:
+                        config.pop("click_tracking_enabled")
+                    elif not isinstance(click_tracking, bool):
+                        raise serializers.ValidationError({"config": {"click_tracking_enabled": "Must be a boolean."}})
             # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
             # authoring mistake) lands in template_uuid first and still gets materialized.
             if data.get("type") == "function_email" and config.get("template_uuid"):
@@ -4628,17 +4638,24 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     )
     target = HogFlowState.ACTIVE if enabled else HogFlowState.DRAFT
     if hog_flow.status != target:
-        validated_data: dict[str, Any] = {"status": target}
-        if enabled:
+
+        def _validate_locked(locked: WorkflowEditState) -> dict[str, Any] | None:
+            if locked.status == HogFlowState.ARCHIVED:
+                raise WorkflowArchived()
+            if locked.status == target:
+                return None
+            if not enabled:
+                return {"status": target}
             serializer = HogFlowSerializer(
-                hog_flow,
+                locked,
                 data={"status": target},
                 partial=True,
                 context={"team_id": team_id, "get_team": lambda: team},
             )
             serializer.is_valid(raise_exception=True)
-            validated_data = dict(serializer.validated_data)
-        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validated_data=validated_data)
+            return dict(serializer.validated_data)
+
+        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validate=_validate_locked)
     return str(target)
 
 

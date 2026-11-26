@@ -18,6 +18,7 @@ export type OwnOnlySetting =
     | 'reply_to'
     | 'cc_bcc'
     | 'tracking_off'
+    | 'click_tracking_off'
     | 'utm_tags'
     | 'run_link_tag_off'
 
@@ -133,6 +134,7 @@ export function ownOnlySettings(action: OwnEmailAction): OwnOnlySetting[] {
         ['reply_to', !!value.replyTo],
         ['cc_bcc', !!(value.cc || value.bcc)],
         ['tracking_off', action.config.tracking_enabled === false],
+        ['click_tracking_off', action.config.click_tracking_enabled === false],
         ['utm_tags', !!action.config.utm_tags_enabled],
         ['run_link_tag_off', action.config.run_link_tag_enabled === false],
     ]

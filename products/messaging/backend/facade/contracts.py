@@ -19,6 +19,16 @@ class UnlayerRenderError(UnlayerError):
     pass
 
 
+@frozen
+class MessageTemplateListFilter:
+    """Which of a team's templates a list returns. Every set field narrows the list, and an empty one leaves it whole."""
+
+    transactional: bool | None = None
+    search: str = ""
+    created_by_id: int | None = None
+    tags: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class EmailTemplateSummary:
     id: UUID

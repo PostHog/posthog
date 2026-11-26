@@ -160,6 +160,7 @@ describe('scorecard', () => {
                     generator_version: '2222222222222222222222222222222222222222',
                     valves_version: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
                     seed: 1,
+                    seed_source: 'card',
                     status: 'failed',
                     status_reason: 'at_least_once failed: run-x-3 email: the edge never received it',
                     started_at: '2026-01-05T10:00:00.000Z',
@@ -262,6 +263,29 @@ describe('scorecard', () => {
             { rate: 'claimsPerSecond.hogflow', from: ['event_email', 'event_webhook'], share: 1 },
             { rate: 'claimsPerSecond.email', from: ['event_email'], share: 0.5 },
         ])
+    })
+
+    it.each([
+        ['an unspecified basis', undefined, undefined],
+        ['a measured peak', 'measured_peak', 'measured mix at 1/4 of the observed peak'],
+    ] as const)('records the workload scale and synthetic inputs for %s', (_, scaleBasis, description) => {
+        const loaded = loadText('scaled card', {
+            card: JSON.stringify(SMOKE.card),
+            profile: JSON.stringify({
+                ...SMOKE.profile,
+                traffic: { ...SMOKE.profile.traffic, transactional_email: { ratePerSecond: 2, parks: 1 } },
+                scale: 0.25,
+                scaleBasis,
+                synthetic: ['transactional_email_parks', 'backlog_padding'],
+            }),
+        })
+
+        const scorecard = scorecardOf(RESULT, loaded, PROVENANCE)
+        expect(scorecard).toMatchObject({
+            profile_scale: 0.25,
+            profile_synthetic: ['transactional_email_parks', 'backlog_padding'],
+        })
+        expect(scorecard.profile_load_description).toBe(description)
     })
 
     it.each<[string, InvariantResult, object]>([

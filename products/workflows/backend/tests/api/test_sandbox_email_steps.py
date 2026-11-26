@@ -512,6 +512,13 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("cc_kept", {"cc": "c@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
             ("bcc_kept", {"bcc": "b@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
             ("tracking_off_kept", {}, {"tracking_enabled": False}, {}, "can't keep these settings: tracking_enabled"),
+            (
+                "click_tracking_off_kept",
+                {},
+                {"click_tracking_enabled": False},
+                {},
+                "can't keep these settings: click_tracking_enabled",
+            ),
             ("utm_tags_kept", {}, {"utm_tags_enabled": True}, {}, "can't keep these settings: utm_tags_enabled"),
             (
                 "run_link_tag_off_kept",

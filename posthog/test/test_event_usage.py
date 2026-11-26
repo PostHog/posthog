@@ -27,6 +27,7 @@ from posthog.event_usage import (
     report_user_signed_up,
     sanitize_header_value,
 )
+from posthog.helpers.ai_signup_attribution import AISignupAttribution, AISignupSource
 from posthog.models.oauth import OAuthAccessToken
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
@@ -38,6 +39,10 @@ from posthog.temporal.oauth import (
 # The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
 # Desktop hosts locally.
 _POSTHOG_CODE_CONSUMER = "posthog-code"
+
+AI_CLIENT_NAME = "Claude"
+# Not a PostHog address, so the staff CRM exclusion adds no organization group call of its own.
+CUSTOMER_EMAIL = "owner@example.com"
 
 
 def _oauth_authenticator(
@@ -632,6 +637,56 @@ class TestSignupCrmExclusion(BaseTest):
             )
         else:
             mock_group_identify.assert_not_called()
+
+
+class TestSignupAIAttribution(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "new_organization_with_client",
+                True,
+                AISignupAttribution(source=AISignupSource.CONNECTOR, client=AI_CLIENT_NAME),
+                {"ai_signup_source": "connector", "ai_signup_client": AI_CLIENT_NAME},
+            ),
+            (
+                "new_organization_without_client",
+                True,
+                AISignupAttribution(source=AISignupSource.SAID_AI),
+                {"ai_signup_source": "said_ai"},
+            ),
+            (
+                "joining_existing_organization",
+                False,
+                AISignupAttribution(source=AISignupSource.SAID_AI, client=AI_CLIENT_NAME),
+                None,
+            ),
+            ("no_ai_signal", True, None, None),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.group_identify")
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_marks_only_organizations_ai_created(
+        self, _name, is_organization_first_user, attribution, expected_properties, mock_capture, mock_group_identify
+    ):
+        user = self._create_user(CUSTOMER_EMAIL)
+
+        report_user_signed_up(
+            user,
+            is_instance_first_user=False,
+            is_organization_first_user=is_organization_first_user,
+            ai_signup_attribution=attribution,
+        )
+
+        event_properties = mock_capture.call_args.kwargs["properties"]
+        ai_event_properties = {key: value for key, value in event_properties.items() if key.startswith("ai_signup_")}
+        if expected_properties is None:
+            assert ai_event_properties == {}
+            mock_group_identify.assert_not_called()
+        else:
+            assert ai_event_properties == expected_properties
+            mock_group_identify.assert_called_once_with(
+                "organization", str(self.organization.id), properties=expected_properties
+            )
 
 
 class TestSanitizeHeaderValue(SimpleTestCase):
