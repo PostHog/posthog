@@ -43,7 +43,6 @@ from products.batch_exports.backend.models.batch_export import (
 from products.batch_exports.backend.service import (
     cancel_running_batch_export_run,
     get_batch_export_model,
-    require_batch_exports_enabled,
     start_file_download_batch_export,
 )
 from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
@@ -173,7 +172,6 @@ def _build_run(team_id: int, user_id: int, request: contracts.FileDownloadReques
 
 
 def start_file_download(team_id: int, user_id: int, request: contracts.FileDownloadRequest) -> UUID:
-    require_batch_exports_enabled()
     with transaction.atomic():
         # Concurrent requests after the first one to obtain a lock will wait here
         # until transaction is done. This prevents creating batch exports over the

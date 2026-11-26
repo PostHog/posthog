@@ -4,15 +4,13 @@ import pydantic
 import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.models import Team
 
 from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
-from products.batch_exports.backend.facade.contracts import BatchExportsDisabledError
 
 HOGQL_MODIFIERS_HELP_TEXT = (
     "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example "
@@ -22,17 +20,6 @@ HOGQL_MODIFIERS_HELP_TEXT = (
     "export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object "
     "replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
 )
-
-
-class BatchExportsDisabledMixin:
-    # Answers 400 when a request would start work on an instance that runs no batch exports.
-    # This is a comment, not a docstring, because drf-spectacular would publish a docstring as
-    # the description of every endpoint on the viewset.
-
-    def handle_exception(self, exc: Exception) -> Response:
-        if isinstance(exc, BatchExportsDisabledError):
-            exc = ValidationError(str(exc), code="batch_exports_disabled")
-        return super().handle_exception(exc)  # type: ignore[misc]
 
 
 def check_hogql_batch_exports_enabled(team: Team) -> None:

@@ -22,7 +22,6 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus
-from products.batch_exports.backend.presentation.views.utils import BatchExportsDisabledMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -91,9 +90,7 @@ class TooManyConcurrentBackfills(APIException):
     default_detail = "Too many concurrent batch export backfills for this team."
 
 
-class BatchExportBackfillViewSet(
-    BatchExportsDisabledMixin, TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
-):
+class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """ViewSet for BatchExportBackfill models.
 
     Allows creating and reading backfills, but not updating or deleting them.

@@ -40,7 +40,6 @@ from products.batch_exports.backend.facade.enums import (
 )
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
-    BatchExportsDisabledMixin,
     HogQLModifiersField,
     check_high_frequency_batch_exports_enabled,
     check_hogql_batch_exports_enabled,
@@ -663,7 +662,7 @@ class BatchExportSerializer(serializers.Serializer):
     update=extend_schema(request=BatchExportRequestSerializer),
     partial_update=extend_schema(request=BatchExportRequestSerializer),
 )
-class BatchExportViewSet(BatchExportsDisabledMixin, TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
+class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     path_parameters = {"pk": PathParameter(type=uuid.UUID, description="A UUID string identifying this batch export.")}
     scope_object = "batch_export"
     serializer_class = BatchExportSerializer

@@ -4808,6 +4808,8 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
+    /** False on an instance that runs no batch exports, where their API is absent. */
+    batch_exports_enabled?: boolean
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean

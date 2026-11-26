@@ -26,7 +26,6 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
-from products.batch_exports.backend.presentation.views.utils import BatchExportsDisabledMixin
 
 
 class BatchExportRunSerializer(serializers.Serializer):
@@ -160,9 +159,7 @@ class RunsCursorPagination(FacadeCursorPagination):
 
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
-class BatchExportRunViewSet(
-    BatchExportsDisabledMixin, TeamAndOrgViewSetMixin, LogEntryMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
-):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     path_parameters = {
         "pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run."),
         "batch_export_id": PathParameter(type=UUID, description="The `BatchExport` this run belongs to."),

@@ -13,7 +13,6 @@ from products.batch_exports.backend.service import batch_export_delete_schedule
 from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
-    patch_batch_export,
     pause_batch_export,
     pause_batch_export_ok,
     unpause_batch_export,
@@ -257,23 +256,3 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organizati
         start_at,
         end_at,
     )
-
-
-def _unpause_by_edit(client: HttpClient, team_id: int, batch_export_id):
-    return patch_batch_export(client, team_id, batch_export_id, {"paused": False})
-
-
-@pytest.mark.parametrize("unpause", [unpause_batch_export, _unpause_by_edit])
-def test_unpause_is_refused_while_batch_exports_are_off(
-    client: HttpClient, temporal, organization, team, user, s3_batch_export_data, settings, unpause
-):
-    client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
-    pause_batch_export_ok(client, team.pk, batch_export["id"])
-    settings.BATCH_EXPORTS_ENABLED = False
-
-    response = unpause(client, team.pk, batch_export["id"])
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["code"] == "batch_exports_disabled"
-    assert describe_schedule(temporal, batch_export["id"]).schedule.state.paused is True

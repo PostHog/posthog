@@ -4,6 +4,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { humanizeBatchExportDescription, humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,7 +14,7 @@ import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSo
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { UserType } from '../../../types'
+import type { PreflightStatus, UserType } from '../../../types'
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 
 export interface NonHogFunctionTemplatesLogicProps {
@@ -59,6 +60,7 @@ export interface nonHogFunctionTemplatesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     connectors: SourceConfigResponseApi[] // sourceWizardLogic
     user: UserType | null // userLogic
+    preflight: PreflightStatus | null // preflightLogic
     hogFunctionTemplatesBatchExports: HogFunctionTemplateType[]
     hogFunctionTemplatesDataWarehouseSources: HogFunctionTemplateType[]
 }
@@ -72,7 +74,8 @@ export interface nonHogFunctionTemplatesLogicMeta {
         ) => HogFunctionTemplateType[]
         hogFunctionTemplatesBatchExports: (
             featureFlags: FeatureFlagsSet,
-            user: UserType | null
+            user: UserType | null,
+            preflight: PreflightStatus | null
         ) => HogFunctionTemplateType[]
     }
 }
@@ -96,6 +99,8 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
             ['featureFlags'],
             userLogic,
             ['user'],
+            preflightLogic,
+            ['preflight'],
         ],
     })),
 
@@ -146,11 +151,15 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         ],
 
         hogFunctionTemplatesBatchExports: [
-            (s) => [s.featureFlags, s.user],
+            (s) => [s.featureFlags, s.user, s.preflight],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                user: null | import('~/types').UserType
+                user: null | import('~/types').UserType,
+                preflight: null | import('~/types').PreflightStatus
             ): HogFunctionTemplateType[] => {
+                if (preflight?.batch_exports_enabled === false) {
+                    return []
+                }
                 // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
