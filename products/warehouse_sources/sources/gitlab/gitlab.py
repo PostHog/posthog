@@ -34,6 +34,7 @@ PARTIAL_FLUSH_INTERVAL_SECONDS = 60.0
 DEFAULT_HOST = "https://gitlab.com"
 HOST_NOT_ALLOWED_ERROR = "GitLab host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "GitLab host must use HTTPS"
+PAID_TIER_REQUIRED_ERROR = "GitLab refused an endpoint that needs GitLab Premium or Ultimate"
 PROJECT_REF_ERROR = (
     "PostHog couldn't read a project from that value. Enter group/project (for example, "
     "mygroup/myproject), the numeric project ID, or the project's GitLab URL."
@@ -53,6 +54,10 @@ class GitLabRetryableError(Exception):
 
 
 class GitLabHostNotAllowedError(Exception):
+    pass
+
+
+class GitLabPaidTierRequiredError(Exception):
     pass
 
 
@@ -138,7 +143,7 @@ def _format_date_filter_value(value: Any) -> str:
     watermark_date = coerce_date(value)
     if watermark_date is None:
         raise ValueError(f"Cannot read GitLab incremental value {value!r} as a date")
-    return (watermark_date - timedelta(days=1)).isoformat()
+    return (watermark_date - timedelta(days=2)).isoformat()
 
 
 def _active_incremental_field(
@@ -424,6 +429,9 @@ def get_rows(
 
         if allow_not_found and response.status_code == 404:
             return None
+
+        if response.status_code == 403 and config.requires_paid_tier:
+            raise GitLabPaidTierRequiredError(f"{PAID_TIER_REQUIRED_ERROR}: status=403, endpoint={endpoint}")
 
         if not response.ok:
             logger.error(f"GitLab API error: status={response.status_code}, body={response.text}, url={page_url}")

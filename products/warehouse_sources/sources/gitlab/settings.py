@@ -24,8 +24,11 @@ class GitLabEndpointConfig:
     # {"created_at": "since"} for commits. Only fields listed here actually filter server-side.
     incremental_filter_params: dict[str, str] = field(default_factory=dict)
     # The filter takes a date and excludes that whole day (events `after` means created_at > end of
-    # that day), so the request sends the day before the watermark's UTC date.
+    # that day in the instance's time zone), so the request sends two days before the watermark's
+    # UTC date, which covers every UTC offset.
     incremental_filter_is_date: bool = False
+    # The endpoint is a licensed feature, and GitLab answers 403 on a Free-tier project.
+    requires_paid_tier: bool = False
     # Whether the list endpoint accepts order_by=<field>&sort=<dir>. When it does we pin the order
     # to a stable column so offset pages don't shift while we paginate.
     supports_order_by: bool = False
@@ -301,6 +304,7 @@ GITLAB_ENDPOINTS: dict[str, GitLabEndpointConfig] = {
         incremental_filter_params={"updated_at": "updated_after"},
         partition_key="created_at",
         sort_mode=None,
+        requires_paid_tier=True,
     ),
 }
 

@@ -398,19 +398,19 @@ class TestGetRows:
             pytest.param(
                 "events",
                 datetime(2024, 3, 5, 0, 0, tzinfo=UTC),
-                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-04",
-                id="events_watermark_at_midnight_rereads_its_day",
+                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-03",
+                id="events_watermark_at_midnight",
             ),
             pytest.param(
                 "events",
                 "2024-03-05T23:59:59.999Z",
-                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-04",
+                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-03",
                 id="events_watermark_as_string",
             ),
             pytest.param(
                 "events",
                 datetime(2024, 3, 5, 1, 0, tzinfo=timezone(timedelta(hours=3))),
-                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-03",
+                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-02",
                 id="events_watermark_uses_utc_date",
             ),
             pytest.param(
@@ -561,6 +561,23 @@ class TestGetRows:
         first_url = result.urls[0]
         assert first_url.startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues")
         assert [row["id"] for row in _rows(result)] == [1]
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_message",
+        [
+            ("iterations", "Premium or Ultimate"),
+            ("issues", "read_api"),
+        ],
+    )
+    def test_403_maps_to_one_endpoint_specific_message(self, endpoint, expected_message):
+        result = _driver().run(endpoint, [ScriptedResponse(status=403, json={"message": "403 Forbidden"})])
+
+        assert result.raised is not None
+        messages = [
+            message for key, message in GitLabSource().get_non_retryable_errors().items() if key in str(result.raised)
+        ]
+        assert len(messages) == 1
+        assert expected_message in (messages[0] or "")
 
     def test_does_not_follow_redirects(self):
         result = _driver().run(
