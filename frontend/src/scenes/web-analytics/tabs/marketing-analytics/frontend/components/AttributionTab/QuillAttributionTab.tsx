@@ -36,10 +36,10 @@ import {
     marketingAttributionLogic,
     unattributedTooltip,
 } from '../../logic/marketingAttributionLogic'
+import { QuillTabOptionSwitch } from '../common/QuillTabOptionSwitch'
 import type { AttributionBreakdownOption } from './AttributionTab'
 import { AttributionTable } from './AttributionTable'
 import { ConversionPaths } from './ConversionPaths'
-import { QuillTabOptionSwitch } from './QuillTabOptionSwitch'
 
 export function QuillAttributionTab({
     settingsUrl,

@@ -157,24 +157,31 @@ export function SuggestionModal({
         const lines = batch.flatMap((item) =>
             item.apply ? buildApplyDiff(item.apply, marketingAnalyticsConfig).lines : []
         )
+        const batchTitle = `Apply ${batch.length} safe change${batch.length === 1 ? '' : 's'}`
+        const batchDescription =
+            'High-confidence, reversible changes only. Anything needing a judgement call was left out.'
+        const batchNoopMessage = lines.length ? null : 'These are already applied — nothing would change.'
+        const batchConfirmLabel = lines.length
+            ? `Apply ${lines.length} change${lines.length === 1 ? '' : 's'}`
+            : 'Close'
+        const confirmBatch = (): void => (lines.length ? onConfirmBatch(batch) : onClose())
+
         if (todayRailNav) {
             return (
                 <QuillSuggestionModal
-                    title={`Apply ${batch.length} safe change${batch.length === 1 ? '' : 's'}`}
+                    title={batchTitle}
                     logo={null}
-                    description="High-confidence, reversible changes only. Anything needing a judgement call was left out."
+                    description={batchDescription}
                     explanation={null}
-                    noopMessage={lines.length ? null : 'These are already applied — nothing would change.'}
+                    noopMessage={batchNoopMessage}
                     lines={lines}
                     changeLabels={CHANGE_LABELS}
                     batchTitles={batch.map((item) => ({ id: item.id, title: item.title }))}
                     urlFixSnippet={null}
-                    confirmLabel={
-                        lines.length ? `Apply ${lines.length} change${lines.length === 1 ? '' : 's'}` : 'Close'
-                    }
+                    confirmLabel={batchConfirmLabel}
                     confirmDestructive={false}
                     isApplying={isApplying}
-                    onConfirm={() => (lines.length ? onConfirmBatch(batch) : onClose())}
+                    onConfirm={confirmBatch}
                     onClose={onClose}
                 />
             )
@@ -183,28 +190,24 @@ export function SuggestionModal({
             <LemonModal
                 isOpen
                 onClose={onClose}
-                title={`Apply ${batch.length} safe change${batch.length === 1 ? '' : 's'}`}
-                description="High-confidence, reversible changes only. Anything needing a judgement call was left out."
+                title={batchTitle}
+                description={batchDescription}
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            loading={isApplying}
-                            onClick={() => (lines.length ? onConfirmBatch(batch) : onClose())}
-                        >
-                            {lines.length ? `Apply ${lines.length} change${lines.length === 1 ? '' : 's'}` : 'Close'}
+                        <LemonButton type="primary" loading={isApplying} onClick={confirmBatch}>
+                            {batchConfirmLabel}
                         </LemonButton>
                     </>
                 }
             >
                 <div className="deprecated-space-y-3 max-w-xl">
-                    {lines.length ? (
-                        <DiffBlock lines={lines} />
+                    {batchNoopMessage ? (
+                        <LemonBanner type="info">{batchNoopMessage}</LemonBanner>
                     ) : (
-                        <LemonBanner type="info">These are already applied — nothing would change.</LemonBanner>
+                        <DiffBlock lines={lines} />
                     )}
                     <ul className="text-sm text-secondary mb-0 pl-4 list-disc">
                         {batch.map((item) => (
@@ -225,26 +228,33 @@ export function SuggestionModal({
     const diff = explain ? null : buildApplyDiff(op, marketingAnalyticsConfig)
     const urlFix = suggestion.also_recommended.find((candidate) => candidate.op === 'fix_platform_urls')
 
+    const explanation = explain ? explain(op) : null
+    const noopMessage = diff?.isNoop
+        ? "This is already applied — nothing would change. It'll disappear from the list on the next scan."
+        : null
+    const lines = diff?.lines ?? []
+    const confirmLabel = explain ? 'Continue' : diff?.isNoop ? 'Close' : (APPLY_LABEL[op.op] ?? 'Apply change')
+    const confirmDestructive = suggestion.kind === 'remove_mapping' || op.op === 'delete_conversion_goal'
+    // Applying a no-op would report "applied" and hand back an Undo
+    // that strips config the user already had.
+    const confirm = (): void => (diff?.isNoop && !explain ? onClose() : onConfirm(suggestion))
+
     if (todayRailNav) {
         return (
             <QuillSuggestionModal
                 title={suggestion.title}
                 logo={logo}
                 description={suggestion.evidence}
-                explanation={explain ? explain(op) : null}
-                noopMessage={
-                    diff?.isNoop
-                        ? "This is already applied — nothing would change. It'll disappear from the list on the next scan."
-                        : null
-                }
-                lines={diff?.lines ?? []}
+                explanation={explanation}
+                noopMessage={noopMessage}
+                lines={lines}
                 changeLabels={CHANGE_LABELS}
                 batchTitles={[]}
                 urlFixSnippet={urlFix ? urlFixSnippet(urlFix) : null}
-                confirmLabel={explain ? 'Continue' : diff?.isNoop ? 'Close' : (APPLY_LABEL[op.op] ?? 'Apply change')}
-                confirmDestructive={suggestion.kind === 'remove_mapping' || op.op === 'delete_conversion_goal'}
+                confirmLabel={confirmLabel}
+                confirmDestructive={confirmDestructive}
                 isApplying={isApplying}
-                onConfirm={() => (diff?.isNoop && !explain ? onClose() : onConfirm(suggestion))}
+                onConfirm={confirm}
                 onClose={onClose}
             />
         )
@@ -273,29 +283,21 @@ export function SuggestionModal({
                     <LemonButton
                         type="primary"
                         loading={isApplying}
-                        status={
-                            suggestion.kind === 'remove_mapping' || op.op === 'delete_conversion_goal'
-                                ? 'danger'
-                                : undefined
-                        }
-                        // Applying a no-op would report "applied" and hand back an Undo
-                        // that strips config the user already had.
-                        onClick={() => (diff?.isNoop && !explain ? onClose() : onConfirm(suggestion))}
+                        status={confirmDestructive ? 'danger' : undefined}
+                        onClick={confirm}
                     >
-                        {explain ? 'Continue' : diff?.isNoop ? 'Close' : (APPLY_LABEL[op.op] ?? 'Apply change')}
+                        {confirmLabel}
                     </LemonButton>
                 </>
             }
         >
             <div className="deprecated-space-y-3 max-w-xl">
-                {explain ? (
-                    <p className="mb-0">{explain(op)}</p>
-                ) : diff?.isNoop ? (
-                    <LemonBanner type="info">
-                        This is already applied — nothing would change. It'll disappear from the list on the next scan.
-                    </LemonBanner>
+                {explanation !== null ? (
+                    <p className="mb-0">{explanation}</p>
+                ) : noopMessage ? (
+                    <LemonBanner type="info">{noopMessage}</LemonBanner>
                 ) : (
-                    <DiffBlock lines={diff?.lines ?? []} />
+                    <DiffBlock lines={lines} />
                 )}
 
                 {urlFix ? <UrlFixBanner fix={urlFix} /> : null}

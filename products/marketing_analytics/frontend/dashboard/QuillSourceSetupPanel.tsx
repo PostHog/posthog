@@ -40,7 +40,6 @@ export interface QuillSourceSetupConnection {
     status: keyof typeof STATUS_BADGE
     detail: string
     action?: ReactNode
-    /** Set when the connection needs fixing and has no custom action. */
     manageUrl: string | null
 }
 
@@ -96,10 +95,8 @@ export function QuillSourceSetupPanel({
         connectUrl: string | null
     }[]
     onDismiss?: (id: string) => void
-    /** Set only in the dismissed state. */
     onRestore?: () => void
     rescanLabel: string
-    /** Unset while busy or when the caller offers no rescan. */
     onRescan?: () => void
     rescanLoading: boolean
     rescanDisabledReason?: string | null

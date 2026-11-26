@@ -1,9 +1,11 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -99,6 +101,33 @@ export const DetectedPlatformsWithSearchConsole: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] },
 }
 
+const quillDecorators: Decorator[] = [
+    (Story) => (
+        <QuillSurfaceContext.Provider value={true}>
+            <div className="w-160">
+                <Story />
+            </div>
+        </QuillSurfaceContext.Provider>
+    ),
+]
+
+export const DetectedPlatformsWithSearchConsoleQuill: Story = {
+    decorators: [
+        (Story) => (
+            <>
+                <Story />
+                <SearchConsoleSource />
+            </>
+        ),
+        ...quillDecorators,
+    ],
+    args: { ...DetectedPlatforms.args, footer: <Button variant="outline">Browse integrations</Button> },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { waitForSelector: '[data-attr="marketing-search-console-extra"]' },
+    },
+}
+
 export const MissingConnectionAction: Story = {
     args: { state: 'suggestions', suggestions: [{ ...suggestions[0], apply: null }], footer },
     play: async ({ canvasElement }) => {
@@ -179,6 +208,26 @@ export const GroupedConnectionErrors: Story = {
         await userEvent.click(tiktokHeader)
         expect(await canvas.findByText('Example video')).toBeVisible()
         tiktokHeader.blur()
+    },
+}
+
+export const GroupedConnectionErrorsQuill: Story = {
+    args: GroupedConnectionErrors.args,
+    // The expanded groups persist, so a group another story collapsed would stay collapsed here.
+    beforeEach: () => localStorage.removeItem('products.marketingAnalytics.sourceConnectionGroups.setup.expansion'),
+    decorators: quillDecorators,
+    parameters: { featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV] },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Example campaigns')).toBeVisible()
+        await expect(canvas.getByText('Example search')).toBeVisible()
+        await expect(canvas.getByText('2 connections')).toBeVisible()
+        await expect(canvas.getAllByRole('link', { name: /Manage source/ })[0]).toHaveAttribute(
+            'href',
+            expect.stringContaining('managed-example-google-one')
+        )
+        await expect(canvas.getByRole('button', { name: /TikTok Ads/ })).toHaveAttribute('aria-expanded', 'true')
+        await expect(canvas.getByText('Example video')).toBeVisible()
     },
 }
 

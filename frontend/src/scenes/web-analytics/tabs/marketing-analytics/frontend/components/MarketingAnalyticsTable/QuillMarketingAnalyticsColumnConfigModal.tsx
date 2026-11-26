@@ -30,6 +30,7 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 type SortDirection = 'ASC' | 'DESC'
 
 const NO_VALUE = '__none__'
+const DIRECTION_PLACEHOLDER = 'Select direction...'
 
 export function QuillMarketingAnalyticsColumnConfigModal({
     isOpen,
@@ -178,10 +179,12 @@ export function QuillMarketingAnalyticsColumnConfigModal({
                                             !currentSortColumn ? 'Select a column to sort by first' : undefined
                                         }
                                     >
-                                        <SelectValue placeholder="Select direction...">
+                                        <SelectValue placeholder={DIRECTION_PLACEHOLDER}>
                                             {(selected: string | null) =>
-                                                directionOptions.find((option) => option.value === selected)?.label ??
-                                                'Select direction...'
+                                                selected === null
+                                                    ? DIRECTION_PLACEHOLDER
+                                                    : (directionOptions.find((option) => option.value === selected)
+                                                          ?.label ?? DIRECTION_PLACEHOLDER)
                                             }
                                         </SelectValue>
                                     </SelectTrigger>

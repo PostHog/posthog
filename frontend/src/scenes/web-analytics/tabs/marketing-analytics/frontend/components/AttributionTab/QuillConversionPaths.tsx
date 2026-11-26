@@ -15,6 +15,7 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    cn,
 } from '@posthog/quill'
 
 import { formatCurrency } from 'lib/utils/currency'
@@ -23,11 +24,11 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { CurrencyCode, MarketingAnalyticsAttributionPathRow } from '~/queries/schema/schema-general'
 
 import { PATHS_ROW_LIMIT } from '../../logic/marketingAttributionLogic'
+import { QuillColumnHeaderTooltip } from '../common/QuillColumnHeaderTooltip'
+import { QuillTableLoadingRows } from '../common/QuillTableLoadingRows'
 import { sortQuillTableRows } from '../sortQuillTableRows'
 import { ConversionPathChips } from './ConversionPathChips'
 import type { ConversionPathSorter, TouchpointOption, TouchpointOptionValue } from './ConversionPaths'
-import { QuillColumnHeaderTooltip } from './QuillColumnHeaderTooltip'
-import { QuillTableLoadingRows } from './QuillTableLoadingRows'
 
 export function QuillConversionPaths({
     rows,
@@ -185,7 +186,10 @@ export function QuillConversionPaths({
                     </div>
                 </div>
                 {errorState ?? (
-                    <div className="flex flex-col gap-2" aria-busy={loading || undefined}>
+                    <div
+                        className={cn('flex flex-col gap-2 transition-opacity', loading && 'opacity-60')}
+                        aria-busy={loading || undefined}
+                    >
                         <DataTable
                             columns={columns}
                             data={sortedRows}

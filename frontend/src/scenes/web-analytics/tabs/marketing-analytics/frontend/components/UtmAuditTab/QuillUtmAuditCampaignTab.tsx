@@ -16,6 +16,7 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    cn,
 } from '@posthog/quill'
 
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -24,9 +25,9 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 
 import { formatMarketingMoney } from '../../logic/utils'
 import type { CampaignAuditResult, UtmEvent } from '../../logic/utmAuditLogic'
-import { QuillTableLoadingRows } from '../AttributionTab/QuillTableLoadingRows'
+import { QuillTableLoadingRows } from '../common/QuillTableLoadingRows'
 import { QuillUtmAuditActionsMenu } from './QuillUtmAuditActionsMenu'
-import { formatNumber, issueLabel, issueTooltip } from './UtmAuditTab'
+import { formatNumber, issueLabel, issueTooltip } from './utmAuditLabels'
 
 export function QuillUtmAuditCampaignTab({
     loading,
@@ -193,30 +194,32 @@ export function QuillUtmAuditCampaignTab({
                             />
                         </Field>
                     </div>
-                    <DataTable
-                        className="max-h-150"
-                        stickyHeader
-                        fullWidth
-                        size="sm"
-                        columns={campaignColumns}
-                        data={campaigns}
-                        getRowId={(record) => `${record.source_name}-${record.campaign_id}`}
-                        onRowClick={(record) => onSelectCampaign(record.campaign_name)}
-                        rowClassName={(record) =>
-                            record.campaign_name === selectedCampaign ? 'bg-fill-selected' : undefined
-                        }
-                        empty={
-                            loading ? (
-                                <QuillTableLoadingRows />
-                            ) : (
-                                <Empty>
-                                    <EmptyHeader>
-                                        <EmptyDescription>No campaigns found</EmptyDescription>
-                                    </EmptyHeader>
-                                </Empty>
-                            )
-                        }
-                    />
+                    <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading || undefined}>
+                        <DataTable
+                            className="max-h-150"
+                            stickyHeader
+                            fullWidth
+                            size="sm"
+                            columns={campaignColumns}
+                            data={campaigns}
+                            getRowId={(record) => `${record.source_name}-${record.campaign_id}`}
+                            onRowClick={(record) => onSelectCampaign(record.campaign_name)}
+                            rowClassName={(record) =>
+                                record.campaign_name === selectedCampaign ? 'bg-fill-selected' : undefined
+                            }
+                            empty={
+                                loading ? (
+                                    <QuillTableLoadingRows />
+                                ) : (
+                                    <Empty>
+                                        <EmptyHeader>
+                                            <EmptyDescription>No campaigns found</EmptyDescription>
+                                        </EmptyHeader>
+                                    </Empty>
+                                )
+                            }
+                        />
+                    </div>
                 </div>
 
                 <div className="flex min-w-0 flex-col gap-2">
@@ -235,30 +238,32 @@ export function QuillUtmAuditCampaignTab({
                             />
                         </Field>
                     </div>
-                    <DataTable
-                        className="max-h-150"
-                        stickyHeader
-                        fullWidth
-                        size="sm"
-                        columns={utmColumns}
-                        data={utmCampaigns}
-                        getRowId={(record) => `${record.utm_campaign}-${record.utm_source}`}
-                        onRowClick={(record) => onSelectUtmCampaign(record.utm_campaign)}
-                        rowClassName={(record) =>
-                            record.utm_campaign === selectedUtmCampaign ? 'bg-fill-selected' : undefined
-                        }
-                        empty={
-                            loading ? (
-                                <QuillTableLoadingRows />
-                            ) : (
-                                <Empty>
-                                    <EmptyHeader>
-                                        <EmptyDescription>No UTM events found</EmptyDescription>
-                                    </EmptyHeader>
-                                </Empty>
-                            )
-                        }
-                    />
+                    <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading || undefined}>
+                        <DataTable
+                            className="max-h-150"
+                            stickyHeader
+                            fullWidth
+                            size="sm"
+                            columns={utmColumns}
+                            data={utmCampaigns}
+                            getRowId={(record) => `${record.utm_campaign}-${record.utm_source}`}
+                            onRowClick={(record) => onSelectUtmCampaign(record.utm_campaign)}
+                            rowClassName={(record) =>
+                                record.utm_campaign === selectedUtmCampaign ? 'bg-fill-selected' : undefined
+                            }
+                            empty={
+                                loading ? (
+                                    <QuillTableLoadingRows />
+                                ) : (
+                                    <Empty>
+                                        <EmptyHeader>
+                                            <EmptyDescription>No UTM events found</EmptyDescription>
+                                        </EmptyHeader>
+                                    </Empty>
+                                )
+                            }
+                        />
+                    </div>
                 </div>
             </div>
         </div>

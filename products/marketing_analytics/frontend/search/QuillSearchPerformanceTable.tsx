@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import { DataTable, type DataTableProps, Skeleton, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { DataTable, type DataTableProps, Skeleton, Text } from '@posthog/quill'
+
+import { QuillColumnHeaderTooltip } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/common/QuillColumnHeaderTooltip'
 
 import { MarketingAnalyticsSearchRow } from '~/queries/schema/schema-general'
 
@@ -39,13 +40,7 @@ export function QuillSearchPerformanceTable({
                     id: column.key,
                     header: () =>
                         column.tooltip ? (
-                            <Tooltip>
-                                <TooltipTrigger render={<span className="inline-flex items-center gap-1" />}>
-                                    {column.title}
-                                    <IconInfo className="size-3" />
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-80">{column.tooltip}</TooltipContent>
-                            </Tooltip>
+                            <QuillColumnHeaderTooltip title={column.title} tooltip={column.tooltip} />
                         ) : (
                             column.title
                         ),

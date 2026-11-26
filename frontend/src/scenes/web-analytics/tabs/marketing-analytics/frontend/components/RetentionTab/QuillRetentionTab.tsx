@@ -39,7 +39,7 @@ import {
     MAX_ACQUISITION_PERIOD_DAYS,
     marketingRetentionLogic,
 } from '../../logic/marketingRetentionLogic'
-import { QuillTabOptionSwitch } from '../AttributionTab/QuillTabOptionSwitch'
+import { QuillTabOptionSwitch } from '../common/QuillTabOptionSwitch'
 
 export function QuillRetentionTab({
     breakdownOptions,

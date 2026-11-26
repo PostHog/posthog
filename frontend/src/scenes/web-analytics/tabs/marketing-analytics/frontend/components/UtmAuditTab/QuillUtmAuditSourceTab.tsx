@@ -12,14 +12,15 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    cn,
 } from '@posthog/quill'
 
 import { IconLink } from 'lib/lemon-ui/icons'
 
 import type { AggregatedUtmSource } from '../../logic/utmAuditLogic'
-import { QuillTableLoadingRows } from '../AttributionTab/QuillTableLoadingRows'
+import { QuillTableLoadingRows } from '../common/QuillTableLoadingRows'
 import { QuillUtmAuditActionsMenu } from './QuillUtmAuditActionsMenu'
-import { formatNumber, sourceLabel } from './UtmAuditTab'
+import { formatNumber, sourceLabel } from './utmAuditLabels'
 
 const COLUMNS: ColumnDef<AggregatedUtmSource, unknown>[] = [
     {
@@ -103,26 +104,28 @@ export function QuillUtmAuditSourceTab({
                     />
                 </Field>
             </div>
-            <DataTable
-                className="max-h-175"
-                stickyHeader
-                fullWidth
-                size="sm"
-                columns={COLUMNS}
-                data={sources}
-                getRowId={(record) => record.utm_source}
-                empty={
-                    loading ? (
-                        <QuillTableLoadingRows />
-                    ) : (
-                        <Empty>
-                            <EmptyHeader>
-                                <EmptyDescription>No UTM sources found</EmptyDescription>
-                            </EmptyHeader>
-                        </Empty>
-                    )
-                }
-            />
+            <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading || undefined}>
+                <DataTable
+                    className="max-h-175"
+                    stickyHeader
+                    fullWidth
+                    size="sm"
+                    columns={COLUMNS}
+                    data={sources}
+                    getRowId={(record) => record.utm_source}
+                    empty={
+                        loading ? (
+                            <QuillTableLoadingRows />
+                        ) : (
+                            <Empty>
+                                <EmptyHeader>
+                                    <EmptyDescription>No UTM sources found</EmptyDescription>
+                                </EmptyHeader>
+                            </Empty>
+                        )
+                    }
+                />
+            </div>
         </div>
     )
 }

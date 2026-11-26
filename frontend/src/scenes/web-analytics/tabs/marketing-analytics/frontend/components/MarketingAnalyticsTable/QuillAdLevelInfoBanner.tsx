@@ -83,7 +83,7 @@ export function QuillAdLevelInfoBanner({
                 )}
             </ItemContent>
             <ItemActions className="self-start">
-                <Button size="icon" aria-label="close" tooltip="close" onClick={() => dismiss()}>
+                <Button size="icon" aria-label="Dismiss" tooltip="Dismiss" onClick={() => dismiss()}>
                     <IconX />
                 </Button>
             </ItemActions>

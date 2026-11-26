@@ -29,7 +29,7 @@ import {
 } from '../../logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import { AttributionChart } from './AttributionChart'
-import { QuillAttributionTable } from './QuillAttributionTable'
+import { MODELS_IDENTICAL_DISMISS_KEY, QuillAttributionTable } from './QuillAttributionTable'
 
 export interface AttributionNumericColumn {
     key: string
@@ -38,7 +38,6 @@ export interface AttributionNumericColumn {
     value: (row: MarketingAnalyticsAttributionRow) => number | null
     format: (value: number) => string
     sorter: (a: MarketingAnalyticsAttributionRow, b: MarketingAnalyticsAttributionRow) => number
-    /** Set on the columns that draw a magnitude bar behind the value. */
     fillPercent?: (row: MarketingAnalyticsAttributionRow) => number
     groupBoundary?: boolean
 }
@@ -313,7 +312,7 @@ export function AttributionTable({
     return (
         <div className="flex flex-col gap-4">
             {!responseLoading && allModelsAgree && (
-                <LemonBanner type="info" dismissKey="marketing-attribution-models-identical">
+                <LemonBanner type="info" dismissKey={MODELS_IDENTICAL_DISMISS_KEY}>
                     Every model reports the same credit for this goal. That usually means people convert in their first
                     session, so each conversion has a single touchpoint and there is nothing to split. Goals that happen
                     later in the journey, like signing up or paying, show how the models differ.

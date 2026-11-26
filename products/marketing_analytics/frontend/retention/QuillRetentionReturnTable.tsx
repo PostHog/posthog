@@ -13,8 +13,8 @@ import {
 } from '@posthog/quill'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { QuillColumnHeaderTooltip } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/QuillColumnHeaderTooltip'
-import { QuillTableLoadingRows } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/QuillTableLoadingRows'
+import { QuillColumnHeaderTooltip } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/common/QuillColumnHeaderTooltip'
+import { QuillTableLoadingRows } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/common/QuillTableLoadingRows'
 import { sortQuillTableRows } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/sortQuillTableRows'
 import { displayBreakdownValue } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
 import type { VariationCell } from 'scenes/web-analytics/tiles/WebAnalyticsTile'

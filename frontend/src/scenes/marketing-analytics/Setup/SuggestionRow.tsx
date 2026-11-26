@@ -41,8 +41,6 @@ const CTA_LABEL: Record<string, string> = {
     open_settings: 'Open settings',
 }
 
-/** Advice, never an apply button — the mapping is the workaround, retagging the ad URL
- * is the fix. */
 function urlFixSnippet(fix: ApplyOp): string {
     const expectedSource = fix.expected_utm_source as string
     const expectedCampaign = fix.expected_utm_campaign as string
@@ -58,6 +56,8 @@ function copyUrlFixSnippet(snippet: string): void {
     void copyToClipboard(snippet, 'UTM parameters')
 }
 
+/** Advice, never an apply button — the mapping is the workaround, retagging the ad URL
+ * is the fix. */
 function UrlFixHint({ fix }: { fix: ApplyOp }): JSX.Element {
     const snippet = urlFixSnippet(fix)
 

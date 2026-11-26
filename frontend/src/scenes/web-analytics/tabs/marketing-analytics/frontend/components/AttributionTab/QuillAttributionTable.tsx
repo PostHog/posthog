@@ -14,6 +14,7 @@ import {
     ItemContent,
     ItemDescription,
     Text,
+    cn,
 } from '@posthog/quill'
 
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -22,14 +23,14 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { AttributionMode, MarketingAnalyticsAttributionRow } from '~/queries/schema/schema-general'
 
 import { ATTRIBUTION_ROW_LIMIT } from '../../logic/marketingAttributionLogic'
+import { QuillColumnHeaderTooltip } from '../common/QuillColumnHeaderTooltip'
+import { QuillTableLoadingRows } from '../common/QuillTableLoadingRows'
 import { sortQuillTableRows } from '../sortQuillTableRows'
 import { AttributionChart } from './AttributionChart'
 import type { AttributionColumnGroup, AttributionNumericColumn } from './AttributionTable'
-import { QuillColumnHeaderTooltip } from './QuillColumnHeaderTooltip'
-import { QuillTableLoadingRows } from './QuillTableLoadingRows'
 
-// pinned: localStorage dismiss key shared with the LemonBanner in AttributionTable. Renaming shows the notice again.
-const MODELS_IDENTICAL_DISMISS_KEY = 'marketing-attribution-models-identical'
+// A localStorage key: renaming it shows the notice again to people who dismissed it.
+export const MODELS_IDENTICAL_DISMISS_KEY = 'marketing-attribution-models-identical'
 
 const BREAKDOWN_COLUMN_ID = 'breakdown_value'
 
@@ -149,7 +150,10 @@ export function QuillAttributionTable({
                 dimensionLabel={dimensionLabel}
                 loading={loading}
             />
-            <div className="flex flex-col gap-2" aria-busy={loading || undefined}>
+            <div
+                className={cn('flex flex-col gap-2 transition-opacity', loading && 'opacity-60')}
+                aria-busy={loading || undefined}
+            >
                 <DataTable
                     columns={columns}
                     data={sortedRows}
