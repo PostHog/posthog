@@ -710,6 +710,16 @@ class TestDeniedTableError(BaseTest):
                 True,
             ),
             (
+                "trace_read_through_a_join_inherited_from_persons",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("persons", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
                 "trace_read_in_a_join_key",
                 "none",
                 "SELECT event AS name FROM events",
