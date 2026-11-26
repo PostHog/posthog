@@ -745,11 +745,17 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         bucket.answer = 'hold'
         const clockStarted = Date.now()
         useFakeClock()
-        const worker = await startWorker({
-            budgetBytes: estimateSend(report.metadata.sizeBytes).reservedBytes,
-            heapLimitBytes: 64 * 1024 * 1024 * 1024,
-            maxInFlight: 100,
-        })
+        const aJobLeaseThatOutlastsTheRowLock = 60_000
+        const worker = await startWorker(
+            {
+                budgetBytes: estimateSend(report.metadata.sizeBytes).reservedBytes,
+                heapLimitBytes: 64 * 1024 * 1024 * 1024,
+                maxInFlight: 100,
+            },
+            sesTransportFor(ses),
+            hub.postgres,
+            { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: aJobLeaseThatOutlastsTheRowLock }
+        )
         await onTheFakeClock(async () => {
             expect({ status: (await jobRow(running)).status, downloadsHeld: bucket.heldRequests }).toEqual({
                 status: 'running',
