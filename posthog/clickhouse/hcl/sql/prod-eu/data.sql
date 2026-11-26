@@ -306,6 +306,7 @@ CREATE TABLE posthog.email_status_events (
   function_id String,
   sending_domain LowCardinality(String),
   scheduled_at Nullable(DateTime64(6, 'UTC')),
+  provider_message_id String,
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64

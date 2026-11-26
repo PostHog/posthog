@@ -1258,6 +1258,9 @@ database "posthog" {
     column "scheduled_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
     }
+    column "provider_message_id" {
+      type = "String"
+    }
     column "_timestamp" {
       type = "DateTime"
     }

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
@@ -55,15 +57,16 @@ EMAIL_STATUS_KAFKA_COLUMNS = """
     reason String
 """.strip()
 
-# The queued row carries the recipient and the workflow, and the sent row the sending domain. Other rows
-# leave them empty. A scheduled row carries the recipient and the time the send is due, which a reschedule
-# moves by writing a new scheduled row.
+# The queued row carries the recipient and the workflow, and the sent row the sending domain and the id SES gave
+# the email. Other rows leave them empty. A scheduled row carries the recipient and the time the send is due,
+# which a reschedule moves by writing a new scheduled row.
 EMAIL_STATUS_EVENTS_KAFKA_COLUMNS = f"""
     {EMAIL_STATUS_KAFKA_COLUMNS},
     recipient String,
     function_id String,
     sending_domain LowCardinality(String),
-    scheduled_at Nullable(DateTime64(6, 'UTC'))
+    scheduled_at Nullable(DateTime64(6, 'UTC')),
+    provider_message_id String
 """.strip()
 
 
@@ -160,6 +163,10 @@ AS {EMAIL_STATUS_MV_QUERY()}"""
 ALTER_EMAIL_STATUS_MV_QUERY_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_MV_TABLE} MODIFY QUERY {EMAIL_STATUS_MV_QUERY()}"
 
 
+# A reply names the SES id with no send time, so finding its send can only skip granules by this index.
+_PROVIDER_MESSAGE_ID_INDEX = "provider_message_id_idx provider_message_id TYPE bloom_filter(0.01) GRANULARITY 4"
+
+
 # A plain MergeTree, so no row replaces another. `created_at` leads the key because ClickHouse doesn't sort a
 # UUID by time. All rows of a message share a `created_at`, so they stay together.
 EMAIL_STATUS_EVENTS_DATA_TABLE_SQL = lambda: (
@@ -167,7 +174,8 @@ EMAIL_STATUS_EVENTS_DATA_TABLE_SQL = lambda: (
 CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_EVENTS_DATA_TABLE}
 (
     {EMAIL_STATUS_EVENTS_KAFKA_COLUMNS}
-    {KAFKA_COLUMNS_WITH_PARTITION}
+    {KAFKA_COLUMNS_WITH_PARTITION},
+    INDEX {_PROVIDER_MESSAGE_ID_INDEX}
 )
 ENGINE = {MergeTreeEngine(EMAIL_STATUS_EVENTS_DATA_TABLE, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMMDD(created_at)
@@ -206,6 +214,7 @@ AS SELECT
     function_id,
     sending_domain,
     scheduled_at,
+    provider_message_id,
     _timestamp,
     _offset,
     _partition
@@ -224,3 +233,12 @@ ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
     f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_SCHEDULED_AT_SQL}"
 )
 ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"
+
+_ADD_PROVIDER_MESSAGE_ID_SQL = "ADD COLUMN IF NOT EXISTS provider_message_id String AFTER scheduled_at"
+ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL: Callable[[], str] = lambda: (
+    f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_PROVIDER_MESSAGE_ID_SQL}, "
+    f"ADD INDEX IF NOT EXISTS {_PROVIDER_MESSAGE_ID_INDEX}"
+)
+ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL: Callable[[], str] = lambda: (
+    f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_PROVIDER_MESSAGE_ID_SQL}"
+)
