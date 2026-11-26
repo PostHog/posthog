@@ -112,8 +112,8 @@ def record_request_scope_shadow(
 ) -> None:
     """Store on the HttpRequest how the request-only resolver compares with the scope the view uses today.
 
-    It changes nothing about the request. `current_scope_id` reads the view's own resolution, so a request whose
-    view can't resolve a scope, such as one that failed authentication, records nothing.
+    It changes nothing about the request. `current_scope_id` reads the view's own resolution, so the view calls this
+    only once its checks pass, and a request whose view can't resolve a scope records nothing.
     """
     try:
         if not request.user.is_authenticated:

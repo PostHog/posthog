@@ -393,7 +393,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 record_token_on_project_path(
                     request, token_team=self._get_team_from_request, path_kwargs=self.parent_query_kwargs
                 )
-            self._record_request_scope_shadow(request)
+        # Only after the checks pass, because on a refused request reading the view's scope can reach User.team,
+        # which picks and saves a project for a user who has none selected.
+        self._record_request_scope_shadow(request)
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:
