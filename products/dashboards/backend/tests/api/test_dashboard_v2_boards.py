@@ -34,7 +34,12 @@ class TestBoardSchemaUpgrade(SimpleTestCase):
         assert upgraded["version"] == CURRENT_SCHEMA_VERSION
         assert upgraded["aFieldFromANewerClient"] == {"kept": True}
         assert [tab["id"] for tab in upgraded["tabs"]] == [tab["id"] for tab in stored["tabs"]]
-        assert [tile["id"] for tile in upgraded["tabs"][0]["tiles"]] == ["t-stat", "t-shared", "s-more"]
+        tiles = upgraded["tabs"][0]["tiles"]
+        assert [tile["id"] for tile in tiles] == ["t-stat", "t-shared", "s-more"]
+        assert list(upgraded["panels"]) == ["shared-count"] and "widgets" not in upgraded
+        nested = tiles[2]["panel"]["tiles"]
+        assert all("panel" in tile and "widget" not in tile for tile in [*tiles, *nested])
+        assert nested[0]["panel"]["config"] == {"text": "Hello"}
 
 
 def _board(title: str = "Kitchen sink", **extra: Any) -> dict:
