@@ -255,8 +255,25 @@ def queried_access_controlled_resources(
 
     catalog = _catalog or _catalog_for_fingerprint(team.pk)
 
+    # HogQL embedded anywhere in the query (a `math_hogql` expression, an AccountsQuery metric, a HogQL
+    # property filter attached to a raw query) reads tables too, so each piece gets the same analysis as a
+    # raw HogQL query: placeholders fail closed and saved views are walked. A raw query's own SQL is
+    # analysed below, so only its other fields are scanned here.
+    is_hogql_query = getattr(query, "kind", None) == "HogQLQuery"
+    embedded_scopes: set[str] = set()
+    embedded_sources = (
+        [value for name, value in query.__dict__.items() if name != "query"] if is_hogql_query else [query]
+    )
+    for embedded_sql in _embedded_hogql(embedded_sources):
+        nested = queried_access_controlled_resources(
+            HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes
+        )
+        if nested is None:
+            return None
+        embedded_scopes |= nested
+
     if getattr(query, "kind", None) == "AccountsTableQuery":
-        return _with_fallback_parents({"account"}, bypassed_scopes)
+        return _with_fallback_parents({"account"}, bypassed_scopes) | embedded_scopes
 
     if getattr(query, "kind", None) == "AccountsQuery":
         expressions = [
@@ -276,10 +293,10 @@ def queried_access_controlled_resources(
         account_scopes = {"account"}
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
             account_scopes.add("ticket")
-        return _with_fallback_parents(account_scopes, bypassed_scopes)
+        return _with_fallback_parents(account_scopes, bypassed_scopes) | embedded_scopes
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
-    if getattr(query, "kind", None) == "HogQLQuery":
+    if is_hogql_query:
         sql = getattr(query, "query", None)
         if not isinstance(sql, str):
             return None
@@ -377,19 +394,11 @@ def queried_access_controlled_resources(
                 # A nested result keeps a bypassed scope only when a system table carries it.
                 scopes_from_system_tables |= nested & bypassed_scopes
 
-        return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
+        return (
+            _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
+        ) | embedded_scopes
 
-    # HogQL embedded in a structured query (a `math_hogql` expression, a nested HogQLQuery) reads tables too,
-    # so each piece gets the same analysis as a raw HogQL query: placeholders fail closed and saved views are walked.
     scoped_tables = _table_scopes()
-    embedded_scopes: set[str] = set()
-    for embedded_sql in _embedded_hogql(query):
-        nested = queried_access_controlled_resources(
-            HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes
-        )
-        if nested is None:
-            return None
-        embedded_scopes |= nested
 
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     if not _references_data_warehouse(query):

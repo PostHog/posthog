@@ -451,9 +451,13 @@ class TestExecuteProcessQuery(TestCase):
             self.team.id, None, self.query_id, self.query_json, self.limit_context, project_secret_api_key_id=key_id
         )
 
-        user = mock_process_query_dict.call_args.kwargs["user"]
-        assert isinstance(user, SyntheticUser)
-        assert user.readable_system_table_access_scopes() == ({"query", "tracing"} if key_exists else set())
+        if key_exists:
+            user = mock_process_query_dict.call_args.kwargs["user"]
+            assert isinstance(user, SyntheticUser)
+            assert user.readable_system_table_access_scopes() == {"query", "tracing"}
+        else:
+            mock_process_query_dict.assert_not_called()
+            assert json.loads(mock_redis.set.call_args.args[1])["error"] is True
 
     @parameterized.expand(
         [

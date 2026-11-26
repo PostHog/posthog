@@ -207,18 +207,15 @@ def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Option
     return cast("User", SharedLinkUser(sharing_configuration))
 
 
-def _project_secret_api_key_user_for(project_secret_api_key_id: str, team: "Team") -> "User":
-    """Rebuild the project secret key principal a request ran as. A key deleted in the meantime becomes
-    a synthetic principal with no scopes, so the run fails closed rather than running userless."""
+def _project_secret_api_key_user_for(project_secret_api_key_id: str, team: "Team") -> Optional["User"]:
+    """Rebuild the project secret key principal a request ran as. None if the key was deleted in the
+    meantime - the caller must then refuse to run the query, since both a userless run and a synthetic
+    stand-in read tables the key no longer may."""
     from posthog.auth import ProjectSecretAPIKeyUser  # noqa: PLC0415
     from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
-    from posthog.synthetic_user import SyntheticUser  # noqa: PLC0415
 
     key = ProjectSecretAPIKey.objects.filter(pk=project_secret_api_key_id, team_id=team.id).first()
-    principal = (
-        ProjectSecretAPIKeyUser(key) if key is not None else SyntheticUser(team, distinct_id=f"psak-{team.id}-revoked")
-    )
-    return cast("User", principal)
+    return cast("User", ProjectSecretAPIKeyUser(key)) if key is not None else None
 
 
 def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
@@ -274,7 +271,7 @@ def execute_process_query(
     is_staff_user = False
 
     user: Optional[User] = None
-    share_revoked = False
+    principal_revoked = False
     if user_id:
         user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
         if staff_rights_withheld:
@@ -286,9 +283,10 @@ def execute_process_query(
         # ("You don't have access to table `X`.") and fingerprints the cache differently than the
         # request that enqueued it.
         user = _shared_link_user_for(sharing_configuration_id, team)
-        share_revoked = user is None
+        principal_revoked = user is None
     elif project_secret_api_key_id:
         user = _project_secret_api_key_user_for(project_secret_api_key_id, team)
+        principal_revoked = user is None
 
     query_status = manager.get_query_status()
 
@@ -317,8 +315,8 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
-        if share_revoked:
-            raise PermissionDenied("The shared link is no longer active.")
+        if principal_revoked:
+            raise PermissionDenied("The shared link or API key that sent this query is no longer active.")
         results = process_query_dict(
             team=team,
             query_json=query_json,

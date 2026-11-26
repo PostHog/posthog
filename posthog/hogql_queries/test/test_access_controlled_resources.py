@@ -15,6 +15,8 @@ from posthog.schema import (
     EntityType,
     EventsNode,
     FunnelsDataWarehouseNode,
+    HogQLFilters,
+    HogQLPropertyFilter,
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
@@ -234,6 +236,30 @@ class TestQueriedAccessControlledResources(BaseTest):
         )
         query = TrendsQuery(series=[EventsNode(event="$pageview", math="hogql", math_hogql=math_hogql)])
         assert queried_access_controlled_resources(query, self.team) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "accounts_metric",
+                lambda: AccountsQuery(metrics=["count() + (select count() from posthog.trace_spans)"]),
+                {"account", "tracing"},
+            ),
+            (
+                "hogql_property_filter",
+                lambda: HogQLQuery(
+                    query="select count() from events where {filters}",
+                    filters=HogQLFilters(
+                        properties=[HogQLPropertyFilter(key="1 in (select 1 from posthog.trace_spans)")]
+                    ),
+                ),
+                {"tracing"},
+            ),
+        ]
+    )
+    def test_embedded_hogql_outside_structured_series_is_detected(self, _name, build_query, expected_subset):
+        result = queried_access_controlled_resources(build_query(), self.team)
+        assert result is not None
+        assert expected_subset <= result
 
     def test_structured_query_with_nested_placeholder_table_fails_closed(self):
         query = DataVisualizationNode(source=HogQLQuery(query="select * from {table}"))
