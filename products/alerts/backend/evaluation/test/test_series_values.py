@@ -378,9 +378,7 @@ class TestCompareClosedValues(SimpleTestCase):
     def test_a_stored_day_missing_from_the_live_result_is_not_a_match(
         self, _name: str, stored: int, outcome: str, max_abs_difference: float
     ) -> None:
-        precomputed = PrecomputedSeriesValues(
-            values={datetime(2024, 1, 13): 5, datetime(2024, 1, 14): stored}, live_from=datetime(2024, 1, 15)
-        )
+        precomputed = PrecomputedSeriesValues(values={datetime(2024, 1, 13): 5, datetime(2024, 1, 14): stored})
         live = [{"days": ["2024-01-14", "2024-01-15"], "data": [2, 3]}]
 
         comparison = compare_precomputed_values(precomputed, live)
