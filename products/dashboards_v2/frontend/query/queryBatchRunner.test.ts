@@ -11,7 +11,7 @@ import type { QueryRequest } from './queryTypes'
 const TIME = { from: 'now-7d', to: 'now' }
 const SQL: QueryRequest = { query: { language: 'hogql', query: 'select 1 as total' }, time: TIME }
 const TRENDS: QueryRequest = {
-    query: { language: 'insight', query: { kind: NodeKind.TrendsQuery, series: [] } },
+    query: { language: 'query', query: { kind: NodeKind.TrendsQuery, series: [] } },
     time: TIME,
 }
 const LATENCY: QueryRequest = {
@@ -329,8 +329,8 @@ describe('createQueryBatchRunner', () => {
                         trace_id: '4bf92f3577b34da6a3ce929d0e0e4736',
                         batch_index: 0,
                         query_count: 3,
-                        query_languages: { hogql: 1, promql: 1, insight: 1 },
-                        language_mix: 'hogql+insight+promql',
+                        query_languages: { hogql: 1, promql: 1, query: 1 },
+                        language_mix: 'hogql+promql+query',
                         status: 200,
                         failed: true,
                         error: 'No answer came back for this query',
