@@ -11,7 +11,7 @@ import { fileSystemShortcutCreate, fileSystemShortcutDestroy } from '~/generated
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
-export function NotebookAppSavedViews({
+export default function NotebookAppSavedViews({
     project,
     shortId,
     href,

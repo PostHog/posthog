@@ -1,18 +1,50 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
-import { NotebookAppSavedViews } from './NotebookAppSavedViews'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { notebookAppViewPath } from './notebookAppViewLink'
+
+const NotebookAppSavedViews = lazyWithRetry(() => import('./NotebookAppSavedViews'))
+
+function SavedViewsButton({
+    viewer,
+    viewPath,
+    dirty,
+}: {
+    viewer: ViewerProps
+    viewPath: () => string
+    dirty: boolean
+}): JSX.Element {
+    const [open, setOpen] = useState(false)
+    return (
+        <>
+            <LemonButton size="small" onClick={() => setOpen(true)}>
+                Saved views
+            </LemonButton>
+            {open && (
+                <Suspense fallback={null}>
+                    <NotebookAppSavedViews
+                        project={viewer.project}
+                        shortId={viewer.shortId}
+                        href={viewPath()}
+                        dirty={dirty}
+                        onClose={() => setOpen(false)}
+                    />
+                </Suspense>
+            )}
+        </>
+    )
+}
 
 function ResultTimestamp({
     updatedAt,
@@ -40,7 +72,6 @@ export function PublishedNotebookAppControls({
     cells: NotebookBlockNode[]
     activeTab: string
 }): JSX.Element {
-    const [savedViewsOpen, setSavedViewsOpen] = useState(false)
     const { shortId } = viewer
     const { layout } = release
     const { canEditNotebook, isTemplate } = useValues(notebookLogic({ shortId }))
@@ -87,18 +118,7 @@ export function PublishedNotebookAppControls({
             >
                 Copy view link
             </LemonButton>
-            <LemonButton size="small" onClick={() => setSavedViewsOpen(true)}>
-                Saved views
-            </LemonButton>
-            {savedViewsOpen && (
-                <NotebookAppSavedViews
-                    project={viewer.project}
-                    shortId={shortId}
-                    href={viewPath()}
-                    dirty={dirty}
-                    onClose={() => setSavedViewsOpen(false)}
-                />
-            )}
+            <SavedViewsButton viewer={viewer} viewPath={viewPath} dirty={dirty} />
             {variables.length > 0 && <LemonCheckbox label="Auto-update results" checked={auto} onChange={setAuto} />}
             {(hasNativeSql || variables.length > 0) && (
                 <LemonButton type="secondary" size="small" loading={busy} onClick={() => refresh(!dirty)}>
