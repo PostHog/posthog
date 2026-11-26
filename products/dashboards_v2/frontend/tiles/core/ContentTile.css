@@ -47,3 +47,9 @@
         box-shadow: 0 0 0 1px var(--color-border-primary);
     }
 }
+
+@media print {
+    .dash-ContentTile--interactive-only {
+        visibility: hidden;
+    }
+}

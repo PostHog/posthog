@@ -20,12 +20,13 @@ type DashboardContentTileProps = {
     id: string
     panel: SavedPanel
     editable: boolean
+    locked: boolean
 }
 
-type WindowedContentTileProps = DashboardContentTileProps & { panels: PanelType[] }
+type WindowedContentTileProps = Omit<DashboardContentTileProps, 'locked'> & { panels: PanelType[] }
 
 // Kept apart from `WindowedContentTile`, so a tile reads the dashboard state only once its card mounts.
-function DashboardContentTile({ id, panel, editable }: DashboardContentTileProps): JSX.Element {
+function DashboardContentTile({ id, panel, editable, locked }: DashboardContentTileProps): JSX.Element {
     const { panels, disabledReasonFor, onEdit } = useDashboard()
     const actions = useContentTileActions(id, panel)
     const placementActions = useContentTilePlacementActions(id, panel)
@@ -40,7 +41,7 @@ function DashboardContentTile({ id, panel, editable }: DashboardContentTileProps
             panel={panel}
             panels={panels}
             actions={actions}
-            placementActions={placementActions}
+            placementActions={locked ? undefined : placementActions}
             editable={editable}
             setConfig={canSetConfig ? setConfig : undefined}
         />
@@ -54,13 +55,16 @@ function DashboardContentTile({ id, panel, editable }: DashboardContentTileProps
 function WindowedContentTile({ id, panel, editable, panels }: WindowedContentTileProps): JSX.Element {
     const sentinel = useRef<HTMLSpanElement>(null)
     const mounted = useTileMounted(sentinel)
+    const panelType = findPanel(panels, panel.type)
+    const locked = !!panelType?.locked(panel)
+    const canArrange = editable && !locked
     return (
         <>
             <span ref={sentinel} aria-hidden className="DashboardTileGrid__sentinel" />
             {mounted ? (
-                <DashboardContentTile id={id} panel={panel} editable={editable} />
+                <DashboardContentTile id={id} panel={panel} editable={canArrange} locked={locked} />
             ) : (
-                <ContentTilePlaceholder panel={panel} definition={findPanel(panels, panel.type)} editable={editable} />
+                <ContentTilePlaceholder panel={panel} definition={panelType} editable={canArrange} />
             )}
         </>
     )
@@ -125,6 +129,10 @@ export function DashboardTileGrid({
         [editable, panels]
     )
     const findCarried = useCallback((id: string) => findTile(dashboard, id), [dashboard])
+    const isLocked = useCallback(
+        (tile: Tile) => !isSectionPanel(tile.panel) && !!findPanel(panels, tile.panel.type)?.locked(tile.panel),
+        [panels]
+    )
     const onPlaceTiles = useCallback(
         (places: Record<string, TilePlace>, resized?: string) =>
             onEdit({ edit: 'placeTiles', grid: gridId, places, resized }),
@@ -143,6 +151,7 @@ export function DashboardTileGrid({
             width={width}
             editable={editable}
             sizeOf={sizeOf}
+            isLocked={isLocked}
             renderTile={renderTile}
             findCarried={findCarried}
             onPlaceTiles={onPlaceTiles}
