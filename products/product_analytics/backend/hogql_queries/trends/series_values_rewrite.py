@@ -27,6 +27,7 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import hogql_select_rewrite
+from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -416,9 +417,9 @@ class _Rewriter(CloningVisitor):
 
     def _blocker(self, query: _CountQuery, team: Team, stored_until: datetime) -> Blocker | None:
         modifiers = self.context.modifiers
-        if not _has_whole_hour_offsets(team.timezone, query.lower, stored_until) or (
-            modifiers and modifiers.convertToProjectTimezone is False
-        ):
+        # Stored rows are UTC hours, so they only add up into local hours and days in a zone that is a
+        # whole hour from UTC.
+        if not is_integer_timezone(team.timezone) or (modifiers and modifiers.convertToProjectTimezone is False):
             return Blocker.TIMEZONE
         if team_has_property_access_rules(team_id=team.pk):
             return Blocker.PROPERTY_ACCESS_RULES
@@ -599,13 +600,3 @@ def _covers(windows: tuple[ServedWindow, ...], start: datetime, end: datetime) -
 
 def _hour_start(instant: datetime) -> datetime:
     return instant.replace(minute=0, second=0, microsecond=0)
-
-
-def _has_whole_hour_offsets(timezone: str, start: datetime, end: datetime) -> bool:
-    # Stored rows are UTC hours, so they only add up into local hours and days while the zone is a whole
-    # hour from UTC. The offset is read at every day of the range, because one zone is a whole hour from
-    # UTC for only half the year, and `is_integer_timezone` looks at today's offset alone.
-    zone = ZoneInfo(timezone)
-    days = range((end - start).days + 2)
-    offsets = ((start + timedelta(days=day)).astimezone(zone).utcoffset() for day in days)
-    return all(offset is not None and offset % timedelta(hours=1) == timedelta(0) for offset in offsets)

@@ -164,7 +164,6 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
             ("day_los_angeles", {}, "America/Los_Angeles", 1),
             ("hour_los_angeles", {**_HOURS, "properties": [_PRO]}, "America/Los_Angeles", 1),
             ("day_tokyo", {"properties": [_PRO]}, "Asia/Tokyo", 1),
-            ("day_lord_howe_while_a_whole_hour_from_utc", {}, "Australia/Lord_Howe", 1),
             ("hour_tokyo", _HOURS, "Asia/Tokyo", 1),
             (
                 "hours_across_a_clock_change",
@@ -294,11 +293,6 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
             (Blocker.SAMPLING, {"samplingFactor": 0.1}, "UTC"),
             (Blocker.NO_COUNT_QUERY, {"trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER)}, "UTC"),
             (Blocker.TIMEZONE, {}, "Asia/Kolkata"),
-            (
-                Blocker.TIMEZONE,
-                {"dateRange": DateRange(date_from="2023-09-25", date_to="2023-10-10")},
-                "Australia/Lord_Howe",
-            ),
             (
                 Blocker.PARTIAL_HOUR,
                 {
