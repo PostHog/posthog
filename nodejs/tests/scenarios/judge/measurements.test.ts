@@ -180,9 +180,13 @@ describe('measurements', () => {
         ])
     })
 
-    it('keeps the largest resident set of each role across its replicas', () => {
-        const samples = [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]
-
+    it.each([
+        ['a few scrapes', [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]],
+        [
+            'more scrapes than one call takes arguments',
+            Array.from({ length: 200_000 }, (_, i) => sample(i * 5, -60, 1, i === 1234 ? 900 : 300)),
+        ],
+    ])('keeps the largest resident set of each role across its replicas over %s', (_story, samples) => {
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
         ])

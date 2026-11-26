@@ -114,6 +114,10 @@ export const roleCpuSeconds: MeasurementDefinition = {
         }),
 }
 
+// Math.max(...values) passes each value as an argument, which overflows V8's stack for the sample count of a long drive.
+export const maxOf = (values: readonly number[]): number =>
+    values.reduce((max, value) => Math.max(max, value), -Infinity)
+
 export const roleRssMaxBytes: MeasurementDefinition = {
     name: 'role_rss_max_bytes',
     params: z.object({}).strict(),
@@ -121,7 +125,7 @@ export const roleRssMaxBytes: MeasurementDefinition = {
     measure: ({ samples, missed }) =>
         [...byRole(samples)].map(([role, ofRole]) => ({
             key: role,
-            value: Math.max(...ofRole.map(({ rssBytes }) => rssBytes)),
+            value: maxOf(ofRole.map(({ rssBytes }) => rssBytes)),
             ...completeness(role, missed),
         })),
 }
@@ -497,7 +501,7 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
             .map(({ oldestDueSeconds }) => oldestDueSeconds)
         return ages.length === 0
             ? []
-            : [{ value: Math.max(...ages), ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
+            : [{ value: maxOf(ages), ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
     }),
     inPhase('drain_seconds', 's', 'valve', ({ queue }, phase, { baseline }) => drain(queue, baseline, phase)),
     inPhase('failback_drain_seconds', 's', 'failback', ({ queue }, phase, { baseline }) =>
