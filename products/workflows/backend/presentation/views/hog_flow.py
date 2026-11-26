@@ -194,7 +194,6 @@ from products.workflows.backend.facade.blast_radius import (
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
-    get_audience_person_page,
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
@@ -1647,8 +1646,7 @@ class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
 
 
 class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
-    """Response contract for the internal blast-radius persons endpoint. Mirrors
-    BlastRadiusPersonsResponse in nodejs hogflow-batch-person-query.service.ts."""
+    """Response contract for one page of a batch run's stored audience, read by the Node batch resolver."""
 
     users_affected = serializers.ListField(
         child=serializers.CharField(),
@@ -8912,54 +8910,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
 
-    def internal_user_blast_radius_persons(self, request: Request, team_id: str) -> Response:
-        """
-        Internal endpoint for Node.js services to query user blast radius persons with pagination.
-        Requires Bearer token authentication via INTERNAL_API_SECRET.
-        """
-        if request.method != "POST":
-            return Response({"error": "Method not allowed"}, status=405)
-
-        try:
-            team = Team.objects.get(id=int(team_id))
-        except (Team.DoesNotExist, ValueError):
-            return Response({"error": "Team not found"}, status=404)
-
-        if "filters" not in request.data:
-            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
-
-        filters = request.data.get("filters", {}) or {}
-        group_type_index = request.data.get("group_type_index", None)
-        cursor = request.data.get("cursor", None)
-        dedupe_key = request.data.get("dedupe_key", None)
-
-        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
-            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
-
-        try:
-            reject_unusable_audience_conditions(team, filters)
-            page = get_audience_person_page(
-                team_id=team.id,
-                filters=filters,
-                group_type_index=group_type_index,
-                cursor=cursor,
-                dedupe_key=dedupe_key,
-            )
-            return Response(
-                InternalBlastRadiusPersonsSerializer(
-                    {
-                        "users_affected": page.ids,
-                        "cursor": page.ids[-1] if page.ids else None,
-                        "has_more": page.has_more,
-                    }
-                ).data
-            )
-        except exceptions.ValidationError as e:
-            return Response({"error": _validation_error_message(e)}, status=400)
-        except Exception as e:
-            logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
-            return Response({"error": "Internal server error"}, status=500)
-
     def internal_batch_job_audience_snapshot(self, request: Request, team_id: str, batch_job_id: str) -> Response:
         """
         Internal endpoint for the Node batch resolver: resolve the run's whole audience once, in the
@@ -9008,7 +8958,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
     def internal_batch_job_audience_page(self, request: Request, team_id: str, batch_job_id: str) -> Response:
         """
         Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
-        like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+        in person id order. Requires Bearer token authentication via INTERNAL_API_SECRET.
         """
         if request.method != "POST":
             return Response({"error": "Method not allowed"}, status=405)
