@@ -840,9 +840,11 @@ class TestIsIntegerTimezone(unittest.TestCase):
             ("sydney_ambiguous", "Australia/Sydney", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), True),
             ("sydney_nonexistent", "Australia/Sydney", datetime(2026, 10, 4, 2, 30, tzinfo=UTC), True),
             ("adelaide_ambiguous", "Australia/Adelaide", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), False),
+            ("lord_howe_daylight_time_utc_plus_11", "Australia/Lord_Howe", datetime(2026, 1, 15, tzinfo=UTC), False),
+            ("lord_howe_standard_time_utc_plus_1030", "Australia/Lord_Howe", datetime(2026, 7, 15, tzinfo=UTC), False),
         ]
     )
-    def test_integer_timezones_in_dst_transition_hour(self, _name, timezone, instant, expected):
+    def test_integer_timezones_at_pinned_instant(self, _name, timezone, instant, expected):
         with time_machine.travel(instant, tick=False):
             assert is_integer_timezone(timezone) is expected
 

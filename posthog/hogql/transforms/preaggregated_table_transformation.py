@@ -17,7 +17,7 @@ Exports:
 * do_preaggregated_table_transforms
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional, TypeVar, cast
 
 import pytz
@@ -44,6 +44,9 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.properties impo
 _T_AST = TypeVar("_T_AST", bound=AST)
 
 PREAGGREGATED_TABLE_NAME = "web_pre_aggregated_stats"
+
+# One read each week, from the current time back to 52 weeks before it.
+_OFFSET_READS_IN_PAST_YEAR = 53
 
 
 def flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
@@ -561,16 +564,23 @@ class PreaggregatedTableTransformer(CloningVisitor):
 
 
 def is_integer_timezone(timezone: str) -> bool:
-    # we make an assumption that if the timezone offset at the current time is non-integer, it always is, and vice versa
-    # this is currently true for all timezones in the tz database
+    # Callers store values in UTC hour buckets. Those buckets add up into local hours and days only while the
+    # UTC offset is a whole number of hours. The offset at the current time does not prove that for a full
+    # query range: Australia/Lord_Howe is UTC+10:30 in standard time and UTC+11 in daylight time.
+    # The past year contains every offset of a zone that changes with the seasons, so the check reads one
+    # offset for each week of it. A daylight time period lasts for months, so none falls between two reads.
     try:
         parsed = pytz.timezone(timezone)
     except pytz.UnknownTimeZoneError:
         return False
-    # An aware datetime avoids pytz raising on a naive time in a DST transition hour.
-    offset = datetime.now(parsed).utcoffset()
-    assert offset is not None
-    return offset.total_seconds() % 3600 == 0
+    now = datetime.now(UTC)
+    for weeks_ago in range(_OFFSET_READS_IN_PAST_YEAR):
+        # An aware datetime avoids pytz raising on a naive time in a DST transition hour.
+        offset = (now - timedelta(weeks=weeks_ago)).astimezone(parsed).utcoffset()
+        assert offset is not None
+        if offset.total_seconds() % 3600 != 0:
+            return False
+    return True
 
 
 def do_preaggregated_table_transforms(node: _T_AST, context: HogQLContext) -> _T_AST:
