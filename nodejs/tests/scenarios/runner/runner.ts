@@ -11,6 +11,7 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
+import { AlertCoverage, Alerts, AlertsRead, startAlerts } from '../alerts/alerts'
 import { residentBacklogOf } from '../backlog/backlog'
 import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, Target, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
@@ -78,6 +79,7 @@ import {
 } from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
+const ALERTS_FILE = 'alerts.jsonl'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
@@ -127,6 +129,7 @@ export type RunResult = {
     ramp?: Ramp
     stopped?: RunStop
     timeline: ValveTimelineEntry[]
+    alerts?: AlertCoverage
     restarts?: RoleExit[]
     startedAt: string
     endedAt: string
@@ -176,6 +179,7 @@ type Outcome = Pick<
     | 'bars'
     | 'ramp'
     | 'stopped'
+    | 'alerts'
 >
 
 export type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
@@ -577,6 +581,8 @@ export function createRunner(
             let sampled: Sampled = { samples: [], missed: [], host: [] }
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
+            let alerting: Alerts | undefined
+            let alerted: AlertsRead | undefined
             const judging = new AbortController()
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
@@ -631,9 +637,18 @@ export function createRunner(
                     () => environment.dependencyHealth().then(({ down }) => down),
                     HEALTH_INTERVAL_MS
                 )
-                sampler = await startSampler(
-                    environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
-                )
+                const targets = environment
+                    .roles()
+                    .map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
+                sampler = await startSampler(targets)
+                alerting =
+                    loaded.alerts &&
+                    (await startAlerts({
+                        alerts: loaded.alerts,
+                        targets,
+                        onTransition: ({ at, rule, tier, state, value }) =>
+                            live.write({ type: 'alert', at, rule, ...(tier !== undefined && { tier }), state, value }),
+                    }))
                 probes = await opened.probes(seeded.teamIds)
                 const offers = await opened.offers()
                 const driveStartedAt = Date.now()
@@ -713,6 +728,7 @@ export function createRunner(
                 enter('converge')
                 const converged = await judge.converge(durationMs(card.convergeWithin), signal)
                 await pendingJudgments()
+                alerted = await alerting?.finish(driveWindow, valves.timeline())
                 const stop = watch?.stopped()
                 enter('judge')
                 probed = await probes.stop()
@@ -812,6 +828,7 @@ export function createRunner(
                     admissions,
                     bars,
                     ...(ramp && { ramp }),
+                    ...(alerted && { alerts: alerted.coverage }),
                 }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
@@ -833,6 +850,7 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
+                await alerting?.close()
                 dependencies = (await health?.stop()) ?? dependencies
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
@@ -880,6 +898,12 @@ export function createRunner(
                 }
                 if (counters !== undefined) {
                     writeJson(evidenceDir, 'counters.json', counters)
+                }
+                if (alerted !== undefined) {
+                    writeFileSync(
+                        path.join(evidenceDir, ALERTS_FILE),
+                        alerted.lines.map((line) => `${JSON.stringify(line)}\n`).join('')
+                    )
                 }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })

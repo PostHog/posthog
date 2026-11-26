@@ -1751,6 +1751,62 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
 
+    it('records the alerts a profile names in the evidence, the live record and the result', async () => {
+        const rules = path.join(cacheHome, 'rules.yaml')
+        const labels = path.join(cacheHome, 'labels.yaml')
+        writeFileSync(
+            rules,
+            stringify({
+                groups: [
+                    {
+                        name: 'synthetic',
+                        interval: '1s',
+                        rules: [
+                            {
+                                alert: 'SyntheticStackUp',
+                                expr: 'max by (environment) (up{environment="synthetic-env"}) > 0',
+                            },
+                            { alert: 'SyntheticNeedsMissingSeries', expr: 'sum(synthetic_lost_total) > 0' },
+                        ],
+                    },
+                ],
+            })
+        )
+        writeFileSync(labels, stringify({ labels: { environment: 'synthetic-env' } }))
+        const loaded = { ...shortSmoke(), alerts: { rules, labels, exclude: [] } }
+
+        const result = await createRunner(environmentOf('all'), env, {
+            topologyWithinMs: 1000,
+            topologyEveryMs: 10,
+            counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
+        }).run(loaded, NEVER_ABORTED)
+        results.push(result)
+
+        expect(result.alerts).toEqual({
+            evaluated: ['SyntheticStackUp'],
+            fired: ['SyntheticStackUp'],
+            unevaluable: [{ rule: 'SyntheticNeedsMissingSeries', selectors: ['synthetic_lost_total'] }],
+            excluded: [],
+        })
+        const linesOf = (file: string): Record<string, unknown>[] =>
+            readFileSync(path.join(result.evidenceDir, file), 'utf8')
+                .trim()
+                .split('\n')
+                .map((line) => parseJSON(line) as Record<string, unknown>)
+        expect(linesOf('alerts.jsonl')).toContainEqual(
+            expect.objectContaining({
+                type: 'transition',
+                rule: 'SyntheticStackUp',
+                state: 'firing',
+                labels: { environment: 'synthetic-env' },
+                sinceDriveMs: expect.any(Number),
+            })
+        )
+        expect(linesOf(LIVE_FILE)).toContainEqual(
+            expect.objectContaining({ type: 'alert', rule: 'SyntheticStackUp', state: 'firing', value: 1 })
+        )
+    }, 60_000)
+
     const KILL_EMAIL_WORKER: ValveEntry = {
         valve: 'role.kill',
         target: 'cdp-cyclotron-worker-email',

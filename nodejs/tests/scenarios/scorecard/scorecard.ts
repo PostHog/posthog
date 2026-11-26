@@ -52,6 +52,24 @@ function measurementProperties(result: RunVerdict): Record<string, Property> {
     )
 }
 
+function alertProperties({ alerts }: RunVerdict): Record<string, Property> {
+    if (alerts === undefined) {
+        return {}
+    }
+    if ('unread' in alerts) {
+        return { alerts_unread: alerts.unread }
+    }
+    return {
+        alerts_evaluated: alerts.evaluated,
+        alerts_evaluated_count: alerts.evaluated.length,
+        alerts_fired: alerts.fired,
+        alerts_unevaluable: alerts.unevaluable,
+        alerts_unevaluable_count: alerts.unevaluable.length,
+        alerts_excluded: alerts.excluded,
+        alerts_excluded_count: alerts.excluded.length,
+    }
+}
+
 type Readings = NonNullable<NonNullable<RunVerdict['ramp']>['readings']>[number]
 
 const barsOf = (readings: Readings | undefined): unknown[] | null =>
@@ -207,6 +225,7 @@ export function scorecardOf(
         load_targets: admission.load?.derived.map(({ rate, from, share }) => ({ rate, from, share })) ?? null,
         bars: result.bars,
         valve_timeline: result.timeline,
+        ...alertProperties(result),
         role_restarts: result.restarts ?? [],
         evidence_dir: result.evidenceDir,
     }

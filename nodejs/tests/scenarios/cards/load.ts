@@ -13,7 +13,7 @@ import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { AdmissionTargets, loadTargetsOf } from './load-targets'
-import { Card, Load, Named, Profile, stepsOf } from './schema'
+import { AlertsProfile, Card, Load, Named, Profile, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
@@ -25,6 +25,7 @@ export type LoadedCard = {
     card: Card
     profile: Profile
     admission: AdmissionTargets
+    alerts?: AlertsProfile
     cardHash: string
     profileHash: string
 }
@@ -349,7 +350,7 @@ function checkTrafficOnce(card: Card): string[] {
         .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
 }
 
-type ProfileRead = { profile: Profile } | { problems: string[] }
+type ProfileRead = { profile: Profile; dir?: string } | { problems: string[] }
 
 function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     const file = profilePath ?? path.join(PROFILES_DIR, `${card.profile}.yaml`)
@@ -368,7 +369,14 @@ function profileOf(read: Read): ProfileRead {
 }
 
 export function readProfile(file: string): ProfileRead {
-    return profileOf(readYaml(file, 'profile'))
+    const read = profileOf(readYaml(file, 'profile'))
+    return 'profile' in read ? { ...read, dir: path.dirname(file) } : read
+}
+
+function alertsOf({ alerts }: Profile, dir: string | undefined): AlertsProfile | undefined {
+    return alerts && dir !== undefined
+        ? { ...alerts, rules: path.resolve(dir, alerts.rules), labels: path.resolve(dir, alerts.labels) }
+        : undefined
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
@@ -430,6 +438,7 @@ function check(
         card,
         profile: loaded.profile,
         admission: { load: derived.load, host: loaded.profile.host },
+        alerts: alertsOf(loaded.profile, loaded.dir),
         profileHash,
         cardHash: cardHashOf(card, profileHash),
     }

@@ -801,6 +801,16 @@ describe('load', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
 
+    it("finds a profile's alert files next to the profile, wherever the runner starts", () => {
+        const alerts = { rules: 'alerts/rules.yaml', labels: '../labels.yaml', exclude: ['SyntheticLeftOut'] }
+
+        expect(loadCard(card, { ...profile, alerts }).alerts).toEqual({
+            rules: path.join(dir, 'alerts', 'rules.yaml'),
+            labels: path.join(path.dirname(dir), 'labels.yaml'),
+            exclude: ['SyntheticLeftOut'],
+        })
+    })
+
     it.each<[string, Record<string, string>]>([
         [
             'the settings a role reads straight from the process environment',
