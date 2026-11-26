@@ -19,8 +19,9 @@ A cymbal version that does not know the header answers with the array described 
 | `retry` | The resolution pool did not resolve the event, but resolved another event of the request. The code is `deadline_exceeded` when the resolution deadline passed, and `resolution_unavailable` when every attempt on a resolution pod failed. |
 
 The Node.js error-tracking consumer sends a `retry` event to its overflow lane.
-The overflow lane puts the event back on its topic and sends it to the DLQ after three attempts.
-A consumer without an overflow lane sends it to the DLQ.
+The overflow lane, and a consumer without an overflow lane, send it to the DLQ.
+The consumer also gives a `retry` result to each event of a request that fails with a 500 or a timeout.
+When cymbal cannot take a request at all (a network error, 429 or 503), the consumer retries the whole batch.
 
 A request with more events than `PROCESS_MAX_EVENTS_PER_REQUEST` (10000 by default) is rejected with a 413.
 

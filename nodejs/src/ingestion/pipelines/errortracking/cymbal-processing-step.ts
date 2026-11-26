@@ -1,5 +1,3 @@
-import { Message } from 'node-rdkafka'
-
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { logger } from '~/common/utils/logger'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
@@ -21,8 +19,6 @@ export interface CymbalProcessingInput {
     team: Team
     /** Byte size of the original Kafka message, used to estimate HTTP payload size. */
     messageBytes?: number
-    /** The original Kafka message, whose headers count the attempts made on the overflow lane. */
-    message?: Pick<Message, 'headers'>
 }
 
 export interface CymbalRetryOptions {
@@ -30,41 +26,18 @@ export interface CymbalRetryOptions {
     preservePartitionLocality: boolean
 }
 
-export const CYMBAL_RETRY_ATTEMPTS_HEADER = 'cymbal-retry-attempts'
-
-/** Attempts the overflow lane makes on an event that Cymbal asks to retry, before the DLQ. */
-export const CYMBAL_MAX_OVERFLOW_ATTEMPTS = 3
-
-function previousOverflowAttempts(message: Pick<Message, 'headers'> | undefined): number {
-    for (const header of message?.headers ?? []) {
-        const value = header[CYMBAL_RETRY_ATTEMPTS_HEADER]
-        if (value !== undefined) {
-            const attempts = Number.parseInt(value.toString(), 10)
-            return Number.isNaN(attempts) ? 0 : attempts
-        }
-    }
-    return 0
-}
-
-/** Returns `undefined` when the event has no further attempt to make, which sends it to the DLQ. */
+/**
+ * Returns `undefined`, which sends the event to the DLQ, unless this lane redirects to an overflow
+ * lane. The overflow lane cannot send an event further, because it has no overflow topic of its own.
+ */
 function retryOnOverflow<T>(
     { overflowMode, preservePartitionLocality }: CymbalRetryOptions,
-    message: Pick<Message, 'headers'> | undefined,
     warnings: PipelineWarning[]
 ): PipelineResult<T, OverflowOutput> | undefined {
-    if (overflowMode === 'disabled') {
+    if (overflowMode !== 'redirect') {
         return undefined
     }
-    // Only the overflow lane counts attempts, because the main lane always hands the event over.
-    const attempts = overflowMode === 'consume' ? previousOverflowAttempts(message) + 1 : 0
-    if (attempts >= CYMBAL_MAX_OVERFLOW_ATTEMPTS) {
-        return undefined
-    }
-    return redirect('cymbal_item_retry', OVERFLOW_OUTPUT, {
-        preserveKey: preservePartitionLocality,
-        warnings,
-        headers: attempts > 0 ? { [CYMBAL_RETRY_ATTEMPTS_HEADER]: String(attempts) } : undefined,
-    })
+    return redirect('cymbal_item_retry', OVERFLOW_OUTPUT, { preserveKey: preservePartitionLocality, warnings })
 }
 
 /**
@@ -97,10 +70,9 @@ function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; 
  * happens after Cymbal to reduce payload size and avoid wasted work
  * if events are suppressed.
  *
- * An event that Cymbal asks to retry gets its next attempt on the overflow lane, so the lane that
- * read it does not wait. The main lane redirects it there. The overflow lane puts it back on its
- * own topic, and sends it to the DLQ after {@link CYMBAL_MAX_OVERFLOW_ATTEMPTS} attempts. A
- * consumer without an overflow lane sends it to the DLQ.
+ * An event that Cymbal asks to retry gets its next attempt on the overflow lane, so the main lane
+ * does not wait for it. The overflow lane, and a consumer without an overflow lane, send it to the
+ * DLQ.
  */
 export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
     cymbalClient: CymbalClient,
@@ -153,8 +125,7 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
 
                     return ok({ ...input, event: input.event }, [], warnings)
                 },
-                (_error, index, warnings) =>
-                    retryOnOverflow(retryOptions, validatedInputs[index].input.message, warnings)
+                (_error, _index, warnings) => retryOnOverflow(retryOptions, warnings)
             )
         } catch (error) {
             logger.error('❌', 'cymbal_batch_processing_error', {
@@ -162,9 +133,9 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                 batchSize: inputs.length,
             })
 
-            // Throw so Kafka retries the batch. For retriable errors (5xx, timeout, network),
-            // this allows automatic recovery when Cymbal comes back. For non-retriable errors
-            // (4xx), this indicates a bug in our request building that needs fixing.
+            // The client gives each event of a failed request its own result, so this is a DNS
+            // failure, a request Cymbal could not take (a network error, 429 or 503), or a bug.
+            // Throw so that the retry wrapper retries the whole batch.
             throw error
         }
     }
