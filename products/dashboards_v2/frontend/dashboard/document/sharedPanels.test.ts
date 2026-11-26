@@ -2,6 +2,8 @@ import type { DashboardDocument } from './dashboardTypes'
 import { loadDashboard, saveDashboard } from './sharedPanels'
 import { everyTile } from './tileTree'
 
+const HOST_FIELD = { pinned: true }
+
 describe('sharedPanels', () => {
     it.each(['signups', 'constructor', '__proto__'])(
         "loads a shared panel onto each tile with that tile's own parts, and saves it back once (ref %s)",
@@ -18,7 +20,8 @@ describe('sharedPanels', () => {
                             {
                                 id: 'a',
                                 place: { x: 0, y: 0, w: 8, h: 8 },
-                                panel: { ref, parts: { header: false } },
+                                // A field the host added, such as the boards API's, that each tile keeps for itself.
+                                panel: { ref, parts: { header: false }, ...HOST_FIELD },
                             },
                         ],
                     },
@@ -43,7 +46,14 @@ describe('sharedPanels', () => {
             expect(
                 loaded.tabs.flatMap((tab) => ('tiles' in tab ? everyTile(tab.tiles) : [])).map((tile) => tile.panel)
             ).toEqual([
-                { type: 'markdown', title: 'Signups', config: { text: 'hi' }, ref, parts: { header: false } },
+                {
+                    type: 'markdown',
+                    title: 'Signups',
+                    config: { text: 'hi' },
+                    ref,
+                    parts: { header: false },
+                    pinned: true,
+                },
                 expect.objectContaining({ type: 'section' }),
                 { type: 'markdown', title: 'Signups', config: { text: 'hi' }, ref },
             ])
