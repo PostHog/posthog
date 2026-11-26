@@ -55,9 +55,7 @@ def add_request_duration(request: HttpRequest, log_kwargs: dict[str, Any], **kwa
 @receiver(signals.bind_extra_request_finished_metadata)
 @receiver(signals.bind_extra_request_failed_metadata)
 def add_request_credential(request: HttpRequest, log_kwargs: dict[str, Any], **kwargs: Any) -> None:
-    # request_failed is sent from Django's got_request_exception while ActivityLoggingMiddleware still
-    # holds the credential. request_finished is sent after that middleware cleared it, so it reads the
-    # copy the middleware left on the request.
+    # request_failed fires before ActivityLoggingMiddleware clears its storage, and request_finished after.
     credential = getattr(request, REQUEST_CREDENTIAL_ATTR, None) or activity_storage.get_credential()
     if credential is not None:
         log_kwargs["credential_type"] = credential.type

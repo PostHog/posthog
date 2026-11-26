@@ -1718,8 +1718,7 @@ class ActivityLoggingMiddleware:
             _buffer_mcp_intent(request, response)
         finally:
             credential = activity_storage.get_credential()
-            # Logout and session rotation change the session key, so the resolver no longer names the
-            # session that authenticated the request. A credential that an authentication class recorded stays.
+            # Logout and session rotation change the key, so log the session that authenticated the request.
             if (credential is None or credential.type == "session") and _session_key(request) != session_key:
                 credential = session_credential
             # django-structlog writes request_finished above this middleware, after the cleanup below.
