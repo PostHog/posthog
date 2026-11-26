@@ -1378,9 +1378,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         the tree's visibility filter nor `get_object` has run by the time we get here."""
         self._ensure_can_change_pipelines([(self.team.id, type_string)])
         instance = get_restorable_object(type_string, ref, team_id=self.team.id)
+        user_access_control = self.user_access_control
         allowed = instance is not None and (
-            not self.user_access_control
-            or self.user_access_control.check_access_level_for_object(instance, required_level="editor")
+            not user_access_control
+            or user_access_control.check_access_level_for_object(instance, required_level="editor")
         )
         if not allowed:
             raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
