@@ -49,6 +49,7 @@ from posthog.api.query import (
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.constants import AvailableFeature
@@ -2143,9 +2144,13 @@ class TestTracingQueryStatusRetrieval(APIBaseTest):
         self.organization_membership.save()
 
     def _retrieve(self, headers: dict[str, str] | None = None, params: str = ""):
-        query_status = QueryStatus(id="q1", team_id=self.team.id, complete=True, labels=["tracing-spans"])
-        with patch("posthog.api.query.get_query_status", return_value=query_status):
-            return self.client.get(f"/api/projects/{self.team.id}/query/q1/{params}", headers=headers or {})
+        # A plain HogQL read carries no tracing label when enqueued. The worker runs it userless, the way
+        # it runs a project secret key's query, so only what the run read can gate the result.
+        QueryStatusManager("q1", self.team.id).store_query_status(QueryStatus(id="q1", team_id=self.team.id))
+        query_json = {"kind": "HogQLQuery", "query": "select name from posthog.trace_spans"}
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):
+            execute_process_query(self.team.id, None, "q1", query_json, LimitContext.QUERY_ASYNC)
+        return self.client.get(f"/api/projects/{self.team.id}/query/q1/{params}", headers=headers or {})
 
     def test_a_span_result_is_not_readable_through_a_share_link(self):
         AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")

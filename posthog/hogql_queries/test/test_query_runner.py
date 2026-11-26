@@ -26,6 +26,7 @@ from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
     BounceRatePageViewMode,
+    CachedHogQLQueryResponse,
     CacheMissResponse,
     CurrencyCode,
     DashboardFilter,
@@ -61,11 +62,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, notify_query_started, record
 
 from posthog.api.services.query import _run_query_runner
+from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
@@ -97,6 +99,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.event.new_events_schema import get_events_route
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -2169,6 +2172,38 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         key_denied = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != userless_runner.get_cache_key()
+
+    @parameterized.expand(
+        [("tracing_none_member",), ("secret_key_without_tracing",), ("share_link",), ("tracing_viewer",)]
+    )
+    def test_cached_trace_read_is_served_only_to_a_tracing_reader(self, kind: str) -> None:
+        query = HogQLQuery(query="select name from posthog.trace_spans")
+        with (
+            mock.patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])),
+            # Stands in for an indirect read the name-based fingerprint misses, so every principal shares one key.
+            mock.patch("posthog.hogql_queries.query_runner.queried_access_controlled_resources", return_value=set()),
+        ):
+            warm = get_query_runner(query, self.team, user=self.user)
+            warm.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+            self._ac(resource="tracing", access_level="viewer" if kind == "tracing_viewer" else "none")
+            principal: Any = self.user
+            if kind == "secret_key_without_tracing":
+                key = ProjectSecretAPIKey.objects.create(
+                    team=self.team, label="no tracing", secure_value="sha256$" + "f" * 64, scopes=["query:read"]
+                )
+                principal = ProjectSecretAPIKeyUser(key)
+            elif kind == "share_link":
+                principal = SharedLinkUser(SharingConfiguration.objects.create(team=self.team, enabled=True))
+            runner = get_query_runner(query, self.team, user=principal)
+            assert runner.get_cache_key() == warm.get_cache_key()
+
+            if kind == "tracing_viewer":
+                response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                assert isinstance(response, CachedHogQLQueryResponse) and response.is_cached
+            else:
+                with self.assertRaises(TableAccessDeniedError):
+                    runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
     def test_default_denied_resource_partitions_cache_without_access_control(self):
         self.organization.available_product_features = []

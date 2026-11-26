@@ -5,10 +5,12 @@ import copy
 import time
 import pickle
 import threading
+import contextlib
 import dataclasses
 import pickletools
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from functools import cache, lru_cache
 from types import MappingProxyType
@@ -750,6 +752,54 @@ def access_controlled_posthog_tables() -> Mapping[str, APIScopeObject]:
 
 
 @cache
+def _access_controlled_posthog_table_types() -> Mapping[type, APIScopeObject]:
+    posthog_node = build_database_root_node().children["posthog"]
+    return MappingProxyType(
+        {
+            type(table_node.table): access_scope
+            for table_node in posthog_node.children.values()
+            if (access_scope := getattr(table_node.table, "access_scope", None)) is not None
+        }
+    )
+
+
+# Marks an async query status whose run read a table gated on this resource.
+READ_SCOPE_QUERY_STATUS_LABEL_PREFIX = "read-scope:"
+
+_read_posthog_table_scopes: ContextVar[set[str] | None] = ContextVar("read_posthog_table_scopes", default=None)
+
+
+@contextlib.contextmanager
+def read_posthog_table_scopes() -> Iterator[set[str]]:
+    """Collects the resources gating every `posthog.*` table that queries resolve inside this scope.
+
+    The set is mutated in place, so reads in nested runners and in threads started with a copied
+    context (run_in_parallel_threads) reach it. A nested scope joins the outer one.
+    """
+    current = _read_posthog_table_scopes.get()
+    if current is not None:
+        yield current
+        return
+    scopes: set[str] = set()
+    token = _read_posthog_table_scopes.set(scopes)
+    try:
+        yield scopes
+    finally:
+        _read_posthog_table_scopes.reset(token)
+
+
+def denied_posthog_table_scopes(
+    team: Team,
+    user: Optional[User | SyntheticUser | SharedLinkUser],
+    user_access_control: Optional[UserAccessControl] = None,
+) -> set[str]:
+    """The resources gating `posthog.*` tables that this principal may not read, decided as create_for decides."""
+    # The `posthog.*` tables need no entitlement, so the organization's entitlements are not read.
+    _, denied = _compute_system_table_access_decision(team, user, user_access_control, unentitled=())
+    return {scope for name, scope in access_controlled_posthog_tables().items() if name in denied}
+
+
+@cache
 def _system_table_required_features() -> Mapping[str, str]:
     """Table name -> required AvailableFeature for system tables behind a billing entitlement.
 
@@ -1096,6 +1146,11 @@ class Database(BaseModel):
         # First access to any warehouse table wires the deferred foreign-key joins for the whole graph.
         if not self._foreign_keys_built and self._should_build_foreign_keys_for(table_name):
             self._ensure_foreign_keys_built()
+
+        # A cached result is checked against these on read, because its cache key may not show the table.
+        read_scopes = _read_posthog_table_scopes.get()
+        if read_scopes is not None and (scope := _access_controlled_posthog_table_types().get(type(table))):
+            read_scopes.add(scope)
 
         return table
 

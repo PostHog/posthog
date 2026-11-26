@@ -251,6 +251,8 @@ def execute_process_query(
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
 
+    from posthog.hogql.database.database import READ_SCOPE_QUERY_STATUS_LABEL_PREFIX, read_posthog_table_scopes
+
     from posthog.api.services.query import ExecutionMode, process_query_dict
     from posthog.models import Team
     from posthog.models.user import User
@@ -298,19 +300,26 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
-        results = process_query_dict(
-            team=team,
-            query_json=query_json,
-            limit_context=limit_context,
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            query_id=query_id,
-            insight_id=query_status.insight_id,
-            dashboard_id=query_status.dashboard_id,
-            user=user,
-            is_query_service=is_query_service,
-            analytics_props=analytics_props,
-            query_status=query_status,
-        )
+        with read_posthog_table_scopes() as read_scopes:
+            results = process_query_dict(
+                team=team,
+                query_json=query_json,
+                limit_context=limit_context,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                query_id=query_id,
+                insight_id=query_status.insight_id,
+                dashboard_id=query_status.dashboard_id,
+                user=user,
+                is_query_service=is_query_service,
+                analytics_props=analytics_props,
+                query_status=query_status,
+            )
+        # The run may be userless, so retrieval checks the requester against what the run actually read.
+        if read_scopes:
+            query_status.labels = [
+                *(query_status.labels or []),
+                *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
+            ]
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
