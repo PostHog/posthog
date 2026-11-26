@@ -9,11 +9,13 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.service_accounts.emails import generated_service_account_email
 
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.annotations.backend.facade.testing import create_annotation
 
 
 class TestServiceAccountAPI(APIBaseTest):
@@ -224,3 +226,152 @@ class TestServiceAccountAPI(APIBaseTest):
         key.scopes = ["organization_member:write"]
         key.save(update_fields=["scopes"])
         assert self.client.post(f"{self.url}{self.account.uuid}/{action}/", {}).status_code == 200
+
+    @parameterized.expand([True, False])
+    def test_delete_and_restore_preserve_history_but_not_credentials(self, initially_active) -> None:
+        self.account.is_active = initially_active
+        self.account.save(update_fields=["is_active"])
+        membership = self.account.organization_memberships.get()
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.account, label="Deploy", secure_value=hash_key_value(token), scopes=["user:read"]
+        )
+        annotation = create_annotation(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            content="Deployment",
+            created_by_id=self.account.pk,
+        )
+        url = f"{self.url}{self.account.uuid}/"
+        assert self.client.delete(url).status_code == 204
+        self.account.refresh_from_db()
+        assert not self.account.is_active
+        assert self.account.organization_memberships.get().pk == membership.pk
+        assert not PersonalAPIKey.objects.filter(user=self.account).exists()
+        deleted_at = self.client.get(url).json()["deleted_at"]
+        assert deleted_at
+        assert self.client.delete(url).status_code == 204
+        assert self.client.get(url).json()["deleted_at"] == deleted_at
+        assert self.client.get(self.url).json()["results"] == []
+        assert [item["id"] for item in self.client.get(self.url, {"include_deleted": True}).json()["results"]] == [
+            str(self.account.uuid)
+        ]
+        assert self.client.patch(url, {"name": "Changed"}).status_code == 404
+        for action in ["enable", "disable"]:
+            assert self.client.post(f"{url}{action}/", {}).status_code == 404
+        history_url = f"/api/projects/{self.team.pk}/annotations/{annotation}/"
+        assert self.client.get(history_url).json()["created_by"]["uuid"] == str(self.account.uuid)
+
+        self.flag.return_value = False
+        response = self.client.post(f"{url}restore/", {})
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted_at"] is None
+        assert response.json()["is_active"] is True
+        assert response.json()["user"]["email"] == self.account.email
+        assert self.account.organization_memberships.get().pk == membership.pk
+        assert self.client.get(history_url).json()["created_by"]["uuid"] == str(self.account.uuid)
+        account_client = APIClient()
+        account_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        assert account_client.get("/api/users/@me/").status_code == 401
+        new_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.account, label="Replacement", secure_value=hash_key_value(new_token), scopes=["user:read"]
+        )
+        account_client.credentials(HTTP_AUTHORIZATION=f"Bearer {new_token}")
+        assert account_client.get("/api/users/@me/").status_code == 200
+
+    def test_restore_does_not_enable_an_account_that_was_only_disabled(self) -> None:
+        self.account.is_active = False
+        self.account.save(update_fields=["is_active"])
+        response = self.client.post(f"{self.url}{self.account.uuid}/restore/", {})
+        assert response.status_code == 200
+        assert response.json()["is_active"] is False
+
+    def test_delete_revokes_oauth_tokens_and_unredeemed_grants(self) -> None:
+        application = OAuthApplication.objects.create(
+            name="Example integration",
+            client_type="public",
+            authorization_grant_type="authorization-code",
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+        access = OAuthAccessToken.objects.create(
+            user=self.account,
+            application=application,
+            token="test-deleted-access",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="user:read",
+        )
+        refresh = OAuthRefreshToken.objects.create(
+            user=self.account, application=application, token="test-deleted-refresh", access_token=access
+        )
+        OAuthGrant.objects.create(
+            user=self.account,
+            application=application,
+            code="test-unredeemed-code",
+            code_challenge="test-challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri="https://example.com/callback",
+            scope="user:read",
+        )
+        url = f"{self.url}{self.account.uuid}/"
+        assert self.client.delete(url).status_code == 204
+        assert not OAuthAccessToken.objects.filter(user=self.account).exists()
+        assert not OAuthRefreshToken.objects.filter(user=self.account).exists()
+        assert not OAuthGrant.objects.filter(user=self.account).exists()
+        assert self.client.post(f"{url}restore/", {}).status_code == 200
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access.token}")
+        assert client.get("/api/users/@me/").status_code == 401
+        response = APIClient().post(
+            "/oauth/token/",
+            {"grant_type": "refresh_token", "refresh_token": refresh.token, "client_id": application.client_id},
+        )
+        assert response.status_code == 400, response.content
+        assert response.json()["error"] == "invalid_grant"
+
+    @parameterized.expand(["delete", "restore"])
+    def test_deletion_actions_reject_members_and_out_of_scope_targets(self, action) -> None:
+        other_org = Organization.objects.create(name="Other organization")
+        other = User.objects.create_and_join(other_org, "other@example.com", None, type=UserType.SERVICE_ACCOUNT)
+
+        def perform(target):
+            url = f"{self.url}{target.uuid}/"
+            return self.client.delete(url) if action == "delete" else self.client.post(f"{url}restore/", {})
+
+        for target in [self.user, other]:
+            assert perform(target).status_code == 404
+        self.organization.memberships.filter(user=self.user).update(level=OrganizationMembership.Level.MEMBER)
+        assert perform(self.account).status_code == 403
+
+    @parameterized.expand(["delete", "restore"])
+    def test_deletion_actions_require_write_scope(self, action) -> None:
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            user=self.user, label="Management", secure_value=hash_key_value(token), scopes=["organization_member:read"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        url = f"{self.url}{self.account.uuid}/"
+
+        def perform():
+            return self.client.delete(url) if action == "delete" else self.client.post(f"{url}restore/", {})
+
+        assert perform().status_code == 403
+        key.scopes = ["organization_member:write"]
+        key.save(update_fields=["scopes"])
+        assert perform().status_code == (204 if action == "delete" else 200)
+
+    def test_credential_revocation_failure_rolls_back_deletion(self) -> None:
+        PersonalAPIKey.objects.create(
+            user=self.account, label="Deploy", secure_value=hash_key_value(generate_random_token_personal())
+        )
+        with patch(
+            "posthog.models.personal_api_key.PersonalAPIKey.delete", side_effect=RuntimeError("revocation failed")
+        ):
+            assert self.client.delete(f"{self.url}{self.account.uuid}/").status_code == 500
+        self.account.refresh_from_db()
+        assert self.account.is_active
+        assert self.client.get(f"{self.url}{self.account.uuid}/").json()["deleted_at"] is None
+        assert PersonalAPIKey.objects.filter(user=self.account).exists()

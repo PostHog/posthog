@@ -84846,6 +84846,11 @@ export namespace Schemas {
       readonly is_active: boolean;
       /** When the service account was created. */
       readonly created_at: string;
+      /**
+         * When the account was soft-deleted, or null if it has not been deleted.
+         * @nullable
+         */
+      readonly deleted_at: string | null;
     }
 
     export interface PaginatedServiceAccountList {
@@ -138154,6 +138159,10 @@ export namespace Schemas {
     };
 
     export type ServiceAccountsListParams = {
+    /**
+     * Include soft-deleted accounts.
+     */
+    include_deleted?: boolean;
     /**
      * Number of results to return per page.
      */

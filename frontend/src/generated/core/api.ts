@@ -1600,6 +1600,21 @@ export const serviceAccountsPartialUpdate = async (
     })
 }
 
+export const getServiceAccountsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/${id}/`
+}
+
+export const serviceAccountsDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getServiceAccountsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getServiceAccountsDisableCreateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/service_accounts/${id}/disable/`
 }
@@ -1629,6 +1644,24 @@ export const serviceAccountsEnableCreate = async (
     options?: RequestInit
 ): Promise<ServiceAccountApi> => {
     return apiMutator<ServiceAccountApi>(getServiceAccountsEnableCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(serviceAccountApi),
+    })
+}
+
+export const getServiceAccountsRestoreCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/${id}/restore/`
+}
+
+export const serviceAccountsRestoreCreate = async (
+    organizationId: string,
+    id: string,
+    serviceAccountApi?: NonReadonly<ServiceAccountApi>,
+    options?: RequestInit
+): Promise<ServiceAccountApi> => {
+    return apiMutator<ServiceAccountApi>(getServiceAccountsRestoreCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

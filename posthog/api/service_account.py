@@ -33,9 +33,17 @@ class ServiceAccountSerializer(serializers.ModelSerializer):
         source="user.date_joined", read_only=True, help_text="When the service account was created."
     )
 
+    deleted_at = serializers.DateTimeField(
+        source="user.service_account_state.deleted_at",
+        read_only=True,
+        default=None,
+        allow_null=True,
+        help_text="When the account was soft-deleted, or null if it has not been deleted.",
+    )
+
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "name", "user", "is_active", "created_at"]
+        fields = ["id", "name", "user", "is_active", "created_at", "deleted_at"]
 
 
 class ServiceAccountActionSerializer(serializers.Serializer):
@@ -48,6 +56,10 @@ class ServiceAccountActionSerializer(serializers.Serializer):
 
 class ServiceAccountWriteSerializer(ServiceAccountActionSerializer):
     name = serializers.CharField(max_length=150, help_text="Display name of the service account.")
+
+
+class ServiceAccountListSerializer(serializers.Serializer):
+    include_deleted = serializers.BooleanField(default=False, help_text="Include soft-deleted accounts.")
 
 
 @extend_schema(extensions={"x-product": "core"})
@@ -64,11 +76,20 @@ class ServiceAccountViewSet(
     lookup_field = "user__uuid"
     lookup_url_kwarg = "pk"
     path_parameters = {"pk": UUID}
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     time_sensitive_allow_actions = ["partial_update"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return operations.service_accounts(self.organization)
+        include_deleted = self.action in ("retrieve", "destroy", "restore")
+        if self.action == "list":
+            include_deleted = self.request.validated_query_data["include_deleted"]
+        return operations.service_accounts(self.organization, include_deleted=include_deleted)
+
+    @validated_request(
+        query_serializer=ServiceAccountListSerializer, responses={200: ServiceAccountSerializer(many=True)}
+    )
+    def list(self, request: ValidatedRequest, **kwargs) -> Response:
+        return super().list(request, **kwargs)
 
     @validated_request(ServiceAccountWriteSerializer, responses={201: ServiceAccountSerializer})
     def create(self, request: ValidatedRequest, **kwargs) -> Response:
@@ -104,4 +125,17 @@ class ServiceAccountViewSet(
     def enable(self, request: ValidatedRequest, **kwargs) -> Response:
         membership = self.get_object()
         membership = operations.set_service_account_active(self.organization, membership.user.uuid, is_active=True)
+        return Response(self.get_serializer(membership).data)
+
+    @extend_schema(responses={204: None})
+    def destroy(self, request: ValidatedRequest, **kwargs) -> Response:
+        membership = self.get_object()
+        operations.delete_service_account(self.organization, membership.user.uuid)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True, required_scopes=["organization_member:write"])
+    @validated_request(ServiceAccountActionSerializer, responses={200: ServiceAccountSerializer})
+    def restore(self, request: ValidatedRequest, **kwargs) -> Response:
+        membership = self.get_object()
+        membership = operations.restore_service_account(self.organization, membership.user.uuid)
         return Response(self.get_serializer(membership).data)

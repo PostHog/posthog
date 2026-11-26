@@ -64,6 +64,7 @@ from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
 from .scim_provisioned_user import SCIMProvisionedUser
 from .scim_request_log import SCIMRequestLog
+from .service_account_state import ServiceAccountState
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .tag import Tag
@@ -163,6 +164,7 @@ __all__ = [
     "ResourceTransfer",
     "SCIMProvisionedUser",
     "SCIMRequestLog",
+    "ServiceAccountState",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingExternalReference",
