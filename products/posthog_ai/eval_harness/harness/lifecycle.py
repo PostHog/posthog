@@ -210,6 +210,7 @@ class SandboxedEvalHarness:
             agent_runtime=self.options.agent_runtime,
             agent_model=self.options.agent_model,
             max_sandboxes=self.options.max_sandboxes,
+            team_setup_concurrency=self.options.team_setup_concurrency,
             trials=self.options.trials,
             case_timeout_seconds=self.options.per_case_timeout_seconds,
         )

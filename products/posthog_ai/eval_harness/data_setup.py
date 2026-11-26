@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 import logging
 import datetime
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -14,7 +15,7 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS, COPY_EVENTS_JSON_BETWEEN_TEAMS
+from posthog.models.event.sql import COPY_EVENTS_JSON_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 from posthog.persons_db import persons_db_connection
@@ -22,7 +23,9 @@ from posthog.persons_db import persons_db_connection
 from products.dashboards.backend.facade.contracts import DashboardRef
 from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
+from products.experiments.backend.facade.timeseries import seed_cloned_demo_timeseries, seed_master_demo_timeseries
 from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.posthog_ai.eval_harness.event_copy import copy_eval_events
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
@@ -39,9 +42,10 @@ MASTER_USER_EMAIL = "eval-master-seed@posthog.test"
 MASTER_DEMO_MAX_AGE = datetime.timedelta(days=1)
 
 
-def _build_hedgebox_matrix() -> HedgeboxMatrix:
+def _build_hedgebox_matrix(*, now: datetime.datetime | None = None) -> HedgeboxMatrix:
     return HedgeboxMatrix(
         seed=EVAL_SEED,
+        now=now,
         days_past=120,
         days_future=30,
         n_clusters=500,
@@ -174,11 +178,15 @@ def ensure_master_demo_team(django_db_blocker) -> int:
         # use_pre_save=False: we are the master — save simulation directly to this team
         # without going through MatrixManager._is_demo_data_pre_saved (which only checks PSQL
         # and lies when CH has been wiped independently).
-        matrix_manager = MatrixManager(_build_hedgebox_matrix(), use_pre_save=False, print_steps=True)
+        matrix = _build_hedgebox_matrix()
+        matrix.seed_timeseries = seed_master_demo_timeseries
+        matrix_manager = MatrixManager(matrix, use_pre_save=False, print_steps=True)
         with override_settings(TEST=False):
             _org, team, _user = matrix_manager.ensure_account_and_save(
                 MASTER_USER_EMAIL, EVAL_USER_FULL_NAME, MASTER_ORG_NAME
             )
+            team.extra_settings = {**(team.extra_settings or {}), "eval_fixture_clock": matrix.now.isoformat()}
+            team.save(update_fields=["extra_settings"])
 
         if settings.OBJECT_STORAGE_ENABLED and not _master_warehouse_ready(team):
             raise RuntimeError(
@@ -248,7 +256,7 @@ def copy_demo_data_to_new_team(
         copy_params = {"source_team_id": master_team_id, "target_team_id": team.id}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
-        sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        copy_eval_events(master_team_id, team.id)
         sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
@@ -272,7 +280,10 @@ def copy_demo_data_to_new_team(
         # per-case teams instead of returning "does not exist in the taxonomy".
         infer_taxonomy_for_team(team.id)
 
-        matrix = _build_hedgebox_matrix()
+        fixture_clock = (master_team.extra_settings or {}).get("eval_fixture_clock")
+        matrix = _build_hedgebox_matrix(now=datetime.datetime.fromisoformat(fixture_clock) if fixture_clock else None)
+        if fixture_clock:
+            matrix.seed_timeseries = partial(seed_cloned_demo_timeseries, master_team_id)
         with override_settings(TEST=False):
             matrix.set_project_up(team, user)
             # Point this team's warehouse tables at the master team's already-saved CSVs
