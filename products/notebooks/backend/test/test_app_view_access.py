@@ -36,7 +36,7 @@ class TestNotebookAppViewAccess(APIBaseTest):
             team=self.team,
             notebook=self.notebook,
             revision=1,
-            title=self.notebook.title,
+            title="Weekly activation",
             layout=layout,
             markdown='Private notes\n\n<SQLV2 nodeId="totals" code="SELECT private_source" outputTab="results" result={{"columns":["Week","Signups"],"first_page":[["Oct 12",222]]}} />',
             variables=[{"name": "hidden", "type": "string", "value": "private default"}],

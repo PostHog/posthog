@@ -31,7 +31,7 @@ class AppViewGrantResultSerializer(serializers.Serializer):
 @login_required
 def notebook_app_view_grant(request: HttpRequest, team_id: int, grant_id: UUID) -> HttpResponse:
     team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
-    if not notebook_app_builder_enabled(request.user, team):
+    if request.user.pk is None or not notebook_app_builder_enabled(request.user, team):
         raise Http404()
     output = read_granted_output(team.pk, request.user.pk, grant_id)
     if output is None:
