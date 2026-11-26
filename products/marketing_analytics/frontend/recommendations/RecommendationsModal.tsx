@@ -118,6 +118,7 @@ function RecommendationRows({
             size="small"
             dataSource={rows}
             rowKey={(row) => row.key}
+            pagination={{ pageSize: 20, hideOnSinglePage: true, useUrl: false }}
             expandable={{
                 expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),

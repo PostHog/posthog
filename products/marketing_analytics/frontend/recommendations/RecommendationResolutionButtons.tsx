@@ -49,7 +49,7 @@ export function RecommendationResolutionButtons({
     }
 
     return (
-        <div className="flex flex-col items-end gap-2 py-1 whitespace-nowrap">
+        <div className="flex flex-col items-end gap-3 py-2 whitespace-nowrap">
             {recommendation.impactDirection !== 'keep' && (
                 <LemonButton
                     size="xsmall"
