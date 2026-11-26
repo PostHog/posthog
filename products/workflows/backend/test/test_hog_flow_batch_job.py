@@ -208,21 +208,17 @@ class TestHogFlowBatchJob(TestCase):
 
     @parameterized.expand(
         [
-            ("flag_on", True, {"audience_type": "persons"}, True),
-            ("flag_off", False, {"audience_type": "persons"}, False),
+            ("persons_audience", {"audience_type": "persons"}, True),
             # Account audiences and realtime cohorts keep their own paging paths.
-            ("accounts_audience", True, {"audience_type": "accounts"}, False),
+            ("accounts_audience", {"audience_type": "accounts"}, False),
         ]
     )
-    @patch("products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.use_audience_snapshot")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_hog_flow_batch_job_asks_the_resolver_to_snapshot_a_person_audience(
-        self, _name, flag_on, filters, expect_snapshot, mock_create_invocation, mock_flag
+        self, _name, filters, expect_snapshot, mock_create_invocation
     ):
-        mock_flag.return_value = flag_on
-
         job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, filters=filters)
 
         audience_snapshot = mock_create_invocation.call_args.kwargs["audience_snapshot"]
@@ -232,12 +228,10 @@ class TestHogFlowBatchJob(TestCase):
             assert audience_snapshot is None
         assert job.status == HogFlowBatchJob.State.QUEUED
 
-    @patch("products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.use_audience_snapshot")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_realtime_cohort_audience_is_not_snapshotted(self, mock_create_invocation, mock_flag):
-        mock_flag.return_value = True
+    def test_realtime_cohort_audience_is_not_snapshotted(self, mock_create_invocation):
         cohort = self._realtime_cohort(ready=True)
 
         HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, filters=self._realtime_audience(cohort))

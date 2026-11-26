@@ -970,11 +970,19 @@ class TestLocalEvaluationBatch(BaseTest):
 
         TeamFeatureFlagsConfig.objects.update_or_create(
             team=gated_team,
-            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+            defaults={
+                "minimal_flag_called_events": True,
+                "property_matching_version": 2,
+                "null_counts_as_not_set": False,
+            },
         )
         TeamFeatureFlagsConfig.objects.update_or_create(
             team=gated_team_no_flags,
-            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+            defaults={
+                "minimal_flag_called_events": True,
+                "property_matching_version": 2,
+                "null_counts_as_not_set": True,
+            },
         )
         TeamFeatureFlagsConfig.objects.filter(team=ungated_team).delete()
 
@@ -988,11 +996,14 @@ class TestLocalEvaluationBatch(BaseTest):
 
         assert results[gated_team.id]["minimal_flag_called_events"] is True
         assert results[gated_team.id]["property_matching_version"] == 2
+        assert results[gated_team.id]["null_counts_as_not_set"] is False
         assert results[gated_team_no_flags.id]["flags"] == []
         assert results[gated_team_no_flags.id]["minimal_flag_called_events"] is True
         assert results[gated_team_no_flags.id]["property_matching_version"] == 2
+        assert results[gated_team_no_flags.id]["null_counts_as_not_set"] is True
         assert results[ungated_team.id]["minimal_flag_called_events"] is False
         assert results[ungated_team.id]["property_matching_version"] == 1
+        assert results[ungated_team.id]["null_counts_as_not_set"] is False
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")
@@ -1846,27 +1857,40 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert result["status"] == "match"
         assert result["issue"] == ""
 
-    def test_verify_detects_stale_minimal_flag_called_events(self):
-        # A gated team whose blob was cached before the gate flipped must report drift
-        # so verify-and-fix rewrites it; otherwise local-eval SDKs keep the stale gate
+    @parameterized.expand(
+        [
+            ("minimal_flag_called_events", True, "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH"),
+            ("property_matching_version", 2, "PROPERTY_MATCHING_VERSION_MISMATCH"),
+            ("null_counts_as_not_set", True, "NULL_COUNTS_AS_NOT_SET_MISMATCH"),
+        ]
+    )
+    def test_verify_detects_a_stale_team_setting(self, setting, new_value, mismatch_type):
+        # A team whose blob was cached before a setting changed must report drift, so that
+        # verify-and-fix rewrites the blob. Otherwise local-eval SDKs keep the stale setting
         # until TTL expiry if the staff endpoint's rebuild task was lost.
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
         update_flag_definitions_cache(self.team)
 
-        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={setting: new_value})
 
-        result = verify_team_flag_definitions(self.team)
+        result = verify_team_flag_definitions(self.team, verbose=True)
 
         assert result["status"] == "mismatch"
-        assert "minimal_flag_called_events mismatch" in result["details"]
+        assert f"{setting} mismatch" in result["details"]
+        assert {"type": mismatch_type, "flag_key": setting} in result["diffs"]
 
-    def test_verify_treats_absent_gate_key_as_false(self):
+    @parameterized.expand(
+        [("minimal_flag_called_events",), ("property_matching_version",), ("null_counts_as_not_set",)]
+    )
+    def test_verify_treats_absent_setting_key_as_legacy_default(self, setting):
         # Pre-existing blobs written before the key existed must not report drift for
-        # ungated teams — absent and False both mean "full events" to SDKs. Guards
-        # against a fleet-wide rewrite storm on deploy.
+        # teams on the legacy value. SDKs assume the legacy value when the key is absent.
+        # Without this, the first verification after deploy rewrites every team's blob.
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
         update_flag_definitions_cache(self.team)
         cached, _ = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert cached is not None
-        legacy_blob = {k: v for k, v in cached.items() if k != "minimal_flag_called_events"}
+        legacy_blob = {k: v for k, v in cached.items() if k != setting}
         flag_definitions_hypercache.set_cache_value(self.team, legacy_blob)
 
         result = verify_team_flag_definitions(self.team)

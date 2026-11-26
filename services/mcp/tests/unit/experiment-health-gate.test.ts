@@ -321,7 +321,8 @@ describe('experiment health gate', () => {
         vi.mocked(isFeatureFlagEnabled).mockResolvedValue(flag)
         const deadline = new AbortController()
         const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
-        // Like the server, the health read stops returning the draft's findings once the experiment is launched.
+        // Like the server, the draft's `no_metric` finding comes only from a read of the draft at launch, and the
+        // draft's findings stop once the experiment is launched.
         let launched = false
         const request = vi.fn().mockImplementation(async () => {
             launched = true
@@ -329,8 +330,8 @@ describe('experiment health gate', () => {
         })
         const getHealth = vi
             .fn()
-            .mockImplementation(() =>
-                launched
+            .mockImplementation(({ atLaunch }: { atLaunch?: boolean }) =>
+                launched || !atLaunch
                     ? Promise.resolve({ success: true, data: { findings: [], checks: [], setup: null } })
                     : healthRead(deadline)
             )

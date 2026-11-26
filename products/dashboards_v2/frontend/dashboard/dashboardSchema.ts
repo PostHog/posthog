@@ -21,16 +21,23 @@ import { AccessControlLevel } from '~/types'
  * - `metrics`: a `MetricsQuery` node, as the metrics product builds it.
  * - `traces`: a `TraceSpansQuery` or `TraceSpansAggregationQuery` node, as tracing and APM build them.
  * - `insight`: any query node `/query` runs, such as a `TrendsQuery`, for teams that already build their own nodes.
+ * - `promql` and `logql`: an expression, run as a range query over the chart's time range.
  */
 export type WidgetQuery =
     | { language: 'hogql'; query: string }
     | { language: 'metrics'; query: MetricsQuery }
     | { language: 'traces'; query: TraceSpansQuery | TraceSpansAggregationQuery }
     | { language: 'insight'; query: QuerySchema }
+    | { language: 'promql'; query: string }
+    | { language: 'logql'; query: string }
+
+// The query batch endpoint's limits. A longer value fails the whole batch, and with it every other tile's query.
+const MAX_QUERY_TEXT = 200_000
+const MAX_TIME_END = 100
 
 // Only a node's kind is checked here. The node schemas are large, and PostHog checks the rest when it runs the query.
 export const widgetQuerySchema = z.union([
-    z.strictObject({ language: z.literal('hogql'), query: z.string().min(1) }),
+    z.strictObject({ language: z.literal('hogql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
     z.strictObject({
         language: z.literal('metrics'),
         query: z.looseObject({ kind: z.literal(NodeKind.MetricsQuery) }),
@@ -42,13 +49,26 @@ export const widgetQuerySchema = z.union([
         }),
     }),
     z.strictObject({ language: z.literal('insight'), query: z.looseObject({ kind: z.string().min(1) }) }),
+    z.strictObject({ language: z.literal('promql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
+    z.strictObject({ language: z.literal('logql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
 ]) as unknown as z.ZodType<WidgetQuery>
 
 /**
  * The time range a query runs over. Each end is an expression such as `now-7d` or `now`, or an ISO 8601 time. Keep
  * relative ends relative, because the backend then caches the result under the same key on every reload.
  */
-export const timeRangeSchema = z.strictObject({ from: z.string().min(1), to: z.string().min(1) })
+/** `now-` and an amount of seconds (`s`), minutes (`m`), hours (`h`), days (`d`), weeks (`w`), months (`M`) or years (`y`). */
+export const RELATIVE_TIME = /^now-(\d+)([smhdwMy])$/
+
+const timePointSchema = z
+    .string()
+    .max(MAX_TIME_END)
+    .refine(
+        (point) => point === 'now' || RELATIVE_TIME.test(point) || !Number.isNaN(Date.parse(point)),
+        'Use now, now-<amount><s|m|h|d|w|M|y>, or an ISO 8601 time'
+    )
+
+export const timeRangeSchema = z.strictObject({ from: timePointSchema, to: timePointSchema })
 
 export const tilePlaceSchema = z.strictObject({
     x: z.int().nonnegative(),
@@ -60,8 +80,15 @@ export const tilePlaceSchema = z.strictObject({
 /** Which parts of a content tile show. A part that is missing shows. */
 export const contentWidgetPartsSchema = z.strictObject({
     header: z.boolean().optional(),
-    description: z.boolean().optional(),
     footer: z.boolean().optional(),
+})
+
+/** How a tile looks. A setting that is missing is on. A section has no background to change. */
+export const tileAppearanceSchema = z.strictObject({
+    background: z.boolean().optional(),
+    border: z.boolean().optional(),
+    /** Any CSS color. The tile mixes it into its background as a tint. */
+    backgroundColor: z.string().min(1).optional(),
 })
 
 /**
@@ -76,7 +103,20 @@ export const contentWidgetSchema = z.strictObject({
     /** When the widget's data was last computed, as an ISO timestamp. */
     refreshedAt: z.iso.datetime({ offset: true }).optional(),
     parts: contentWidgetPartsSchema.optional(),
+    appearance: tileAppearanceSchema.optional(),
     config: z.unknown(),
+    /** Set once the widget shows on more than one tile. Its content is then saved once, in the document's `widgets`. */
+    ref: z.string().min(1).optional(),
+})
+
+/** A widget shown on several tiles. Each tile chooses its own parts and appearance. */
+export const sharedWidgetSchema = contentWidgetSchema.omit({ parts: true, appearance: true, ref: true })
+
+/** A tile's widget in a saved document when the widget is shared: its key in `widgets`, and how this tile shows it. */
+export const widgetRefSchema = z.strictObject({
+    ref: z.string().min(1),
+    parts: contentWidgetPartsSchema.optional(),
+    appearance: tileAppearanceSchema.optional(),
 })
 
 /**
@@ -87,6 +127,7 @@ export const sectionWidgetSchema = z.strictObject({
     type: z.literal('section'),
     title: z.string(),
     collapsed: z.boolean().optional(),
+    appearance: tileAppearanceSchema.optional(),
     /** The height a person resized the section to, in rows. It still grows past this when its tiles need more. */
     minRows: z.int().positive().optional(),
     get tiles(): z.ZodArray<typeof tileSchema> {
@@ -124,6 +165,17 @@ export const linkTabSchema = z.strictObject({
 
 export const dashboardTabSchema = z.union([gridTabSchema, linkTabSchema])
 
+/**
+ * A filter a person added to the dashboard. `type` names a kind of filter the host supplies, and `config` is that
+ * kind's own settings, such as which property it filters on. The value picked is not saved: each viewer picks their own.
+ */
+export const dashboardFilterSchema = z.strictObject({
+    id: z.string().min(1),
+    type: z.string().min(1),
+    label: z.string().optional(),
+    config: z.unknown(),
+})
+
 export const ONE_GRID_TAB = 'A dashboard needs at least one tab with tiles'
 
 export const dashboardSchema = z.strictObject({
@@ -134,5 +186,36 @@ export const dashboardSchema = z.strictObject({
     user_access_level: z.enum(AccessControlLevel).optional(),
     /** The time range of every widget that does not set its own. Missing means `DEFAULT_TIME_RANGE`. */
     time: timeRangeSchema.optional(),
+    /** Whether viewers see a filter bar. Missing means no, so a dashboard shows filters only once an editor allows them. */
+    allowFilters: z.boolean().optional(),
+    filters: z.array(dashboardFilterSchema).optional(),
     tabs: z.array(dashboardTabSchema).refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
+})
+
+/** A tile's own widget in a saved document. A shared widget is saved once in `widgets`, so its tiles carry no `ref` here. */
+export const documentContentWidgetSchema = contentWidgetSchema.omit({ ref: true })
+
+const documentSectionSchema = sectionWidgetSchema.extend({
+    get tiles(): z.ZodArray<typeof documentTileSchema> {
+        return z.array(documentTileSchema)
+    },
+})
+
+const documentTileSchema = tileSchema.extend({
+    get widget(): z.ZodUnion<
+        [typeof documentSectionSchema, typeof documentContentWidgetSchema, typeof widgetRefSchema]
+    > {
+        return z.union([documentSectionSchema, documentContentWidgetSchema, widgetRefSchema])
+    },
+})
+
+/**
+ * The dashboard as it is saved. It is `dashboardSchema` with shared widgets stored once: a tile shows one through a
+ * `widgetRefSchema`, and `loadDashboard` puts each back on its tiles.
+ */
+export const dashboardDocumentSchema = dashboardSchema.extend({
+    widgets: z.record(z.string(), sharedWidgetSchema).optional(),
+    tabs: z
+        .array(z.union([gridTabSchema.extend({ tiles: z.array(documentTileSchema) }), linkTabSchema]))
+        .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })

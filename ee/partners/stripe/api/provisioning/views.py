@@ -60,6 +60,7 @@ from ee.partners.stripe.api.provisioning.core import (
     StripeOAuthAppMissingError,
     base_team_id_from_scope,
     compute_partner_scoped_teams,
+    delete_provisioned_pats,
     get_available_teams_for_user,
     get_oauth_app_for_code,
     get_provisioning_service_id,
@@ -68,6 +69,7 @@ from ee.partners.stripe.api.provisioning.core import (
     is_safe_deep_link_path,
     is_stripe_oauth_app,
     lock_application,
+    lock_partner_connections_for_team,
     maybe_create_provisioned_pat,
     region_to_host,
     remove_team_from_token_scopes,
@@ -732,7 +734,14 @@ class ResourcesCreateView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
+        if personal_api_key := maybe_create_provisioned_pat(
+            user,
+            team,
+            access_token.application,
+            access_token.scope,
+            label_prefix=label_prefix,
+            access_token=access_token,
+        ):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(
@@ -817,7 +826,15 @@ class RotateCredentialsView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
+        if personal_api_key := maybe_create_provisioned_pat(
+            user,
+            team,
+            access_token.application,
+            access_token.scope,
+            label_prefix=label_prefix,
+            access_token=access_token,
+            replace_existing=True,
+        ):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(
@@ -927,23 +944,38 @@ class ResourceRemoveView(StripeResourceAPIView):
 
         team_id = self.parse_resource_team_id(resource_id, access_token)
 
-        try:
-            # Clear the mapping only if it is unclaimed or owned by the caller's
-            # application; an in-scope partner must not delete another partner's
-            # provisioning mapping for the same team.
-            # TODO: latent gap - when the config is owned by another application
-            # the delete is silently skipped, yet the team is still stripped
-            # from token scopes and "removed" is returned, so the mapping
-            # survives with no signal to the caller.
-            config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
-            if config is not None and config.application_id in (None, access_token.application_id):
-                config.delete()
-        except Exception:
-            capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
-            capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
-            raise SpecError("remove_failed", "Failed to remove resource", resource_id=resource_id, status=500)
+        # One transaction, so a failure keeps the mapping, the token scopes and the keys, and the partner
+        # can retry the removal. A deleted mapping alone drops the team from the next refreshed token.
+        with transaction.atomic():
+            # Connection locks, then the application lock, before the mapping and the tokens: the
+            # order both token refresh paths take them, so a refresh that runs during the removal
+            # waits for it and then reads its scope without the removed team.
+            if access_token.application_id is not None:
+                lock_partner_connections_for_team(access_token.application_id, team_id)
+                lock_application(access_token.application_id)
+            try:
+                # Clear the mapping only if it is unclaimed or owned by the caller's
+                # application; an in-scope partner must not delete another partner's
+                # provisioning mapping for the same team.
+                # TODO: latent gap - when the config is owned by another application
+                # the delete is silently skipped, yet the team is still stripped
+                # from token scopes and "removed" is returned, so the mapping
+                # survives with no signal to the caller.
+                config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
+                if config is not None and config.application_id in (None, access_token.application_id):
+                    config.delete()
+            except Exception:
+                capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
+                capture_provisioning_event(
+                    "resource_removed", "error", team_id=team_id, error_code="remove_config_failed"
+                )
+                raise SpecError("remove_failed", "Failed to remove resource", resource_id=resource_id, status=500)
 
-        remove_team_from_token_scopes(access_token, team_id)
+            remove_team_from_token_scopes(access_token, team_id)
+
+            # After the scope change, so a mint that locked a token before it has committed its key.
+            if access_token.application is not None:
+                delete_provisioned_pats(access_token.application, team_id=team_id)
 
         capture_provisioning_event("resource_removed", "success", team_id=team_id)
 

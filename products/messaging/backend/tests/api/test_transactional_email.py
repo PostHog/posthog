@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -13,6 +14,7 @@ from django.core.cache import caches
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 import requests
 from django_redis.cache import RedisCache
@@ -33,8 +35,19 @@ from posthog.models.utils import generate_random_token_personal, generate_random
 from posthog.rate_limit import is_rate_limit_enabled
 from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
-from products.access_control.backend.facade.testing import create_access_control
-from products.messaging.backend.facade.transactional_email import report_first_code_send
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
+from products.messaging.backend.facade.contracts import SandboxFieldsUnsupported
+from products.messaging.backend.facade.transactional_email import (
+    CodeEmail,
+    EmailTracking,
+    ReplyHeaders,
+    report_first_code_send,
+    send_code_email,
+)
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -860,10 +873,17 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
-        [("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS), ("listed", True, status.HTTP_202_ACCEPTED)]
+        [
+            (f"{route}_{name}", route, listed, third_status)
+            for route in ("template", "send_email", "send_email_key_scoped")
+            for name, listed, third_status in (
+                ("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS),
+                ("listed", True, status.HTTP_202_ACCEPTED),
+            )
+        ]
     )
     def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
-        self, mock_post, _flag, _capture, _name, listed, third_status
+        self, mock_post, _flag, _capture, _name, route, listed, third_status
     ):
         self._cdp_accepts(mock_post)
         client = self._sender_client("secret_key")
@@ -877,11 +897,12 @@ class TestTransactionalEmail(APIBaseTest):
         ):
             try:
                 is_rate_limit_enabled.cache_clear()
-                statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
+                statuses = [self._send(client, route, self.body).status_code for _ in range(3)]
             finally:
-                redis_cache = caches["default"]
-                assert isinstance(redis_cache, RedisCache)
-                redis_cache.delete_pattern("*")
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
                 is_rate_limit_enabled.cache_clear()
 
         assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
@@ -1376,9 +1397,23 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_a_time", {}, (False, None)),
-            ("a_time_that_passed_before_cdp_api_read_it", {"scheduled_at": "2026-11-20T08:00:00.500Z"}, (False, None)),
-            ("a_time_an_hour_ahead_when_asked", {"scheduled_at": "2026-11-20T09:00:00.500Z"}, (True, "<1d")),
+            ("without_a_time", {}, (False, None, None)),
+            (
+                "a_time_that_passed_before_cdp_api_read_it",
+                {"scheduled_at": "2026-11-20T08:00:00.500Z"},
+                (False, None, None),
+            ),
+            (
+                "a_time_an_hour_ahead_when_asked",
+                {"scheduled_at": "2026-11-20T09:00:00.500Z"},
+                (True, "<1d", 3600.5 / 3600),
+            ),
+            (
+                "a_time_three_and_a_half_days_ahead",
+                {"scheduled_at": "2026-11-23T20:00:00Z"},
+                (True, "<7d", 84.0),
+            ),
+            ("a_time_ten_minutes_ahead", {"scheduled_at": "2026-11-20T08:10:00Z"}, (True, "<1h", 10 / 60)),
         ]
     )
     def test_the_send_event_reports_what_cdp_api_did_with_the_time_asked_for(
@@ -1401,7 +1436,49 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         [event] = analytics.properties_of("transactional email api send")
-        assert (event["scheduled"], event["scheduled_lead_bucket"]) == reported
+        assert (event["scheduled"], event["scheduled_lead_bucket"], event["scheduled_lead_hours"]) == reported
+
+    @parameterized.expand(
+        [
+            ("too_far_ahead", True, "2026-11-30T09:00:00Z", 240.0),
+            ("a_millisecond_over_seven_days", True, "2026-11-27T09:00:00.001Z", 604_800_001 / 3_600_000),
+            ("while_scheduled_sends_are_off", False, "2026-11-21T15:00:00Z", 30.0),
+            ("in_the_past_while_scheduled_sends_are_off", False, "2026-11-19T09:00:00Z", -24.0),
+        ]
+    )
+    def test_a_send_refused_for_its_time_reports_how_far_ahead_it_asked(
+        self, mock_post, flag, capture, _name, scheduled_sends_on, scheduled_at, lead_hours
+    ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
+
+        with (
+            time_machine.travel("2026-11-20T08:00:00Z", tick=False) as clock,
+            patch(
+                "products.messaging.backend.presentation.views.message_templates.timezone", wraps=timezone
+            ) as send_clock,
+            FakeCdpApi().serving(mock_post) as cdp,
+        ):
+
+            def a_slow_flag_lookup(key: str, *_args: Any, **_kwargs: Any) -> bool:
+                if key != EMAIL_SCHEDULED_SENDS_FLAG:
+                    return True
+                clock.shift(3600)
+                return scheduled_sends_on
+
+            def an_hour_passes_after_each_read() -> datetime:
+                read = timezone.now()
+                clock.shift(3600)
+                return read
+
+            flag.side_effect = a_slow_flag_lookup
+            send_clock.now.side_effect = an_hour_passes_after_each_read
+            response = self._send_with_scheduled_at(self._psak_client(["hog_flow:write"]), "code", scheduled_at)
+
+        assert (response.status_code, response.json()["attr"]) == (status.HTTP_400_BAD_REQUEST, "scheduled_at")
+        assert cdp.received == []
+        [event] = analytics.properties_of("transactional email api send")
+        assert (event["outcome"], event["scheduled_lead_hours"]) == ("rejected", lead_hours)
 
     @parameterized.expand([("template_key", "code"), ("template_id", "send_email")])
     def test_a_retry_after_the_due_time_answers_the_time_the_first_send_waited_for(
@@ -1425,9 +1502,11 @@ class TestTransactionalEmail(APIBaseTest):
         assert (moved.status_code, moved.json()["code"]) == (422, "idempotency_key_reused")
         assert len(cdp.queued) == 1
         events = analytics.properties_of("transactional email api send")
-        assert [(event["scheduled"], event["scheduled_lead_bucket"]) for event in events[:2]] == [
-            (True, "<1d"),
-            (True, None),
+        assert [
+            (event["scheduled"], event["scheduled_lead_bucket"], event["scheduled_lead_hours"]) for event in events[:2]
+        ] == [
+            (True, "<1d", 1.0),
+            (True, None, None),
         ]
 
     @parameterized.expand(
@@ -1903,6 +1982,24 @@ class TestTransactionalEmail(APIBaseTest):
         assert self._setup_url(None) in body["detail"]
         assert self._sandbox_senders() == []
         assert pipeline.queued == []
+
+    def test_refuses_a_reply_the_sandbox_sender_cannot_thread(self, _mock_post, _flag, _capture):
+        self._without_a_verified_sender(unverified_sender=False)
+        reply = CodeEmail(
+            key="support-reply",
+            subject="Re: help",
+            html="<p>Hi</p>",
+            text="Hi",
+            sender=None,
+            reply_to=(),
+            tracking=EmailTracking(),
+            reply_headers=ReplyHeaders(in_reply_to="<parent@example.com>"),
+        )
+
+        with pytest.raises(SandboxFieldsUnsupported) as refused:
+            send_code_email(self.team, reply, to="customer@example.com", distinct_id=None)
+
+        assert refused.value.attr == "reply_headers"
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
         response = self._psak_client(["hog_flow:write"]).post(
@@ -2941,6 +3038,63 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (operation, access)
+            for operation in ("update", "make_transactional", "code_send")
+            for access in ("restricted", "granted", "admin")
+        ]
+    )
+    def test_workflow_changes_follow_property_access(
+        self, mock_post, _flag, operation: str, access: PropertyAccess
+    ) -> None:
+        self.client.force_login(self.user)
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        plain_template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Receipt",
+            content={"email": {"subject": "Receipt", "html": "<p>Receipt</p>"}},
+            type="email",
+            created_by=self.user,
+        )
+        workflows_before = HogFlow.objects.filter(team=self.team).count()
+
+        if operation == "update":
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+                {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}},
+                format="json",
+            )
+        elif operation == "make_transactional":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/{plain_template.id}/make_transactional/",
+                {},
+                format="json",
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging/send/email/",
+                {"to": "user@example.com", "template_key": "welcome", "subject": "Welcome", "html": "<p>Hi</p>"},
+                format="json",
+            )
+
+        self.template.refresh_from_db()
+        plain_template.refresh_from_db()
+        changed = {
+            "update": self.template.content["email"]["subject"] == "New",
+            "make_transactional": plain_template.transactional_hog_flow_id is not None,
+            "code_send": HogFlow.objects.filter(team=self.team).count() == workflows_before + 1,
+        }[operation]
+        if access == "restricted":
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+            assert "property access" in response.json()["detail"].lower()
+            assert not changed
+            mock_post.assert_not_called()
+        else:
+            assert response.status_code < 300, response.json()
+            assert changed
 
     @parameterized.expand(
         [

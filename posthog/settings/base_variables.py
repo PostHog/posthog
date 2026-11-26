@@ -99,6 +99,7 @@ HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", op
 # Only organizations with the `managed-warehouse-gigahog-imports` flag write there.
 GIGAHOG_URL: str | None = get_from_env("GIGAHOG_URL", optional=True)
 GIGAHOG_API_DIRECT: bool = get_from_env("GIGAHOG_API_DIRECT", False, type_cast=str_to_bool)
+GIGAHOG_OAUTH_DIRECT: bool = get_from_env("GIGAHOG_OAUTH_DIRECT", False, type_cast=str_to_bool)
 GIGAHOG_IMPORTS_CATALOG: str | None = get_from_env("GIGAHOG_IMPORTS_CATALOG", optional=True)
 GIGAHOG_IMPORTS_DATA_PATH: str | None = get_from_env("GIGAHOG_IMPORTS_DATA_PATH", optional=True)
 GIGAHOG_IMPORTS_TOKEN_URL: str | None = get_from_env("GIGAHOG_IMPORTS_TOKEN_URL", optional=True)

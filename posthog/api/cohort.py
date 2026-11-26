@@ -118,6 +118,7 @@ from products.cohorts.backend.cohort_enablement import (
     RealtimeLimitReached,
     RealtimeTurnOnRefused,
     flag_calls_table_refusal,
+    prepare_again,
     refuse_edit_over_plan_limits,
     turn_realtime_off,
     turn_realtime_on,
@@ -765,7 +766,8 @@ class CohortRealtimeRequestSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
         help_text="True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and "
         "starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts "
-        "with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. "
+        "with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is "
+        "already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. "
         "PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the "
         "cohort.",
     )
@@ -1368,9 +1370,9 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "see membership changes within about a minute. `building` / `rebuilding`: PostHog is "
         "preparing the cohort from past events, and flags cannot target it yet. "
         "`needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and "
-        "realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the "
-        "cohort can't be realtime, so its membership only comes from the once-a-day calculation. See "
-        "`reason`. `person_properties`: it matches on person properties, which flags read "
+        "realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, "
+        "it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the "
+        "once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read "
         "directly, so they can always target it. `static`: it is a fixed list of people.",
     )
     ready_at = serializers.DateTimeField(
@@ -1390,10 +1392,13 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "`includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. "
         "`history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it "
         "matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test "
-        "users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan "
-        "allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its "
-        "criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a "
-        "`daily` cohort whose stored criteria don't show why.",
+        "users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, "
+        "one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria "
+        "look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: "
+        "`too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. "
+        "`unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so "
+        "PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't "
+        "show why.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,
@@ -3317,7 +3322,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         request_serializer=CohortRealtimeRequestSerializer,
         responses={200: CohortSerializer},
         description="Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort "
-        "it includes as criteria, and PostHog prepares them from past events before feature flags can target them.",
+        "it includes as criteria, and PostHog prepares them from past events before feature flags can target them. "
+        "Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.",
     )
     @action(methods=["POST"], detail=True, required_scopes=["cohort:write"])
     def realtime(self, request: ValidatedRequest, **kwargs) -> Response:
@@ -3327,9 +3333,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         enabled: bool = request.validated_data["enabled"]
         before = cohort.to_dict()
+        retried = False
         if enabled:
+            was_on = cohort.realtime_enabled
             try:
                 turn_realtime_on(cohort.team_id, cohort.pk, can_edit=_can_edit(self.user_access_control))
+                if was_on:
+                    retried = bool(prepare_again(cohort.team_id, cohort.pk))
             except RealtimeLimitReached as error:
                 _report_realtime_limit_reached(request, cohort, error, "switch")
                 raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
@@ -3355,7 +3365,15 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             report_user_action(
                 cast(User, request.user),
                 "cohort realtime enabled" if enabled else "cohort realtime disabled",
-                cohort.get_analytics_metadata(),
+                {**cohort.get_analytics_metadata(), "cohort_id": cohort.pk},
+                team=cohort.team,
+                request=request,
+            )
+        if retried:
+            report_user_action(
+                cast(User, request.user),
+                "cohort realtime retried",
+                {**cohort.get_analytics_metadata(), "cohort_id": cohort.pk},
                 team=cohort.team,
                 request=request,
             )

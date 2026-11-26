@@ -1,4 +1,4 @@
-import type { Profile } from '../cards/schema'
+import type { AdmissionTargets, DerivedLoad } from '../cards/load-targets'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { BarResult } from '../judge/bars'
@@ -25,6 +25,14 @@ const HELD: Verdict = {
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
 
 const BROKEN = { name: 'at_least_once', passed: false, observed: 2, violation: 'run-1 email: lost', unitIds: ['run-1'] }
+
+const UNJUDGED: InvariantResult = {
+    name: 'no_loss',
+    passed: false,
+    observed: 0,
+    unitIds: [],
+    unjudged: 'the truth could not be read: socket hang up',
+}
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
 const HOGFLOW_WORKER = 'cdp-cyclotron-worker-hogflow'
@@ -140,6 +148,27 @@ describe('statusOf', () => {
             { timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }] },
             'invalid',
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'an invariant could not be judged',
+            { invariants: [UNJUDGED] },
+            'invalid',
+            'no_loss was not judged: the truth could not be read: socket hang up',
+        ],
+        [
+            'an invariant could not be judged only because a valve was never observed',
+            {
+                timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
+                invariants: [{ ...UNJUDGED, unjudged: `role.kill on ${EMAIL_WORKER} was not observed: never applied` }],
+            },
+            'invalid',
+            `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'an invariant failed while another could not be judged',
+            { invariants: [BROKEN, UNJUDGED] },
+            'failed',
+            'no_loss was not judged: the truth could not be read: socket hang up; at_least_once failed: run-1 email: lost',
         ],
         [
             'a valve applied only after the drive ended',
@@ -817,10 +846,10 @@ describe('statusOf', () => {
         [
             'keeps every check when the judge read the job count',
             0,
-            ['at_least_once', 'bounced_suppressed', 'duplicate_sends'],
+            ['at_least_once', 'bounced_suppressed', 'duplicate_sends', 'no_loss'],
         ],
     ])('%s', (_story, unfinishedJobs, judged) => {
-        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends'].map(
+        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends', 'no_loss'].map(
             (name): InvariantResult => ({ name, passed: false, observed: 1, unitIds: ['run-1'] })
         )
 
@@ -834,9 +863,13 @@ describe('statusOf', () => {
         newJobsPerSecond: 5.5,
         hostBusyShare: 0.62,
     }
-    const LOAD: Profile['load'] = { targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: 5 }, tolerance: 0.1 }
+    const LOAD: DerivedLoad = {
+        targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: 5 },
+        tolerance: 0.1,
+        derived: [],
+    }
 
-    it.each<[string, Pick<Profile, 'load' | 'host'>, Partial<Baseline>, Admission[]]>([
+    it.each<[string, AdmissionTargets, Partial<Baseline>, Admission[]]>([
         ['admits nothing for a profile that sets neither', {}, {}, []],
         [
             'admits a baseline within the tolerance of every target',

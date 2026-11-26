@@ -56,6 +56,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_for_task,
+    posthog_code_keeps_bundled_skills,
     record_delivered_message,
     sandbox_identity_scope,
     unmounted_mcp_installations_log_fields,
@@ -645,6 +646,7 @@ def _refresh_sandbox_mcp(
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
         exclude_tools=mcp_exclude_tools_for_task(task_run.task, state),
+        bundled_skills=posthog_code_keeps_bundled_skills(task_run),
     )
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
@@ -835,7 +837,11 @@ def _refresh_sandbox_github(
 
     # Read-only runs use a team installation grant, not the message actor's identity.
     # The periodic credential refresh rotates that grant without widening its permissions.
-    if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
+    if (
+        (state or {}).get("github_read_access") is True
+        or (state or {}).get("github_token_scope")
+        or (state or {}).get("agent_egress_git_reads") is True
+    ):
         return None
     # A run that started before its actor connected GitHub is bot-authored, and the agent may
     # have been the one that asked them to connect. Promote it so the turn that follows the

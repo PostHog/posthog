@@ -102,6 +102,12 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
         .describe(
             "New property matching version for the team. Version 1 preserves legacy behavior. Version 2 uses explicit scalar and array equality. Only set version 2 after confirming that the team's local-evaluation SDK versions support it. Omit to leave it unchanged.\n\n\* `1` - Legacy\n\* `2` - Explicit"
         ),
+    null_counts_as_not_set: zod
+        .boolean()
+        .optional()
+        .describe(
+            "New value for the team's null_counts_as_not_set setting. True makes a property whose value is null count as not set for is_set and is_not_set, which changes the results of flags that use those operators on null values. Omit to leave it unchanged."
+        ),
     max_feature_flags_override: zod
         .number()
         .min(1)
@@ -505,6 +511,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .nullish()
                             .describe('Group type index for this condition set. None means person-level aggregation.'),
+                        description: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Display-only name for this release condition group. It does not affect evaluation.'
+                            ),
                     })
                 )
                 .optional()
@@ -981,6 +993,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .nullish()
                             .describe('Group type index for this condition set. None means person-level aggregation.'),
+                        description: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Display-only name for this release condition group. It does not affect evaluation.'
+                            ),
                     })
                 )
                 .optional()
