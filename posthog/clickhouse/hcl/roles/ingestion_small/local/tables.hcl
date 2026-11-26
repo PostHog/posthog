@@ -330,37 +330,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_log_entries_ws" {
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "log_source" {
-      type = "LowCardinality(String)"
-    }
-    column "log_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "level" {
-      type = "LowCardinality(String)"
-    }
-    column "message" {
-      type = "String"
-    }
-    engine "kafka" {
-      collection           = "warpstream_ingestion"
-      topic_list           = "log_entries"
-      group_name           = "clickhouse_log_entries_ws"
-      format               = "JSONEachRow"
-      skip_broken_messages = 100
-    }
-  }
-
   table "kafka_person" {
     column "id" {
       type = "UUID"
@@ -1724,52 +1693,6 @@ SELECT
   _timestamp,
   _offset
 FROM posthog.kafka_log_entries_v3
-WHERE toDate(timestamp) <= today()
-SQL
-
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "log_source" {
-      type = "LowCardinality(String)"
-    }
-    column "log_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "level" {
-      type = "LowCardinality(String)"
-    }
-    column "message" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "Nullable(DateTime)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-  }
-
-  materialized_view "log_entries_ws_mv" {
-    to_table = "posthog.writable_log_entries"
-    query    = <<SQL
-SELECT
-  team_id,
-  log_source,
-  log_source_id,
-  instance_id,
-  timestamp,
-  level,
-  message,
-  _timestamp,
-  _offset
-FROM posthog.kafka_log_entries_ws
 WHERE toDate(timestamp) <= today()
 SQL
 

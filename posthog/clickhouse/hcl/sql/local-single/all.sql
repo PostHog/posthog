@@ -317,16 +317,6 @@ CREATE TABLE posthog.kafka_app_metrics2 (
   metric_name String,
   count Int64
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_app_metrics2';
-CREATE TABLE posthog.kafka_app_metrics2_ws (
-  team_id Int64,
-  timestamp DateTime64(6, 'UTC'),
-  app_source LowCardinality(String),
-  app_source_id String,
-  instance_id String,
-  metric_kind String,
-  metric_name String,
-  count Int64
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_app_metrics2_ws', kafka_topic_list = 'clickhouse_app_metrics2';
 CREATE TABLE posthog.kafka_billing_usage_records (
   schema_version UInt8,
   record_id String,
@@ -636,15 +626,6 @@ CREATE TABLE posthog.kafka_log_entries_v3 (
   level LowCardinality(String),
   message String
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries';
-CREATE TABLE posthog.kafka_log_entries_ws (
-  team_id UInt64,
-  log_source LowCardinality(String),
-  log_source_id String,
-  instance_id String,
-  timestamp DateTime64(6, 'UTC'),
-  level LowCardinality(String),
-  message String
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_ws', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_logs_avro (
   uuid String,
   trace_id String,
@@ -888,17 +869,6 @@ CREATE TABLE posthog.kafka_tophog (
   lane LowCardinality(String),
   labels Map(LowCardinality(String), String)
 ) ENGINE = Kafka(msk_cluster) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_tophog', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_tophog';
-CREATE TABLE posthog.kafka_tophog_ws (
-  timestamp DateTime64(6, 'UTC'),
-  metric LowCardinality(String),
-  type LowCardinality(String),
-  key Map(LowCardinality(String), String),
-  value Float64,
-  count UInt64,
-  pipeline LowCardinality(String),
-  lane LowCardinality(String),
-  labels Map(LowCardinality(String), String)
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_tophog_ws', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_tophog';
 CREATE TABLE posthog.kafka_trace_spans_avro (
   uuid String,
   trace_id String,
@@ -4448,19 +4418,6 @@ CREATE MATERIALIZED VIEW posthog.app_metrics2_mv TO posthog.writable_app_metrics
   _offset,
   _partition
 FROM posthog.kafka_app_metrics2;
-CREATE MATERIALIZED VIEW posthog.app_metrics2_ws_mv TO posthog.writable_app_metrics2 (team_id Int64, timestamp DateTime64(6, 'UTC'), app_source LowCardinality(String), app_source_id String, instance_id String, metric_kind String, metric_name String, count Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
-  team_id,
-  timestamp,
-  app_source,
-  app_source_id,
-  instance_id,
-  metric_kind,
-  metric_name,
-  count,
-  _timestamp,
-  _offset,
-  _partition
-FROM posthog.kafka_app_metrics2_ws;
 CREATE MATERIALIZED VIEW posthog.app_metrics_mv TO posthog.writable_app_metrics (team_id Int64, timestamp DateTime64(6, 'UTC'), plugin_config_id Int64, category LowCardinality(String), job_id String, successes Int64, successes_on_retry Int64, failures Int64, error_uuid UUID, error_type String, error_details String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   timestamp,
@@ -5074,18 +5031,6 @@ CREATE MATERIALIZED VIEW posthog.log_entries_v3_mv TO posthog.writable_log_entri
   _timestamp,
   _offset
 FROM posthog.kafka_log_entries_v3
-WHERE toDate(timestamp) <= today();
-CREATE MATERIALIZED VIEW posthog.log_entries_ws_mv TO posthog.writable_log_entries (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
-  team_id,
-  log_source,
-  log_source_id,
-  instance_id,
-  timestamp,
-  level,
-  message,
-  _timestamp,
-  _offset
-FROM posthog.kafka_log_entries_ws
 WHERE toDate(timestamp) <= today();
 CREATE MATERIALIZED VIEW posthog.logs32_to_log_attributes TO posthog.log_attributes (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
@@ -6038,17 +5983,6 @@ CREATE MATERIALIZED VIEW posthog.tophog_mv TO posthog.writable_tophog (timestamp
   lane,
   labels
 FROM posthog.kafka_tophog;
-CREATE MATERIALIZED VIEW posthog.tophog_ws_mv TO posthog.writable_tophog (timestamp DateTime64(6, 'UTC'), metric LowCardinality(String), type LowCardinality(String), key Map(LowCardinality(String), String), value Float64, count UInt64, pipeline LowCardinality(String), lane LowCardinality(String), labels Map(LowCardinality(String), String)) AS SELECT
-  timestamp,
-  metric,
-  type,
-  key,
-  value,
-  count,
-  pipeline,
-  lane,
-  labels
-FROM posthog.kafka_tophog_ws;
 CREATE MATERIALIZED VIEW posthog.trace_span_to_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   original_expiry_time_bucket,

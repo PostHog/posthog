@@ -2958,39 +2958,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_app_metrics2_ws" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "app_source" {
-      type = "LowCardinality(String)"
-    }
-    column "app_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "metric_kind" {
-      type = "String"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "count" {
-      type = "Int64"
-    }
-    engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_app_metrics2"
-      group_name = "clickhouse_app_metrics2_ws"
-      format     = "JSONEachRow"
-    }
-  }
-
   table "kafka_billing_usage_records" {
     settings = {
       date_time_input_format = "best_effort"
@@ -4040,37 +4007,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_log_entries_ws" {
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "log_source" {
-      type = "LowCardinality(String)"
-    }
-    column "log_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "level" {
-      type = "LowCardinality(String)"
-    }
-    column "message" {
-      type = "String"
-    }
-    engine "kafka" {
-      collection           = "warpstream_ingestion"
-      topic_list           = "log_entries"
-      group_name           = "clickhouse_log_entries_ws"
-      format               = "JSONEachRow"
-      skip_broken_messages = 100
-    }
-  }
-
   table "kafka_logs_avro" {
     settings = {
       input_format_avro_allow_missing_fields = "1"
@@ -4888,46 +4824,6 @@ database "posthog" {
       collection           = "msk_cluster"
       topic_list           = "clickhouse_tophog"
       group_name           = "clickhouse_tophog"
-      format               = "JSONEachRow"
-      skip_broken_messages = 100
-    }
-  }
-
-  table "kafka_tophog_ws" {
-    settings = {
-      date_time_input_format = "best_effort"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "metric" {
-      type = "LowCardinality(String)"
-    }
-    column "type" {
-      type = "LowCardinality(String)"
-    }
-    column "key" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "pipeline" {
-      type = "LowCardinality(String)"
-    }
-    column "lane" {
-      type = "LowCardinality(String)"
-    }
-    column "labels" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    engine "kafka" {
-      collection           = "warpstream_ingestion"
-      topic_list           = "clickhouse_tophog"
-      group_name           = "clickhouse_tophog_ws"
       format               = "JSONEachRow"
       skip_broken_messages = 100
     }
@@ -20253,59 +20149,6 @@ SQL
     }
   }
 
-  materialized_view "app_metrics2_ws_mv" {
-    to_table = "posthog.writable_app_metrics2"
-    query    = <<SQL
-SELECT
-  team_id,
-  timestamp,
-  app_source,
-  app_source_id,
-  instance_id,
-  metric_kind,
-  metric_name,
-  count,
-  _timestamp,
-  _offset,
-  _partition
-FROM posthog.kafka_app_metrics2_ws
-SQL
-
-    column "team_id" {
-      type = "Int64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "app_source" {
-      type = "LowCardinality(String)"
-    }
-    column "app_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "metric_kind" {
-      type = "String"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "count" {
-      type = "Int64"
-    }
-    column "_timestamp" {
-      type = "Nullable(DateTime)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-  }
-
   materialized_view "app_metrics_mv" {
     to_table = "posthog.writable_app_metrics"
     query    = <<SQL
@@ -22413,52 +22256,6 @@ SELECT
   _timestamp,
   _offset
 FROM posthog.kafka_log_entries_v3
-WHERE toDate(timestamp) <= today()
-SQL
-
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "log_source" {
-      type = "LowCardinality(String)"
-    }
-    column "log_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "level" {
-      type = "LowCardinality(String)"
-    }
-    column "message" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "Nullable(DateTime)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-  }
-
-  materialized_view "log_entries_ws_mv" {
-    to_table = "posthog.writable_log_entries"
-    query    = <<SQL
-SELECT
-  team_id,
-  log_source,
-  log_source_id,
-  instance_id,
-  timestamp,
-  level,
-  message,
-  _timestamp,
-  _offset
-FROM posthog.kafka_log_entries_ws
 WHERE toDate(timestamp) <= today()
 SQL
 
@@ -25740,51 +25537,6 @@ SELECT
   lane,
   labels
 FROM posthog.kafka_tophog
-SQL
-
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "metric" {
-      type = "LowCardinality(String)"
-    }
-    column "type" {
-      type = "LowCardinality(String)"
-    }
-    column "key" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "pipeline" {
-      type = "LowCardinality(String)"
-    }
-    column "lane" {
-      type = "LowCardinality(String)"
-    }
-    column "labels" {
-      type = "Map(LowCardinality(String), String)"
-    }
-  }
-
-  materialized_view "tophog_ws_mv" {
-    to_table = "posthog.writable_tophog"
-    query    = <<SQL
-SELECT
-  timestamp,
-  metric,
-  type,
-  key,
-  value,
-  count,
-  pipeline,
-  lane,
-  labels
-FROM posthog.kafka_tophog_ws
 SQL
 
     column "timestamp" {
