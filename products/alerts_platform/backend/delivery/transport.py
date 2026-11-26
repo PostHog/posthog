@@ -68,7 +68,7 @@ class DeliveryError(Exception):
 
     reason: FailureReason = "unexpected"
 
-    def __init__(self, message: str = "", *, reason: FailureReason | None = None) -> None:
+    def __init__(self, message: str, *, reason: FailureReason | None = None) -> None:
         super().__init__(message)
         if reason is not None:
             self.reason = reason
