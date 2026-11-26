@@ -1828,7 +1828,7 @@ class TestAdminConsoleLogInAsUser(BaseTest):
 
         if target_state.get("type") == UserType.SERVICE_ACCOUNT:
             page = self.client.get(f"/admin/console/users/{self.target.pk}/")
-            self.assertContains(page, "Service accounts cannot use browser sessions")
+            self.assertContains(page, "This account is not a human account. Only human accounts use browser sessions")
             self.assertNotContains(page, f'href="{self.url}"')
 
         with patch.object(Impersonation, "refusal", return_value=None) if offered else nullcontext():

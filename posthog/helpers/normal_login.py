@@ -13,7 +13,7 @@ from posthog.models.user import User
 class NormalLoginRequiredReason(StrEnum):
     TWO_FACTOR_REQUIRED = "two_factor_required"
     SSO_ENFORCED = "sso_enforced"
-    SERVICE_ACCOUNT = "service_account"
+    NOT_HUMAN = "not_human"
 
 
 def normal_login_required_reason(user: User) -> NormalLoginRequiredReason | None:
@@ -25,7 +25,7 @@ def normal_login_required_reason(user: User) -> NormalLoginRequiredReason | None
     provider that the user's email domain enforces.
     """
     if not user.is_human:
-        return NormalLoginRequiredReason.SERVICE_ACCOUNT
+        return NormalLoginRequiredReason.NOT_HUMAN
 
     if default_device(user) or (user.passkeys_enabled_for_2fa and has_passkeys(user)):
         return NormalLoginRequiredReason.TWO_FACTOR_REQUIRED
