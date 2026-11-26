@@ -1383,6 +1383,15 @@ database "posthog" {
       sharding_key    = "sipHash64(job_id)"
     }
   }
+  table "web_bounces_dimensional_preaggregated_by_day" {
+    extend = "_web_bounces_dimensional_preaggregated_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_bounces_dimensional_preaggregated_by_day"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
   table "web_goals_preaggregated" {
     extend = "_web_goals_preaggregated_columns"
     engine "distributed" {
@@ -1398,6 +1407,15 @@ database "posthog" {
       cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_web_stats_dimensional_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+  table "web_stats_dimensional_preaggregated_by_day" {
+    extend = "_web_stats_dimensional_preaggregated_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_stats_dimensional_preaggregated_by_day"
       sharding_key    = "sipHash64(job_id)"
     }
   }

@@ -179,3 +179,105 @@ def DROP_SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
 
 def TRUNCATE_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE()}"
+
+
+BY_DAY_TABLE_BASE_NAME = f"{TABLE_BASE_NAME}_by_day"
+
+
+def DISTRIBUTED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE():
+    return BY_DAY_TABLE_BASE_NAME
+
+
+def SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE():
+    return f"sharded_{BY_DAY_TABLE_BASE_NAME}"
+
+
+def SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE_ENGINE():
+    return ReplacingMergeTree(BY_DAY_TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED, ver="computed_at")
+
+
+def SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE_SQL():
+    # The same columns as the table above, laid out for reads by date range. Partitions follow the day of
+    # `period_bucket`, and `period_bucket` comes before `job_id` in the key, so a read skips the partitions and key
+    # ranges outside its range. A day's partition holds every job built for that day, so whole parts no longer
+    # expire together: rows expire one by one through TTL merges, which `merge_with_ttl_timeout` runs every hour.
+    return (
+        WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL
+        + """
+PARTITION BY toYYYYMMDD(period_bucket)
+PRIMARY KEY (
+    team_id,
+    period_bucket,
+    job_id,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid,
+    mat_metadata_backend,
+    mat_metadata_loggedIn
+)
+ORDER BY (
+    team_id,
+    period_bucket,
+    job_id,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid,
+    mat_metadata_backend,
+    mat_metadata_loggedIn,
+    channel_type,
+    session_hosts
+)
+TTL toDateTime(expires_at)
+SETTINGS index_granularity=8192, merge_with_ttl_timeout = 3600, allow_nullable_key = 1
+"""
+    ).format(
+        table_name=SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE(),
+        engine=SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE_ENGINE(),
+    )
+
+
+def DISTRIBUTED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE_SQL():
+    return WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL.format(
+        table_name=DISTRIBUTED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE(),
+        engine=Distributed(
+            data_table=SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY_TABLE(),
+            sharding_key="sipHash64(job_id)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        ),
+    )
