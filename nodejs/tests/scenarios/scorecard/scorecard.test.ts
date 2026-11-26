@@ -200,9 +200,12 @@ describe('scorecard', () => {
             units: undefined,
             convergence: undefined,
             invariants: [],
+            stopped: { phase: 'seed', stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)' },
         }
 
         expect(scorecardOf(stopped, SMOKE, PROVENANCE)).toMatchObject({
+            stopped_phase: 'seed',
+            stopped_stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)',
             units_target: null,
             units_offered: null,
             send_retries: null,

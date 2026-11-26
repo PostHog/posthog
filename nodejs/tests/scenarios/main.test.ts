@@ -190,6 +190,26 @@ describe('runCards', () => {
         expect(stdout).toEqual(expect.arrayContaining(printed))
     })
 
+    it('prints the phase and the stack of a run that stopped', async () => {
+        const stack = 'RangeError: Too many elements passed to Promise.all\n    at drive (generator.ts:1:1)'
+        const runner: Runner = {
+            up: () => Promise.resolve(),
+            run: (loaded) =>
+                Promise.resolve({
+                    ...passed(loaded.card.id),
+                    status: 'invalid',
+                    statusReason: 'the run stopped: Too many elements passed to Promise.all',
+                    stopped: { phase: 'drive', stack },
+                }),
+            runPair: () => Promise.reject(new Error('these runs pair no card')),
+            down: () => Promise.resolve(),
+        }
+
+        expect(await runCards(runner, [SMOKE], new AbortController().signal)).toBe(EXIT_CODE.invalid)
+        const stdout = jest.mocked(process.stdout.write).mock.calls.map(([text]) => text)
+        expect(stdout).toContain(`stopped in the drive phase: ${stack}\n`)
+    })
+
     it('prints a failed store report and keeps the exit code of the run', async () => {
         const runner: Runner = {
             up: () => Promise.resolve(),

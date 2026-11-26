@@ -671,6 +671,10 @@ describe('runner', () => {
                 expect(result).toMatchObject({
                     status: 'invalid',
                     statusReason: expect.stringMatching(new RegExp(`^the run stopped: .*${statusReason.source}`)),
+                    stopped: {
+                        phase: 'seed',
+                        stack: expect.stringMatching(new RegExp(`${statusReason.source}.*\\n +at `)),
+                    },
                 })
                 expect(rows).toEqual([])
             } finally {
