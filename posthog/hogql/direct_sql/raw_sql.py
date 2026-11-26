@@ -91,17 +91,28 @@ def _ensure_nesting_within_limit(lexed: list["DialectToken"]) -> None:
 
     # sqlparse grouping cost grows much faster than linearly with nesting depth, so deep input
     # is rejected before grouping. The limit matches sqlparse's own MAX_GROUPING_DEPTH.
-    openers = {TokenType.L_PAREN, TokenType.L_BRACKET, TokenType.L_BRACE, TokenType.CASE}
-    closers = {TokenType.R_PAREN, TokenType.R_BRACKET, TokenType.R_BRACE, TokenType.END}
-    depth = 0
-    for token in lexed:
-        if token.token_type in openers:
-            depth += 1
-            if depth > MAX_DIRECT_SQL_NESTING_DEPTH:
+    closer_for = {
+        TokenType.L_PAREN: TokenType.R_PAREN,
+        TokenType.L_BRACKET: TokenType.R_BRACKET,
+        TokenType.L_BRACE: TokenType.R_BRACE,
+        TokenType.CASE: TokenType.END,
+    }
+    open_blocks: list[TokenType] = []
+    for index, token in enumerate(lexed):
+        is_qualified = (index > 0 and lexed[index - 1].token_type == TokenType.DOT) or (
+            index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.DOT
+        )
+        if is_qualified and token.token_type in {TokenType.CASE, TokenType.END}:
+            # _guard_tokens turns qualified keywords into names, so sqlparse does not nest on them.
+            continue
+        if token.token_type in closer_for:
+            open_blocks.append(token.token_type)
+            if len(open_blocks) > MAX_DIRECT_SQL_NESTING_DEPTH:
                 raise ExposedHogQLError(_TOO_COMPLEX_ERROR)
-        elif token.token_type in closers:
-            # END also closes blocks that are not counted as openers, so never go below zero.
-            depth = max(depth - 1, 0)
+        elif open_blocks and token.token_type == closer_for[open_blocks[-1]]:
+            # A closer that does not match the innermost opener, such as the END of a block
+            # that is not counted, leaves the depth unchanged.
+            open_blocks.pop()
 
 
 def _single_statement_tokens(sql: str, dialect: str) -> list["DialectToken"]:
