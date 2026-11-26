@@ -1645,9 +1645,10 @@ impl Desktop {
             .any(|n| matches!(n, NeedsYouItem::Problem { topics, .. } if topics.contains(&id)));
         // Sorting state reads after the conversation it is about.
         let mut status = ui::column().gap(px(12.));
+        let repository_review = super::pages::thread_tab(t) == Tab::Linked;
         let has_status = t.report_sources.is_some()
             || matches!(t.state, ThreadState::Sorting)
-            || matches!(&t.state, ThreadState::NeedsYou { .. } if t.summary.is_empty());
+            || matches!(&t.state, ThreadState::NeedsYou { .. } if t.summary.is_empty() && !repository_review);
         match &t.state {
             ThreadState::Sorting if t.sort_retry.is_some() => {
                 // Sorting failed and will be tried again: a quiet line, not an alarm.
@@ -1715,7 +1716,7 @@ impl Desktop {
                             .child(ui::caption("Working out where this goes…")),
                     );
             }
-            ThreadState::NeedsYou { reason, .. } if t.summary.is_empty() => {
+            ThreadState::NeedsYou { reason, .. } if t.summary.is_empty() && !repository_review => {
                 // A failed or declined sort has a reason and no written take.
                 let (title, cause) = reason.split_once(": ").unwrap_or((reason, ""));
                 status = status.child(
@@ -1859,6 +1860,7 @@ impl Desktop {
                             _ => "Save fact",
                         }
                     }
+                    Suggestion::LinkRepository { .. } => "Link repository",
                     Suggestion::ChooseFileRevision {
                         path,
                         current,
@@ -1917,7 +1919,7 @@ impl Desktop {
         // The question and its answers sit together, right under the conversation.
         if !t.is_agent_report()
             && let ThreadState::NeedsYou { reason, .. } = &t.state
-            && !t.summary.is_empty()
+            && (!t.summary.is_empty() || repository_review)
         {
             let answers: Vec<_> = std::mem::take(&mut actions);
             body = body.child(

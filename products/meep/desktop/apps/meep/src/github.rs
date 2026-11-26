@@ -263,7 +263,7 @@ impl Desktop {
             rows.push(
                 account_row(
                     "No repository",
-                    "Choose one so topic chat can read its code.",
+                    "Chat can look up a repository when it needs one.",
                     div(),
                 )
                 .into_any_element(),
@@ -275,7 +275,7 @@ impl Desktop {
         ui::column()
             .child(set::section(
                 "Repository",
-                "Code that topic chat can read. Manage your GitHub account in Settings.",
+                "Save a repository for future questions in this topic.",
                 action,
                 false,
             ))

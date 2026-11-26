@@ -1251,6 +1251,46 @@ def mint_readonly_github_credential(integration: GitHubIntegration, repository: 
         raise
 
 
+def personal_repository_installation(
+    user_id: int, repository: str, integration_id: UUID | None = None
+) -> UserGitHubIntegration | None:
+    from products.tasks.backend.temporal.process_task.sandbox_credentials import resolve_coordinated_user_token
+
+    rows = UserIntegration.objects.filter(user_id=user_id, kind="github").exclude(NEEDS_REAUTHORIZATION_Q)
+    if integration_id is not None:
+        rows = rows.filter(pk=integration_id)
+    for row in rows.order_by("pk"):
+        github = UserGitHubIntegration(row, source="tasks_sandbox", priority=Priority.CRITICAL)
+        if github.installation_unavailable() or not user_github_integration_is_usable(github):
+            continue
+        try:
+            resolve_coordinated_user_token(github)
+            if (
+                not github.user_access_token_expired()
+                and github.installation_can_access_repository(repository)
+                and _installation_repository_names(github, [repository])
+            ):
+                return github
+        except (ReauthorizationRequired, NoAccessibleRepositories, GitHubIntegrationError):
+            continue
+    return None
+
+
+def personal_readonly_token(task: Task, repositories: Sequence[str]) -> str:
+    if (
+        task.github_user_integration_id
+        and task.created_by_id
+        and len(repositories) == 1
+        and repositories[0] == task.repository
+    ):
+        github = personal_repository_installation(task.created_by_id, repositories[0], task.github_user_integration_id)
+        if github:
+            token = _mint_repository_scoped_token(github, repositories, READONLY_SANDBOX_GITHUB_PERMISSIONS)
+            if token:
+                return token
+    raise CredentialUnavailableError("Reconnect GitHub to read the selected repository.", {"task_id": str(task.pk)})
+
+
 def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
     """Mint an ephemeral read-only GitHub token scoped to the sandbox repositories, or None.
 
@@ -1512,6 +1552,8 @@ def get_sandbox_github_token(
     outer gate re-verifies eligibility once resolution is done — the tightest safe boundary — so a
     deactivation or team-access revocation that commits during the round-trip still stops the token
     reaching the sandbox. Non-loop runs are unaffected."""
+    if task is not None and task.profile == "meep_repository":
+        return personal_readonly_token(task, _sandbox_repositories(state, task.repository))
     token = _resolve_sandbox_github_token(
         github_integration_id,
         run_id=run_id,

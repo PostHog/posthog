@@ -397,6 +397,13 @@ pub enum Suggestion {
         /// Assertion to save with the original message's provenance.
         fact: Option<String>,
     },
+    /// Save a proposed repository after the topic owner approves it.
+    LinkRepository {
+        /// Full GitHub repository name.
+        repository: String,
+        /// Selection the owner is being asked to replace.
+        previous: Option<WatchId>,
+    },
     /// Choose which immutable version of a topic file becomes current.
     ChooseFileRevision {
         /// Logical file name.

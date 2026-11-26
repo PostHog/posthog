@@ -129,7 +129,7 @@ class TestDelegation(APIBaseTest):
                 "products.meep.backend.delegation.api.get_task_run", side_effect=lambda run_id, team_id: runs[run_id]
             ),
             patch("products.meep.backend.delegation.api.run_task", return_value=SimpleNamespace(run_id=new_run)),
-            patch("products.meep.backend.delegation.check_access"),
+            patch("products.meep.backend.chat.check_access"),
         ):
             reconcile_wait(wait.pk)
         wait.refresh_from_db()
@@ -155,7 +155,7 @@ class TestDelegation(APIBaseTest):
             patch(
                 "products.meep.backend.delegation.api.run_task", return_value=SimpleNamespace(run_id=uuid4())
             ) as resume,
-            patch("products.meep.backend.delegation.check_access"),
+            patch("products.meep.backend.chat.check_access"),
         ):
             reconcile_notification(job.pk)
             assert not resume.called
@@ -203,7 +203,7 @@ class TestDelegation(APIBaseTest):
             patch(
                 "products.meep.backend.delegation.api.run_task", return_value=SimpleNamespace(run_id=uuid4())
             ) as resume,
-            patch("products.meep.backend.delegation.check_access"),
+            patch("products.meep.backend.chat.check_access"),
         ):
             reconcile_wait(wait.pk)
         message = resume.call_args.kwargs["validated_data"]["pending_user_message"]

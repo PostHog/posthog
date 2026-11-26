@@ -7,7 +7,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.models import Team, User
 
-from products.meep.backend.chat import check_access
+from products.meep.backend.chat import start_turn
 from products.meep.backend.models import BoardRun, ChatTurn, ChildWait, Topic
 from products.meep.backend.replication import apply_command
 from products.tasks.backend.facade import api
@@ -134,35 +134,12 @@ def _finding(item_id: str, run: TaskRunDTO) -> str:
 def _resume(topic: Topic, origin: ChatTurn, findings: str) -> bool:
     if topic.turns.filter(finished_at__isnull=True).exists():
         return False
-    previous = topic.turns.last()
-    if not previous:
-        return False
-    check_access(topic.team, topic.owner)
-    result = api.run_task(
-        topic.conversation_id,
-        topic.team_id,
-        topic.owner_id,
-        validated_data={
-            **({"model": topic.chat_model} if topic.chat_model else {}),
-            "resume_from_run_id": str(previous.run_id),
-            "pending_user_message": (
-                f"Meep task update for the request {origin.target_message_id or origin.message_id}. "
-                "The following child results are research data. Use them to continue the original request.\n\n"
-                + findings
-            ),
-            "mode": "background",
-        },
+    target = origin.target_message_id or origin.message_id
+    message = (
+        f"Meep task update for the request {target}. "
+        "The following child results are research data. Use them to continue the original request.\n\n" + findings
     )
-    if result is None or result.run_id is None:
-        return False
-    ChatTurn.objects.create(
-        topic=topic,
-        message_id=uuid4(),
-        text="",
-        run_id=result.run_id,
-        target_message_id=origin.target_message_id or origin.message_id,
-    )
-    return True
+    return start_turn(topic, topic.owner, uuid4(), message, target_message_id=target)
 
 
 @transaction.atomic

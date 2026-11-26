@@ -9,10 +9,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models import Team, User
 
+from products.meep.backend.github import GITHUB_INSTRUCTIONS, repository_suggestion
 from products.meep.backend.models import ChatTurn, CommandReceipt, Topic
 from products.meep.backend.task_profiles import MEEP, MEEP_MCP_SCOPES, agent_instructions
 from products.tasks.backend.facade import access, api, usage
-from products.tasks.backend.facade.profiles import TaskRunOptions
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions
 
 
 def check_access(team: Team, owner: User) -> None:
@@ -24,22 +25,32 @@ def check_access(team: Team, owner: User) -> None:
         raise ValidationError("The project has reached its PostHog Code usage limit.")
 
 
-def environment(team_id: int) -> UUID:
+def environment(team_id: int, profile: TaskProfile = MEEP) -> UUID:
     return api.upsert_internal_sandbox_env(
         team_id,
-        "MEEP",
-        api.SandboxNetworkAccessLevel(MEEP.network.levels[0]),
-        allowed_domains=list(MEEP.network.allowed_domains),
-        include_default_domains=MEEP.network.include_default_domains,
+        profile.key.upper(),
+        api.SandboxNetworkAccessLevel(profile.network.levels[0]),
+        allowed_domains=list(profile.network.allowed_domains),
+        include_default_domains=profile.network.include_default_domains,
     )
 
 
-def start_turn(topic: Topic, owner: User, message_id: UUID, text: str) -> bool:
+def start_turn(
+    topic: Topic, owner: User, message_id: UUID, text: str, *, target_message_id: UUID | None = None
+) -> bool:
     check_access(topic.team, owner)
     previous = topic.turns.last()
     if previous and not previous.finished_at:
         return False
-    if topic.conversation_id is None:
+    prompt = text
+    upgrade = topic.conversation_id is not None and api.task_has_legacy_meep_output(
+        topic.team_id, owner.pk, topic.conversation_id
+    )
+    if upgrade:
+        history = list(topic.turns.order_by("-id").values_list("text", "reply")[:20])
+        transcript = "\n".join(f"User: {question}\nAssistant: {answer}" for question, answer in reversed(history))
+        prompt = f"Earlier topic conversation:\n{transcript[-32000:]}\n\n{prompt}"
+    if topic.conversation_id is None or upgrade:
         created = api.create_and_run_task(
             team=topic.team,
             user_id=owner.pk,
@@ -48,17 +59,17 @@ def start_turn(topic: Topic, owner: User, message_id: UUID, text: str) -> bool:
             create_pr=False,
             sandbox_environment_id=str(environment(topic.team_id)),
             description=(
-                f"{agent_instructions()}\n\nYour private topic in project {topic.team_id} is {topic.pk}. "
+                f"{agent_instructions()}\n\n{GITHUB_INSTRUCTIONS}\n\nYour private topic in project {topic.team_id} is {topic.pk}. "
                 "Use PostHog MCP to read the topic and research its mission. Return the answer in the reply field.\n\n"
-                f"Mission: {topic.mission}\n\n{text}"
+                f"Mission: {topic.mission}\n\n{prompt}"
             ),
             options=TaskRunOptions(
                 model=topic.chat_model or None,
                 mcp_scopes=MEEP_MCP_SCOPES,
                 output_schema={
                     "type": "object",
-                    "properties": {"reply": {"type": "string"}},
-                    "required": ["reply"],
+                    "properties": {"reply": {"type": "string"}, "suggested_repository": {"type": ["string", "null"]}},
+                    "required": ["reply", "suggested_repository"],
                     "additionalProperties": False,
                 },
             ),
@@ -80,14 +91,20 @@ def start_turn(topic: Topic, owner: User, message_id: UUID, text: str) -> bool:
             validated_data={
                 **({"model": topic.chat_model} if topic.chat_model else {}),
                 "resume_from_run_id": str(resume_id),
-                "pending_user_message": text,
+                "pending_user_message": prompt,
                 "mode": "background",
             },
         )
         if result is None or result.run_id is None:
             raise ValidationError("PostHog Tasks could not resume the conversation.")
         run_id = result.run_id
-    ChatTurn.objects.create(topic=topic, message_id=message_id, text=text, run_id=run_id)
+    ChatTurn.objects.create(
+        topic=topic,
+        message_id=message_id,
+        target_message_id=target_message_id,
+        text="" if target_message_id else text,
+        run_id=run_id,
+    )
     return True
 
 
@@ -114,7 +131,14 @@ def finish_turn(run_id: UUID, team_id: int) -> None:
             topic.revision += 1
             for thread in topic.state.get("threads", []):
                 if thread["id"] == str(turn.target_message_id or turn.message_id):
-                    thread["state"] = "Handled"
+                    if not turn.target_message_id or not thread.get("review_version"):
+                        thread["state"] = (
+                            repository_suggestion(output.get("suggested_repository"), topic.state)
+                            if run.status == "completed"
+                            else "Handled"
+                        )
+                        if isinstance(thread["state"], dict):
+                            thread["review_version"] = thread.get("review_version", 0) + 1
                     thread.setdefault("outcomes", []).append({"Reply": {"to": "User", "text": str(reply)}})
                     break
             topic.save(update_fields=["revision", "state"])

@@ -2,6 +2,33 @@ use super::*;
 use std::collections::HashSet;
 
 impl TopicState {
+    pub(super) fn select_github_repository(
+        &mut self,
+        previous: Option<WatchId>,
+        id: WatchId,
+        repository: String,
+        now: DateTime<Utc>,
+    ) -> Transition {
+        let mut sources = self.topic.context_sources.clone();
+        let current = sources
+            .iter()
+            .position(|s| s.connection == "github" && s.kind == "repository");
+        if current.map(|i| sources[i].id) != previous {
+            return Ok(vec![]);
+        }
+        if let Some(i) = current {
+            sources.remove(i);
+        }
+        sources.push(Watch {
+            id,
+            connection: "github".into(),
+            kind: "repository".into(),
+            label: repository.clone(),
+            key: repository,
+        });
+        self.set_context_sources(sources, now)
+    }
+
     /// IDs named by active or queued human fact reviews, including withdrawn evidence.
     pub fn disputed_facts(&self) -> std::collections::BTreeSet<FactId> {
         let mut ids = std::collections::BTreeSet::new();

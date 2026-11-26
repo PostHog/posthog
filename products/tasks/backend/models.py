@@ -1701,6 +1701,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             RunSource,
             apply_runtime_adapter_run_state,
             is_user_authorable,
+            personal_repository_installation,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -1709,7 +1710,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             origin_product, profile, has_repository=bool(repository), github_access=github_access
         )
         github_integration = None
-        if github_resolution_allowed:
+        if github_resolution_allowed and profile.key != "meep_repository":
             github_integration = next(
                 (
                     row
@@ -1734,6 +1735,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         authorship_mode = PrAuthorshipMode.USER if user_authorable else PrAuthorshipMode.BOT
         if not github_resolution_allowed:
             pass
+        elif profile.key == "meep_repository":
+            if not repository or len(resolved_repositories) != 1:
+                raise ValueError("Choose one GitHub repository for this topic.")
+            personal = personal_repository_installation(user_id, repository)
+            if personal is None:
+                raise ValueError("Reconnect GitHub to use this repository.")
+            github_user_integration = personal.integration
         elif authorship_mode == PrAuthorshipMode.USER:
             user_github_integration = resolve_user_github_integration_for_task(
                 task_stub,

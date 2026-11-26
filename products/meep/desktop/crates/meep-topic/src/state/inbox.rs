@@ -520,6 +520,22 @@ impl TopicState {
                 }
                 (ThreadState::Handled, "Accepted the proposed evidence.")
             }
+            Suggestion::LinkRepository {
+                repository,
+                previous,
+            } => {
+                let updated =
+                    self.select_github_repository(previous, WatchId(new_task.0), repository, now)?;
+                if updated.is_empty() {
+                    (
+                        ThreadState::Handled,
+                        "The repository selection has changed.",
+                    )
+                } else {
+                    changes.extend(updated);
+                    (ThreadState::Handled, "Linked the repository.")
+                }
+            }
             Suggestion::ChooseFileRevision {
                 path,
                 candidate,

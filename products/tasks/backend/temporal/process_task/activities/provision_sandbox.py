@@ -116,6 +116,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    personal_readonly_token,
     resolve_installation_github_integration,
     resolve_readonly_github_integration,
     run_gateway_env_vars,
@@ -487,7 +488,11 @@ def _resolve_sandbox_github_token(
     if ctx.agent_egress_git_reads or (ctx.state or {}).get("agent_egress_git_reads"):
         return ""
     if ctx.github_read_access:
-        github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
+        github_token = (
+            personal_readonly_token(task, ctx.repositories)
+            if task.profile == "meep_repository"
+            else get_readonly_github_token(ctx.team_id, repositories=ctx.repositories)
+        ) or ""
         TaskRun.update_state_atomic(ctx.run_id, updates={"github_read_access_available": bool(github_token)})
         if github_token:
             log_with_activity_context("Read-only GitHub token minted for evidence gathering", run_id=ctx.run_id)
@@ -1454,6 +1459,8 @@ def _reresolve_sandbox_github_token(ctx: TaskProcessingContext, repository: str)
 
 
 def _installation_behind_sandbox_token(ctx: TaskProcessingContext) -> GitHubIntegration | None:
+    if ctx.profile_key == "meep_repository":
+        return None
     if ctx.github_read_access:
         return resolve_readonly_github_integration(ctx.team_id, include_unavailable=True)
     if ctx.github_integration_id is None:
@@ -1631,7 +1638,11 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
             # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
             # read-only run must never regain the write-capable token on resume, cloned repos or
             # not. Best-effort, since an empty token just leaves the sandbox without GitHub access.
-            github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
+            github_token = (
+                personal_readonly_token(task, ctx.repositories)
+                if task.profile == "meep_repository"
+                else get_readonly_github_token(ctx.team_id, repositories=ctx.repositories)
+            ) or ""
         elif ctx.has_github_credentials:
             try:
                 github_token = (

@@ -69,6 +69,29 @@ from products.tasks.backend.temporal.process_task.utils import (
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 
+def test_personal_readonly_token_checks_the_pinned_owner_installation_and_repository():
+    from products.tasks.backend.temporal.process_task.utils import personal_readonly_token
+
+    task = MagicMock(created_by_id=42, github_user_integration_id="personal", repository="example/atlas")
+    with (
+        patch("products.tasks.backend.temporal.process_task.utils.personal_repository_installation") as resolve,
+        patch(
+            "products.tasks.backend.temporal.process_task.utils._mint_repository_scoped_token",
+            return_value="test-token",
+        ) as mint,
+    ):
+        assert personal_readonly_token(task, ["example/atlas"]) == "test-token"
+        resolve.assert_called_once_with(42, "example/atlas", "personal")
+        mint.assert_called_once_with(resolve.return_value, ["example/atlas"], READONLY_SANDBOX_GITHUB_PERMISSIONS)
+        for changed in ([], ["example/other"], ["example/atlas", "example/other"]):
+            with pytest.raises(CredentialUnavailableError):
+                personal_readonly_token(task, changed)
+        resolve.return_value = None
+        with pytest.raises(CredentialUnavailableError):
+            personal_readonly_token(task, ["example/atlas"])
+        assert mint.call_count == 1
+
+
 class TestRuntimeModelCapabilities(SimpleTestCase):
     def test_glm_5_3_supports_claude_reasoning_efforts(self) -> None:
         for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash"):

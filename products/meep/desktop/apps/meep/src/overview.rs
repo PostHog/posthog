@@ -64,12 +64,10 @@ impl Desktop {
                     })),
             );
         let mut list = ui::column().gap_0().pt(px(6.)).pb(px(14.));
-        let mut first = true;
         for tab in Tab::OVERVIEW {
             let Some((glyph, summary, attention_tone)) = self.overview_summary(state, tab) else {
                 continue;
             };
-            first = false;
             let open = self.overview_open(id, tab);
             let here = page_tab == tab && page_detail.is_none();
             let fold = format!("overview:{id}:{tab:?}");
@@ -107,6 +105,15 @@ impl Desktop {
                     .child(
                         div()
                             .id(SharedString::from(format!("overview-fold-{tab:?}")))
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                cx.stop_propagation();
+                                let open = !s.overview_open.remove(&(id, tab));
+                                if open {
+                                    s.overview_open.insert((id, tab));
+                                }
+                                s.folds.toggled(format!("overview:{id}:{tab:?}"), open, cx);
+                                cx.notify()
+                            }))
                             .size(px(22.))
                             .ml(px(-4.))
                             .mr(px(-6.))
@@ -130,16 +137,9 @@ impl Desktop {
                                 .text_color(rgb(ui::theme::color(ui::TERTIARY))),
                             ),
                     )
-                    // The row opens and folds its section in place; "View all" inside
-                    // goes to the section itself.
-                    .on_click(cx.listener(move |s, _, _, cx| {
-                        let open = !s.overview_open.remove(&(id, tab));
-                        if open {
-                            s.overview_open.insert((id, tab));
-                        }
-                        s.folds.toggled(format!("overview:{id}:{tab:?}"), open, cx);
-                        cx.notify()
-                    })),
+                    .on_click(
+                        cx.listener(move |s, _, w, cx| s.go(Page::Topic(id, tab, None), w, cx)),
+                    ),
             );
             section = section.children(self.folds.reveal(&fold, open, cx, || {
                 ui::column()
@@ -162,27 +162,6 @@ impl Desktop {
             }));
             list = list.child(section);
         }
-        if first {
-            list = list.child(
-                ui::column()
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(24.))
-                    .pt(px(48.))
-                    .child(ui::nav::glyph(Glyph::Target, false))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Nothing set up yet"),
-                    )
-                    .child(
-                        ui::caption(
-                            "As you talk, the mission, goals, facts and work in progress show up here.",
-                        )
-                        .text_center(),
-                    ),
-            );
-        }
         ui::column()
             .size_full()
             .min_h_0()
@@ -191,7 +170,6 @@ impl Desktop {
             .child(scroll("overview-scroll").flex_1().min_h_0().child(list))
     }
 
-    /// A section's icon and one-line summary, or `None` when it has nothing yet.
     pub(super) fn overview_summary(
         &self,
         state: &TopicState,
@@ -201,16 +179,13 @@ impl Desktop {
         Some(match tab {
             Tab::Needs => {
                 let groups = attention_groups(&self.needs, state);
-                if groups.is_empty() {
-                    return None;
-                }
                 let urgent = groups
                     .iter()
                     .any(|g| matches!(g.latest.kind, "Failed" | "Problem"));
                 (
                     Glyph::Bell,
                     format!("{} waiting", groups.len()),
-                    Some(if urgent {
+                    (!groups.is_empty()).then_some(if urgent {
                         super::pages::warning()
                     } else {
                         UNREAD
@@ -218,9 +193,6 @@ impl Desktop {
                 )
             }
             Tab::Tasks => {
-                if state.tasks.iter().all(|t| t.hidden()) {
-                    return None;
-                }
                 let running = state
                     .tasks
                     .iter()
@@ -231,9 +203,6 @@ impl Desktop {
             Tab::Inbox => {
                 let reports = ordered_threads(state, true);
                 let findings = super::pages::unopened_findings(state).len();
-                if reports.is_empty() && findings == 0 {
-                    return None;
-                }
                 let new = reports.iter().filter(|t| t.unseen).count();
                 let total = reports.len() + findings;
                 (
@@ -248,29 +217,15 @@ impl Desktop {
             }
             Tab::Files => {
                 let n = self.file_entries(state).len();
-                if n == 0 {
-                    return None;
-                }
                 (Glyph::FileText, n.to_string(), None)
             }
             Tab::Routines => {
-                if t.routines.is_empty() && state.scouts.is_empty() {
-                    return None;
-                }
                 let on = t.routines.iter().filter(|r| r.enabled).count()
                     + state.scouts.iter().filter(|s| s.enabled).count();
                 (Glyph::Repeat, format!("{on} on"), None)
             }
-            Tab::Mission => {
-                if t.mission.trim().is_empty() {
-                    return None;
-                }
-                (Glyph::Flag, String::new(), None)
-            }
+            Tab::Mission => (Glyph::Flag, String::new(), None),
             Tab::Goals => {
-                if t.goals.is_empty() {
-                    return None;
-                }
                 let measured: Vec<_> = t.goals.iter().filter(|g| g.progress.is_some()).collect();
                 let on_track = measured.iter().filter(|g| goal_on_track(g)).count();
                 (
@@ -285,23 +240,10 @@ impl Desktop {
             }
             Tab::Facts => {
                 let n = t.facts.iter().filter(|f| f.is_current()).count();
-                if n == 0 {
-                    return None;
-                }
                 (Glyph::Pencil, n.to_string(), None)
             }
-            Tab::Linked => {
-                if t.context_sources.is_empty() {
-                    return None;
-                }
-                (Glyph::Link, t.context_sources.len().to_string(), None)
-            }
-            Tab::Rules => {
-                if t.rules.is_empty() {
-                    return None;
-                }
-                (Glyph::ShieldCheck, t.rules.len().to_string(), None)
-            }
+            Tab::Linked => (Glyph::Link, t.context_sources.len().to_string(), None),
+            Tab::Rules => (Glyph::ShieldCheck, t.rules.len().to_string(), None),
             Tab::Chat => return None,
         })
     }

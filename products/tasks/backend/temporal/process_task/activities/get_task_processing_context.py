@@ -264,7 +264,7 @@ class TaskProcessingContext:
         Independent of ``repositories``: a run that pins repos still clones them, with a token
         that carries ``contents: read`` and nothing else.
         """
-        return (self.state or {}).get("github_read_access") is True
+        return self.profile_key == "meep_repository" or (self.state or {}).get("github_read_access") is True
 
     @property
     def github_token_scope(self) -> Literal["read", "push"] | None:
@@ -1007,6 +1007,7 @@ def _agent_egress_git_enabled(
 ) -> bool:
     return bool(
         enrollment is not None
+        and context.profile_key != "meep_repository"
         and enrollment.route_git_reads
         and context.github_read_access
         and len(context.repositories) == 1

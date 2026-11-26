@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 from products.tasks.backend.facade.api import resolve_scopes
@@ -76,7 +77,15 @@ MEEP = TaskProfile(
     finish_in_flight=True,
 )
 
-PROFILES = (MEEP,)
+MEEP_REPOSITORY = replace(
+    MEEP,
+    key="meep_repository",
+    github_resolution=GithubResolution.WITH_REPOSITORY,
+    github_access=GithubAccess.READ,
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,), allowed_domains=("github.com", "api.github.com")),
+)
+
+PROFILES = (MEEP, MEEP_REPOSITORY)
 
 
 def register() -> None:

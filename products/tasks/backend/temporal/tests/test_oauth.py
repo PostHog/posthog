@@ -711,7 +711,7 @@ def test_run_token_defaults_to_the_dispatched_scopes(
     assert mock_create.call_args.kwargs["scopes"] == granted
 
 
-@pytest.mark.parametrize("profile_key", [None, "business_knowledge", "meep"])
+@pytest.mark.parametrize("profile_key", [None, "business_knowledge", "meep", "meep_repository"])
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_only_meep_profile_receives_reserved_scout_scopes(mock_create: MagicMock, profile_key: str | None) -> None:
     task = MagicMock(
@@ -723,4 +723,4 @@ def test_only_meep_profile_receives_reserved_scout_scopes(mock_create: MagicMock
     grants = ["meep_scout:read", "meep_scout:write", "meep_task:write"]
     create_oauth_access_token(task, scopes=grants)
     withheld = mock_create.call_args.kwargs.get("withhold_scopes", [])
-    assert set(grants).intersection(withheld) == (set() if profile_key == "meep" else set(grants))
+    assert set(grants).intersection(withheld) == (set() if profile_key in {"meep", "meep_repository"} else set(grants))

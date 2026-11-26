@@ -867,26 +867,7 @@ impl TopicState {
                 previous,
                 id,
                 repository,
-            } => {
-                let mut sources = self.topic.context_sources.clone();
-                let current = sources
-                    .iter()
-                    .position(|s| s.connection == "github" && s.kind == "repository");
-                if current.map(|i| sources[i].id) != previous {
-                    return Ok(vec![]);
-                }
-                if let Some(i) = current {
-                    sources.remove(i);
-                }
-                sources.push(Watch {
-                    id,
-                    connection: "github".into(),
-                    kind: "repository".into(),
-                    label: repository.clone(),
-                    key: repository,
-                });
-                self.set_context_sources(sources, now)
-            }
+            } => self.select_github_repository(previous, id, repository, now),
             Command::RemoveContextSource { source } => self.remove_context_source(source, now),
             Command::SetRoutineWatches { routine, watches } => {
                 self.set_routine_watches(&routine, watches, now)

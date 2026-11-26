@@ -6,14 +6,17 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.event_usage import report_user_action
 from posthog.models import User
 
 from products.meep.backend.board import apply_board_action
 from products.meep.backend.chat import start_turn
 from products.meep.backend.domain import transition
 from products.meep.backend.files import choose_revision
+from products.meep.backend.github import selected_repository
 from products.meep.backend.models import ChatTurn, CommandReceipt, Topic
 from products.meep.backend.scouts import pause_scouts
+from products.tasks.backend.facade.api import personal_repository_available
 
 
 def snapshot(topic: Topic) -> dict[str, Any]:
@@ -60,11 +63,16 @@ def apply_command(
     if not state["deleted"] and (not title.strip() or len(title) > 255):
         raise ValidationError("Supply a topic title of up to 255 characters.")
     created = topic is None
+    previous_repository = selected_repository(topic.state) if topic else None
     if topic is None:
         if Topic.objects.unscoped().filter(pk=topic_id).exists():
             raise ValidationError("Topic unavailable.")
         topic = Topic(id=topic_id, team_id=team_id, owner=owner)
     else:
+        repository = selected_repository(state)
+        if repository != previous_repository:
+            if repository and not personal_repository_available(owner.pk, repository):
+                raise ValidationError("Reconnect GitHub or choose a repository you can access.")
         if command["kind"] in {"DeleteTopic", "ArchiveTopic"}:
             pause_scouts(topic)
         state = apply_board_action(topic, state, command, delegated_parent=delegated_parent)
@@ -77,6 +85,17 @@ def apply_command(
             if not start_turn(topic, owner, UUID(command["message_id"]), text):
                 return {"status": "retry", "id": command_id, "reason": "Waiting for the current turn."}
         topic.revision += 1
+    repository = selected_repository(state)
+    if repository != previous_repository:
+        transaction.on_commit(
+            lambda: report_user_action(
+                owner,
+                "meep topic repository changed",
+                {"automatic": created, "attached": bool(repository)},
+                team=topic.team,
+            ),
+            robust=True,
+        )
     topic.title = title
     topic.mission = state["topic"]["mission"]
     topic.archived = state["archived"]

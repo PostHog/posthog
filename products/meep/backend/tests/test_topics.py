@@ -1,5 +1,6 @@
 from uuid import UUID, uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -10,11 +11,29 @@ from products.meep.backend.board import finish_board
 from products.meep.backend.chat import finish_turn
 from products.meep.backend.child_input import answer_child
 from products.meep.backend.delegation import spawn_child, wait_for_children
+from products.meep.backend.github import mission_repository
 from products.meep.backend.models import BoardRun, ChatTurn, Topic, ViewJob
 from products.meep.backend.replication import apply_command
 from products.meep.backend.tasks import reconcile_topic_tasks, schedule_delegated_task_recovery
 from products.tasks.backend.facade import access, api
 from products.tasks.backend.models import TaskRun
+
+
+@pytest.mark.parametrize(
+    ("mission", "expected"),
+    [
+        (
+            "Read https://github.com/Example/Atlas/pull/5 and https://github.com/example/atlas/issues/7.",
+            "example/atlas",
+        ),
+        ("Compare https://github.com/example/atlas to https://github.com/example/delta", None),
+        ("Read https://example.com/example/atlas", None),
+        ("Read https://example.com/?redirect=https://github.com/example/atlas", None),
+        ("Review the new feature", None),
+    ],
+)
+def test_mission_repository(mission: str, expected: str | None) -> None:
+    assert mission_repository(mission) == expected
 
 
 class TestTopics(APIBaseTest):
@@ -72,6 +91,97 @@ class TestTopics(APIBaseTest):
         assert self.client.get(url + "changes/", {"cursor": page["cursor"]}).json()["topics"] == []
         assert self.client.get(url + "views/").json() == []
         assert self.client.get(url + "connections/").json()["connections"][0]["grants"] == [topic]
+
+    def test_repository_attachment_replay_replace_and_detach(self) -> None:
+        topic_id, create_id = uuid4(), uuid4()
+        create = {
+            "kind": "CreateTopicWithoutSort",
+            "name": "Source review",
+            "mission": "Review https://github.com/example/first/pull/7",
+        }
+        apply_command(self.team.id, self.user, create_id, topic_id, create)
+        apply_command(self.team.id, self.user, create_id, topic_id, create)
+        topic = Topic.objects.for_team(self.team.pk).get(pk=topic_id)
+        assert topic.state["topic"]["context_sources"] == []
+        topic.conversation_id = uuid4()
+        topic.save(update_fields=["conversation_id"])
+        source = {
+            "id": str(uuid4()),
+            "key": "example/second",
+            "label": "example/second",
+            "connection": "github",
+            "kind": "repository",
+        }
+        add = {
+            "kind": "SelectGithubRepository",
+            "previous": None,
+            "id": source["id"],
+            "repository": source["key"],
+        }
+        with patch("products.meep.backend.replication.personal_repository_available", return_value=False):
+            with self.assertRaises(ValidationError):
+                apply_command(self.team.id, self.user, uuid4(), topic_id, add)
+        topic.refresh_from_db()
+        assert topic.conversation_id is not None
+        with patch("products.meep.backend.replication.personal_repository_available", return_value=True):
+            apply_command(self.team.id, self.user, uuid4(), topic_id, add)
+        topic.refresh_from_db()
+        assert topic.state["topic"]["context_sources"] == [source]
+        assert topic.conversation_id is not None
+        apply_command(
+            self.team.id, self.user, uuid4(), topic_id, {**add, "previous": None, "repository": "example/stale"}
+        )
+        topic.refresh_from_db()
+        assert topic.state["topic"]["context_sources"] == [source]
+        apply_command(
+            self.team.id, self.user, uuid4(), topic_id, {"kind": "RemoveContextSource", "source": source["id"]}
+        )
+        topic.refresh_from_db()
+        assert topic.state["topic"]["context_sources"] == []
+
+    def test_mission_repository_requires_owner_approval(self) -> None:
+        topic_id = uuid4()
+        create = api.create_and_run_task
+        with (
+            patch("products.meep.backend.chat.check_access"),
+            patch(
+                "products.meep.backend.chat.api.create_and_run_task",
+                side_effect=lambda **kwargs: create(**kwargs, start_workflow=False),
+            ),
+        ):
+            apply_command(
+                self.team.pk,
+                self.user,
+                uuid4(),
+                topic_id,
+                {"kind": "CreateTopic", "name": "Source review", "mission": "Review https://github.com/example/atlas"},
+            )
+        turn = ChatTurn.objects.get(topic_id=topic_id)
+        TaskRun.objects.filter(pk=turn.run_id).update(
+            status="completed", output={"reply": "Keep this source handy.", "suggested_repository": "example/atlas"}
+        )
+        finish_turn(turn.run_id, self.team.pk)
+        topic = Topic.objects.for_team(self.team.pk).get(pk=topic_id)
+        assert not topic.state["topic"]["context_sources"]
+        thread = topic.state["threads"][0]
+        proposed = thread["state"]["NeedsYou"]["suggestions"][0]
+        assert proposed == {"LinkRepository": {"repository": "example/atlas", "previous": None}}
+        with patch("products.meep.backend.replication.personal_repository_available", return_value=True):
+            apply_command(
+                self.team.pk,
+                self.user,
+                uuid4(),
+                topic_id,
+                {
+                    "kind": "Answer",
+                    "thread": thread["id"],
+                    "expected_review": thread.get("review_version", 0),
+                    "task_id": str(uuid4()),
+                    "suggestion": proposed,
+                },
+            )
+        topic.refresh_from_db()
+        assert [w["key"] for w in topic.state["topic"]["context_sources"]] == ["example/atlas"]
 
     def test_view_replication_and_idempotent_replay(self) -> None:
         url = f"/api/projects/{self.team.pk}/meep/v1/views/"

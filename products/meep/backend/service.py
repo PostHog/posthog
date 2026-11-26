@@ -16,6 +16,7 @@ from products.meep.backend.chat import finish_turn
 from products.meep.backend.domain import transition
 from products.meep.backend.facade.contracts import FileData, TopicDetails
 from products.meep.backend.files import write_file
+from products.meep.backend.github import repository_catalog
 from products.meep.backend.models import (
     BoardRun,
     ChatTurn,
@@ -61,9 +62,12 @@ def read_topic(team_id: int, owner_id: int, topic_id: UUID, conversation: UUID |
 
 @transaction.atomic
 def create_topic(team_id: int, owner_id: int, title: str, mission: str) -> TopicDetails:
-    User.objects.select_for_update().only("pk").get(pk=owner_id)
-    topic = Topic.objects.for_team(team_id).create(team_id=team_id, owner_id=owner_id, title=title, mission=mission)
-    CommandReceipt.objects.create(command_id=uuid4(), topic=topic, revision=topic.revision)
+    owner = User.objects.get(pk=owner_id)
+    topic_id = uuid4()
+    replication.apply_command(
+        team_id, owner, uuid4(), topic_id, {"kind": "CreateTopicWithoutSort", "name": title, "mission": mission}
+    )
+    topic = _topics(team_id, owner_id).get(pk=topic_id)
     return _details(topic)
 
 
@@ -237,10 +241,12 @@ def chat_models(
 def topic_context(
     team_id: int, owner_id: int, topic_id: UUID, conversation: UUID | None, include_scouts: bool = False
 ) -> dict[str, JsonValue]:
-    read_topic(team_id, owner_id, topic_id, conversation)
+    topic = read_topic(team_id, owner_id, topic_id, conversation)
     state = topic_snapshot(team_id, owner_id, topic_id, include_scouts)["state"]
     context = {k: state["topic"][k] for k in ("goals", "facts", "rules", "context_sources")}
     context["scouts"] = state.get("scouts", [])
+    if conversation and conversation == topic.conversation_id:
+        context["github"] = repository_catalog(owner_id)
     return context
 
 

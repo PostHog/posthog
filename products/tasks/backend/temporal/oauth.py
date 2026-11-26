@@ -256,7 +256,7 @@ def create_oauth_access_token(
     # Only a server-created Meep profile may carry the topic-scoped scout grants.
     # A client-supplied origin or explicit scope list cannot opt another task into Meep.
     meep_grants = {"meep_scout:read", "meep_scout:write", "meep_task:write"}.intersection(resolve_scopes(scopes))
-    if meep_grants and (task.stored_profile is None or task.stored_profile.key != "meep"):
+    if meep_grants and (task.stored_profile is None or task.stored_profile.key not in {"meep", "meep_repository"}):
         withheld.update(meep_grants)
     if "internal_run:write" in resolve_scopes(scopes):
         # Flat scopes regain shared internal grants when resolved again during minting.

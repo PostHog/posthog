@@ -321,6 +321,9 @@ pub(super) fn kind_tile(kind: &str) -> Stateful<Div> {
 pub(super) fn thread_tab(thread: &Thread) -> Tab {
     if thread.is_agent_report() {
         Tab::Inbox
+    } else if matches!(&thread.state, ThreadState::NeedsYou { suggestions, .. } if suggestions.iter().any(|s| matches!(s, Suggestion::LinkRepository { .. })))
+    {
+        Tab::Linked
     } else if thread.key.starts_with("file-review/") {
         Tab::Files
     } else {

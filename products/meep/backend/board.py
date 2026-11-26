@@ -12,10 +12,11 @@ from posthog.models import User
 
 from products.meep.backend.chat import check_access, environment
 from products.meep.backend.domain import transition
+from products.meep.backend.github import mission_repository
 from products.meep.backend.models import BoardRun, ChatTurn, CommandReceipt, Topic
-from products.meep.backend.task_profiles import MEEP, MEEP_MCP_SCOPES, agent_instructions
+from products.meep.backend.task_profiles import MEEP, MEEP_MCP_SCOPES, MEEP_REPOSITORY, agent_instructions
 from products.tasks.backend.facade import api
-from products.tasks.backend.facade.profiles import TaskRunOptions
+from products.tasks.backend.facade.profiles import GithubAccess, TaskRunOptions
 
 
 def task_conversation(team_id: int, owner_id: int, topic_id: UUID, item_id: UUID) -> dict[str, JsonValue]:
@@ -147,10 +148,15 @@ def apply_board_action(topic: Topic, state: dict, command: dict, *, delegated_pa
         check_child_capacity(topic)
     check_access(topic.team, topic.owner)
     state = transition("board", state, {"id": item_id, "text": "Starting PostHog task", "stage": "start"})
+    repository = mission_repository(item.get("instructions") or "") if delegated_parent else None
+    if repository and not api.personal_repository_available(topic.owner_id, repository):
+        raise ValidationError("This repository is unavailable through your connected GitHub account.")
+    profile = MEEP_REPOSITORY if repository else MEEP
     created = api.create_and_run_task(
         team=topic.team,
         user_id=topic.owner_id,
-        profile=MEEP,
+        profile=profile,
+        repository=repository,
         create_pr=False,
         title=item["title"],
         description=(
@@ -158,7 +164,7 @@ def apply_board_action(topic: Topic, state: dict, command: dict, *, delegated_pa
             f"{item['title']}\n{item.get('instructions') or ''}\nReturn your findings in reply."
             + (" Set needs_input to true if you need an answer before you can continue." if delegated_parent else "")
         ),
-        sandbox_environment_id=str(environment(topic.team_id)),
+        sandbox_environment_id=str(environment(topic.team_id, profile)),
         extra_run_state={
             "meep_board_item": item_id,
             **(
@@ -171,6 +177,7 @@ def apply_board_action(topic: Topic, state: dict, command: dict, *, delegated_pa
             ),
         },
         options=TaskRunOptions(
+            github_access=GithubAccess.READ if repository else None,
             mcp_scopes=[scope for scope in MEEP_MCP_SCOPES if scope != "meep_task:write"],
             model=item.get("model"),
             reasoning_effort=item.get("reasoning_effort"),

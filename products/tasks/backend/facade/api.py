@@ -6938,6 +6938,12 @@ def user_has_usable_personal_github(user_id: int) -> bool:
     return user_github_integration_is_usable(integration)
 
 
+def personal_repository_available(user_id: int, repository: str) -> bool:
+    from products.tasks.backend.temporal.process_task.utils import personal_repository_installation
+
+    return personal_repository_installation(user_id, repository) is not None
+
+
 def check_personal_github_repo_access(user_id: int, repository: str) -> contracts.PersonalGitHubRepoAccess:
     """Ask GitHub whether the user's personal GitHub connection can open `repository`.
 
@@ -7699,6 +7705,16 @@ def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) ->
     )
 
     return pull_request_titles(team_id, user_id, task_ids)
+
+
+def task_has_legacy_meep_output(team_id: int, owner_id: int, task_id: UUID) -> bool:
+    return (
+        Task.objects.filter(
+            team_id=team_id, created_by_id=owner_id, pk=task_id, profile__in=("meep", "meep_repository")
+        )
+        .exclude(json_schema__properties__has_key="suggested_repository")
+        .exists()
+    )
 
 
 def get_task_repository_state(
