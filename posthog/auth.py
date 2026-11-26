@@ -1780,6 +1780,10 @@ class WebauthnBackend(BaseBackend):
             if not user.is_active:
                 structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
                 return None
+            # Refused before verification, so that a refused login does not advance the credential's sign counter.
+            if not user.is_human:
+                structlog_logger.warning("webauthn_login_user_not_human", user_id=user.pk)
+                return None
 
             # Construct credential dict for webauthn library
             # The library expects both 'id' and 'rawId' to be present
