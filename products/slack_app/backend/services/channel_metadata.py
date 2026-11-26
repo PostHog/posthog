@@ -19,12 +19,17 @@ from posthog.slack.channels import is_shared_channel
 
 from products.slack_app.backend.feature_flags import CHANNEL_CONTEXT_REQUIRED_SCOPES
 from products.slack_app.backend.models import SlackChannel
-from products.slack_app.backend.services.slack_conversations import fetch_channel_info
+from products.slack_app.backend.services.slack_conversations import lookup_channel_info
 from products.slack_app.backend.services.slack_scopes import has_scopes
 
 logger = structlog.get_logger(__name__)
 
 METADATA_REFRESH_SECONDS = 24 * 60 * 60
+# After a rate limit or a network error, the next mention may try again once this has passed.
+LOOKUP_RETRY_SECONDS = 15 * 60
+# Errors that mean the app can no longer read the channel, for example because it turned private on an install
+# without `groups:read`, or the bot was removed from it.
+ACCESS_LOST_ERRORS = frozenset({"channel_not_found", "missing_scope", "not_in_channel"})
 # Slack writes a user group tag as `<!subteam^S0123|@team-replay>`, and older clients leave out the label.
 _SUBTEAM_RE = re.compile(r"<!subteam\^(S[A-Z0-9]+)(?:\|@?([^>]*))?>")
 
@@ -50,6 +55,13 @@ def _refresh_slot_key(integration_id: int, slack_channel_id: str) -> str:
     return f"slack_app_channel_metadata:{integration_id}:{slack_channel_id}"
 
 
+def _clear_stored_description(slack_workspace_id: str, slack_channel_id: str) -> None:
+    """Forget a channel's description and keep its approval, so the organization stops reading a channel it can't."""
+    SlackChannel.objects.filter(slack_workspace_id=slack_workspace_id, slack_channel_id=slack_channel_id).exclude(
+        topic="", purpose="", owner_groups=[]
+    ).update(topic="", purpose="", owner_groups=[])
+
+
 def schedule_channel_metadata_refresh(
     integration: IntegrationRecord, slack_channel_id: str, *, is_ext_shared: bool = False
 ) -> None:
@@ -61,12 +73,19 @@ def schedule_channel_metadata_refresh(
     its own organization and flag.
     """
     # A `D…` id is a DM, which has no description, and `conversations.info` cannot read it without `im:read`.
-    if is_ext_shared or slack_channel_id.startswith("D"):
+    if slack_channel_id.startswith("D"):
         return
+    slot = _refresh_slot_key(integration.id, slack_channel_id)
+    acquired = False
     try:
         if not has_scopes(integration, CHANNEL_CONTEXT_REQUIRED_SCOPES):
             return
-        if not cache.add(_refresh_slot_key(integration.id, slack_channel_id), 1, timeout=METADATA_REFRESH_SECONDS):
+        acquired = cache.add(slot, 1, timeout=METADATA_REFRESH_SECONDS)
+        if not acquired:
+            return
+        if is_ext_shared:
+            # The event already says the channel is shared, so a description stored while it was public goes now.
+            _clear_stored_description(integration.integration_id or "", slack_channel_id)
             return
         # The task module imports this one, so a module-level import here would be circular.
         from products.slack_app.backend.tasks import refresh_slack_channel_metadata  # noqa: PLC0415
@@ -78,6 +97,12 @@ def schedule_channel_metadata_refresh(
         logger.warning(
             "slack_app_channel_metadata_refresh_schedule_failed", integration_id=integration.id, exc_info=True
         )
+        if acquired:
+            # Nothing ran, so the next mention may try again.
+            try:
+                cache.delete(slot)
+            except Exception:
+                logger.warning("slack_app_channel_metadata_slot_release_failed", integration_id=integration.id)
 
 
 def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str, slack_channel_id: str) -> bool:
@@ -86,15 +111,19 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
     Only public channels that are not shared beyond this workspace qualify, because their context page is
     readable by the whole organization.
     """
-    channel = fetch_channel_info(slack, slack_channel_id)
+    lookup = lookup_channel_info(slack, slack_channel_id)
+    channel = lookup.channel
     if channel is None:
-        # Slack could not say, so free the day's slot and let the next mention try again.
-        cache.delete(_refresh_slot_key(slack.integration.id, slack_channel_id))
+        if lookup.error in ACCESS_LOST_ERRORS:
+            # The day's slot stays taken: asking again tomorrow is soon enough for a channel the app can't read.
+            _clear_stored_description(slack_workspace_id, slack_channel_id)
+        else:
+            # A rate limit or a network error: let a mention try again after a short wait, not on the next message.
+            cache.set(_refresh_slot_key(slack.integration.id, slack_channel_id), 1, timeout=LOOKUP_RETRY_SECONDS)
         return False
-    stored = SlackChannel.objects.filter(slack_workspace_id=slack_workspace_id, slack_channel_id=slack_channel_id)
     if not channel.get("is_channel") or channel.get("is_private") or is_shared_channel(channel):
         # A channel that was public can turn private or shared, so its old description must not stay readable.
-        stored.update(topic="", purpose="", owner_groups=[])
+        _clear_stored_description(slack_workspace_id, slack_channel_id)
         return False
 
     # Slack escapes &, < and > in this text. Tags are read before unescaping, so an escaped `&lt;` cannot form one.

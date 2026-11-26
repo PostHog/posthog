@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from slack_sdk.errors import SlackApiError
 
@@ -86,12 +87,18 @@ class TestRefreshChannelMetadata:
         channel = SlackChannel.objects.get(slack_channel_id="C01")
         assert (channel.topic, channel.owner_groups) == ("", [])
 
-    def test_a_failed_lookup_keeps_the_stored_description(self) -> None:
+    @pytest.mark.parametrize(
+        "error,expected_topic",
+        [("ratelimited", "Replays"), ("missing_scope", ""), ("channel_not_found", "")],
+    )
+    def test_a_failed_lookup_clears_the_description_only_when_access_is_lost(
+        self, error: str, expected_topic: str
+    ) -> None:
         SlackChannel.objects.create(slack_workspace_id="T01", slack_channel_id="C01", topic="Replays")
-        error = SlackApiError("missing_scope", response={"ok": False, "error": "missing_scope"})
+        slack_error = SlackApiError(error, response={"ok": False, "error": error})
 
-        assert not refresh_channel_metadata(_slack(error=error), slack_workspace_id="T01", slack_channel_id="C01")
-        assert SlackChannel.objects.get(slack_channel_id="C01").topic == "Replays"
+        assert not refresh_channel_metadata(_slack(error=slack_error), slack_workspace_id="T01", slack_channel_id="C01")
+        assert SlackChannel.objects.get(slack_channel_id="C01").topic == expected_topic
 
 
 @pytest.mark.django_db
@@ -102,7 +109,6 @@ class TestScheduleChannelMetadataRefresh:
             ("channels:read", ["C01", "C01", "C02"], ["C01", "C02"]),
             ("", ["C01"], []),
             ("channels:read", ["D01"], []),
-            ("channels:read", ["shared:C01"], []),
         ],
     )
     def test_dispatches_once_per_readable_channel_per_day(
@@ -119,7 +125,7 @@ class TestScheduleChannelMetadataRefresh:
 
         assert [call.kwargs["slack_channel_id"] for call in dispatch.call_args_list] == expected
 
-    def test_a_failed_lookup_frees_the_day_for_the_next_mention(self, workspace_integration) -> None:
+    def test_a_rate_limited_lookup_waits_before_the_next_mention_retries(self, workspace_integration) -> None:
         cache.clear()
         workspace_integration.config = {"scope": "channels:read"}
         workspace_integration.save()
@@ -130,8 +136,43 @@ class TestScheduleChannelMetadataRefresh:
             schedule_channel_metadata_refresh(workspace_integration, "C01")
             refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
             schedule_channel_metadata_refresh(workspace_integration, "C01")
+            cache.delete(f"slack_app_channel_metadata:{workspace_integration.id}:C01")
+            schedule_channel_metadata_refresh(workspace_integration, "C01")
 
         assert dispatch.call_count == 2
+
+    def test_a_failed_dispatch_frees_the_day_for_the_next_mention(self, workspace_integration) -> None:
+        cache.clear()
+        workspace_integration.config = {"scope": "channels:read"}
+        workspace_integration.save()
+
+        with patch(
+            "products.slack_app.backend.tasks.refresh_slack_channel_metadata.delay", side_effect=[ConnectionError, None]
+        ) as dispatch:
+            schedule_channel_metadata_refresh(workspace_integration, "C01")
+            schedule_channel_metadata_refresh(workspace_integration, "C01")
+
+        assert dispatch.call_count == 2
+
+    def test_a_mention_in_a_channel_that_became_shared_clears_its_description(self, workspace_integration) -> None:
+        cache.clear()
+        workspace_integration.config = {"scope": "channels:read"}
+        workspace_integration.save()
+        channel = SlackChannel.objects.create(
+            slack_workspace_id=workspace_integration.integration_id,
+            slack_channel_id="C01",
+            topic="Deal room",
+            owner_groups=[{"id": "S01", "handle": "deals"}],
+            approved_at=timezone.now(),
+        )
+
+        with patch("products.slack_app.backend.tasks.refresh_slack_channel_metadata.delay") as dispatch:
+            schedule_channel_metadata_refresh(workspace_integration, "C01", is_ext_shared=True)
+
+        channel.refresh_from_db()
+        assert (channel.topic, channel.owner_groups) == ("", [])
+        assert channel.approved_at is not None
+        assert dispatch.call_count == 0
 
     def test_a_cache_outage_does_not_break_the_mention(self, workspace_integration) -> None:
         workspace_integration.config = {"scope": "channels:read"}
