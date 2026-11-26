@@ -37,7 +37,7 @@ export function RenameTagModalQuill(): JSX.Element | null {
                 <CredenzaHeader>
                     <CredenzaTitle>Rename tag</CredenzaTitle>
                 </CredenzaHeader>
-                <CredenzaBody className="flex flex-col gap-4">
+                <CredenzaBody viewportClassName="flex flex-col gap-4">
                     <Field>
                         <FieldLabel htmlFor="rename-tag-name">Tag name</FieldLabel>
                         <Input
