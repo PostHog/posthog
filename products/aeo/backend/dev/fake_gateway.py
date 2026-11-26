@@ -29,6 +29,10 @@ from urllib.error import HTTPError
 from urllib.parse import urlparse
 
 DEFAULT_PORT = 8080
+# Enough latency for the wizard to show its progress states and little enough for an automated check to
+# finish quickly. The realistic preset is what a person sees with the real gateway.
+DEFAULT_DELAY_MS = "100"
+REALISTIC_DELAY_MS = "800-3000"
 DEFAULT_STORE = Path(".posthog/aeo-fake-gateway")
 TOKEN_FILE = Path("~/.ai-gateway-token.json")
 # These phrases open the three setup instructions in suggestions.py and keyword_suggestions.py. A request whose
@@ -917,16 +921,23 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE, help="where recorded answers live")
     parser.add_argument(
         "--delay-ms",
-        default=os.environ.get("FAKE_GATEWAY_DELAY_MS", ""),
-        help="latency per request, a fixed number of milliseconds or a range such as 800-3000",
+        default=os.environ.get("FAKE_GATEWAY_DELAY_MS", DEFAULT_DELAY_MS),
+        help=f"latency per request, a fixed number of milliseconds or a range such as {REALISTIC_DELAY_MS} "
+        f"(default {DEFAULT_DELAY_MS})",
+    )
+    parser.add_argument(
+        "--realistic", action="store_true", help=f"the latency of the real gateway: --delay-ms {REALISTIC_DELAY_MS}"
     )
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
     run_mode = "record" if args.record else "replay" if args.replay else "generated"
+    delay_spec = REALISTIC_DELAY_MS if args.realistic else args.delay_ms
     server = FakeGatewayServer(
-        (args.host, args.port), mode=run_mode, store=args.store, delay=parse_delay(args.delay_ms), quiet=args.quiet
+        (args.host, args.port), mode=run_mode, store=args.store, delay=parse_delay(delay_spec), quiet=args.quiet
     )
-    sys.stderr.write(f"[fake-gateway] {run_mode} mode listening on http://{args.host}:{args.port}/v1\n")
+    sys.stderr.write(
+        f"[fake-gateway] {run_mode} mode listening on http://{args.host}:{args.port}/v1, delay {delay_spec} ms\n"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

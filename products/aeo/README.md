@@ -178,7 +178,7 @@ AI_GATEWAY_API_KEY=phs_fake
 
 `GET http://localhost:8080/` shows the mode and the sites set up so far, which the engine answers cite.
 
-- **Latency.** `FAKE_GATEWAY_DELAY_MS=800-3000` (or `--delay-ms`) sleeps a random time in that range per request, so the wizard's progress states stay on screen long enough to see.
+- **Latency.** Each request sleeps 100 ms by default, enough for the wizard's progress states to show and quick enough for an automated check of the flow. `--realistic` (or `FAKE_GATEWAY_DELAY_MS=800-3000`) sleeps a random time in that range instead, which is what a person sees with the real gateway. `FAKE_GATEWAY_DELAY_MS` or `--delay-ms` takes a fixed number of milliseconds or a range.
 - **Failures on demand.** A site whose domain contains `fail` fails its setup calls with a 500; one containing `unreadable` answers without JSON. The engine answers fail on their own for a few prompts.
 - **Record and replay.** `--record` forwards each call to the real gateway with the token in `~/.ai-gateway-token.json` (never printed or logged) and stores the answers under `.posthog/aeo-fake-gateway/`, keyed by the request. `--replay` serves them back and generates an answer for any request that was never recorded.
 - **Tests.** `products/aeo/backend/test/test_fake_gateway.py` runs the builders through the real parsers in `engines.py`, `suggestions.py` and `keyword_suggestions.py`, so a parser change breaks the fake loudly.
