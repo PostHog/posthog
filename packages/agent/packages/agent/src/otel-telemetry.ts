@@ -43,6 +43,8 @@ export interface OtelTelemetryConfig {
   tracesUrl?: string;
   /** Batch flush interval in ms (default: 2000) */
   flushIntervalMs?: number;
+  /** Context wiki mount; reads under it are recorded on tool spans */
+  contextWikiPath?: string;
 }
 
 /**
@@ -347,6 +349,7 @@ export class OtelRunTelemetry implements SessionLogSink {
           token: config.token,
           runId: resource.runId,
           flushIntervalMs: config.flushIntervalMs,
+          contextWikiPath: config.contextWikiPath,
         },
         otelResource,
       );

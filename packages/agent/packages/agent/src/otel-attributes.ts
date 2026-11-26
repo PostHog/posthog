@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import {
   readAgentToolName,
   readMcpToolDescriptor,
@@ -54,6 +55,30 @@ export function toolNameAttribute(
 ): string | undefined {
   if (readMcpToolDescriptor(update._meta)) return "mcp";
   return readAgentToolName(update._meta) || undefined;
+}
+
+/**
+ * Context wiki pages a tool call touched, as paths relative to the wiki mount.
+ * A page path names a shared wiki page, not repository or user content, so it
+ * is the only tool location exported; every other location stays in the sandbox.
+ */
+export function contextWikiPages(
+  update: Record<string, unknown>,
+  wikiPath: string | undefined,
+): string | undefined {
+  if (!wikiPath) return undefined;
+  const root = `${posix.normalize(wikiPath).replace(/\/+$/, "")}/`;
+  const locations = Array.isArray(update.locations) ? update.locations : [];
+  const pages = new Set<string>();
+  for (const location of locations) {
+    const path = asString(asRecord(location)?.path);
+    if (!path) continue;
+    const normalized = posix.normalize(path);
+    if (normalized.startsWith(root) && normalized.endsWith(".md")) {
+      pages.add(normalized.slice(root.length));
+    }
+  }
+  return pages.size ? [...pages].join(",") : undefined;
 }
 
 export function toolFailureReason(

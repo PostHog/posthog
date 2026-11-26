@@ -40,6 +40,8 @@ export interface AgentServerConfig {
   otelLogsToken?: string;
   /** Full OTLP traces URL for run spans, e.g. https://us.i.posthog.com/i/v1/traces */
   otelTracesUrl?: string;
+  /** Context wiki mount path, e.g. /tmp/workspace/context */
+  contextWikiPath?: string;
   mode: AgentMode;
   taskId: string;
   runId: string;

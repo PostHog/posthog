@@ -728,6 +728,76 @@ describe("OtelRunTelemetry", () => {
       expect(surface).not.toContain(".env");
     });
 
+    it("records context wiki pages a tool read, and no other location", async () => {
+      await telemetry.shutdown();
+      mockSpanExport.mockClear();
+      telemetry = new OtelRunTelemetry(
+        {
+          url: "https://us.i.posthog.com/i/v1/logs",
+          token: "phc_test_key",
+          tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+          flushIntervalMs: 100,
+          contextWikiPath: "/tmp/workspace/context/",
+        },
+        RESOURCE,
+      );
+      telemetry.append(RUN_ID, makeEntry("session/prompt", { prompt: [] }));
+      telemetry.append(
+        RUN_ID,
+        sessionUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          kind: "read",
+          status: "pending",
+          locations: [{ path: "/tmp/workspace/context/areas/slack-app.md" }],
+        }),
+      );
+      telemetry.append(
+        RUN_ID,
+        sessionUpdate({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "t1",
+          status: "completed",
+          locations: [
+            { path: "/tmp/workspace/context/../repos/app/SECRET.md" },
+            { path: "/tmp/workspace/context" },
+            { path: "/tmp/workspace/repos/app/notes.md" },
+          ],
+        }),
+      );
+      telemetry.append(
+        RUN_ID,
+        sessionUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "t2",
+          kind: "search",
+          status: "pending",
+        }),
+      );
+      telemetry.append(
+        RUN_ID,
+        sessionUpdate({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "t2",
+          status: "completed",
+          locations: [{ path: "/tmp/workspace/context/decisions/d.md" }],
+        }),
+      );
+      await telemetry.shutdown();
+
+      expect(spanByName("tool_call:read").attributes).toMatchObject({
+        context_wiki_pages: "areas/slack-app.md",
+      });
+      expect(spanByName("tool_call:search").attributes).toMatchObject({
+        context_wiki_pages: "decisions/d.md",
+      });
+      const surface = JSON.stringify(
+        exportedSpans().map((span) => span.attributes),
+      );
+      expect(surface).not.toContain("SECRET");
+      expect(surface).not.toContain("notes.md");
+    });
+
     it("keeps correlation context attached to its run during concurrent turns", async () => {
       const otherRunId = "run-other";
       const other = new OtelRunTelemetry(
