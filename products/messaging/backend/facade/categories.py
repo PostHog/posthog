@@ -17,6 +17,7 @@ MESSAGE_CATEGORY_TYPE_CHOICES: list[tuple[str, str]] = [
     (value, str(label)) for value, label in MessageCategoryType.choices
 ]
 DEFAULT_MESSAGE_CATEGORY_TYPE: str = MessageCategoryType.MARKETING.value
+MARKETING_CATEGORY_TYPE: str = MessageCategoryType.MARKETING.value
 
 
 class MessageCategoryMissing(Exception):

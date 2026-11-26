@@ -208,7 +208,7 @@ SANDBOX_FIELDS_UNSUPPORTED = (
 )
 SANDBOX_MARKETING_UNSUPPORTED = (
     "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
-    "can't send marketing email. Leave out `category`, or verify a sending domain at {setup_url}."
+    "can't send marketing email. Verify a sending domain at {setup_url}, then send it again."
 )
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the

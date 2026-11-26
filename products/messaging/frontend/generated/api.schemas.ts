@@ -247,7 +247,7 @@ export interface SendEmailApi {
     /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
     /**
-     * Key of one of the project's message categories, such as `newsletter`. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400.
+     * Key of one of the project's message categories, such as `newsletter`, for the email your code rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own category. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400.
      * @maxLength 64
      */
     category?: string

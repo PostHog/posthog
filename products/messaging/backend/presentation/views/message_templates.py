@@ -67,7 +67,11 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
-from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category_by_key
+from products.messaging.backend.facade.categories import (
+    MARKETING_CATEGORY_TYPE,
+    MessageCategoryMissing,
+    get_category_by_key,
+)
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
@@ -861,10 +865,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     category = serializers.CharField(
         required=False,
         max_length=64,
-        help_text="Key of one of the project's message categories, such as `newsletter`. A marketing category skips "
-        "recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the "
-        "recipient's preferences link, and adds List-Unsubscribe headers. Categories on emails your code rendered "
-        "are on only in some projects so far, and a project without them refuses this field with a 400.",
+        help_text="Key of one of the project's message categories, such as `newsletter`, for the email your code "
+        "rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills "
+        "`{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing "
+        "email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own "
+        "category. Categories on emails your code rendered are on only in some projects so far, and a project without "
+        "them refuses this field with a 400.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -876,6 +882,9 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
                 data = {**data, "template_id": template.get("id")}
             if "distinct_id" not in data and isinstance(identifiers, Mapping):
                 data = {**data, "distinct_id": identifiers.get("distinct_id")}
+            if "template_id" in data and "category" in data:
+                data = data.copy()
+                del data["category"]
         return super().to_internal_value(data)
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -928,6 +937,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             raise serializers.ValidationError(
                 {"message_data": "A send with `template_key` carries content your code rendered, not `message_data`."}
             )
+        if "category" in sent and not data.get("category"):
+            raise serializers.ValidationError({"category": "`category` needs the key of a message category."})
         if not data.get("subject"):
             raise serializers.ValidationError({"subject": "A send with `template_key` needs a subject."})
         if not (data.get("html") or data.get("text")):
@@ -1928,10 +1939,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
             self._check_scheduled_at(request.validated_data.get("scheduled_at"))
-            category = self._send_category(request.validated_data.get("category"))
+            self._require_categories_flag(request.validated_data)
         data = request.validated_data
         self._require_code_email_access(data["template_key"])
-        email = code_email(data, category)
+        email = code_email(data, self._send_category(data))
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1946,16 +1957,16 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             unavailable=unconfirmed_email_send,
         )
 
-    def _send_category(self, key: str | None) -> EmailCategory | None:
-        if key is None:
-            return None
-        if not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
+    def _require_categories_flag(self, data: Mapping[str, Any]) -> None:
+        if "category" in data and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
             raise serializers.ValidationError(
-                {
-                    "category": "Categories are off for this project, so PostHog didn't send the email. Send it again "
-                    "without `category`."
-                }
+                {"category": "Categories are off for this project, so PostHog didn't send the email."}
             )
+
+    def _send_category(self, data: Mapping[str, Any]) -> EmailCategory | None:
+        if "category" not in data:
+            return None
+        key = data["category"]
         try:
             row = get_category_by_key(self.team_id, key)
         except MessageCategoryMissing:
@@ -1964,8 +1975,17 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 code="category_not_found",
                 attr="category",
                 why="A send names a category by the key it has in the project's message categories.",
-                fix="Send the key of a category that exists and isn't deleted, or leave out `category`.",
+                fix="Send the key of a category that exists and isn't deleted.",
             ) from None
+        copies = next((field for field in ("cc", "bcc") if data.get(field)), None)
+        if row.category_type == MARKETING_CATEGORY_TYPE and copies:
+            raise ExplainedRefusal(
+                f"A marketing email can't have `{copies}`, so PostHog didn't send it.",
+                code="marketing_copies_unsupported",
+                attr=copies,
+                why="PostHog checks opt-outs and builds the unsubscribe link for the `to` recipient only.",
+                fix="Send each copy as its own email, with its recipient in `to`.",
+            )
         return EmailCategory(id=row.id, type=row.category_type)
 
     def _require_code_email_access(self, key: str) -> None:

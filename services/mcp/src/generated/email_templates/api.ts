@@ -194,7 +194,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .max(messagingSendEmailCreateBodyCategoryMax)
         .optional()
         .describe(
-            "Key of one of the project's message categories, such as `newsletter`. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400."
+            "Key of one of the project's message categories, such as `newsletter`, for the email your code rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own category. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400."
         ),
     from: zod
         .string()
