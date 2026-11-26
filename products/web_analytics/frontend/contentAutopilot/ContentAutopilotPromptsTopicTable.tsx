@@ -1,4 +1,5 @@
-import { LemonTableColumn, Link } from '@posthog/lemon-ui'
+import type { LemonTableColumn } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
@@ -14,10 +15,15 @@ const byRate = (key: 'mention_rate' | 'citation_rate') => (a: TopicRow, b: Topic
 
 const RateCell = ({ rate, answers }: { rate: number | null; answers: number }): JSX.Element =>
     rate === null ? (
-        <span className="text-muted">No answers</span>
+        <Text size="xs" variant="muted" render={<span />}>
+            No answers
+        </Text>
     ) : (
         <span className="tabular-nums">
-            {percentage(rate, 0)} <span className="text-muted">of {humanFriendlyNumber(answers)}</span>
+            {percentage(rate, 0)}{' '}
+            <Text size="xs" variant="muted" render={<span />}>
+                of {humanFriendlyNumber(answers)}
+            </Text>
         </span>
     )
 
@@ -37,18 +43,20 @@ export const ContentAutopilotPromptsTopicTable = ({
             key: 'topic',
             sorter: (a, b) => a.topic.localeCompare(b.topic),
             render: (_, row) => (
-                <Link
-                    subtle
+                <Button
+                    variant={row.topic ? 'link-foreground' : 'link-muted'}
+                    size="sm"
+                    left
                     onClick={(event) => {
                         // The row handler below would otherwise select the topic a second time.
                         event.stopPropagation()
                         onSelect(row.topic)
                     }}
-                    className={row.topic ? 'font-semibold' : 'font-semibold text-muted'}
+                    className="max-w-full shrink font-semibold"
                     data-attr="content-autopilot-prompts-overview-topic"
                 >
-                    {row.topic || 'No topic'}
-                </Link>
+                    <span className="truncate">{row.topic || 'No topic'}</span>
+                </Button>
             ),
         },
         {
