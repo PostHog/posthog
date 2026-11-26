@@ -56,6 +56,14 @@ const RESULT: RunResult = {
         { name: 'role_cpu_seconds', key: 'cdp-cyclotron-worker-email', value: 4.5, unit: 's', incomplete: true },
         { name: 'delivery_latency_ms', key: 'p95', value: 820, unit: 'ms' },
         { name: 'drain_seconds', value: null, unit: 's', censored: true },
+        {
+            name: 'counter_drift',
+            key: 'email_sent_events',
+            value: null,
+            unit: 'messages',
+            censored: true,
+            unmeasured: 'the stack runs no ingestion',
+        },
     ],
     admissions: [{ name: 'host', passed: true, reason: 'host CPU 41% busy in the baseline, under the 80% ceiling' }],
     bars: [
@@ -134,7 +142,7 @@ describe('scorecard', () => {
                     owners: [],
                     run_id: RUN_ID,
                     card_id: 'smoke',
-                    card_version: 3,
+                    card_version: 4,
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
@@ -179,6 +187,9 @@ describe('scorecard', () => {
                     m_delivery_latency_ms_p95: 820,
                     m_drain_seconds: null,
                     m_drain_seconds_censored: true,
+                    m_counter_drift_email_sent_events: null,
+                    m_counter_drift_email_sent_events_censored: true,
+                    m_counter_drift_email_sent_events_unmeasured: 'the stack runs no ingestion',
                     admissions: RESULT.admissions,
                     load_targets: null,
                     bars: RESULT.bars,
@@ -200,18 +211,32 @@ describe('scorecard', () => {
     it('reports a run that stopped before the drive with empty verdict fields', () => {
         const stopped: RunResult = {
             ...RESULT,
+            status: 'invalid',
+            statusReason: 'the run stopped: statement timeout',
             units: undefined,
             convergence: undefined,
+            janitorResets: undefined,
             invariants: [],
+            measurements: [],
+            admissions: [],
+            bars: [],
+            restarts: undefined,
+            stopped: { phase: 'seed', stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)' },
         }
 
         expect(scorecardOf(stopped, SMOKE, PROVENANCE)).toMatchObject({
+            stopped_phase: 'seed',
+            stopped_stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)',
             units_target: null,
             units_offered: null,
             send_retries: null,
             converged: null,
             unfinished_jobs: null,
+            janitor_resets: null,
             invariants_failed: [],
+            admissions: [],
+            bars: [],
+            role_restarts: [],
         })
     })
 
