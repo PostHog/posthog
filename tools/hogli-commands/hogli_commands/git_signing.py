@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import os
 import shlex
+import base64
 import shutil
+import struct
+import hashlib
 import platform
 import tempfile
 import subprocess
@@ -71,6 +74,28 @@ def pick_new_key(before: set[str], after: dict[str, Path]) -> Path:
             f"Check `sc_auth list-ctk-identities` for the `{KEY_LABEL}` key."
         )
     return new_handles[0]
+
+
+def secure_enclave_key_hash(public_key_line: str) -> str:
+    """Return the hash that `sc_auth list-ctk-identities` shows for a key: the SHA-1 of its EC point."""
+    blob = base64.b64decode(public_key_line.split()[1])
+    fields: list[bytes] = []
+    offset = 0
+    while offset < len(blob):
+        (length,) = struct.unpack(">I", blob[offset : offset + 4])
+        fields.append(blob[offset + 4 : offset + 4 + length])
+        offset += 4 + length
+    # An sk-ecdsa public key holds the key type, the curve, the EC point and the application.
+    return hashlib.sha1(fields[2], usedforsecurity=False).hexdigest().upper()
+
+
+def labeled_key_hashes(identities_output: str) -> set[str]:
+    """Return the hashes of the keys that `sc_auth list-ctk-identities` lists with the `git-signing` label."""
+    return {
+        fields[1]
+        for line in identities_output.splitlines()[1:]
+        if len(fields := line.split()) > 3 and fields[3] == KEY_LABEL
+    }
 
 
 def move_exported_handle(directory: Path, handles: dict[str, Path]) -> None:
@@ -255,11 +280,32 @@ class SecureEnclaveSigningSetup:
         KEY_PATH.chmod(0o600)
         shutil.copyfile(handle.with_name(f"{handle.name}.pub"), f"{KEY_PATH}.pub")
 
+    def _leftover_keys(self, handles: dict[str, Path]) -> dict[str, Path]:
+        """Return the `git-signing` keys among `handles`, keyed by their `sc_auth` hash."""
+        if not handles:
+            return {}
+        result = subprocess.run(["sc_auth", "list-ctk-identities"], capture_output=True, text=True)
+        labeled = labeled_key_hashes(result.stdout) if result.returncode == 0 else set()
+        hashes = {identity: secure_enclave_key_hash(identity) for identity in handles}
+        return {hashes[identity]: handle for identity, handle in handles.items() if hashes[identity] in labeled}
+
     def _create_and_install_key(self) -> None:
         with tempfile.TemporaryDirectory() as before_dir, tempfile.TemporaryDirectory() as after_dir:
-            before = set(self._export_keys(Path(before_dir)))
+            before = self._export_keys(Path(before_dir))
+            # A run that stopped after creating its key left the key in the Secure Enclave, so use it
+            # instead of adding another one.
+            leftovers = self._leftover_keys(before)
+            if leftovers:
+                reused_hash, *extra_hashes = leftovers
+                click.echo(f"Using the `{KEY_LABEL}` Secure Enclave key that an earlier run created.")
+                self._install_key(leftovers[reused_hash])
+                if extra_hashes:
+                    click.echo(f"Earlier runs also left these unused `{KEY_LABEL}` keys. To delete them:")
+                    for key_hash in extra_hashes:
+                        click.echo(f"  sc_auth delete-ctk-identity -h {key_hash}")
+                return
             self._create_key()
-            self._install_key(pick_new_key(before, self._export_keys(Path(after_dir))))
+            self._install_key(pick_new_key(set(before), self._export_keys(Path(after_dir))))
 
     def _install_sign_program(self) -> None:
         SIGN_PROGRAM_PATH.write_text(SIGN_PROGRAM)
