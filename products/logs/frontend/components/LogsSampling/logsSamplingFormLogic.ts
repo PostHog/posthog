@@ -139,18 +139,22 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
     return form
 }
 
+export function ruleTypeTakesNoScope(ruleType: LogsExclusionRuleRuleTypeEnumApi): boolean {
+    return ruleType === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey
+}
+
 export function buildScopeAttributeFiltersPayload(
     form: LogsSamplingFormType,
     rule: LogsSamplingRuleApi | null
 ): PatchedLogsSamplingRuleApi['scope_attribute_filters'] {
-    if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey) {
+    if (ruleTypeTakesNoScope(form.rule_type)) {
         return []
     }
     return (rule?.scope_attribute_filters ?? []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
 }
 
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
-    if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey) {
+    if (ruleTypeTakesNoScope(form.rule_type)) {
         return {}
     }
     if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {

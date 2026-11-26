@@ -1,6 +1,4 @@
-import { LogsExclusionRuleRuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
-
-import type { LogsSamplingFormType } from './logsSamplingFormLogic'
+import { type LogsSamplingFormType, ruleTypeTakesNoScope } from './logsSamplingFormLogic'
 
 /**
  * Returns the reason the Save button should be disabled, or null when save is allowed.
@@ -10,7 +8,7 @@ import type { LogsSamplingFormType } from './logsSamplingFormLogic'
  * and consumed directly by the scene's submit button.
  */
 export function samplingFormSaveDisabledReason(form: LogsSamplingFormType): string | null {
-    if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey) {
+    if (ruleTypeTakesNoScope(form.rule_type)) {
         return null
     }
     if (form.filter_group.values.length === 0) {
