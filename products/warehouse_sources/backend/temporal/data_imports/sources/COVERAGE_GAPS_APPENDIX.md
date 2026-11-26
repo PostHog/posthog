@@ -4847,16 +4847,16 @@ Note: Conversations are synced via /conversation_export rather than the paged co
 
 ## Dockerhub — gaps
 
-Today (6): `repositories`, `tags`, `org_members`, `org_groups`, `audit_logs`, `audit_log_actions`
+Today (8): `repositories`, `tags`, `org_members`, `org_groups`, `org_group_members`, `audit_logs`, `audit_log_actions`, `repository_pulls`
 
 Diffed against: <https://docs.docker.com/reference/api/hub/latest.yaml>
 
 - [x] `GET /v2/orgs/{org_name}/members` — org membership roster — the lookup that resolves the creator/last_updater usernames already present on repositories (high)
 - [x] `GET /v2/auditlogs/{account}` — audit log event stream (pushes, permission changes, deletions); the only event-shaped table in the Hub API (high)
-- [ ] `GET /v2/orgs/{org_name}/groups/{group_name}/members` — team↔user membership junction for access analysis (medium)
+- [x] `GET /v2/orgs/{org_name}/groups/{group_name}/members` — team↔user membership junction for access analysis (medium)
 - [x] `GET /v2/orgs/{org_name}/groups` — team lookup that group membership rows point at (medium)
 - [x] `GET /v2/auditlogs/{account}/actions` — lookup enumerating audit action types for categorizing log rows (medium)
-- [ ] `GET /v2/namespaces/{namespace}/pulls (DVP Data API)` — per-repo pull counts over time — the headline usage metric, but only available to Docker Verified Publishers (low)
+- [x] `GET /v2/namespaces/{namespace}/pulls (DVP Data API)` — per-repo pull counts over time — the headline usage metric, but only available to Docker Verified Publishers (low)
 
 Note: The org-scoped endpoints are now covered; they only return data when the configured namespace is an organization and the token belongs to an owner, so `get_endpoint_permissions` reports them as unavailable on a personal namespace. The remaining group-membership junction needs a second fan-out level over `org_groups`. Pull analytics live in a separate spec (https://docs.docker.com/reference/api/dvp/latest.yaml) gated behind Verified Publisher status. Access-token, SCIM schema, and org-settings endpoints were excluded as plumbing.
 
