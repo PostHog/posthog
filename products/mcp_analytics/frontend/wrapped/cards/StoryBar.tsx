@@ -40,9 +40,9 @@ export function StoryBar({
     return (
         <li
             className={cn(
-                'MCPWrapped__rise relative overflow-hidden rounded-lg bg-black/25 text-sm font-semibold tabular-nums',
+                'MCPWrapped__rise relative overflow-hidden rounded-lg bg-white/15 text-sm font-semibold tabular-nums',
                 HEIGHTS[size],
-                muted && 'opacity-90'
+                muted && 'opacity-75'
             )}
             style={{ animationDelay: delay }}
             title={title}
@@ -50,7 +50,7 @@ export function StoryBar({
             <span
                 className={cn(
                     'MCPWrapped__grow-x absolute inset-y-0 left-0 rounded-lg',
-                    emphasized ? 'bg-white' : 'bg-white/12'
+                    emphasized ? 'bg-white' : 'bg-white/30'
                 )}
                 style={{ width: `${filled}%`, animationDelay: delay }}
             />
