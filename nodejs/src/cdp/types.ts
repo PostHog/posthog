@@ -365,19 +365,20 @@ export type EmailQueueKind = {
     [Q in CyclotronJobQueueKind]: (typeof QUEUE_TRAITS)[Q]['sendsEmail'] extends true ? Q : never
 }[CyclotronJobQueueKind]
 
-const queuesWith = (trait: keyof QueueTraits): CyclotronJobQueueKind[] =>
-    CYCLOTRON_INVOCATION_JOB_QUEUES.filter((queue) => QUEUE_TRAITS[queue][trait])
-
-export const EMAIL_QUEUES = queuesWith('sendsEmail') as EmailQueueKind[]
-export const FAIR_DEQUEUE_QUEUES = queuesWith('fairDequeue')
+export const EMAIL_QUEUES = CYCLOTRON_INVOCATION_JOB_QUEUES.filter(
+    (queue): queue is EmailQueueKind => QUEUE_TRAITS[queue].sendsEmail
+)
+export const FAIR_DEQUEUE_QUEUES = CYCLOTRON_INVOCATION_JOB_QUEUES.filter((queue) => QUEUE_TRAITS[queue].fairDequeue)
 
 export const CYCLOTRON_QUEUE_ROLES = { emailQueues: EMAIL_QUEUES, fairDequeueQueues: FAIR_DEQUEUE_QUEUES }
 
 export function sendsEmail(queue: string): boolean {
-    return QUEUE_TRAITS[queue as CyclotronJobQueueKind]?.sendsEmail === true
+    return (EMAIL_QUEUES as readonly string[]).includes(queue)
 }
 
-export function emailQueueFor(_invocation: CyclotronJobInvocation): EmailQueueKind {
+type FieldsLeftAfterSealing = Pick<CyclotronJobInvocation, 'teamId' | 'functionId' | 'queue' | 'queueMetadata'>
+
+export function emailQueueFor(_invocation: FieldsLeftAfterSealing): EmailQueueKind {
     return 'email'
 }
 

@@ -3607,8 +3607,15 @@ describe('Cyclotron V2', () => {
     describe.each(FAIR_DEQUEUE_QUEUES)('Fair dequeue on the %s queue', (EMAIL_QUEUE) => {
         it('has a partial index that orders its dequeue', async () => {
             const { rows } = await assertPool.query<{ indexdef: string }>(
-                `SELECT indexdef FROM pg_indexes WHERE tablename = 'cyclotron_jobs' AND indexdef LIKE $1`,
-                [`%(priority, dequeue_seq NULLS FIRST, scheduled)%queue_name = '${EMAIL_QUEUE}'::text%`]
+                `SELECT pg_get_indexdef(i.indexrelid) AS indexdef
+                 FROM pg_index i
+                 JOIN pg_class t ON t.oid = i.indrelid
+                 JOIN pg_namespace n ON n.oid = t.relnamespace
+                 WHERE n.nspname = current_schema() AND t.relname = 'cyclotron_jobs' AND i.indisvalid
+                   AND pg_get_indexdef(i.indexrelid) LIKE $1`,
+                [
+                    `%(priority, dequeue_seq NULLS FIRST, scheduled) WHERE ((status = 'available'::cyclotronjobstatus) AND (queue_name = '${EMAIL_QUEUE}'::text))`,
+                ]
             )
 
             expect(rows).toHaveLength(1)
