@@ -67,6 +67,7 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
+from products.messaging.backend.facade.categories import MessageCategoryMissing, get_category_by_key
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
@@ -91,6 +92,7 @@ from products.messaging.backend.facade.transactional_email import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailCategory,
     EmailTracking,
     FieldNotAccepted,
     MessageTooLarge,
@@ -599,6 +601,7 @@ EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
 SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)
 EMAIL_IMPACT_FLAG = "workflows-email-impact"
 EMAIL_BATCH_FLAG = "workflows-email-batch-sends"
+CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -738,6 +741,7 @@ CODE_SEND_FIELDS = (
     "capture_engagement",
     "tracking",
     "sensitive",
+    "category",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
@@ -853,6 +857,15 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "leave the subject off engagement events, record only the site address of a clicked link, and keep the "
         "content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. "
         "It can't be false when the matched template is sensitive.",
+    )
+
+    category = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Key of one of the project's message categories, such as `newsletter`. A marketing category skips "
+        "recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the "
+        "recipient's preferences link, and adds List-Unsubscribe headers. Categories on emails your code rendered "
+        "are on only in some projects so far, and a project without them refuses this field with a 400.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -1916,9 +1929,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
             self._check_scheduled_at(request.validated_data.get("scheduled_at"))
+            category = self._send_category(request.validated_data.get("category"))
         data = request.validated_data
         self._require_code_email_access(data["template_key"])
-        email = code_email(data)
+        email = code_email(data, category)
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1933,6 +1947,28 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             unavailable=unconfirmed_email_send,
         )
 
+    def _send_category(self, key: str | None) -> EmailCategory | None:
+        if key is None:
+            return None
+        if not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
+            raise serializers.ValidationError(
+                {
+                    "category": "Categories are off for this project, so PostHog didn't send the email. Send it again "
+                    "without `category`."
+                }
+            )
+        try:
+            row = get_category_by_key(self.team_id, key)
+        except MessageCategoryMissing:
+            raise ExplainedRefusal(
+                f"This project has no message category with the key `{key}`, so PostHog didn't send the email.",
+                code="category_not_found",
+                attr="category",
+                why="A send names a category by the key it has in the project's message categories.",
+                fix="Send the key of a category that exists and isn't deleted, or leave out `category`.",
+            ) from None
+        return EmailCategory(id=row.id, type=row.category_type)
+
     def _require_code_email_access(self, key: str) -> None:
         with transactional_email_stage("workflow_access"):
             require_code_email_access(
@@ -1943,7 +1979,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             )
 
 
-def code_email(data: Mapping[str, Any]) -> CodeEmail:
+def code_email(data: Mapping[str, Any], category: EmailCategory | None = None) -> CodeEmail:
     return CodeEmail(
         key=data["template_key"],
         subject=data["subject"],
@@ -1958,6 +1994,7 @@ def code_email(data: Mapping[str, Any]) -> CodeEmail:
         cc=tuple(data.get("cc") or ()),
         bcc=tuple(data.get("bcc") or ()),
         attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+        category=category,
     )
 
 

@@ -14,6 +14,10 @@ def team_category(team_id: int, category_id: UUID | str) -> MessageCategory:
     return team_categories(team_id).get(pk=category_id)
 
 
+def team_category_by_key(team_id: int, key: str) -> MessageCategory:
+    return team_categories(team_id).get(key=key)
+
+
 def key_in_use(team_id: int, key: str) -> bool:
     return MessageCategory.objects.filter(team_id=team_id, key=key, deleted=False).exists()
 

@@ -63,6 +63,13 @@ def _literal(expected: Any) -> Check:
     return check
 
 
+def _enum(*values: str) -> Check:
+    def check(value: Any, path: list[Any]) -> Issues:
+        return [] if value in values else [_issue("invalid_value", path)]
+
+    return check
+
+
 def _record(value: Any, path: list[Any]) -> Issues:
     return [] if isinstance(value, dict) else [_issue("invalid_type", path)]
 
@@ -159,6 +166,13 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments:
             "bcc": copies,
             **sensitive,
             **attachments,
+            "category": _Key(
+                _object(
+                    {"id": _Key(_string(min_length=1)), "type": _Key(_enum("marketing", "transactional"))},
+                    strict=True,
+                ),
+                optional=True,
+            ),
             "tracking": _Key(tracking),
         },
         strict=True,

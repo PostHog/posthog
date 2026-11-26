@@ -49,6 +49,8 @@ export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
 
+export const messagingSendEmailCreateBodyCategoryMax = 64
+
 export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = () => zod.strictObject({
@@ -186,6 +188,13 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .optional()
         .describe(
             "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
+        ),
+    category: zod
+        .string()
+        .max(messagingSendEmailCreateBodyCategoryMax)
+        .optional()
+        .describe(
+            "Key of one of the project's message categories, such as `newsletter`. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400."
         ),
     from: zod
         .string()

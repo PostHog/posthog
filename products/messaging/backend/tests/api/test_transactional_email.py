@@ -53,6 +53,7 @@ from products.messaging.backend.models.message_category import MessageCategory, 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.message_templates import (
+    CODE_SEND_CATEGORIES_FLAG,
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     EMAIL_SCHEDULED_SENDS_FLAG,
@@ -735,6 +736,48 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         mock_post.assert_not_called()
 
+    def _category(self, key: str, category_type: str, deleted: bool = False) -> MessageCategory:
+        return MessageCategory.objects.create(
+            team=self.team, key=key, name=key.title(), category_type=category_type, deleted=deleted
+        )
+
+    @parameterized.expand([(MessageCategoryType.MARKETING,), (MessageCategoryType.TRANSACTIONAL,)])
+    def test_a_code_send_in_a_category_carries_the_category_to_the_pipeline(
+        self, mock_post, _flag, _capture, category_type
+    ):
+        category = self._category("newsletter", category_type)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(category="newsletter"), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send["category"] for send in pipeline.queued_sends] == [{"id": str(category.id), "type": category_type}]
+
+    @parameterized.expand(
+        [
+            ("unknown_key", "weekly", set(), "category_not_found"),
+            ("deleted_key", "newsletter", set(), "category_not_found"),
+            ("flag_off", "digest", {CODE_SEND_CATEGORIES_FLAG}, "invalid_input"),
+        ]
+    )
+    def test_a_code_send_refuses_a_category_it_cannot_use(self, mock_post, flag, _capture, _name, key, off, code):
+        self._category("newsletter", MessageCategoryType.MARKETING, deleted=True)
+        self._category("digest", MessageCategoryType.MARKETING)
+        flag.side_effect = lambda name, *_args, **_kwargs: name not in off
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(category=key), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"]) == ("category", code)
+        assert pipeline.queued == []
+
     def _code_send(self, **fields: Any) -> dict[str, Any]:
         return {
             "to": "user@example.com",
@@ -1214,6 +1257,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", TWO_FILES[:1], "invalid_request"),
+            ("category", "newsletter", "validation_error"),
         ]
     )
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
@@ -1961,11 +2005,13 @@ class TestTransactionalEmail(APIBaseTest):
             ("cc", {"cc": ["copy@example.com"]}),
             ("bcc", {"bcc": "hidden@example.com"}),
             ("attachments", {"attachments": TWO_FILES}),
+            ("category", {"category": "newsletter"}),
         ]
     )
     def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(
         self, mock_post, _flag, _capture, field, fields
     ):
+        self._category("newsletter", MessageCategoryType.MARKETING)
         self._without_a_verified_sender(unverified_sender=False)
         pipeline = FakeCdpApi()
         mock_post.side_effect = pipeline.post

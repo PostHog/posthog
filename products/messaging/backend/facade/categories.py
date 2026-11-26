@@ -65,6 +65,13 @@ def get_category(team_id: int, category_id: UUID | str) -> MessageCategoryRow:
         raise MessageCategoryMissing() from e
 
 
+def get_category_by_key(team_id: int, key: str) -> MessageCategoryRow:
+    try:
+        return _to_contract(categories_service.team_category_by_key(team_id, key))
+    except MessageCategory.DoesNotExist as e:
+        raise MessageCategoryMissing() from e
+
+
 def category_key_in_use(team_id: int, key: str) -> bool:
     """True when a category that is not deleted already uses the key."""
     return categories_service.key_in_use(team_id, key)

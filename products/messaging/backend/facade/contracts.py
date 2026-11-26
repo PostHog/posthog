@@ -241,6 +241,12 @@ class EmailTracking:
 
 
 @frozen
+class EmailCategory:
+    id: UUID
+    type: str
+
+
+@frozen
 class CodeEmail:
     key: str
     subject: str
@@ -254,6 +260,7 @@ class CodeEmail:
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
     reply_headers: ReplyHeaders | None = None
+    category: EmailCategory | None = None
 
 
 class DeliveryUnavailable(Exception):

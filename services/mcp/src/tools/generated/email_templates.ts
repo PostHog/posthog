@@ -249,6 +249,7 @@ const WorkflowsSendEmailSchema = () => {
         bcc: true,
         attachments: true,
         scheduled_at: true,
+        category: true,
     }).extend({
         template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
@@ -371,6 +372,7 @@ const WorkflowsSendEmailTemplateSchema = () => {
         tracking: true,
         scheduled_at: true,
         sensitive: true,
+        category: true,
         from: true,
     }).extend({
         template_id: MessagingSendEmailCreateBody.shape['template_id']
