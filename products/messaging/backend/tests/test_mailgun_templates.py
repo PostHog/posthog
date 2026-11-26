@@ -233,6 +233,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "no view in browser link, so the link to https://example.com/e/{{id}} isn't a PostHog page",
             ),
             (
+                "browser_link_opened_in_a_browser",
+                {"template": '<p>Trouble reading? <a href="https://example.com/m/1">Open it in your browser</a></p>'},
+                "no view in browser link, so the link to https://example.com/m/1 isn't a PostHog page",
+            ),
+            (
                 "browser_link_by_variable",
                 {"template": "<a href=%recipient.web_version_url%>Here</a>", "engine": "go"},
                 "no view in browser link, so the link to %recipient.web_version_url% isn't a PostHog page",
@@ -256,7 +261,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             (
                 "address_with_view_inside_a_word",
                 "handlebars",
-                '<a href="https://example.com/overview/online-courses">x</a>',
+                '<a href="https://example.com/preview-online">x</a>',
             ),
             ("printf_verbs_in_a_go_template", "go", '{{printf "%s%d" .x}}'),
         ]

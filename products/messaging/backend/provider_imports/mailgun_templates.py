@@ -45,7 +45,7 @@ _ANCHOR = re.compile(r"<a\b[^<>]{0,4000}+>", re.IGNORECASE)
 _ANCHOR_END = re.compile(r"</a\s*>", re.IGNORECASE)
 _HREF = re.compile(r"(?<![\w-])href\s*=\s*(?:\"([^\"]*+)\"|'([^']*+)'|([^\s\"'>]++))", re.IGNORECASE)
 _BROWSER_LINK_TEXT = re.compile(
-    r"\b(?:view|read|see)\b[^<>]{0,40}?\bin\s+(?:(?:your|a|the|my)\s+)?(?:web\s+)?browser\b|\b(?:web|online|browser)\s+version\b"
+    r"\b(?:view|read|see|open)\b[^<>]{0,40}?\bin\s+(?:(?:your|a|the|my)\s+)?(?:web\s+)?browser\b|\b(?:web|online|browser)\s+version\b"
     r"|\b(?:email|newsletter|message)\s+(?:online|on\s+the\s+web)\b|^(?:view|read)\s+(?:it\s+|this\s+)?online$",
     re.IGNORECASE,
 )
