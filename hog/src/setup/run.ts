@@ -110,27 +110,30 @@ function doneMessage(run: SetupRun, events: EventsContext | undefined): string {
         .slice(0, MAX_OTHER_PRODUCTS)
     const { mcp } = context
 
-    return [
+    const offers = [
+        others.length > 0 ? `Set up ${listed(others.map((product) => inSentence(product.label)))}` : '',
+        withSkills.length > 0
+            ? `Add PostHog skills for ${listed(withSkills.map((id) => inSentence(productLabel(id))))}, so later sessions know how to work with them`
+            : 'Add PostHog skills, so later sessions know how to work with PostHog',
+        mcp?.foreign
+            ? `Replace the \`posthog\` MCP server in \`${mcp.foreign.path}\`, which points at another server`
+            : mcp && !mcp.configured
+              ? "Connect PostHog's MCP server, so I can look at your PostHog data in later sessions"
+              : '',
+    ].filter(Boolean)
+
+    const status = [
         `PostHog is set up in this app, in project ${context.projectId ?? 'unknown'}${region}.`,
         events?.count === 0
-            ? "PostHog hasn't received any events from the app yet. Start the app and click around a few pages, then ask me to check again."
+            ? "PostHog hasn't received any events from the app yet. Start the app and click around a few pages, then tell me and I'll check again."
             : events?.count
-              ? `PostHog has received ${events.count} events since setup started.`
-              : '',
-        others.length > 0
-            ? `PostHog can also do ${listed(others.map((product) => inSentence(product.label)))}. Ask me to set up any of them.`
-            : '',
-        withSkills.length > 0
-            ? `I can add PostHog skills for ${listed(withSkills.map((id) => inSentence(productLabel(id))))} to this project, so later sessions know how to work with them. Ask me if you want them.`
-            : 'I can add PostHog skills to this project, so later sessions know how to work with PostHog. Ask me if you want them.',
-        mcp?.foreign
-            ? `The \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server, not PostHog's. Ask me to replace it.`
-            : mcp && !mcp.configured
-              ? "I can also connect PostHog's MCP server, so I can look at your PostHog data in later sessions. Ask me if you want that."
+              ? `PostHog has received ${events.count} ${events.count === 1 ? 'event' : 'events'} since setup started.`
               : '',
     ]
         .filter(Boolean)
         .join('\n')
+
+    return `${status}\n\nIf you want, I can also:\n${offers.map((offer) => `- ${offer}`).join('\n')}`
 }
 
 // Only the call that finishes setup has the lists, and a person at a terminal sees them printed.

@@ -343,8 +343,8 @@ describe('hog setup', () => {
         expect(instructions).toContain('`context.mcp.command` for the MCP server')
         const message = (reviewed.json() as any).next.message
         expect(message).toContain("PostHog hasn't received any events from the app yet.")
-        expect(message).toContain('PostHog can also do web analytics, experiments')
-        expect(message).toContain("I can also connect PostHog's MCP server")
+        expect(message).toContain('If you want, I can also:\n- Set up web analytics, experiments')
+        expect(message).toContain("\n- Connect PostHog's MCP server")
         expect(message).not.toContain('product analytics')
         expect(message).not.toContain('reverse proxy')
         expect(message).not.toContain('hog ')
@@ -498,13 +498,14 @@ describe('hog setup', () => {
                 context: { mcp: { agent: 'claude-code', configured, foreign } },
             })
             const message: string = (finished.json() as any).next.message
-            expect(message.includes("I can also connect PostHog's MCP server")).toBe(!configured && foreign === null)
+            expect(message.includes("- Connect PostHog's MCP server")).toBe(!configured && foreign === null)
             expect(
                 message.includes(
-                    "The `posthog` MCP server in `/work/.mcp.json` points at another server, not PostHog's. Ask me to replace it."
+                    '- Replace the `posthog` MCP server in `/work/.mcp.json`, which points at another server'
                 )
             ).toBe(foreign !== null)
             expect(message).not.toContain('hog ')
+            expect(message).toContain('PostHog has received 1 event since setup started.')
             for (const [path, contents] of Object.entries(files)) {
                 expect(machine.files[path]).toBe(contents)
             }
