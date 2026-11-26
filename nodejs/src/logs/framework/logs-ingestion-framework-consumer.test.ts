@@ -259,6 +259,51 @@ describe('LogsIngestionFrameworkConsumer', () => {
         expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(3)
     })
 
+    describe('unknown tokens', () => {
+        it('records a token with no team for capture-logs to turn away', async () => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+
+            await processAndWait(await createKafkaMessages(1, { token: 'phc_belongs_to_no_team' }))
+
+            expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+            expect(record).toHaveBeenCalledTimes(1)
+            expect(record).toHaveBeenCalledWith('phc_belongs_to_no_team')
+        })
+
+        it.each([
+            ['records the digest of a secret key with no row', 'sha256$belongs_to_no_team', false, 1],
+            ['never records the digest of a key without the logs:write scope', 'sha256$no_logs_write', true, 0],
+            ['never records or looks up a secret key that arrived unhashed', 'phs_unhashed_key', false, 0],
+            ['never records a secret key behind a leading space', ' phs_unhashed_key', false, 0],
+        ])('%s', async (_, token, exists, recorded) => {
+            await consumer.stop()
+            consumer = withoutKafka(
+                new LogsIngestionFrameworkConsumer(hub, {
+                    ...consumerDeps(),
+                    secretKeyTeams: { getTeam: () => Promise.resolve(null), exists: () => Promise.resolve(exists) },
+                })
+            )
+            await consumer.start()
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+            const lookup = jest.spyOn(hub.teamManager, 'getTeamByToken')
+
+            await processAndWait(await createKafkaMessages(1, { token }))
+
+            expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+            expect(record).toHaveBeenCalledTimes(recorded)
+            expect(lookup).not.toHaveBeenCalled()
+        })
+
+        it('never records a digest on a consumer with no secret key lookup', async () => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+
+            await processAndWait(await createKafkaMessages(1, { token: 'sha256$belongs_to_no_team' }))
+
+            expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(0)
+            expect(record).not.toHaveBeenCalled()
+        })
+    })
+
     describe('logs produce errors', () => {
         it.each([
             ['a processing error', () => new Error('Producer error')],
