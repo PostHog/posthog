@@ -4,6 +4,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +22,7 @@ from products.signals.backend.emission.linear_issues import EXTRA_FIELDS, LINEAR
 from products.signals.backend.filter_catalog import SignalFilterSourceDefinition
 from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.source_filter_preview import preview_supported
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -145,8 +147,28 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
         assert passing["field_values"]["project_name"] == "Core"
         assert passing["field_values"]["label_names"] == ["bug"]
         assert passing["field_values"]["assignee_id"] is None
-        excluded = {record["id"]: record["malformed"] for record in preview["excluded"]}
-        assert excluded == {"assigned": False, "other-project": False, "malformed": True}
+        assert passing["failed_conditions"] is None
+        excluded = {record["id"]: (record["malformed"], record["failed_conditions"]) for record in preview["excluded"]}
+        assert excluded == {
+            "assigned": (False, ["assignee_id IS NULL"]),
+            "other-project": (False, ["project_name = 'Core'"]),
+            "malformed": (True, ["project_name = 'Core'"]),
+        }
+
+    def test_preview_lists_failed_conditions_only_for_a_top_level_and(self) -> None:
+        self._linear_issues([_issue("assigned", assignee='{"id": "u1"}')])
+
+        def failed_conditions(expression: str) -> list[str] | None:
+            [excluded] = self._preview(expression)["excluded"]
+            return excluded["failed_conditions"]
+
+        assert failed_conditions("(project_name = 'Web' OR priority = 1) AND assignee_id IS NULL") == [
+            "project_name = 'Web' OR priority = 1",
+            "assignee_id IS NULL",
+        ]
+        assert failed_conditions("project_name = 'Web' OR assignee_id IS NULL") is None
+        assert failed_conditions(" AND ".join(["priority = 2"] * 8 + ["assignee_id IS NULL"])) is None
+        assert failed_conditions("\ufeffproject_name = 'Web' AND assignee_id IS NULL") is None
 
     def test_preview_leaves_out_the_records_the_emitter_skips(self) -> None:
         """The CSV fixture can't hold '' apart from null, so the parity test below covers the empty string."""
@@ -358,3 +380,9 @@ class TestSourceFilterValidate(_LinearSourceFilterTest):
         assert validation["catalog_version"] == catalog.active_catalog_version.version
         assert (validation["error"] is None) is validation["valid"]
         assert (validation["error_code"], validation["error_start"], validation["error_end"]) == expected_error
+
+
+class TestPreviewSupported(SimpleTestCase):
+    @parameterized.expand([("linear_issue", "linear", "issue", True), ("github_issue", "github", "issue", False)])
+    def test_preview_supported(self, _name: str, source_product: str, source_type: str, expected: bool) -> None:
+        assert preview_supported(source_product, source_type) is expected

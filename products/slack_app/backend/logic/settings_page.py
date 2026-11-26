@@ -10,6 +10,8 @@ import re
 from typing import Any
 from uuid import UUID
 
+from django.db.models import Q
+
 from posthog.models import User
 from posthog.models.user_integration import UserIntegration
 
@@ -28,10 +30,15 @@ from products.slack_app.backend.facade.types import (
     SlackWorkspaceSettings,
     WorkspaceSettingsError,
 )
-from products.slack_app.backend.logic.feature_tips.state import get_state, set_tips_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_byos_enabled,
+    is_slack_app_chatgpt_apps_setting_enabled,
+)
+from products.slack_app.backend.logic.feature_tips.state import parse_state, set_tips_enabled
 from products.slack_app.backend.logic.workspace_setup import can_change_workspace_settings
 from products.slack_app.backend.models import (
     SlackChannelSettings as SlackChannelSettingsRow,
+    SlackSettings as SlackSettingsRow,
     ThreadJoinMode,
     UntaggedFollowupMode,
 )
@@ -40,20 +47,17 @@ from products.slack_app.backend.services.integration_resolver import accessible_
 from products.slack_app.backend.services.reaction_settings import (
     ReactionSettings,
     is_emoji_name,
-    load_reactions,
     normalize_emoji_name,
+    parse_reactions,
     resolve_reactions,
     save_reactions,
     with_every_kind,
 )
 from products.slack_app.backend.services.slack_settings import (
-    resolve_auto_model_choice,
+    mode_from_stored,
     resolve_external_channels_enabled,
-    resolve_personal_default_integration_id,
-    resolve_thread_join_mode,
-    resolve_untagged_followup_mode,
-    resolve_untagged_question_mode,
     set_auto_model_choice,
+    set_chatgpt_apps_enabled,
     set_external_channels_enabled,
     set_personal_default_integration,
     set_thread_join_mode,
@@ -66,6 +70,8 @@ from products.slack_app.backend.services.workspace_integrations import Workspace
 # Slack channel IDs: C for public, G for private and older shared channels.
 SLACK_CHANNEL_ID = re.compile(r"^[CG][A-Z0-9]{2,30}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+$")
+# Every Slack message reads the channel rows, and the settings page lists them all on one page.
+MAX_CHANNEL_SETTINGS = 200
 # pinned: analytics event name and property values, renaming breaks dashboards
 SETTING_CHANGED_EVENT = "slack app setting changed"
 
@@ -85,24 +91,89 @@ def clean_reactions(reactions: ReactionSettings) -> ReactionSettings:
     return cleaned
 
 
+def _can_change_workspace_row(integration: WorkspaceIntegration, user: User) -> bool:
+    """The workspace settings live on one row for the Slack workspace, which several organizations can connect to.
+
+    So the person needs the install's own permission in each of those organizations. Otherwise an admin of one
+    organization could undo a restriction another organization chose.
+    """
+    if not can_change_workspace_settings(integration, user):
+        return False
+    allowed_by_organization: dict[UUID, bool] = {}
+    for candidate in workspace_integrations(_workspace_id(integration)):
+        organization_id = candidate.team.organization_id
+        if not allowed_by_organization.get(organization_id):
+            allowed_by_organization[organization_id] = can_change_workspace_settings(candidate, user)
+    return all(allowed_by_organization.values())
+
+
 def _project_options(integration: WorkspaceIntegration, user: User) -> list[WorkspaceIntegration]:
     """Projects connected to this Slack workspace that the person can open."""
     return accessible_candidates(workspace_integrations(_workspace_id(integration)), user=user)
 
 
+# The columns the settings page shows, read from the workspace row and the person's row in one query.
+_SETTINGS_COLUMNS = (
+    "slack_user_id",
+    "reactions",
+    "default_integration_id",
+    "untagged_followup_mode",
+    "untagged_question_mode",
+    "thread_join_mode",
+    "auto_model_choice",
+    "feature_tips",
+    "chatgpt_apps_enabled",
+)
+
+
+def _settings_rows(slack_workspace_id: str, slack_user_id: str | None) -> dict[str | None, dict[str, Any]]:
+    """The stored workspace row and personal row, keyed by Slack user ID. The workspace row has the key None."""
+    rows = Q(slack_user_id__isnull=True)
+    if slack_user_id:
+        rows |= Q(slack_user_id=slack_user_id)
+    return {
+        row["slack_user_id"]: row
+        for row in SlackSettingsRow.objects.filter(rows, slack_workspace_id=slack_workspace_id).values(
+            *_SETTINGS_COLUMNS
+        )
+    }
+
+
 def _personal_settings(
-    integration: WorkspaceIntegration, user: User, slack_user_id: str | None
+    integration: WorkspaceIntegration,
+    user: User,
+    slack_user_id: str | None,
+    workspace_reactions: ReactionSettings,
+    personal_row: dict[str, Any],
 ) -> SlackPersonalSettings:
-    slack_workspace_id = _workspace_id(integration)
-    workspace_reactions = load_reactions(slack_workspace_id, None)
-    personal_reactions = load_reactions(slack_workspace_id, slack_user_id) if slack_user_id else {}
+    """Resolves each value the way the Slack resolvers in `slack_settings` do, from a row read once."""
+    personal_reactions = parse_reactions(personal_row.get("reactions"))
+
+    def untagged_mode(column: str) -> UntaggedFollowupMode:
+        if not slack_user_id:
+            return UntaggedFollowupMode.NEVER
+        return mode_from_stored(
+            personal_row.get(column),
+            UntaggedFollowupMode,
+            unset=UntaggedFollowupMode.ASK,
+            unknown=UntaggedFollowupMode.NEVER,
+        )
+
+    thread_join_mode = (
+        mode_from_stored(
+            personal_row.get("thread_join_mode"),
+            ThreadJoinMode,
+            unset=ThreadJoinMode.ALLOW,
+            unknown=ThreadJoinMode.NEVER,
+        )
+        if slack_user_id
+        else ThreadJoinMode.ALLOW
+    )
     return SlackPersonalSettings(
         slack_user_id=slack_user_id,
         reactions=with_every_kind(personal_reactions),
         effective_reactions=resolve_reactions(workspace_reactions, personal_reactions),
-        default_integration_id=(
-            resolve_personal_default_integration_id(slack_workspace_id, slack_user_id) if slack_user_id else None
-        ),
+        default_integration_id=personal_row.get("default_integration_id"),
         project_options=tuple(
             ProjectOption(
                 integration_id=option.id,
@@ -111,28 +182,45 @@ def _personal_settings(
             )
             for option in _project_options(integration, user)
         ),
-        untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id).value,
-        untagged_question_mode=resolve_untagged_question_mode(slack_workspace_id, slack_user_id).value,
-        thread_join_mode=resolve_thread_join_mode(integration, slack_user_id).value,
-        auto_model_choice=resolve_auto_model_choice(slack_workspace_id, slack_user_id),
-        feature_tips_enabled=get_state(slack_workspace_id, slack_user_id).opted_out_at is None
-        if slack_user_id
-        else True,
+        untagged_followup_mode=untagged_mode("untagged_followup_mode").value,
+        untagged_question_mode=untagged_mode("untagged_question_mode").value,
+        thread_join_mode=thread_join_mode.value,
+        auto_model_choice=bool(personal_row.get("auto_model_choice")),
+        feature_tips_enabled=parse_state(personal_row.get("feature_tips")).opted_out_at is None,
+        chatgpt_apps_enabled=(
+            bool(personal_row.get("chatgpt_apps_enabled"))
+            if slack_user_id and _chatgpt_plan_runs_slack_tasks(integration, user)
+            else None
+        ),
+    )
+
+
+def _chatgpt_plan_runs_slack_tasks(integration: WorkspaceIntegration, user: User) -> bool:
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
+
+    # The plan check reads one row, so it runs before the two flag calls.
+    return (
+        tasks_facade.can_bill_plan_unattended(user, "codex")
+        and is_slack_app_chatgpt_apps_setting_enabled(integration, user.distinct_id)
+        and is_slack_app_byos_enabled(integration, user.distinct_id)
     )
 
 
 def get_settings(integration: WorkspaceIntegration, user: User) -> SlackAppSettings:
     slack_workspace_id = _workspace_id(integration)
     slack_user_id = linked_slack_user_id(user=user, slack_team_id=slack_workspace_id)
+    rows = _settings_rows(slack_workspace_id, slack_user_id)
+    workspace_reactions = parse_reactions(rows.get(None, {}).get("reactions"))
+    personal_row = rows.get(slack_user_id, {}) if slack_user_id else {}
     return SlackAppSettings(
         integration_id=integration.id,
         slack_workspace_name=((integration.config or {}).get("team") or {}).get("name"),
-        can_edit_workspace=can_change_workspace_settings(integration, user),
+        can_edit_workspace=_can_change_workspace_row(integration, user),
         workspace=SlackWorkspaceSettings(
-            reactions=with_every_kind(load_reactions(slack_workspace_id, None)),
+            reactions=with_every_kind(workspace_reactions),
             external_channels_enabled=resolve_external_channels_enabled(slack_workspace_id),
         ),
-        personal=_personal_settings(integration, user, slack_user_id),
+        personal=_personal_settings(integration, user, slack_user_id, workspace_reactions, personal_row),
     )
 
 
@@ -143,9 +231,10 @@ def update_workspace_settings(
     reactions: ReactionSettings | None,
     external_channels_enabled: bool | None,
 ) -> None:
-    if not can_change_workspace_settings(integration, user):
+    if not _can_change_workspace_row(integration, user):
         raise WorkspaceSettingsError(
-            "Only the person who installed Slack or a project admin can change these settings."
+            "Only the person who installed Slack or a project admin can change these settings. When several "
+            "PostHog organizations use this Slack workspace, you need that access in each of them."
         )
     slack_workspace_id = _workspace_id(integration)
     if reactions is not None:
@@ -207,6 +296,11 @@ def update_personal_settings(
         set_tips_enabled(slack_workspace_id, slack_user_id, change.feature_tips_enabled)
         _capture_change(
             integration, user, scope="personal", setting="feature_tips", enabled=change.feature_tips_enabled
+        )
+    if change.chatgpt_apps_enabled is not UNSET:
+        set_chatgpt_apps_enabled(slack_workspace_id, slack_user_id, change.chatgpt_apps_enabled)
+        _capture_change(
+            integration, user, scope="personal", setting="chatgpt_apps", enabled=change.chatgpt_apps_enabled
         )
 
 
@@ -292,6 +386,16 @@ def update_channel_settings(
             updated_at=None,
         )
     else:
+        if (
+            not SlackChannelSettingsRow.objects.filter(**lookup).exists()
+            and SlackChannelSettingsRow.objects.filter(
+                slack_workspace_id=slack_workspace_id, organization_id=organization_id
+            ).count()
+            >= MAX_CHANNEL_SETTINGS
+        ):
+            raise SlackSettingsInvalid(
+                f"Up to {MAX_CHANNEL_SETTINGS} channels can have their own settings. Remove one to add another."
+            )
         row, _ = SlackChannelSettingsRow.objects.update_or_create(
             **lookup,
             defaults={

@@ -94,7 +94,7 @@ derive search queries about the customer's support question."""
         system=system,
         messages=[{"role": "user", "content": "\n".join(user_parts)}],
         **anthropic_output_config(RefineQueriesResult),
-        **tracing_kwargs(input.trace_id, input.ticket_id),
+        **tracing_kwargs(input.trace_id),
     )
     content = anthropic_text(message)
     queries = _queries_from_reply(content)

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentConversationEvent } from "@posthog/agent-contracts";
 import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as localTools from "../adapters/codex-app-server/local-tools-mcp";
 import * as piRpc from "../pi/rpc-client";
 import type { Logger } from "../utils/logger";
@@ -28,6 +28,17 @@ function config(overrides: Partial<AgentServerConfig> = {}): AgentServerConfig {
 }
 
 describe("PiAgentServer", () => {
+  // The worker routes every Pi run to Go with a minted token.
+  beforeEach(() => {
+    vi.stubEnv("AI_GATEWAY_URL", "https://ai-gateway.us.posthog.com");
+    vi.stubEnv("AI_GATEWAY_PRODUCTS", "posthog_code");
+    vi.stubEnv("AI_GATEWAY_TOKEN", "phe_test");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("logs session initialization diagnostics when setup fails", async () => {
     const payload = { task_id: "task-1", run_id: "run-1" };
     const server = new PiAgentServer(
@@ -709,7 +720,7 @@ describe("PiAgentServer", () => {
       };
       server.session = {
         runtime: { sendCommand, client: { getState: vi.fn(async () => ({})) } },
-        providerRoute: { isAiGateway: false },
+        providerRoute: {},
       };
 
       await server.executeCommand("set_config_option", { configId, value });
@@ -718,37 +729,31 @@ describe("PiAgentServer", () => {
     },
   );
 
-  it.each([
-    { isAiGateway: true, modelId: "zai-org/glm-5.2" },
-    { isAiGateway: false, modelId: "@cf/zai-org/glm-5.2" },
-  ])(
-    "switches to GLM under the route's spelling (Go: $isAiGateway)",
-    async ({ isAiGateway, modelId }) => {
-      const sendCommand = vi.fn(async () => ({ success: true }));
-      const server = new PiAgentServer(config()) as unknown as {
-        session: unknown;
-        executeCommand(
-          method: string,
-          params: Record<string, unknown>,
-        ): Promise<unknown>;
-      };
-      server.session = {
-        runtime: { sendCommand, client: { getState: vi.fn(async () => ({})) } },
-        providerRoute: { isAiGateway },
-      };
+  it("switches to GLM under the Go spelling", async () => {
+    const sendCommand = vi.fn(async () => ({ success: true }));
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: { sendCommand, client: { getState: vi.fn(async () => ({})) } },
+      providerRoute: {},
+    };
 
-      await server.executeCommand("set_config_option", {
-        configId: "model",
-        value: "@cf/zai-org/glm-5.2",
-      });
+    await server.executeCommand("set_config_option", {
+      configId: "model",
+      value: "@cf/zai-org/glm-5.2",
+    });
 
-      expect(sendCommand).toHaveBeenCalledWith({
-        type: "set_model",
-        provider: "posthog",
-        modelId,
-      });
-    },
-  );
+    expect(sendCommand).toHaveBeenCalledWith({
+      type: "set_model",
+      provider: "posthog",
+      modelId: "zai-org/glm-5.2",
+    });
+  });
 
   it("bounds events retained while no SSE client is connected", () => {
     const server = new PiAgentServer(config()) as unknown as {

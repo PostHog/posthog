@@ -8,6 +8,7 @@ from products.workflows.backend.services.workflow_proposals import (
     absolute_window,
     as_the_serializer_stores_it,
     conversion_evidence_error,
+    conversion_sample_error,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -28,6 +29,7 @@ from products.workflows.backend.services.workflow_proposals import (
 __all__ = [
     "absolute_window",
     "conversion_evidence_error",
+    "conversion_sample_error",
     "approve_proposal",
     "HOG_FLOW_VERSION_APP_SOURCE",
     "PROPOSAL_MERGE_BY_ID_FIELDS",

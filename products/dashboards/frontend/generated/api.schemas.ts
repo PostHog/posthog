@@ -312,6 +312,150 @@ export interface CopyDashboardTemplateApi {
 }
 
 /**
+ * * `native` - Native
+ * * `builtin` - Built-in
+ * * `iac` - Infrastructure as code
+ */
+export type BoardManagedByEnumApi = (typeof BoardManagedByEnumApi)[keyof typeof BoardManagedByEnumApi]
+
+export const BoardManagedByEnumApi = {
+    Native: 'native',
+    Builtin: 'builtin',
+    Iac: 'iac',
+} as const
+
+export interface BoardSummaryApi {
+    /** The board's row id. Object access rules on the `dashboard` resource use it. */
+    id: string
+    /** Identifier of the board in URLs. Unique among the project's live boards. */
+    uid: string
+    /** The document's `title` when it was last saved. */
+    title: string
+    /** The document's `tags` when it was last saved. */
+    tags: string[]
+    /** The document's `folder`: folder titles separated by `/`. Empty for the top level. */
+    folder: string
+    /** Counts saves: starts at 1, and each save adds 1. Send it as `base_version` to refuse a save over a newer one. Not the document's schema version, which is `spec.version`. */
+    version: number
+    /** `native` boards are saved through this API. Other boards are read-only here.
+     *
+     * * `native` - Native
+     * * `builtin` - Built-in
+     * * `iac` - Infrastructure as code */
+    managed_by: BoardManagedByEnumApi
+    /**
+     * The template the board was made from, or null.
+     * @nullable
+     */
+    template_id: string | null
+    /**
+     * The version of `template_id` the board was made from, or null.
+     * @nullable
+     */
+    template_version: number | null
+    /** When the board was first saved. */
+    created_at: string
+    /**
+     * ID of the user who created the board.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** When the board was last saved. */
+    last_modified_at: string
+    /**
+     * ID of the user who last saved the board.
+     * @nullable
+     */
+    last_modified_by_id: number | null
+}
+
+export interface PaginatedBoardSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BoardSummaryApi[]
+}
+
+/**
+ * The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.
+ */
+export type BoardCreateApiSpec = { [key: string]: unknown }
+
+export interface BoardCreateApi {
+    /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
+    spec: BoardCreateApiSpec
+}
+
+/**
+ * The whole board document, upgraded to the current schema version.
+ */
+export type BoardDetailApiSpec = { [key: string]: unknown }
+
+export interface BoardDetailApi {
+    /** The board's row id. Object access rules on the `dashboard` resource use it. */
+    id: string
+    /** Identifier of the board in URLs. Unique among the project's live boards. */
+    uid: string
+    /** The document's `title` when it was last saved. */
+    title: string
+    /** The document's `tags` when it was last saved. */
+    tags: string[]
+    /** The document's `folder`: folder titles separated by `/`. Empty for the top level. */
+    folder: string
+    /** Counts saves: starts at 1, and each save adds 1. Send it as `base_version` to refuse a save over a newer one. Not the document's schema version, which is `spec.version`. */
+    version: number
+    /** `native` boards are saved through this API. Other boards are read-only here.
+     *
+     * * `native` - Native
+     * * `builtin` - Built-in
+     * * `iac` - Infrastructure as code */
+    managed_by: BoardManagedByEnumApi
+    /**
+     * The template the board was made from, or null.
+     * @nullable
+     */
+    template_id: string | null
+    /**
+     * The version of `template_id` the board was made from, or null.
+     * @nullable
+     */
+    template_version: number | null
+    /** When the board was first saved. */
+    created_at: string
+    /**
+     * ID of the user who created the board.
+     * @nullable
+     */
+    created_by_id: number | null
+    /** When the board was last saved. */
+    last_modified_at: string
+    /**
+     * ID of the user who last saved the board.
+     * @nullable
+     */
+    last_modified_by_id: number | null
+    /** The whole board document, upgraded to the current schema version. */
+    spec: BoardDetailApiSpec
+}
+
+/**
+ * The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.
+ */
+export type BoardUpdateApiSpec = { [key: string]: unknown }
+
+export interface BoardUpdateApi {
+    /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
+    spec: BoardUpdateApiSpec
+    /**
+     * The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+/**
  * * `query` - Query
  * * `insight` - Insight
  * * `hogql` - HogQL
@@ -6004,7 +6148,23 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type ErrorTrackingIssueTagColorApi =
+    (typeof ErrorTrackingIssueTagColorApi)[keyof typeof ErrorTrackingIssueTagColorApi]
+
+export const ErrorTrackingIssueTagColorApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagApi {
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColorApi | null
     /** What the tag means, for a tooltip. */
     description: string
     /** Key of the tag definition. */
@@ -7360,6 +7520,25 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
+/**
+ * Exposed entities with no row of the metric query that counted, by variant.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows = { [key: string]: number } | null
+
+/**
+ * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants = { [key: string]: number } | null
+
+export interface ExperimentWarehouseNativeRowsLeftOutApi {
+    /** Exposure rows with an empty entity_id. */
+    empty_id?: number | null
+    /** Exposed entities with no row of the metric query that counted, by variant. */
+    exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    unknown_variants?: ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants
+}
+
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -7369,6 +7548,8 @@ export interface ExperimentQueryResponseApi {
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
+    /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOutApi | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarningApi[] | null
@@ -11844,6 +12025,18 @@ export const DashboardTemplatesListScope = {
     Organization: 'organization',
     Team: 'team',
 } as const
+
+export type DashboardV2BoardsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type DashboardsListParams = {
     /**

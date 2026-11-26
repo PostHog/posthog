@@ -23,6 +23,13 @@ class GitLabEndpointConfig:
     # e.g. {"updated_at": "updated_after", "created_at": "created_after"} for issues/merge requests,
     # {"created_at": "since"} for commits. Only fields listed here actually filter server-side.
     incremental_filter_params: dict[str, str] = field(default_factory=dict)
+    # The filter takes a date and excludes that whole day (events `after` means created_at > end of
+    # that day in the instance's time zone), so the request sends two days before the watermark's
+    # UTC date, which covers every UTC offset.
+    incremental_filter_is_date: bool = False
+    # The endpoint is a licensed feature: GitLab answers 403 on a Free-tier project, and 404 on
+    # Community Edition, which has no route for it.
+    requires_paid_tier: bool = False
     # Whether the list endpoint accepts order_by=<field>&sort=<dir>. When it does we pin the order
     # to a stable column so offset pages don't shift while we paginate.
     supports_order_by: bool = False
@@ -32,8 +39,9 @@ class GitLabEndpointConfig:
     primary_key: str = "id"
     page_size: int = 100  # GitLab default & max per_page
     # The order rows are emitted in. Endpoints we sort ascending stay "asc"; commits cannot be
-    # sorted server-side and always come newest-first, so they are "desc".
-    sort_mode: Literal["asc", "desc"] = "asc"
+    # sorted server-side and always come newest-first, so they are "desc". None when the API
+    # orders by something other than the incremental field.
+    sort_mode: Optional[Literal["asc", "desc"]] = "asc"
     # Fan-out: name of the parent endpoint (issues / merge_requests) whose rows seed this child's
     # path. The child path carries a {parent_iid} placeholder filled from the parent's `iid`.
     fan_out_parent: Optional[str] = None
@@ -241,6 +249,18 @@ GITLAB_ENDPOINTS: dict[str, GitLabEndpointConfig] = {
         fan_out_parent="issues",
         fan_out_parent_column="issue_iid",
     ),
+    "issue_milestone_events": GitLabEndpointConfig(
+        name="issue_milestone_events",
+        path="/projects/{project}/issues/{parent_iid}/resource_milestone_events",
+        incremental_fields=[
+            _datetime_incremental_field("created_at"),
+        ],
+        default_incremental_field="created_at",
+        partition_key="created_at",
+        sort_mode="desc",
+        fan_out_parent="issues",
+        fan_out_parent_column="issue_iid",
+    ),
     # One row per approver. Approving adds a system note, which bumps the merge request's
     # updated_at, so the incremental parent walk still finds new approvals. Revoked approvals
     # only drop out on a full refresh.
@@ -257,6 +277,35 @@ GITLAB_ENDPOINTS: dict[str, GitLabEndpointConfig] = {
         sort_mode="desc",
         fan_out_parent="merge_requests",
         fan_out_parent_column="merge_request_iid",
+    ),
+    "events": GitLabEndpointConfig(
+        name="events",
+        path="/projects/{project}/events",
+        incremental_fields=[
+            _datetime_incremental_field("created_at"),
+        ],
+        default_incremental_field="created_at",
+        incremental_filter_params={"created_at": "after"},
+        incremental_filter_is_date=True,
+        # The list defaults to newest-first, which shifts offset pages as events arrive. GitLab
+        # sorts by id rather than created_at, so the rows carry no created_at order promise.
+        extra_params={"sort": "asc"},
+        partition_key="created_at",
+        sort_mode=None,
+    ),
+    # Premium and Ultimate only. Lists the iterations of the project's ancestor groups, ordered by
+    # due_date, title and id; the endpoint has no order_by.
+    "iterations": GitLabEndpointConfig(
+        name="iterations",
+        path="/projects/{project}/iterations",
+        incremental_fields=[
+            _datetime_incremental_field("updated_at"),
+        ],
+        default_incremental_field="updated_at",
+        incremental_filter_params={"updated_at": "updated_after"},
+        partition_key="created_at",
+        sort_mode=None,
+        requires_paid_tier=True,
     ),
 }
 

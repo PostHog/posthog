@@ -9,7 +9,7 @@ from typing import Any, Literal, Optional, cast
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connections, transaction
-from django.db.models import Field, Manager, Prefetch
+from django.db.models import Field, Manager
 from django.http import Http404
 from django.utils import timezone
 
@@ -52,7 +52,7 @@ from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import ObjectMediaPreview, TaggedItem, Team
+from posthog.models import ObjectMediaPreview, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
@@ -77,6 +77,7 @@ from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.facade.api import batch_definition_metadata_copies
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
@@ -930,11 +931,7 @@ class EventDefinitionViewSet(
         validated = serializer.validated_data
         validated_ids = validated["ids"]
 
-        objects = list(
-            EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id).prefetch_related(
-                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
-            )
-        )
+        objects = list(EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id))
 
         found_ids = {obj.id for obj in objects}
         skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
@@ -946,9 +943,12 @@ class EventDefinitionViewSet(
             # The single-object event-definition update path logs under the "changed" verb.
             activity="changed",
         )
-        self.validate_bulk_tag_changes(objects, validated["action"], validated["tags"])
         updated = apply_bulk_tag_changes(
-            objects, validated["action"], validated["tags"], activity_context=activity_context
+            objects,
+            validated["action"],
+            validated["tags"],
+            activity_context=activity_context,
+            validate=self.validate_bulk_tag_changes,
         )
         return response.Response({"updated": updated, "skipped": skipped})
 
@@ -1013,8 +1013,10 @@ class EventDefinitionViewSet(
         # One transaction for the whole batch: if any event fails part-way the write rolls back
         # entirely, so the caller never has to reason about a half-applied set. Activity logs are
         # transaction-aware and defer to commit, so they roll back with it too.
-        with transaction.atomic():
-            for obj_id in validated_ids:
+        # The saves go in id order, the order in which the metadata copy locks the rows, so a backfill
+        # batch and this edit can't deadlock. They copy to the metadata table in one statement.
+        with transaction.atomic(), batch_definition_metadata_copies():
+            for obj_id in sorted(validated_ids):
                 if obj_id not in found_ids:
                     continue
                 if bool(verified_by_id.get(obj_id, False)) == verified:

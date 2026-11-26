@@ -24,8 +24,10 @@ from posthog.api.oauth.client_assertion import (
     expected_assertion_audiences,
 )
 from posthog.constants import AvailableFeature
+from posthog.models.oauth import CIMDVerificationToken, normalize_cimd_url
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -44,6 +46,9 @@ TEST_PARTNER_CLIENT_SECRET = "test_partner_client_secret"
 # Every provisioning partner has to sign its requests with a private key.
 TEST_PARTNER_JWKS_URI = "https://partner.example.com/.well-known/jwks.json"
 TEST_PARTNER_KID = "test-partner-key"
+
+# A self-registered partner publishes this in its metadata document to link itself to `self.organization`.
+TEST_CIMD_VERIFICATION_TOKEN = "phvt_test_partner_organization_link"
 # Generated once at import: RSA keygen is slow, and no test mutates the key.
 TEST_PARTNER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 TEST_PARTNER_JWKS = {
@@ -114,6 +119,16 @@ class ProvisioningTestBase(APIBaseTest):
         jwks_fetch.start()
         self.addCleanup(jwks_fetch.stop)
         self.partner = self._ensure_partner_app()
+
+    def _issue_cimd_verification_token(self, cimd_url: str) -> None:
+        """Issue TEST_CIMD_VERIFICATION_TOKEN for `cimd_url`, so a document that publishes it links to `self.organization`."""
+        CIMDVerificationToken.objects.create(
+            organization=self.organization,
+            label="Test partner",
+            cimd_url=normalize_cimd_url(cimd_url),
+            secure_value=hash_key_value(TEST_CIMD_VERIFICATION_TOKEN),
+            mask_value=mask_key_value(TEST_CIMD_VERIFICATION_TOKEN),
+        )
 
     def _ensure_partner_app(self):
         from posthog.models.oauth import OAuthApplication

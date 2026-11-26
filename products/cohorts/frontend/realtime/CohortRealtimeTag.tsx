@@ -4,7 +4,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CohortRealtimeReadinessApi, CohortRealtimeStateEnumApi } from '../generated/api.schemas'
-import { dailyReasonSentence } from './realtimeReadiness'
+import { dailyReasonSentence, unpreparableExplanation } from './realtimeReadiness'
 
 type TagContent = { label: string; icon?: JSX.Element; explanation: string }
 
@@ -49,6 +49,17 @@ const TAG_BY_STATE: Partial<Record<CohortRealtimeStateEnumApi, TagContent>> = {
     },
 }
 
+function reasonExplanation(realtime: CohortRealtimeReadinessApi): string | null {
+    switch (realtime.state) {
+        case 'daily': {
+            const sentence = dailyReasonSentence(realtime)
+            return sentence ? `Feature flags can't target this cohort. ${sentence}` : null
+        }
+        default:
+            return unpreparableExplanation(realtime)
+    }
+}
+
 /** What feature flags can do with a cohort, for list and picker rows where a sentence is too much. */
 export function CohortRealtimeTag({
     realtime,
@@ -61,10 +72,7 @@ export function CohortRealtimeTag({
         return null
     }
 
-    const reasonSentence = realtime?.state === 'daily' ? dailyReasonSentence(realtime) : null
-    const explanation = reasonSentence
-        ? `Feature flags can't target this cohort. ${reasonSentence}`
-        : content.explanation
+    const explanation = (realtime && reasonExplanation(realtime)) ?? content.explanation
 
     return (
         <Tooltip title={explanation}>

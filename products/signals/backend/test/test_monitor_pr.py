@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, Mock, patch
@@ -481,21 +480,48 @@ class TestMonitorPR(APIBaseTest):
         assert response.status_code == 200
         assert response.data["github_login"] is None
 
-    def test_research_protects_traces_with_analytics_context_and_refreshes_stale_repo_cache(self):
+    def test_research_creates_team_viewable_task_run_and_refreshes_stale_repo_cache(self):
         from asgiref.sync import async_to_sync, sync_to_async
+
+        from products.tasks.backend.facade.agents import create_task_and_trigger
 
         cache.clear()
         queued_refreshes: list[tuple[int, int]] = []
         captured_start: dict = {}
         ended_runs: list[tuple[str, str | None]] = []
+        created_runs: list = []
 
         async def fake_start(**kwargs):
             captured_start.update(kwargs)
-            session = AsyncMock()
-            session.end.side_effect = lambda status="completed", error=None: ended_runs.append((status, error))
-            return session, fake_output
+            dto = await create_task_and_trigger(
+                kwargs["prompt"],
+                kwargs["context"],
+                profile=kwargs["profile"],
+                branch=kwargs.get("branch"),
+                step_name=kwargs.get("step_name") or "",
+                source=kwargs.get("source"),
+                ai_stage=kwargs.get("ai_stage"),
+                ai_agent_name=kwargs.get("ai_agent_name"),
+                output_schema=kwargs.get("output_schema"),
+                analytics_query_context=kwargs.get("analytics_query_context"),
+            )
+            await sync_to_async(kwargs["before_task_dispatch"], thread_sensitive=True)(dto.run_id)
+            created_runs.append(dto)
 
-        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="PR research", description="PR")
+            async def fake_end(status="completed", error=None):
+                ended_runs.append((status, error))
+                await sync_to_async(
+                    apps.get_model("tasks", "TaskRun").objects.filter(id=dto.run_id).update,
+                    thread_sensitive=True,
+                )(status=status, error_message=error)
+                await sync_to_async(
+                    apps.get_model("tasks", "Task").objects.filter(id=dto.task_id).update,
+                    thread_sensitive=True,
+                )(status="idle")
+
+            session = AsyncMock()
+            session.end.side_effect = fake_end
+            return session, fake_output
 
         with (
             patch(
@@ -505,14 +531,6 @@ class TestMonitorPR(APIBaseTest):
             patch(
                 "products.signals.backend.monitor_pr_research.database_sync_to_async_pool",
                 side_effect=lambda fn: sync_to_async(fn, thread_sensitive=True),
-            ),
-            patch(
-                "products.signals.backend.monitor_pr_research.get_or_create_signals_sandbox_env",
-                return_value="env-1",
-            ),
-            patch(
-                "products.signals.backend.monitor_pr_research.get_task_id_for_run",
-                return_value=task.id,
             ),
             patch("products.signals.backend.monitor_pr_research.MultiTurnSession.start", side_effect=fake_start),
         ):
@@ -565,8 +583,13 @@ class TestMonitorPR(APIBaseTest):
             assert not SignalReportArtefact.objects.filter(
                 report_id=report.id, type=SignalReportArtefact.ArtefactType.NOTE
             ).exists()
-            assert captured_start["before_task_dispatch"](uuid4()) is None
-            assert captured_start["analytics_query_context"] == [{}]
+            assert len(created_runs) == 1
+            dto = created_runs[0]
+            assert SignalReportArtefact.objects.filter(
+                report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+            ).exists()
+            run_url = f"/api/projects/{self.team.id}/tasks/{dto.task_id}/runs/{dto.run_id}/"
+            assert self.client.get(run_url).status_code == 200
             assert captured_start["context"].github_read_access is False
             assert captured_start["context"].github_token_scope == "read"
             assert "person:read" not in captured_start["context"].posthog_mcp_scopes
@@ -650,6 +673,7 @@ class TestMonitorPR(APIBaseTest):
             )
             teammate = User.objects.create_and_join(self.organization, email="teammate@example.com", password="test")
             self.client.force_login(teammate)
+            assert self.client.get(run_url).status_code == 200
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
                 {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},

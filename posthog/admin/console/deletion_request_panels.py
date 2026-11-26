@@ -219,7 +219,7 @@ class DeletionRequestStatsPanel(Panel):
             *facts,
             Fact(label="Matching events", value=_number(obj.count)),
             Fact(label="Parts", value=_number(obj.part_count)),
-            Fact(label="Parts size", value=filesizeformat(obj.parts_size or 0)),
+            Fact(label="Parts size", value="-" if obj.parts_size is None else filesizeformat(obj.parts_size)),
             Fact(label="Rows in those parts", value=_number(obj.parts_row_count)),
             Fact(label="Earliest event", value=_when(obj.min_timestamp)),
             Fact(label="Latest event", value=_when(obj.max_timestamp)),
@@ -241,15 +241,17 @@ class DeletionRequestStatsPanel(Panel):
                     ),
                 )
             )
-        operations.append(
-            Operation(
-                key="preview",
-                label="Preview stats",
-                handler=preview_stats,
-                description="Counts the matching events without saving, for example while you change the criteria.",
-                gate=Gate.owner(),
+        # A stored query can run for minutes, longer than a web request may take, so it only counts in the background.
+        if obj.request_type != RequestType.HOGQL_EVENT_REMOVAL:
+            operations.append(
+                Operation(
+                    key="preview",
+                    label="Preview stats",
+                    handler=preview_stats,
+                    description="Counts the matching events without saving, for example while you change the criteria.",
+                    gate=Gate.owner(),
+                )
             )
-        )
         return operations
 
 

@@ -23,8 +23,10 @@ const ID_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:id_token'
 const RENEW_MARGIN_MS = 60_000
 const WORKLOAD_DOCS_URL = 'https://posthog.com/docs/api/workload-identity'
 
+// RFC 8693 section 2.2.1: hog sends the token only as a Bearer token, so it refuses any other type.
 const ExchangeResponse = TokenResponse.pick({ expires_in: true, scope: true }).extend({
     access_token: WorkloadTokenSchema,
+    token_type: z.string().regex(/^bearer$/i, 'token_type must be Bearer'),
 })
 
 const ExchangeErrorBody = OAuthErrorBody.extend({
@@ -117,6 +119,13 @@ export async function exchangeWorkloadToken(
         await runtime.sleep(wait * 1000)
         waited += wait
         response = await exchange()
+    }
+    if (response.status >= 300 && response.status < 400) {
+        throw new HogError(
+            'workload_exchange_redirected',
+            `${hostUrl(host, '').origin} redirected the workload token exchange with HTTP ${response.status}, so hog didn't send the OIDC token again.`,
+            SET_HOST
+        )
     }
     if (!response.ok) {
         throw exchangeError(response.status, response.json, provider, projectId)

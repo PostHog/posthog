@@ -183,12 +183,10 @@ describe('createApplyEventRestrictionsStep', () => {
             const result = await step(input)
 
             expect(result).toEqual(
-                redirect(
-                    'Event redirected to overflow due to force overflow restrictions',
-                    OVERFLOW_OUTPUT,
-                    true,
-                    false
-                )
+                redirect('Event redirected to overflow due to force overflow restrictions', OVERFLOW_OUTPUT, {
+                    preserveKey: true,
+                    awaitAck: false,
+                })
             )
         })
 
@@ -226,12 +224,10 @@ describe('createApplyEventRestrictionsStep', () => {
                 const result = await localityStep(input)
 
                 expect(result).toEqual(
-                    redirect(
-                        'Event redirected to overflow due to force overflow restrictions',
-                        OVERFLOW_OUTPUT,
-                        expected,
-                        false
-                    )
+                    redirect('Event redirected to overflow due to force overflow restrictions', OVERFLOW_OUTPUT, {
+                        preserveKey: expected,
+                        awaitAck: false,
+                    })
                 )
             }
         )

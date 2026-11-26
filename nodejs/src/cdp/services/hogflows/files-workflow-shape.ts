@@ -1,5 +1,7 @@
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 
+import { AcceptedSend, withSendCategory } from './transactional-email'
+
 export type EmailStep = Extract<HogFlowAction, { type: 'function_email' }>
 
 export type FilesWorkflowRefusal = {
@@ -91,7 +93,7 @@ const firstStepOutOfPlace = (
     return undefined
 }
 
-export const filesWorkflowShape = (hogFlow: HogFlow): FilesWorkflowShape => {
+export const filesWorkflowShape = (hogFlow: HogFlow, send?: Pick<AcceptedSend, 'category'>): FilesWorkflowShape => {
     const successors = successorsById(hogFlow)
     const reachable = reachableFromTriggerInOrder(hogFlow, successors)
     let emailStep: EmailStep | undefined
@@ -109,7 +111,7 @@ export const filesWorkflowShape = (hogFlow: HogFlow): FilesWorkflowShape => {
     if (outOfPlace) {
         return stepDoesNotFit(outOfPlace)
     }
-    if (emailStep.config.message_category_type !== 'transactional') {
+    if (withSendCategory(emailStep, send).config.message_category_type !== 'transactional') {
         return marketingEmailCanWait(emailStep)
     }
     return hogFlow.email_sending_rate_limit ? sendingRateLimitCanWait() : { emailStep }

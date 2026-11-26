@@ -514,11 +514,22 @@ class TestMetricQueryBodyValidation(SimpleTestCase):
         serializer = _MetricQueryBodySerializer(data={"promql": "sum(rate(http_requests_total[5m]))"})
         assert serializer.is_valid(), serializer.errors
 
-    def test_capital_m_offset_is_minutes(self) -> None:
-        serializer = _MetricQueryBodySerializer(data={"metricName": "up", "dateFrom": "-30M"})
+    @parameterized.expand(
+        [
+            ("date_to_omitted", {"dateFrom": "-30M"}),
+            ("date_to_now", {"dateFrom": "-30M", "dateTo": "now"}),
+        ]
+    )
+    def test_capital_m_offset_is_minutes(self, _name: str, dates: dict[str, str]) -> None:
+        serializer = _MetricQueryBodySerializer(data={"metricName": "up", **dates})
         assert serializer.is_valid(), serializer.errors
         span = serializer.validated_data["dateTo"] - serializer.validated_data["dateFrom"]
         assert span == timedelta(minutes=30)
+
+    def test_time_now_makes_an_instant_query(self) -> None:
+        serializer = _MetricQueryBodySerializer(data={"metricName": "up", "time": "now"})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["instant"] is True
 
     def test_builder_query_aggregation_defaults_to_sum(self) -> None:
         serializer = _MetricQueryBodySerializer(data={"metricName": "http_requests_total"})

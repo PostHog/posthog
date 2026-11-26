@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 import pytest
@@ -6,6 +6,9 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.sources.doit._config import DoItSourceConfig
 from products.warehouse_sources.sources.doit.doit import (
+    DOIT_CONCURRENCY_QUOTA_FIRST_WAIT_SECONDS,
+    DOIT_CONCURRENCY_QUOTA_MAX_WAIT_SECONDS,
+    DOIT_CONCURRENCY_QUOTA_MAX_WAITS,
     LIST_REPORTS_TIMEOUT_SECONDS,
     REPORT_TIMEOUT_SECONDS,
     doit_list_reports,
@@ -74,6 +77,97 @@ class TestDoitListReports:
         with scripted_network(always(ScriptedResponse(status=500, body=b"body"))):
             with pytest.raises(Exception, match="failed with status: 500"):
                 doit_list_reports(CONFIG)
+
+
+QUOTA_429 = ScriptedResponse(
+    status=429,
+    json={
+        "error": 'concurrent report query requests quota for "acct-1" exhausted; please wait for previous requests to complete.'
+    },
+)
+RATE_LIMIT_429 = ScriptedResponse(status=429, json={"error": "rate limit exceeded"})
+REPORT_OK = ScriptedResponse(
+    json={"result": {"schema": [{"name": "service", "type": "string"}], "rows": [["compute"]]}}
+)
+LIST_OK = ScriptedResponse(json={"reports": [{"id": "r1", "reportName": "Cost by product"}]})
+
+
+def _fetch_report() -> list[Any]:
+    source = doit_source(CONFIG, "cost_by_product", "r1", MagicMock(), None)
+    return [row["service"] for table in cast(Iterable[Any], source.items()) for row in table.to_pylist()]
+
+
+def _resolve_report_id() -> str:
+    return resolve_report_id(CONFIG, "cost_by_product", None)
+
+
+def _recording_wait(waits: list[float]) -> Callable[[float], bool]:
+    def wait(seconds: float) -> bool:
+        waits.append(seconds)
+        return False
+
+    return wait
+
+
+class TestConcurrencyQuotaWait:
+    # The adapter tries a 429 four times in a few seconds. The quota stays exhausted while the other
+    # report queries of the account run, which takes minutes, so more 429s come than the adapter takes.
+    @pytest.mark.parametrize(
+        "call,ok_response,expected",
+        [
+            (_fetch_report, REPORT_OK, ["compute"]),
+            (_resolve_report_id, LIST_OK, "r1"),
+        ],
+        ids=["report_fetch", "report_lookup_in_a_sync"],
+    )
+    def test_waits_out_the_quota_and_then_syncs(self, call, ok_response, expected) -> None:
+        waits: list[float] = []
+        with (
+            patch(f"{_MODULE}.interruptible_wait", side_effect=_recording_wait(waits)),
+            scripted_network([QUOTA_429] * 10 + [ok_response]),
+        ):
+            result = call()
+
+        assert result == expected
+        assert len(waits) >= 2
+        caps = [
+            min(DOIT_CONCURRENCY_QUOTA_FIRST_WAIT_SECONDS * 2**i, DOIT_CONCURRENCY_QUOTA_MAX_WAIT_SECONDS)
+            for i in range(len(waits))
+        ]
+        assert all(cap / 2 <= wait <= cap for wait, cap in zip(waits, caps))
+
+    @pytest.mark.parametrize(
+        "response,expected_waits",
+        [
+            (QUOTA_429, DOIT_CONCURRENCY_QUOTA_MAX_WAITS),
+            # Only the concurrency quota gets the long wait. Other 429s keep the adapter's retries.
+            (RATE_LIMIT_429, 0),
+        ],
+        ids=["quota_never_clears", "other_429"],
+    )
+    def test_gives_up_with_the_status_and_body(self, response, expected_waits) -> None:
+        waits: list[float] = []
+        with (
+            patch(f"{_MODULE}.interruptible_wait", side_effect=_recording_wait(waits)),
+            scripted_network(always(response)),
+        ):
+            with pytest.raises(Exception, match="failed with status: 429") as error:
+                _fetch_report()
+
+        assert len(waits) == expected_waits
+        assert error_message_matches(str(error.value), DoItSource().get_retryable_errors()) == (response is QUOTA_429)
+
+    def test_schema_listing_does_not_wait_on_the_quota(self) -> None:
+        # `get_schemas` runs in synchronous API views, where a wait holds a web worker for minutes.
+        waits: list[float] = []
+        with (
+            patch(f"{_MODULE}.interruptible_wait", side_effect=_recording_wait(waits)),
+            scripted_network([QUOTA_429] * 10 + [LIST_OK]),
+        ):
+            with pytest.raises(Exception, match="failed with status: 429"):
+                DoItSource().get_schemas(CONFIG, team_id=1)
+
+        assert waits == []
 
 
 class TestRequestTimeouts:

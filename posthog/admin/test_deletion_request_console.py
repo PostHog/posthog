@@ -516,6 +516,18 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert (obj.count, obj.stats_calculated_at is not None) == ((2, True) if saved else (None, False))
 
+    def test_stats_of_a_query_backed_request_are_only_fetched_in_the_background(self) -> None:
+        obj = self._request(
+            request_type=RequestType.HOGQL_EVENT_REMOVAL, events=[], hogql_query="SELECT uuid FROM events"
+        )
+
+        with patch(f"{PANELS}.fetch_deletion_stats") as counted:
+            preview = self.client.post(self._url(obj, "stats", "preview"))
+
+        assert preview.status_code == 404
+        counted.assert_not_called()
+        assert self._url(obj, "stats", "fetch") in self.client.get(self._url(obj)).content.decode()
+
     def test_fetch_stats_counts_in_the_background_and_shows_a_failure(self) -> None:
         obj = self._request()
 

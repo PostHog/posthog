@@ -11,7 +11,13 @@ from drf_spectacular.contrib.rest_framework_dataclasses import OpenApiDataclassS
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
-from drf_spectacular.plumbing import ComponentRegistry, build_basic_type, build_mock_request, build_parameter_type
+from drf_spectacular.plumbing import (
+    ComponentRegistry,
+    alpha_operation_sorter,
+    build_basic_type,
+    build_mock_request,
+    build_parameter_type,
+)
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -608,6 +614,12 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Group type index for this condition set. None means person-level aggregation.",
     )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display-only name for this release condition group. It does not affect evaluation.",
+    )
 
 
 class FeatureFlagMultivariateVariantSchemaSerializer(serializers.Serializer):
@@ -850,6 +862,23 @@ def _extract_root_suffix(prefix_re: re.Pattern, path: str) -> str | None:
     """Extract the resource suffix after the root /api/{resource}/{lookup}/ prefix, or None."""
     m = prefix_re.match(path)
     return path[m.end() :] if m else None
+
+
+_TAG_PATH_RE = re.compile(
+    r"((\/api\/(organizations|projects|environments)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/"
+)
+
+
+def sort_operations(endpoint):
+    # posthog.com lists operations in schema order. A viewset with `schema_docs_order` keeps its path prefix's place,
+    # such as /api/projects/{project_id}/messaging/, and sorts by that number among the ordered viewsets under it.
+    path, path_regex, method, callback = endpoint
+    key = alpha_operation_sorter(endpoint)
+    docs_order = getattr(getattr(callback, "cls", None), "schema_docs_order", None)
+    tag_path = _TAG_PATH_RE.search(path)
+    if docs_order is None or tag_path is None:
+        return (key[0], 0, key)
+    return (alpha_operation_sorter((tag_path.group(0), path_regex, method, callback))[0], docs_order, key)
 
 
 def preprocess_exclude_path_format(endpoints, **kwargs):
@@ -1306,10 +1335,7 @@ def custom_postprocessing_hook(result, generator, request, public):
             if swagger_tag:
                 definition["tags"] = [swagger_tag]
             else:
-                match = re.search(
-                    r"((\/api\/(organizations|projects|environments)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/",
-                    path,
-                )
+                match = _TAG_PATH_RE.search(path)
                 if match:
                     definition["tags"].append(match.group("one"))
             for tag in definition["tags"]:

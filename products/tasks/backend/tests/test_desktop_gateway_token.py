@@ -269,15 +269,18 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "products.tasks.backend.logic.services.desktop_gateway_token.posthoganalytics.default_client"
         ) as client:
             self._mint()
-        count = client.metrics.count
-        if expected_reason is None:
-            count.assert_not_called()
-        else:
-            count.assert_called_once_with(
-                "tasks.gateway_token.refused",
-                1,
-                attributes={"surface": "desktop", "ai_product": "posthog_code", "reason": expected_reason},
-            )
+        # The client is shared, so the API middleware's own request metrics land on it too.
+        refusals = [
+            call.kwargs["attributes"]
+            for call in client.metrics.count.call_args_list
+            if call.args == ("tasks.gateway_token.refused", 1)
+        ]
+        expected = (
+            []
+            if expected_reason is None
+            else [{"surface": "desktop", "ai_product": "posthog_code", "reason": expected_reason}]
+        )
+        assert refusals == expected
 
     def test_unknown_credit_state_is_disabled(self) -> None:
         self.mocks["credit"].side_effect = RuntimeError("redis down")
@@ -601,21 +604,15 @@ class TestDesktopUsageEndpoint(_GatewayTestBase):
         assert body["ai_credits"]["exhausted"] is False
         assert body["is_rate_limited"] is False
 
-    def test_deactivated_org_is_exhausted_and_unbilled(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
-        ]
+    @parameterized.expand([("session", False), ("token", True)])
+    def test_deactivated_org_cannot_read_usage(self, _name: str, token_authenticated: bool) -> None:
         self.organization.is_active = False
-        self.organization.save()
-        # Token callers are refused upstream of the view; a session reaches the body.
-        with patch("ee.billing.quota_limiting.get_fresh_team_limited_resources", side_effect=Exception("unused")):
-            body = self.client.get(self._url("usage")).json()
-            refused = self._client().get(self._url("usage"))
-        assert body["ai_credits"]["exhausted"] is True
-        assert body["is_rate_limited"] is True
-        assert body["code_usage_subscribed"] is False
-        assert refused.status_code == status.HTTP_403_FORBIDDEN
-        assert refused.json()["code"] == "organization_deactivated"
+        self.organization.save(update_fields=["is_active"])
+        client = self._client() if token_authenticated else self.client
+        with patch("ee.billing.quota_limiting.get_fresh_team_limited_resources", side_effect=AssertionError("unused")):
+            response = client.get(self._url("usage"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["code"] == "organization_deactivated"
 
 
 class TestDesktopEndpointsRequireAuthentication(_GatewayTestBase):

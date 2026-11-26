@@ -2,6 +2,8 @@ import re
 import time
 import random
 import decimal
+import datetime
+import zoneinfo
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator
 from typing import Any, Optional, TypeVar, cast
@@ -9,6 +11,7 @@ from urllib.parse import quote
 
 import gspread
 import requests
+import structlog
 from babel.core import Locale, UnknownLocaleError
 from babel.numbers import NumberFormatError, get_decimal_symbol, get_group_symbol, parse_decimal
 from cachetools import Cache, TTLCache, cached
@@ -28,6 +31,8 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_adapter,
 )
 from products.warehouse_sources.sources.sdk.internals import NamingConvention, table_from_py_list
+
+logger = structlog.get_logger(__name__)
 
 # (connect, read) timeout for every Sheets API request, in seconds. gspread defaults to no
 # timeout, so a stalled connection blocks the worker thread indefinitely. Because the sync
@@ -247,21 +252,200 @@ def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | 
     return float(number)
 
 
-def _records_from_grid(grid: list[list[str]], locale: Locale | None) -> list[dict[str, Any]]:
+# Google Sheets stores a date as the number of days since this day, with the time of day as the
+# fraction. See https://developers.google.com/sheets/api/reference/rest/v4/DateTimeRenderOption.
+_SHEETS_SERIAL_EPOCH = datetime.datetime(1899, 12, 30)
+_MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
+
+_DATE_NUMBER_FORMAT_TYPES = frozenset({"DATE", "DATE_TIME"})
+
+# The date read returns one JSON object per cell, so its response is much larger than the values
+# read, and Google stops a request that runs for more than 180 seconds. Above this many cells, date
+# cells keep their display text so that the read cannot stall the sync.
+_DATE_CELLS_MAX_GRID_CELLS = 200_000
+
+# Sheets names a time zone that has no IANA name by its offset, for example "GMT-07:00".
+_GMT_OFFSET_TIME_ZONE_RE = re.compile(r"GMT([+-])(\d{1,2}):(\d{2})")
+
+_GRID_READ_ATTEMPTS = 3
+
+
+class GoogleSheetsRowsMovedError(Exception):
+    """Rows moved between the values read and the date read, so the two grids do not line up.
+
+    Retryable: the move comes from an edit while the sync runs. Display text in place of the dates
+    would change the type of each date column, and an incremental table rejects that change."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Rows in the worksheet moved while PostHog read it, for example because someone inserted, "
+            "deleted or sorted rows. The sync will try again."
+        )
+
+
+@frozen
+class _CellPosition:
+    # Zero-based, counted from A1, so the header row is row 0.
+    row: int
+    column: int
+
+
+_DATE_CELLS_FIELDS = "sheets(data(startRow,startColumn,rowData(values(formattedValue,effectiveValue(numberValue),effectiveFormat(numberFormat(type))))))"
+
+
+def _spreadsheet_time_zone(worksheet: gspread.Worksheet) -> datetime.tzinfo:
+    try:
+        name = worksheet.spreadsheet.timezone
+    except KeyError:
+        return datetime.UTC
+    try:
+        return zoneinfo.ZoneInfo(name)
+    except (KeyError, ValueError, TypeError):
+        pass
+    match = _GMT_OFFSET_TIME_ZONE_RE.fullmatch(name) if isinstance(name, str) else None
+    if match is None:
+        return datetime.UTC
+    sign, hours, minutes = match.groups()
+    offset = datetime.timedelta(hours=int(hours), minutes=int(minutes))
+    try:
+        return datetime.timezone(-offset if sign == "-" else offset)
+    except ValueError:
+        return datetime.UTC
+
+
+def _date_from_serial(serial: float, number_format_type: str) -> datetime.date | None:
+    # Round to milliseconds, which is the finest unit a Sheets time format can show. Without this,
+    # float error turns 13:30:00 into 13:29:59.999999.
+    try:
+        moment = _SHEETS_SERIAL_EPOCH + datetime.timedelta(milliseconds=round(serial * _MILLISECONDS_PER_DAY))
+    except OverflowError:
+        return None
+    return moment.date() if number_format_type == "DATE" else moment
+
+
+def _read_date_cells(worksheet: gspread.Worksheet, grid: list[list[str]]) -> dict[_CellPosition, datetime.date]:
+    """Find the date and date-time cells of a worksheet, keyed by their position in `grid`.
+
+    The values read returns the text that each cell shows, so a date in a format such as "dd-mm"
+    loses its year. The display format does not change the value that the cell holds, so read that
+    value and the number format type of every cell in one request. A date-time is the wall-clock
+    time in the spreadsheet's time zone."""
+    params: dict[str, str | int | bool | float | list[str] | None] = {
+        "ranges": absolute_range_name(worksheet.title),
+        "fields": _DATE_CELLS_FIELDS,
+    }
+    response = _retry_on_transient_api_error(lambda: worksheet.spreadsheet.fetch_sheet_metadata(params))
+
+    dates: dict[_CellPosition, datetime.date] = {}
+    for sheet in response.get("sheets", []):
+        for grid_data in sheet.get("data", []):
+            start_row = grid_data.get("startRow", 0)
+            start_column = grid_data.get("startColumn", 0)
+            for row_offset, row_data in enumerate(grid_data.get("rowData", [])):
+                for column_offset, cell in enumerate(row_data.get("values", [])):
+                    number_format_type = cell.get("effectiveFormat", {}).get("numberFormat", {}).get("type")
+                    serial = cell.get("effectiveValue", {}).get("numberValue")
+                    if number_format_type not in _DATE_NUMBER_FORMAT_TYPES or serial is None:
+                        continue
+                    value = _date_from_serial(serial, number_format_type)
+                    if value is None:
+                        continue
+                    position = _CellPosition(row=start_row + row_offset, column=start_column + column_offset)
+                    # A row inserted, deleted or sorted between the values read and this read moves
+                    # the cells of one grid against the other. A date cell whose text differs from
+                    # the grid at its position shows that move.
+                    if cell.get("formattedValue", "") != _grid_text(grid, position):
+                        raise GoogleSheetsRowsMovedError()
+                    dates[position] = value
+    return dates
+
+
+def _grid_text(grid: list[list[str]], position: _CellPosition) -> str:
+    if position.row >= len(grid) or position.column >= len(grid[position.row]):
+        return ""
+    return grid[position.row][position.column]
+
+
+def _date_cells(worksheet: gspread.Worksheet, grid: list[list[str]]) -> dict[_CellPosition, datetime.date]:
+    if len(grid) < 2:
+        return {}
+    grid_cells = len(grid) * max(len(row) for row in grid)
+    if grid_cells > _DATE_CELLS_MAX_GRID_CELLS:
+        logger.info("google_sheets_date_cells_grid_too_large", worksheet_id=worksheet.id, grid_cells=grid_cells)
+        return {}
+    try:
+        return _read_date_cells(worksheet, grid)
+    except gspread.exceptions.APIError as e:
+        # A transient error that outlasts the retries fails the sync, the same as for the values
+        # read, so that one bad request does not change a Date column to String for one sync. Any
+        # other error repeats on every sync, so the date cells keep their display text.
+        if _is_retryable_api_error(e):
+            raise
+        logger.warning("google_sheets_date_cells_read_failed", worksheet_id=worksheet.id, code=e.code)
+        return {}
+
+
+def _as_utc_date_time(value: datetime.date | datetime.datetime, time_zone: datetime.tzinfo) -> datetime.datetime:
+    if not isinstance(value, datetime.datetime):
+        value = datetime.datetime.combine(value, datetime.time.min)
+    return value.replace(tzinfo=time_zone).astimezone(datetime.UTC)
+
+
+def _value_kind(value: Any) -> type:
+    # A datetime is also a date, so check it first. Integers and floats share one numeric column.
+    if isinstance(value, datetime.datetime):
+        return datetime.datetime
+    if isinstance(value, datetime.date):
+        return datetime.date
+    if isinstance(value, int | float):
+        return float
+    return str
+
+
+def _records_from_grid(
+    grid: list[list[str]],
+    locale: Locale | None,
+    date_cells: dict[_CellPosition, datetime.date],
+    time_zone: datetime.tzinfo,
+) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
     column_names = _resolve_column_names(list(grid[0]))
 
-    records = [dict(zip(column_names, [_parse_number_text(cell, locale) for cell in row])) for row in grid[1:]]
+    def cell_value(cell: str, position: _CellPosition) -> Any:
+        date = date_cells.get(position)
+        return date if date is not None else _parse_number_text(cell, locale)
 
-    # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
-    # of mixed Python types, which stores each text cell wrapped in double quotes.
+    records = [
+        dict(
+            zip(
+                column_names,
+                [
+                    cell_value(cell, _CellPosition(row=row_index, column=column_index))
+                    for column_index, cell in enumerate(row)
+                ],
+            )
+        )
+        for row_index, row in enumerate(grid[1:], start=1)
+    ]
+
+    # A column that holds more than one kind of value (numbers, text, dates or date-times) must stay
+    # text. The pipeline JSON-encodes a column of mixed Python types, which stores each text cell
+    # wrapped in double quotes.
     for index, name in enumerate(column_names):
-        if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1:
+        kinds = {_value_kind(record[name]) for record in records if record.get(name) is not None}
+        if kinds == {datetime.date, datetime.datetime}:
+            kinds = {datetime.datetime}
+
+        if len(kinds) > 1:
             for raw_row, record in zip(grid[1:], records):
                 if name in record:
                     record[name] = raw_row[index] or None
+        elif kinds == {datetime.datetime}:
+            for record in records:
+                if record.get(name) is not None:
+                    record[name] = _as_utc_date_time(record[name], time_zone)
 
     return records
 
@@ -557,6 +741,43 @@ def _incremental_fields_from_rows(rows: list[list[Any]]) -> list[IncrementalFiel
     return []
 
 
+def _read_grid(worksheet: gspread.Worksheet) -> list[list[str]]:
+    # Read the raw grid and build the records ourselves rather than calling
+    # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
+    # what `get_all_records` asks for, so every row is the same width as the widest one.
+    # Cells stay formatted so that percent and currency cells keep the text the sheet shows.
+    # The number text is then parsed in the spreadsheet locale, because it uses that locale's separators.
+    try:
+        return cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
+    except gspread.exceptions.APIError as e:
+        # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
+        # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,
+        # so Google rejects the bare sheet-name reference as "Invalid range: '<title>'" instead
+        # of "Unable to parse range". Treat it as an empty grid rather than failing the sync.
+        if e.code == 400 and "Invalid range" in str(e):
+            return []
+        raise
+
+
+@frozen
+class _WorksheetCells:
+    grid: list[list[str]]
+    date_cells: dict[_CellPosition, datetime.date]
+
+
+def _read_worksheet_cells(worksheet: gspread.Worksheet) -> _WorksheetCells:
+    # No wait between attempts, because a worker shutdown cannot interrupt a raw sleep. When the
+    # last attempt still sees moved rows, the error fails the sync and Temporal retries it later.
+    for attempt in range(1, _GRID_READ_ATTEMPTS):
+        grid = _read_grid(worksheet)
+        try:
+            return _WorksheetCells(grid=grid, date_cells=_date_cells(worksheet, grid))
+        except GoogleSheetsRowsMovedError:
+            logger.info("google_sheets_rows_moved_during_read", worksheet_id=worksheet.id, attempt=attempt)
+    grid = _read_grid(worksheet)
+    return _WorksheetCells(grid=grid, date_cells=_date_cells(worksheet, grid))
+
+
 def google_sheets_source(
     config: GoogleSheetsSourceConfig,
     worksheet_name: str,
@@ -596,24 +817,10 @@ def google_sheets_source(
     # the sync itself and is out of scope for restart-safety alone.
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
-
-        # Read the raw grid and build the records ourselves rather than calling
-        # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
-        # what `get_all_records` asks for, so every row is the same width as the widest one.
-        # Cells stay formatted so that percent and currency cells keep the text the sheet shows.
-        # The number text is then parsed in the spreadsheet locale, because it uses that locale's separators.
-        try:
-            grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
-        except gspread.exceptions.APIError as e:
-            # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
-            # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,
-            # so Google rejects the bare sheet-name reference as "Invalid range: '<title>'" instead
-            # of "Unable to parse range". Treat it as an empty grid rather than failing the sync.
-            if e.code == 400 and "Invalid range" in str(e):
-                grid = []
-            else:
-                raise
-        values = _records_from_grid(grid, _spreadsheet_locale(worksheet))
+        cells = _read_worksheet_cells(worksheet)
+        values = _records_from_grid(
+            cells.grid, _spreadsheet_locale(worksheet), cells.date_cells, _spreadsheet_time_zone(worksheet)
+        )
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]

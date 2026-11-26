@@ -43,6 +43,7 @@ def fake_task_run_spend(runs: dict[UUID, tuple[datetime, int | None, int]]) -> I
                 run_id=run_id,
                 task_id=uuid4(),
                 cost_microusd=runs[run_id][1],
+                standard_cost_microusd=runs[run_id][1],
                 complete=True,
                 is_terminal=True,
                 stage="task",

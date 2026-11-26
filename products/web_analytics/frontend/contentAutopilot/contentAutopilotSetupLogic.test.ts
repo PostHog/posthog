@@ -20,6 +20,7 @@ const CONTEXT: AEOSetupContextApi = {
     websites: [{ domain: 'example.com', source: 'app_urls', pageviews: null }],
     own_domains: [],
     active_prompts: 0,
+    max_active_prompts: 100,
     paused_prompts: 0,
     keywords: 0,
     has_checks: false,
@@ -83,6 +84,25 @@ describe('contentAutopilotSetupLogic', () => {
             activate_paused_prompts: activatePaused,
         })
         expect(logic.values.jobRef?.onlyFirstRun).toBe(true)
+    })
+
+    it('reloads the prompt count when setup saves active prompts', async () => {
+        await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
+        jest.mocked(aeoSetupCreate).mockResolvedValue({ id: 'job', status: 'pending', steps: [], error: '' })
+        jest.mocked(aeoSetupRetrieve).mockResolvedValue({
+            id: 'job',
+            status: 'completed',
+            steps: [{ step: 'prompts', status: 'done', added: 20, detail: '' }],
+            error: '',
+        })
+        jest.mocked(aeoSetupContext).mockResolvedValue({ ...CONTEXT, active_prompts: 20 })
+
+        logic.actions.startSetup(false)
+        await expectLogic(logic).toDispatchActions(['setJob'])
+        logic.actions.loadJob()
+
+        await expectLogic(logic).toDispatchActions(['setJob', 'loadSetupContextSuccess'])
+        expect(logic.values.setupContext?.active_prompts).toBe(20)
     })
 
     it('follows the job already running when setup is refused with a conflict', async () => {

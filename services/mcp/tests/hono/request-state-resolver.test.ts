@@ -290,6 +290,39 @@ describe('RequestStateResolver MCP client contexts', () => {
         }
     })
 
+    it('times each resolution step it ran', async () => {
+        const state = await makeResolver().resolve(makeProps())
+
+        expect(Object.keys(state.stepSeconds).sort()).toEqual([
+            'ai_consent',
+            'analytics_context',
+            'api_key',
+            'available_features',
+            'distinct_id',
+            'flags',
+            'pinned_context',
+            'stored_context',
+            'tool_filter',
+        ])
+    })
+
+    it('counts the catalog scan in the tool filter step', async () => {
+        vi.useFakeTimers({ toFake: ['performance'] })
+        try {
+            const { resolver, getFilteredTools } = makeResolverWithCatalog()
+            getFilteredTools.mockImplementation(() => {
+                vi.advanceTimersByTime(40)
+                return []
+            })
+
+            const state = await resolver.resolve(makeProps())
+
+            expect(state.stepSeconds.tool_filter).toBeCloseTo(0.04)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('retries a failed flag evaluation within the request', async () => {
         const evaluate = vi
             .mocked(evaluateFeatureFlags)

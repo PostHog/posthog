@@ -80,8 +80,9 @@ def login_required(view):
         if not User.objects.exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
-            user = User.objects.filter(is_active=True).first()
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            user = User.objects.humans().filter(is_active=True).first()
+            if user is not None:
+                login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         response = base_handler(request, *args, **kwargs)
 
         # Don't include next=/ in the login redirect URL since "/" is the default destination
@@ -234,6 +235,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
         "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
         "cloud": in_cloud,
+        "batch_exports_enabled": settings.BATCH_EXPORTS_ENABLED,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),
