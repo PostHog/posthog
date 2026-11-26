@@ -1907,6 +1907,7 @@ export namespace Schemas {
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `transactional_email` - transactional_email
+     * * `transactional_push` - transactional_push
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -2034,6 +2035,7 @@ export namespace Schemas {
       Toolbar: 'toolbar',
       Tracing: 'tracing',
       TransactionalEmail: 'transactional_email',
+      TransactionalPush: 'transactional_push',
       FieldNote: 'field_note',
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
@@ -2161,6 +2163,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -2411,6 +2414,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -2830,6 +2834,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -75326,6 +75331,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
