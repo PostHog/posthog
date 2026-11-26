@@ -2350,14 +2350,6 @@ describe('EmailService', () => {
             sesAcceptsTracked()
             invocation.state.send = { tracking: { captureEngagement: true, opens: false } }
         }
-        const sensitiveClicksOn = (): void => {
-            sesAcceptsTracked()
-            invocation.hogFunction.metadata = {
-                message_category_type: 'transactional',
-                sensitive: true,
-                click_tracking_enabled: true,
-            }
-        }
         describe('attachments', () => {
             let bucket: BucketProxy
             let pdf: StoredFile
@@ -2629,23 +2621,43 @@ describe('EmailService', () => {
                 ])
             })
 
-            it('publishes clicks_untracked on the sent row of a sensitive transactional email', async () => {
-                send([])
-                sendAsTransactionalEmail()
-                invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+            it.each([
+                ['a sensitive transactional email', { sensitive: true }, undefined, 'clicks_untracked'],
+                [
+                    'a sensitive transactional email that turns click tracking back on',
+                    { sensitive: true, click_tracking_enabled: true },
+                    undefined,
+                    '',
+                ],
+                [
+                    'a code send with opens on and clicks off',
+                    {},
+                    { tracking: { captureEngagement: true, clicks: false } },
+                    'clicks_untracked',
+                ],
+            ])(
+                'publishes the click tracking reason on the sent row of %s',
+                async (_case, metadata, sendState, reason) => {
+                    send([])
+                    sendAsTransactionalEmail()
+                    invocation.hogFunction.metadata = { message_category_type: 'transactional', ...metadata }
+                    if (sendState) {
+                        invocation.state.send = sendState
+                    }
 
-                const result = await sender().executeSendEmail(invocation)
+                    const result = await sender().executeSendEmail(invocation)
 
-                expect(result.error).toBeUndefined()
-                expect(await recordedEmailStatuses()).toEqual([
-                    expect.objectContaining({
-                        team_id: team.id,
-                        message_id: invocation.id,
-                        status: 'sent',
-                        reason: 'clicks_untracked',
-                    }),
-                ])
-            })
+                    expect(result.error).toBeUndefined()
+                    expect(await recordedEmailStatuses()).toEqual([
+                        expect.objectContaining({
+                            team_id: team.id,
+                            message_id: invocation.id,
+                            status: 'sent',
+                            reason,
+                        }),
+                    ])
+                }
+            )
 
             it.each([
                 ['with files that SES accepts', (): StoredFile[] => [pdf], sesAccepts, 'success', 'true', 'false'],
@@ -3246,14 +3258,6 @@ describe('EmailService', () => {
                 codeSendOpensOff,
                 'sent',
                 'untracked',
-            ],
-            [
-                'a sensitive transactional email that turns click tracking back on',
-                TRANSACTIONAL_EMAIL_EVENT,
-                false,
-                sensitiveClicksOn,
-                'sent',
-                '',
             ],
             [
                 'a transactional email skipped for a suspended team',
