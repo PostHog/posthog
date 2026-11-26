@@ -349,7 +349,7 @@ function checkTrafficOnce(card: Card): string[] {
         .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
 }
 
-type ProfileRead = { profile: Profile } | { problems: string[] }
+type ProfileRead = { profile: Profile; profileHash: string } | { problems: string[] }
 
 function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     const file = profilePath ?? path.join(PROFILES_DIR, `${card.profile}.yaml`)
@@ -359,12 +359,54 @@ function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     return readProfile(file)
 }
 
+function scaleProfile(profile: Profile): Profile {
+    const { scale, load } = profile
+    if (scale === undefined || scale === 1) {
+        return profile
+    }
+    const traffic = Object.fromEntries(
+        Object.entries(profile.traffic).map(([name, shape]) => [
+            name,
+            typeof shape === 'object' &&
+            shape !== null &&
+            'ratePerSecond' in shape &&
+            typeof shape.ratePerSecond === 'number'
+                ? { ...shape, ratePerSecond: shape.ratePerSecond * scale }
+                : shape,
+        ])
+    )
+    if (load === undefined) {
+        return { ...profile, traffic }
+    }
+    const { claimsPerSecond, newJobsPerSecond } = load.targets
+    return {
+        ...profile,
+        traffic,
+        load: {
+            ...load,
+            targets: {
+                claimsPerSecond: Object.fromEntries(
+                    Object.entries(claimsPerSecond).map(([queue, rate]) => [queue, rate * scale])
+                ),
+                ...(newJobsPerSecond === undefined ? {} : { newJobsPerSecond: newJobsPerSecond * scale }),
+            },
+        },
+    }
+}
+
 function profileOf(read: Read): ProfileRead {
     if ('problem' in read) {
         return { problems: [read.problem] }
     }
     const profile = Profile.safeParse(read.value)
-    return profile.success ? { profile: profile.data } : { problems: problemsOf(profile.error, 'profile') }
+    if (!profile.success) {
+        return { problems: problemsOf(profile.error, 'profile') }
+    }
+    const scaled = scaleProfile(profile.data)
+    const load = Load.optional().safeParse(scaled.load)
+    return load.success
+        ? { profile: scaled, profileHash: sha256(profile.data) }
+        : { problems: problemsOf(load.error, 'profile.load') }
 }
 
 export function readProfile(file: string): ProfileRead {
@@ -425,11 +467,11 @@ function check(
         throw new CardError(cardPath, problems)
     }
 
-    const profileHash = sha256(loaded.profile)
+    const { profile, profileHash } = loaded
     return {
         card,
-        profile: loaded.profile,
-        admission: { load: derived.load, host: loaded.profile.host },
+        profile,
+        admission: { load: derived.load, host: profile.host },
         profileHash,
         cardHash: cardHashOf(card, profileHash),
     }

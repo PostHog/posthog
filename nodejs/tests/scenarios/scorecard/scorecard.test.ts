@@ -264,6 +264,23 @@ describe('scorecard', () => {
         ])
     })
 
+    it('records the workload scale and synthetic inputs in the scorecard', () => {
+        const loaded = loadText('scaled card', {
+            card: JSON.stringify(SMOKE.card),
+            profile: JSON.stringify({
+                ...SMOKE.profile,
+                scale: 0.25,
+                synthetic: ['transactional_email_parks', 'backlog_padding'],
+            }),
+        })
+
+        expect(scorecardOf(RESULT, loaded, PROVENANCE)).toMatchObject({
+            profile_scale: 0.25,
+            profile_load_description: 'measured mix at 1/4 of the observed peak',
+            profile_synthetic: ['transactional_email_parks', 'backlog_padding'],
+        })
+    })
+
     it.each<[string, InvariantResult, object]>([
         [
             'keeps an invariant it could not judge out of the failed ones',

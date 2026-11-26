@@ -175,6 +175,13 @@ export function scorecardOf(
         card_hash: result.cardHash,
         profile_name: profile.name,
         profile_hash: result.profileHash,
+        ...(profile.scale === undefined
+            ? {}
+            : {
+                  profile_scale: profile.scale,
+                  profile_load_description: `measured mix at 1/${2n ** BigInt(-Math.log2(profile.scale))} of the observed peak`,
+              }),
+        ...(profile.synthetic && { profile_synthetic: profile.synthetic }),
         topology_hash: result.topologyHash ?? null,
         config_hash: result.configHash ?? null,
         service_versions: result.services ?? null,

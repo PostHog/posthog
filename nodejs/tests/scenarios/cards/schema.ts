@@ -187,9 +187,17 @@ export type Load = z.infer<typeof Load>
 export const Host = z.object({ cpuCeiling: z.number().min(0).max(1) }).strict()
 export type Host = z.infer<typeof Host>
 
+const ProfileScale = z
+    .number()
+    .positive()
+    .max(1)
+    .refine((scale) => scale === 2 ** Math.round(Math.log2(scale)), 'use a power of two')
+
 export const Profile = z
     .object({
         name: z.string(),
+        scale: ProfileScale.optional(),
+        synthetic: z.array(z.enum(['transactional_email_parks', 'backlog_padding'])).optional(),
         traffic: z.record(z.string(), z.unknown()).default({}),
         settings: z.record(z.string(), z.string()).default({}),
         replicas: z.partialRecord(CdpRole, z.number().int().min(1)).default({}),

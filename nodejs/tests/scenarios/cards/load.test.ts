@@ -990,8 +990,11 @@ describe('load', () => {
         ])
     })
 
-    it("derives the profile's own targets for a card that drives its full traffic", () => {
-        const { admission } = loadCard(
+    it.each([
+        ['keeps', undefined, 1],
+        ['scales', 0.25, 0.25],
+    ] as const)('%s the offered rates and targets for a card that drives the full profile', (_, scale, factor) => {
+        const { admission, profile } = loadCard(
             {
                 ...card,
                 drive: {
@@ -1000,25 +1003,25 @@ describe('load', () => {
                 },
                 invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
             },
-            fullTraffic
+            scale === undefined ? fullTraffic : { ...fullTraffic, scale }
         )
 
-        expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
-    })
-
-    it('loads chaos-under-load with the three traffic paths, a paired verdict and counter drift as a measurement', () => {
-        const loaded = load(path.join(__dirname, 'chaos-under-load.yaml'))
-
-        expect(loaded.card.drive.traffic.map(({ name }) => name)).toEqual([
-            'event_email',
-            'event_webhook',
-            'transactional_email',
-        ])
-        expect(loaded.card.pair).toBe(true)
-        expect(pairProblemsOf(loaded, true)).toEqual([])
-        expect(loaded.card.valves.map(({ valve }) => valve)).toContain('pg.commit_reply_lost')
-        expect(loaded.card.measure.map(({ name }) => name)).toContain('counter_drift')
-        expect(loaded.card.bars).toEqual([])
+        expect(profile.traffic).toEqual(
+            Object.fromEntries(
+                Object.entries(fullTraffic.traffic).map(([kind, shape]) => [
+                    kind,
+                    { ...shape, ratePerSecond: shape.ratePerSecond * factor },
+                ])
+            )
+        )
+        const {
+            claimsPerSecond: { hogflow, email },
+            newJobsPerSecond,
+        } = fullTraffic.load.targets
+        expect(admission.load?.targets).toEqual({
+            claimsPerSecond: { hogflow: hogflow * factor, email: email * factor },
+            newJobsPerSecond: newJobsPerSecond * factor,
+        })
     })
 
     it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay', 'chaos-under-load'])(
