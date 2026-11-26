@@ -28,9 +28,15 @@ const VARIABLE_TYPES: Record<string, string> = {
 const AUTO_GRID_COLUMN_PX: Record<string, number> = { narrow: 192, standard: 320, wide: 480 }
 const AUTO_GRID_ROW_PX: Record<string, number> = { short: 168, standard: 320, tall: 512 }
 
+/** The plugin a v2 query or viz config names: `group` in v2beta1, `kind` in v2alpha1, where beta's `kind` is a fixed tag. */
+const plugin = (config: Json): string | undefined =>
+    config?.group ?? (config?.kind && !['DataQuery', 'VizConfig'].includes(config.kind) ? config.kind : undefined)
+
 export function fromV2(d: Json, warnings: string[]): Json {
-    const datasource = (query: Json): Json =>
-        query?.group ? { type: query.group, uid: query.datasource?.name ?? '' } : undefined
+    const datasource = (query: Json, alphaDatasource?: Json): Json => {
+        const type = plugin(query)
+        return type ? { type, uid: query.datasource?.name ?? alphaDatasource?.uid ?? '' } : undefined
+    }
     const conditional = (where: string, spec: Json): void => {
         if (spec?.conditionalRendering?.spec?.items?.length) {
             warnings.push(`${where} shows only under a condition in Grafana. Here it always shows.`)
@@ -52,7 +58,7 @@ export function fromV2(d: Json, warnings: string[]): Json {
         }
         const data = spec.data?.spec ?? {}
         return {
-            type: spec.vizConfig?.group,
+            type: plugin(spec.vizConfig),
             title: spec.title,
             description: spec.description,
             gridPos,
@@ -63,7 +69,7 @@ export function fromV2(d: Json, warnings: string[]): Json {
                 ...query.spec?.query?.spec,
                 refId: query.spec?.refId ?? query.spec?.query?.spec?.refId ?? String.fromCharCode(65 + index),
                 hide: query.spec?.hidden || undefined,
-                datasource: datasource(query.spec?.query),
+                datasource: datasource(query.spec?.query, query.spec?.datasource),
             })),
         }
     }
