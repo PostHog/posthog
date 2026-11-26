@@ -19,7 +19,7 @@ the exports facade, and the exports facade imports this module.
 
 import re
 import json
-from collections.abc import AsyncIterator, Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -600,17 +600,45 @@ def tile_for_insight_on_dashboard(
     )
     if tile is None:
         return None
-    layouts = tile.layouts
+    return contracts.InsightTileOnDashboard(
+        id=tile.id, dashboard=_to_summary(tile.dashboard), color=tile.color, layouts=_tile_layouts(tile.layouts)
+    )
+
+
+# Real layouts map a breakpoint to a position, two levels deep. Anything far deeper is not a layout, and the
+# contract's JSON validation recurses once per level, so such a value is dropped instead of failing the request.
+_MAX_LAYOUTS_DEPTH = 8
+
+
+def _tile_layouts(stored: JsonValue) -> JsonValue:
+    layouts = stored
     if isinstance(layouts, str):
         # Tiles migrated from the old schema store layouts as a JSON string. A template can store any
         # string, so an unparseable one is passed through as stored rather than failing the request.
         try:
             layouts = json.loads(layouts)
         except json.JSONDecodeError:
-            pass
-    return contracts.InsightTileOnDashboard(
-        id=tile.id, dashboard=_to_summary(tile.dashboard), color=tile.color, layouts=layouts
-    )
+            return stored
+        except RecursionError:
+            return {}
+    return layouts if _nesting_at_most(layouts, _MAX_LAYOUTS_DEPTH) else {}
+
+
+def _nesting_at_most(value: JsonValue, limit: int) -> bool:
+    pending: list[tuple[JsonValue, int]] = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        children: Iterable[JsonValue]
+        if isinstance(item, dict):
+            children = item.values()
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth > limit:
+            return False
+        pending.extend((child, depth + 1) for child in children)
+    return True
 
 
 def tile_for_render(*, insight_id: int, dashboard_id: int) -> contracts.InsightRenderTile | None:

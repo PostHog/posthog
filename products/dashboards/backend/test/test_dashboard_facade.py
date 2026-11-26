@@ -301,6 +301,8 @@ class TestInsightTileReads(APIBaseTest):
             ("json", {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
             ("stringified_json", '{"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}', {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}),
             ("unparseable_string", "not json", "not json"),
+            ("too_deeply_nested_string", "[" * 2000 + "]" * 2000, {}),
+            ("too_deeply_nested_object", {"sm": {"a": {"b": {"c": {"d": {"e": {"f": {"g": {}}}}}}}}}, {}),
         ]
     )
     def test_tile_for_insight_on_dashboard_returns_parsed_layouts_and_the_dashboard(
