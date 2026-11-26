@@ -725,7 +725,8 @@ describe('MessageTemplate', () => {
         fireEvent.click(screen.getByText(PASSWORD_RESET_WITH_DRAFT.name))
         const nameInput = await screen.findByPlaceholderText('Enter name')
         fireEvent.change(nameInput, { target: { value: 'Edited during publish' } })
-        fireEvent.keyDown(nameInput, { key: 'Enter' })
+        fireEvent.blur(nameInput)
+        expect(screen.queryByPlaceholderText('Enter name')).not.toBeInTheDocument()
 
         canvas!.setExportGate(exportGate, exportStarted)
         act(() => {
