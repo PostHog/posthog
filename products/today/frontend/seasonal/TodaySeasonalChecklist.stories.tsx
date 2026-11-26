@@ -75,7 +75,7 @@ const meta = {
 export default meta
 type Story = StoryObj<{}>
 
-export const Closed: Story = {}
+export const HogOnThePage: Story = {}
 
 function OpenChecklist(): JSX.Element {
     useEffect(() => {

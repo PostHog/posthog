@@ -1,0 +1,44 @@
+.TodaySeasonalHog {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--quill-z-modal, 50) + 1);
+    pointer-events: none;
+}
+
+.TodaySeasonalHog__canvas {
+    width: 100%;
+    height: 100%;
+}
+
+.TodaySeasonalHog__button {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 56px;
+    height: 64px;
+    pointer-events: auto;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius);
+
+    &:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+    }
+}
+
+.TodaySeasonalHog__bubble {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--card-foreground);
+    white-space: nowrap;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm, 0 1px 2px var(--border));
+}
