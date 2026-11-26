@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Text } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotKeywordModifierTerms } from './ContentAutopilotKeywordModifierTerms'
@@ -14,34 +13,50 @@ import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { type ModifierGroup, isCitationGap, modifierGroups } from './keywordsReport'
 import { windowRange } from './utils'
 
+// Select items need a string value, and no keyword is empty.
+const ALL_SEARCHES = ''
+
 export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
     const { modifiers, modifiersLoading, modifiersError, modifierKeyword, keywords, filters } =
         useValues(contentAutopilotKeywordsLogic)
     const { loadModifiers, setModifierKeyword } = useActions(contentAutopilotKeywordsLogic)
+    const options = [
+        { value: ALL_SEARCHES, label: 'All searches' },
+        ...(keywords ?? []).map((keyword) => ({
+            value: keyword.keyword,
+            label: `Searches with "${keyword.keyword}"`,
+        })),
+    ]
 
     return (
-        <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader
-                title="What the engines add to your searches"
-                description='Words the engines add to their searches, such as a year or "vs". A gap is a word whose answers cite you much less than usual.'
-            />
-            <div className="flex flex-col gap-3 p-3" data-attr="content-autopilot-keywords-modifiers">
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                    <LemonSelect<string | null>
-                        size="small"
+        <AiVisibilityCard
+            title="What the engines add to your searches"
+            description='Words the engines add to their searches, such as a year or "vs". A gap is a word whose answers cite you much less than usual.'
+            actions={
+                <Select<string>
+                    value={modifierKeyword ?? ALL_SEARCHES}
+                    onValueChange={(value) => setModifierKeyword(value || null)}
+                >
+                    <SelectTrigger
                         aria-label="Keyword filter"
-                        value={modifierKeyword}
-                        onChange={setModifierKeyword}
-                        options={[
-                            { value: null, label: 'All searches' },
-                            ...(keywords ?? []).map((keyword) => ({
-                                value: keyword.keyword,
-                                label: `Searches with "${keyword.keyword}"`,
-                            })),
-                        ]}
+                        className="max-w-full min-w-0"
                         data-attr="content-autopilot-keywords-modifier-filter"
-                    />
-                </div>
+                    >
+                        <SelectValue className="truncate">
+                            {(value: string | null) => options.find((option) => option.value === value)?.label}
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                        {options.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            }
+        >
+            <div className="flex flex-col gap-3" data-attr="content-autopilot-keywords-modifiers">
                 {modifiersError ? (
                     <AiVisibilityBanner
                         type="error"
@@ -50,13 +65,18 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                         Couldn't load the search words. Try again, and if it keeps happening contact support.
                     </AiVisibilityBanner>
                 ) : !modifiers ? (
-                    <LemonSkeleton className="h-24" />
+                    <Skeleton className="h-24 w-full" />
                 ) : modifiers.modifiers.length === 0 ? (
-                    <p className="m-0 text-muted" data-attr="content-autopilot-keywords-modifiers-empty">
+                    <Text
+                        size="xs"
+                        variant="muted"
+                        render={<p className="m-0" />}
+                        data-attr="content-autopilot-keywords-modifiers-empty"
+                    >
                         {modifiers.answers === 0
                             ? `No answers ${modifierKeyword ? `searched for "${modifierKeyword}" ` : ''}${windowRange(modifiers)}.`
                             : 'The engines searched only for words your prompts already contain. Only some engines report the searches they run.'}
-                    </p>
+                    </Text>
                 ) : (
                     <AiVisibilityTable<ModifierGroup>
                         size="small"
@@ -70,7 +90,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                 render: (_, group) => (
                                     <div>
                                         <div className="font-semibold">{group.label}</div>
-                                        <div className="text-xs text-muted">{group.description}</div>
+                                        <div className="text-xs text-muted-foreground">{group.description}</div>
                                     </div>
                                 ),
                             },
@@ -78,7 +98,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                 title: 'Words',
                                 key: 'modifiers',
                                 render: (_, group) => (
-                                    <span className="text-muted">
+                                    <span className="text-muted-foreground">
                                         {group.modifiers
                                             .slice(0, 4)
                                             .map((modifier) => modifier.term)
@@ -99,7 +119,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                     return gaps ? (
                                         <AiVisibilityTag type="danger">{pluralize(gaps, 'gap')}</AiVisibilityTag>
                                     ) : (
-                                        <span className="text-muted">-</span>
+                                        <span className="text-muted-foreground">-</span>
                                     )
                                 },
                             },
@@ -119,6 +139,6 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                     />
                 )}
             </div>
-        </PagePerformanceCard>
+        </AiVisibilityCard>
     )
 }

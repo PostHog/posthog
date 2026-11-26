@@ -45,7 +45,8 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 tooltip: 'Share of answers whose searches used this word.',
                 render: (_, modifier) => (
                     <span className="tabular-nums">
-                        {percentage(modifier.share, 0)} <span className="text-muted">({modifier.answers})</span>
+                        {percentage(modifier.share, 0)}{' '}
+                        <span className="text-muted-foreground">({modifier.answers})</span>
                     </span>
                 ),
             },
@@ -61,7 +62,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                         ) : null}
                         {modifier.cited_rate === null ? '-' : percentage(modifier.cited_rate, 0)}
                         {baselineCitedRate !== null ? (
-                            <span className="text-muted">vs {percentage(baselineCitedRate, 0)}</span>
+                            <span className="text-muted-foreground">vs {percentage(baselineCitedRate, 0)}</span>
                         ) : null}
                     </span>
                 ),
@@ -70,7 +71,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 title: 'Engines',
                 key: 'engines',
                 render: (_, modifier) => (
-                    <span className="text-muted">
+                    <span className="text-muted-foreground">
                         {modifier.engines.map((engine) => `${engineLabel(engine.engine)} ${engine.answers}`).join(', ')}
                     </span>
                 ),
