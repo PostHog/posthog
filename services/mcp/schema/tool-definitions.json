@@ -245,6 +245,36 @@
             "readOnlyHint": false
         }
     },
+    "billing-spend-get": {
+        "description": "DEPRECATED: use billing-spend-timeseries-get. This alias forwards to billing-spend-timeseries-get with the same arguments and will be removed. Call billing-spend-timeseries-get directly.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Deprecated alias for billing-spend-timeseries-get.",
+        "title": "Get spend breakdown (deprecated)",
+        "required_scopes": ["billing:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/billing/spend/timeseries/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "billing-usage-get": {
+        "description": "DEPRECATED: use billing-usage-timeseries-get. This alias forwards to billing-usage-timeseries-get with the same arguments and will be removed. Call billing-usage-timeseries-get directly.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Deprecated alias for billing-usage-timeseries-get.",
+        "title": "Get usage breakdown (deprecated)",
+        "required_scopes": ["billing:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/billing/usage/timeseries/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llma-skill-get": {
         "description": "DEPRECATED: renamed to skill-get. This alias forwards to skill-get and will be removed. Call skill-get directly with the same arguments.",
         "category": "Skills",

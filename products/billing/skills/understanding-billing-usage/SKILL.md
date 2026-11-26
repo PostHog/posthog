@@ -38,12 +38,12 @@ it would take to self-host PostHog or build their own pipeline instead.
 
 ## Available tools
 
-| Tool                           | Purpose                                                                 |
-| ------------------------------ | ----------------------------------------------------------------------- |
-| `posthog:billing-overview-get` | Org billing context, subscribed products, team names, and usage summary |
-| `posthog:billing-usage-get`    | Time-series usage by day, usage type, and team                          |
-| `posthog:billing-spend-get`    | Optional spend context when the user asks about dollars                 |
-| Product-specific MCP tools     | Follow-up investigation inside the affected product/project             |
+| Tool                                   | Purpose                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------- |
+| `posthog:billing-overview-get`         | Org billing context, subscribed products, team names, and usage summary |
+| `posthog:billing-usage-timeseries-get` | Time-series usage by day, usage type, and team                          |
+| `posthog:billing-spend-timeseries-get` | Optional spend context when the user asks about dollars                 |
+| Product-specific MCP tools             | Follow-up investigation inside the affected product/project             |
 
 Only use this skill when the billing read tools above are available. If the user asks
 about billing usage and those tools are not available, do not continue with this
@@ -108,7 +108,7 @@ Choose the smallest path that answers the user:
 
 ### Step 2. Recreate the Billing view
 
-Call `posthog:billing-usage-get` using the dashboard or prompt parameters:
+Call `posthog:billing-usage-timeseries-get` using the dashboard or prompt parameters:
 
 - `start_date`: `date_from`, or about 30 days before the suspected change
 - `end_date`: `date_to`, the named date, or today if the user did not name a date
@@ -127,7 +127,7 @@ hints. Do not call it by default for simple spike/high-usage questions. Do not u
 `usage_summary` as the source of truth for the alert, because it only reflects the
 current billing period.
 
-If the user asks about dollars, call `posthog:billing-spend-get` with the same date
+If the user asks about dollars, call `posthog:billing-spend-timeseries-get` with the same date
 range and breakdowns. Treat spend as an estimate/attribution layer over usage, not as a
 replacement for usage investigation.
 
