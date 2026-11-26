@@ -906,13 +906,18 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
 
     from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
         DataModelingJob,
+        DataModelingJobEngine,
         DataModelingJobStatus,
         DataWarehouseSavedQuery,
     )
 
     built_at = (
         DataModelingJob.objects.filter(
-            team_id=team_id, saved_query_id=saved_query_id, status=DataModelingJobStatus.COMPLETED
+            team_id=team_id,
+            saved_query_id=saved_query_id,
+            status=DataModelingJobStatus.COMPLETED,
+            # Other engines build their own copy and leave the ClickHouse one as it was.
+            engine=DataModelingJobEngine.CLICKHOUSE,
         )
         .order_by("-last_run_at")
         .values_list("created_at", flat=True)
@@ -926,7 +931,10 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
     if root is None:
         return True
     query_updated_at, last_run_at = root
-    built_at = built_at or last_run_at
+    if built_at is None and not DataModelingJob.objects.filter(team_id=team_id, saved_query_id=saved_query_id).exists():
+        # Views built before jobs were recorded only have the view's own timestamp. Once jobs exist,
+        # `last_run_at` may come from another engine's run, which left this copy as it was.
+        built_at = last_run_at
     if built_at is None:
         return True
     if query_updated_at is not None and query_updated_at > built_at:

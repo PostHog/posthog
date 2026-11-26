@@ -668,6 +668,7 @@ class TestDeniedTableError(BaseTest):
             ("unedited_without_trace_read", "none", "SELECT '' AS name", False, False, False),
             ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, False, True),
             ("trace_read_through_a_warehouse_join", "none", "SELECT event AS name FROM events", False, True, True),
+            ("edited_then_built_only_on_managed_warehouse", "none", "SELECT '' AS name", True, False, True, True),
         ]
     )
     def test_materialized_view_over_trace_tables_follows_tracing_access(
@@ -678,6 +679,7 @@ class TestDeniedTableError(BaseTest):
         edited_after_build: bool,
         join_events_to_spans: bool,
         denied: bool,
+        rebuilt_on_managed_warehouse: bool = False,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
         from posthog.hogql.parser import parse_select
@@ -687,7 +689,12 @@ class TestDeniedTableError(BaseTest):
         from posthog.constants import AvailableFeature
 
         from products.access_control.backend.models.access_control import AccessControl
-        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import (
+            DataModelingJob,
+            DataModelingJobEngine,
+            DataModelingJobStatus,
+            DataWarehouseSavedQuery,
+        )
         from products.data_tools.backend.facade.models import DataWarehouseJoin
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -716,7 +723,7 @@ class TestDeniedTableError(BaseTest):
                 field_name="spans",
             )
         built_at = datetime.now(UTC)
-        DataWarehouseSavedQuery.objects.create(
+        saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="slow_spans",
             query={"query": view_sql},
@@ -727,6 +734,19 @@ class TestDeniedTableError(BaseTest):
             last_run_at=built_at,
             query_updated_at=built_at + timedelta(minutes=1) if edited_after_build else None,
         )
+        if rebuilt_on_managed_warehouse:
+            for engine, run_at in [
+                (DataModelingJobEngine.CLICKHOUSE, built_at),
+                (DataModelingJobEngine.MANAGED_WAREHOUSE, built_at + timedelta(minutes=2)),
+            ]:
+                job = DataModelingJob.objects.create(
+                    team=self.team,
+                    saved_query=saved_query,
+                    status=DataModelingJobStatus.COMPLETED,
+                    engine=engine,
+                    last_run_at=run_at,
+                )
+                DataModelingJob.objects.filter(id=job.id).update(created_at=run_at)
         modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
         database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
         context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
