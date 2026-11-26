@@ -44,7 +44,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.scanner_access import unrunnable_reason
 from products.replay_vision.backend.scope.load import experiment_id_of, scope_for
-from products.replay_vision.backend.scout_source import pause_scanner_scouts
+from products.replay_vision.backend.scout_pause import pause_scanner_scouts
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,

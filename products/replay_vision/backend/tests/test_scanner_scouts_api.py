@@ -10,7 +10,8 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT, pause_scanner_scouts
+from products.replay_vision.backend.scout_pause import pause_scanner_scouts
+from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.replay_vision.backend.scout_templates import ScoutTemplateKey, render_template_body
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase

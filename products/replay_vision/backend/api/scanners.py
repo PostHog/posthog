@@ -189,7 +189,7 @@ from products.replay_vision.backend.scanning import (
 from products.replay_vision.backend.scope.experiment import ExperimentScope, VariantsSource
 from products.replay_vision.backend.scope.flag import scope_api_enabled
 from products.replay_vision.backend.scope.load import experiment_id_of, scope_for
-from products.replay_vision.backend.scout_source import pause_scanner_scouts
+from products.replay_vision.backend.scout_pause import pause_scanner_scouts
 from products.replay_vision.backend.scout_writes import (
     check_scout_scanner_credit_limit,
     refuse_scout_scanner_delete,

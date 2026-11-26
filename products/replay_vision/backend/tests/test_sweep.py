@@ -93,6 +93,7 @@ from products.replay_vision.backend.tests.helpers import (
     unsynced_allowance,
     update_experiment,
 )
+from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
 _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -243,6 +244,8 @@ class TestFindScannerCandidatesActivity:
         # Once the data stops changing, the variant analysis scout would only re-read it on the
         # customer's bill. A pause resumes, so its scout sits the pause out.
         assert pause_scouts.called is (state != "paused")
+        if state in ("ended", "archived"):
+            assert pause_scouts.call_args.kwargs == {"tag": VARIANT_ANALYSIS_TAG}
         scanner.refresh_from_db()
         assert scanner.enabled is (state != "deleted")
         if state != "deleted":
