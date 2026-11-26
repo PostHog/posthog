@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 32 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1123,10 +1123,49 @@ export const AeoSetupRetrieveParams = () => zod.object({
 })
 
 /**
+ * Cancels a pending setup job. It saves nothing more, and its first run is stopped, or skipped if it hasn't started. What the job already saved stays; POST aeo_setup/reset/ removes it. A finished job is returned unchanged.
+ * @summary Cancel AEO setup
+ */
+export const aeoSetupCancelPathIdRegExp = new RegExp('^[0-9a-f-]{36}$')
+
+export const AeoSetupCancelParams = () => zod.object({
+    id: zod.string().regex(aeoSetupCancelPathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Gets what PostHog already knows about the project for AI visibility setup: the domains it may be about, from its own brands, authorized URLs, recording domains and pageview hosts, and how many prompts, keywords and checks it has. Use the first website as the default domain for POST aeo_setup/.
  * @summary Get AEO setup context
  */
 export const AeoSetupContextParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Undoes what setup saved so the project can be set up again, such as for another site: archives the prompts that have answers, deletes the rest, removes every keyword, and turns the own site and the competitors suggested for it back into cited domains. Checks already collected, confirmed competitors and engine settings stay. Run POST aeo_setup/ afterwards to set up again.
+ * @summary Reset AEO setup
+ */
+export const AeoSetupResetParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Stops the project's check run, such as the first run that setup queued. Checks already in flight finish and are kept; the rest are dropped, so they cost nothing. If setup has yet to queue its run, that run is skipped. Prompts and engines stay on, so the next scheduled run checks them as usual.
+ * @summary Stop the AEO check run
+ */
+export const AeoSetupStopChecksParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

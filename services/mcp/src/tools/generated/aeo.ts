@@ -838,6 +838,56 @@ const aeoSetupStart = (): ToolBase<ReturnType<typeof AeoSetupStartSchema>, unkno
     },
 })
 
+const AeoSetupCancelSchema = () => {
+    const AeoSetupCancelParams = orvalSchemas.AeoSetupCancelParams()
+    return AeoSetupCancelParams.omit({ project_id: true }).extend({
+        id: AeoSetupCancelParams.shape['id'].describe('The setup job id, from `aeo-setup-start`.'),
+    })
+}
+
+const aeoSetupCancel = (): ToolBase<ReturnType<typeof AeoSetupCancelSchema>, Schemas.AEOSetupJob> => ({
+    name: 'aeo-setup-cancel',
+    schema: AeoSetupCancelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoSetupCancelSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOSetupJob>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/${encodeURIComponent(String(params.id))}/cancel/`,
+        })
+        return result
+    },
+})
+
+const AeoSetupStopChecksSchema = () => z.object({})
+
+const aeoSetupStopChecks = (): ToolBase<ReturnType<typeof AeoSetupStopChecksSchema>, unknown> => ({
+    name: 'aeo-setup-stop-checks',
+    schema: AeoSetupStopChecksSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof AeoSetupStopChecksSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/stop_checks/`,
+        })
+        return result
+    },
+})
+
+const AeoSetupResetSchema = () => z.object({})
+
+const aeoSetupReset = (): ToolBase<ReturnType<typeof AeoSetupResetSchema>, unknown> => ({
+    name: 'aeo-setup-reset',
+    schema: AeoSetupResetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof AeoSetupResetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/reset/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-brands-create': aeoBrandsCreate,
     'aeo-brands-get': aeoBrandsGet,
@@ -871,4 +921,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-setup-context-get': aeoSetupContextGet,
     'aeo-setup-get': aeoSetupGet,
     'aeo-setup-start': aeoSetupStart,
+    'aeo-setup-cancel': aeoSetupCancel,
+    'aeo-setup-stop-checks': aeoSetupStopChecks,
+    'aeo-setup-reset': aeoSetupReset,
 }

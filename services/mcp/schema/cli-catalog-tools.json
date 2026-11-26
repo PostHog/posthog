@@ -3504,6 +3504,38 @@
             "validators": []
         }
     },
+    "aeo-setup-cancel": {
+        "name": "aeo-setup-cancel",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/{id}/cancel/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-context-get": {
         "name": "aeo-setup-context-get",
         "kind": "http",
@@ -3568,6 +3600,38 @@
             "validators": []
         }
     },
+    "aeo-setup-reset": {
+        "name": "aeo-setup-reset",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/reset/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-start": {
         "name": "aeo-setup-start",
         "kind": "http",
@@ -3610,6 +3674,38 @@
                     "key": "activate_paused_prompts"
                 }
             ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "aeo-setup-stop-checks": {
+        "name": "aeo-setup-stop-checks",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/stop_checks/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
