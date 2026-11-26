@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.surveysparrow.settings import (
     SURVEYSPARROW_ENDPOINTS,
     FanoutParent,
+    PaginationStyle,
     SurveySparrowEndpointConfig,
 )
 
@@ -66,6 +67,40 @@ class HasNextPagePaginator(PageNumberPaginator):
             return
         self.page += 1
         self._has_next_page = True
+
+
+class TotalCountPaginator(PageNumberPaginator):
+    """Page-number pagination for list bodies shaped ``{"data": {"list": [...], "count": N, "limit": L}}``.
+
+    The Employee 360 endpoints return a total record count instead of ``has_next_page``. The next page
+    exists while ``page * limit`` is below ``count``. A missing count or an empty page is the last page.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(base_page=1, page=1, page_param="page")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        self._has_next_page = False
+        if not data:
+            return
+        try:
+            body = response.json()
+        except Exception:
+            return
+        meta = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(meta, dict):
+            return
+        count, limit = meta.get("count"), meta.get("limit")
+        if not isinstance(count, int) or not isinstance(limit, int) or limit < 1:
+            return
+        if self.page * limit >= count:
+            return
+        self.page += 1
+        self._has_next_page = True
+
+
+def _paginator(style: PaginationStyle) -> PageNumberPaginator:
+    return TotalCountPaginator() if style == "total_count" else HasNextPagePaginator()
 
 
 def _get_headers(access_token: str) -> dict[str, str]:
@@ -152,13 +187,15 @@ def _simple_resource(config: SurveySparrowEndpointConfig, incremental: Increment
     endpoint: Endpoint = {
         "path": config.path,
         "params": {"limit": config.page_size, **config.extra_params} if config.paginated else {**config.extra_params},
-        "data_selector": "data",
+        "data_selector": config.data_selector,
         # The old code raised a retryable error when a 200 body wasn't ``{"data": [...]}``;
         # keep that defensive treatment of an unexpected shape as transient.
         "data_selector_malformed_retryable": True,
     }
     if not config.paginated:
         endpoint["paginator"] = "single_page"
+    elif config.pagination_style != "has_next_page":
+        endpoint["paginator"] = _paginator(config.pagination_style)
     if incremental is not None:
         endpoint["incremental"] = incremental
     return {"name": config.name, "endpoint": endpoint}
@@ -171,7 +208,7 @@ def _parent_resource(parent: FanoutParent) -> EndpointResource:
         "name": parent.name,
         "endpoint": {
             "path": parent.path,
-            "params": {"limit": parent.page_size},
+            "params": {"limit": parent.page_size, **parent.params},
             "data_selector": "data",
         },
     }
@@ -190,10 +227,10 @@ def _fanout_child_resource(
             "limit": config.page_size,
             **config.extra_params,
         },
-        "data_selector": "data",
+        "data_selector": config.data_selector,
         # A path ending in a placeholder would otherwise be read as a single-entity endpoint and
         # forced onto SinglePagePaginator; pin the page-number paginator.
-        "paginator": HasNextPagePaginator(),
+        "paginator": _paginator(config.pagination_style),
     }
     if incremental is not None:
         child_endpoint["incremental"] = incremental

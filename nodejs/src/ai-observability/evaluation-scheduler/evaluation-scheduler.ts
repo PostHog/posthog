@@ -24,6 +24,7 @@ import {
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable } from '~/ai-observability/types'
 import { execHog } from '~/cdp/utils/hog-exec'
+import { convertClickhouseRawEventToFilterGlobals } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '~/common/config/kafka-topics'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -156,47 +157,30 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         return false
     }
 
-    // Build globals for HogVM execution
-    let personProperties = {}
-    let eventProperties = {}
-
+    let filterGlobals
     try {
-        personProperties = parseJSON(event.person_properties || '{}')
+        filterGlobals = Object.assign(convertClickhouseRawEventToFilterGlobals(event), {
+            // Conditions saved before the backend rejected person_id and person_mode filters still read them.
+            person_id: event.person_id ?? null,
+            person_mode: event.person_mode ?? null,
+        })
     } catch (e) {
-        logger.warn('Failed to parse person_properties', {
+        logger.warn('Failed to build filter globals', {
             conditionId: condition.id,
             eventUuid: event.uuid,
             error: e instanceof Error ? e.message : String(e),
         })
-    }
-
-    try {
-        eventProperties = parseJSON(event.properties || '{}')
-    } catch (e) {
-        logger.warn('Failed to parse event properties', {
-            conditionId: condition.id,
-            eventUuid: event.uuid,
-            error: e instanceof Error ? e.message : String(e),
-        })
-    }
-
-    const filterGlobals = {
-        event: event.event,
-        elements_chain: event.elements_chain || '',
-        distinct_id: event.distinct_id,
-        person: {
-            properties: personProperties,
-        },
-        properties: eventProperties,
+        return false
     }
 
     try {
         const execResult = await execHog(condition.bytecode, { globals: filterGlobals })
 
-        if (execResult.error || execResult.execResult?.error) {
+        const error = execResult.error ?? execResult.execResult?.error
+        if (error) {
             logger.error('Error executing bytecode', {
                 conditionId: condition.id,
-                error: execResult.error ?? execResult.execResult?.error,
+                error: error instanceof Error ? error.message : String(error),
             })
             return false
         }

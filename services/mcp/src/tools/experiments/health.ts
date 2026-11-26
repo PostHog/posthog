@@ -54,11 +54,13 @@ function beforeDeadline<T, F>(work: Promise<T>, signal: AbortSignal | undefined,
     return Promise.race([work, deadline])
 }
 
+/** `atLaunch` checks a draft as it will be when its launch succeeds, so the checks that run only after launch run too. */
 export async function readConfigHealth(
     context: Context,
     projectId: string,
     experimentId: number,
-    timeoutMs?: number
+    timeoutMs?: number,
+    atLaunch = false
 ): Promise<ConfigHealthRead> {
     const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
     if (!(await beforeDeadline(configHealthEnabled(context), signal, false))) {
@@ -66,7 +68,7 @@ export async function readConfigHealth(
     }
     const read: Promise<Result<Schemas.ExperimentHealth> | null> = context.api
         .experiments({ projectId })
-        .getHealth({ experimentId, signal })
+        .getHealth({ experimentId, atLaunch, signal })
         .catch(() => null)
     const health = await beforeDeadline(read, signal, null)
     if (health?.success) {

@@ -24,6 +24,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
     LimitContext,
+    cap_flag_call_memory_settings,
     get_default_hogql_global_settings,
 )
 from posthog.hogql.database.database import Database
@@ -1027,6 +1028,8 @@ def _recalculate_cohortpeople_for_team_hogql(
         )
         if hogql_context is not None:
             settings.update(events_read_settings(hogql_context.uses_new_events_schema()))
+            if hogql_context.cap_flag_call_memory:
+                cap_flag_call_memory_settings(settings)
 
         return sync_execute(
             recalculate_cohortpeople_sql,
@@ -1383,6 +1386,15 @@ def insert_actors_into_cohort_by_query(
 ) -> int:
     """Return how many rows the insert wrote."""
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    settings: dict[str, Any] = {
+        **COHORT_QUERY_TIMEOUT_SETTINGS,
+        **COHORT_QUERY_SPILL_SETTINGS,
+        # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
+        # trims it so the query can be embedded), so the native read settings travel on the INSERT.
+        **events_read_settings(context.uses_new_events_schema()),
+    }
+    if context.cap_flag_call_memory:
+        cap_flag_call_memory_settings(settings)
     written = sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {
@@ -1392,13 +1404,7 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
-        settings={
-            **COHORT_QUERY_TIMEOUT_SETTINGS,
-            **COHORT_QUERY_SPILL_SETTINGS,
-            # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
-            # trims it so the query can be embedded), so the native read settings travel on the INSERT.
-            **events_read_settings(context.uses_new_events_schema()),
-        },
+        settings=settings,
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,
         team_id=team_id,

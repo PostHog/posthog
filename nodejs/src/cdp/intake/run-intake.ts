@@ -1,14 +1,12 @@
 import { Counter } from 'prom-client'
 import { v5 as uuidv5 } from 'uuid'
 
-import { CyclotronV2IdempotentClaim } from '~/cdp/services/cyclotron-v2/types'
 import { IdempotentJobQueue } from '~/cdp/services/job-queue/job-queue.interface'
-import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { logger } from '~/common/utils/logger'
 
-import { IntakeMode, IntakeProduceOutcome, IntakeProducer, IntakeRun, PublishSettlement } from './intake-producer'
-import { RunKind, claimFingerprint } from './message'
+import { IntakeProduceOutcome, IntakeProducer, IntakeRun, PublishSettlement } from './intake-producer'
+import { RunKind } from './message'
 
 export type Run = {
     kind: RunKind
@@ -27,13 +25,6 @@ export type Recalled =
           reply: Record<string, unknown> | null
       }
 
-// `claimedFingerprint` is set when a keyed run found an existing claim: the fingerprint of the request that made it.
-export type Committed = { runId: string; outcome: CyclotronV2IdempotentClaim['outcome']; claimedFingerprint?: string }
-
-// A sensitive send's state holds its login code or reset link, which the CDP keeps off every Kafka topic.
-export const carriesSecret = (invocation: CyclotronJobInvocationHogFlow): boolean =>
-    invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true
-
 export type Produced = 'accepted' | 'unavailable' | 'too_large' | 'invalid'
 
 const producedOf = (outcome: IntakeProduceOutcome): Produced =>
@@ -46,24 +37,18 @@ const intakeRunOf = (run: Run): IntakeRun => ({
     reply: run.claim?.reply,
 })
 
-// In async mode a slow claim lookup must not hold up the answer: the consumer deduplicates anyway.
+// A slow claim lookup must not hold up the answer: the consumer deduplicates anyway.
 export const ASYNC_RECALL_BUDGET_MS = 250
 
 const recallFailSoftCounter = new Counter({
     name: 'cdp_intake_recall_fail_soft_total',
-    help: 'Async-mode claim lookups that failed or ran past their budget, so the run was produced without them, by kind.',
+    help: 'Claim lookups that failed or ran past their budget, so the run was produced without them, by kind.',
     labelNames: ['kind'] as const,
 })
 
 export type RunIntakeDeps = {
-    hogflowQueue: Pick<
-        IdempotentJobQueue,
-        'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey' | 'findIdempotencyKeys'
-    >
-    invocationResultsRowsService: HogInvocationResultsService
-    // Absent, or `off` for a team, means the run never touches the intake topics.
-    // `sealsSecrets` means the producer encrypts transactional sends, so a sensitive one may use the intake topics too.
-    intake?: { modeOf: (teamId: number) => IntakeMode; producer: IntakeProducer; sealsSecrets?: boolean }
+    hogflowQueue: Pick<IdempotentJobQueue, 'findIdempotencyKeys'>
+    producer: IntakeProducer
 }
 
 // Never change the namespace or the name's encoding: a retry inside the claim's window would get another id and
@@ -89,15 +74,7 @@ const recalledOf = (
 export class RunIntake {
     constructor(private deps: RunIntakeDeps) {}
 
-    async recall(claim: Claim): Promise<Recalled> {
-        return recalledOf(claim, await this.deps.hogflowQueue.findIdempotencyKey(claim.runId))
-    }
-
-    modeOf(teamId: number): IntakeMode {
-        return this.deps.intake?.modeOf(teamId) ?? 'off'
-    }
-
-    // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
+    // The claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
     async recallWithin(claim: Claim, kind: RunKind, budgetMs: number = ASYNC_RECALL_BUDGET_MS): Promise<Recalled> {
         return (await this.recallAllWithin([claim], kind, budgetMs))[0]
     }
@@ -136,64 +113,18 @@ export class RunIntake {
     }
 
     async produce(run: Run, settlement?: PublishSettlement): Promise<Produced> {
-        return producedOf(await this.deps.intake!.producer.produce(intakeRunOf(run), 'async', settlement))
+        return producedOf(await this.deps.producer.produce(intakeRunOf(run), settlement))
     }
 
     // Publishes none of the runs when encoding them all ends past `publishBy`, a `performance.now()` time.
     async produceAllBy(runs: Run[], publishBy: number): Promise<Produced[] | 'deadline_exceeded'> {
-        const producer = this.deps.intake!.producer
-        const encoded = runs.map((run) => producer.encode(intakeRunOf(run), 'async'))
+        const producer = this.deps.producer
+        const encoded = runs.map((run) => producer.encode(intakeRunOf(run)))
         if (performance.now() > publishBy) {
             return 'deadline_exceeded'
         }
         return Promise.all(
             encoded.map(async (run) => producedOf(typeof run === 'string' ? run : await producer.publish(run)))
         )
-    }
-
-    async launch(runs: Run[]): Promise<Committed[]> {
-        const invocations = runs.map((run) => run.invocation)
-        const rows = this.deps.invocationResultsRowsService
-        // Prepared before the insert: only a stamp set before serialization reaches cyclotron, and a worker can finish
-        // the job before the insert returns, so a later version would outrank its terminal row.
-        const runningRows = invocations.map((invocation) => rows.prepareLifecycleRow(invocation, 'running'))
-        const claims = await this.insert(runs)
-        // A repeat shares the created run's id, so only the created run's row is queued.
-        runningRows.forEach((row, i) => {
-            if (claims[i].outcome === 'created') {
-                rows.queuePreparedRow(row)
-            }
-        })
-        return invocations.map((invocation, i) => ({
-            runId: invocation.id,
-            outcome: claims[i].outcome,
-            claimedFingerprint: claims[i].storedFingerprint,
-        }))
-    }
-
-    private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {
-        const claims: CyclotronV2IdempotentClaim[] = runs.map(() => ({ outcome: 'created' }))
-        // A run that can reach the intake topic claims a row even without a key, so the consumer replays its copy.
-        const claimOf = (run: Run): Run['claim'] =>
-            run.claim ?? (this.onIntake(run) ? { fingerprint: claimFingerprint(run.invocation.id) } : undefined)
-        const keyed = runs.flatMap((run, i) => {
-            const claim = claimOf(run)
-            return claim ? [{ i, ...claim }] : []
-        })
-        const keyless = runs.filter((run) => !claimOf(run)).map((run) => run.invocation)
-        if (keyless.length > 0) {
-            await this.deps.hogflowQueue.queueInvocations(keyless)
-        }
-        if (keyed.length > 0) {
-            const claimed = await this.deps.hogflowQueue.queueInvocationsIdempotently(
-                keyed.map(({ i, fingerprint, reply }) => ({ invocation: runs[i].invocation, fingerprint, reply }))
-            )
-            keyed.forEach(({ i }, k) => (claims[i] = claimed[k]))
-        }
-        return claims
-    }
-
-    private onIntake(run: Run): boolean {
-        return (this.deps.intake?.modeOf(run.invocation.teamId) ?? 'off') !== 'off'
     }
 }

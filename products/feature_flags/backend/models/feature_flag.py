@@ -22,7 +22,13 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySe
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
-from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    ConfigV1,
+    decode_config,
+    require_v1_config,
+    v2_config_lookup,
+)
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.reserved_variant_keys import non_string_variants, unheld_non_string_variant
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
@@ -199,8 +205,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "dashboards.Dashboard",
         through="FeatureFlagDashboards",
-        related_name="analytics_dashboards",
-        related_query_name="analytics_dashboard",
+        related_name="+",
     )
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
@@ -262,6 +267,15 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             # An archived flag must be disabled — keeps an archived flag from ever serving traffic,
             # regardless of which code path wrote it.
             models.CheckConstraint(condition=~Q(archived=True, active=True), name="archived_flag_must_be_disabled"),
+        ]
+        indexes = [
+            # The hourly flag definitions v2 upkeep looks up the teams that hold a live config version 2 flag.
+            # The planner uses the index only while its query repeats this condition.
+            models.Index(
+                fields=["team"],
+                name="featureflag_live_v2_team_idx",
+                condition=Q(**v2_config_lookup()) & ~Q(deleted=True),
+            ),
         ]
         db_table = "posthog_featureflag"
 

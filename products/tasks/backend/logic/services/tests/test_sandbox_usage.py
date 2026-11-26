@@ -5,6 +5,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
@@ -504,6 +506,59 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
         assert is_billable_sandbox_session(session) is bool(usage.credits)
+
+    def test_ai_origin_compute_is_unbilled_by_default(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_WEB, origin_product=Task.OriginProduct.POSTHOG_AI)
+        self._session(client_provenance=None, origin_product=Task.OriginProduct.SLACK)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.ai_credits == []
+        assert usage.credits == []
+
+    @parameterized.expand(
+        [
+            ("posthog_ai_from_web", Task.OriginProduct.POSTHOG_AI, TaskClientProvenance.POSTHOG_WEB),
+            ("posthog_ai_from_desktop", Task.OriginProduct.POSTHOG_AI, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("slack_without_provenance", Task.OriginProduct.SLACK, None),
+        ]
+    )
+    @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "slack"])
+    def test_ai_origin_compute_bills_into_ai_credits_at_the_desktop_price(
+        self, _name: str, origin: str, provenance: TaskClientProvenance | None
+    ) -> None:
+        self._session(client_provenance=provenance, origin_product=origin)
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        # Each session is one hour of 4 cores and 16 GiB: the same 2016 credits in either meter, in only one.
+        assert usage.ai_credits == [(self.team.id, 2016)]
+        assert usage.credits == [(self.team.id, 2016)]
+
+    @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "slack"])
+    def test_ai_credits_exclude_unattributed_and_other_origin_compute(self):
+        self._session(origin_product=Task.OriginProduct.POSTHOG_AI, user_attributed_at=None)
+        self._session(origin_product=Task.OriginProduct.SIGNAL_REPORT)
+        self._session(
+            origin_product=Task.OriginProduct.SLACK,
+            created_at=datetime(2026, 1, 1, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2026, 1, 1, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 1, 2, tzinfo=UTC),
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.ai_credits == []
+
+    @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "slack", "user_created"])
+    def test_desktop_compute_is_unchanged_when_its_origin_is_listed_for_ai_credits(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.credits == [(self.team.id, 2016)]
+        assert usage.ai_credits == []
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
         session = self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)

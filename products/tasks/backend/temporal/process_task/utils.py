@@ -19,7 +19,11 @@ from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
 from posthog.integrations import IntegrationManager
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
-from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
+from posthog.models.github_integration_base import (
+    GitHubInstallationToken,
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+)
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import (
@@ -1229,6 +1233,22 @@ def resolve_readonly_github_integration(team_id: int, *, include_unavailable: bo
     ):
         return None
     return integration
+
+
+def mint_readonly_github_credential(integration: GitHubIntegration, repository: str) -> GitHubInstallationToken | None:
+    if not _private_repositories([repository]):
+        return None
+    names = _installation_repository_names(integration, [repository])
+    if not names:
+        return None
+    try:
+        return integration.mint_scoped_installation_credential(
+            {"contents": "read", "metadata": "read"}, repositories=names
+        )
+    except GitHubIntegrationError as error:
+        if error.status_code == 422:
+            return None
+        raise
 
 
 def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) -> Optional[str]:

@@ -82,6 +82,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.facade.access import DashboardAccessMethod
+from products.dashboards.backend.facade.api import apply_dashboard_template
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
@@ -428,10 +429,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
 
     def test_dashboard_template_insights_default_to_saved(self) -> None:
-        from posthog.helpers.dashboard_templates import create_dashboard_from_template
-
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
-        create_dashboard_from_template("DEFAULT_APP", dashboard)
+        apply_dashboard_template(
+            team_id=self.team.id, dashboard_id=dashboard.id, template_key="DEFAULT_APP", user_id=None
+        )
 
         insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
         self.assertGreater(insights.count(), 0)
