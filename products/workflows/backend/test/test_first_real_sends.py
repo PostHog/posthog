@@ -5,7 +5,7 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, connection
+from django.db import DatabaseError, connection
 
 from parameterized import parameterized
 
@@ -152,22 +152,29 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         for flow in flows:
             self._metric(flow, NOW - timedelta(hours=2))
         flow_ids = {flow.id for flow in flows}
-        failed_ids: list = []
-        real_filter = HogFlow.objects.filter
+        with connection.cursor() as cursor:
+            cursor.execute("CREATE SEQUENCE first_real_send_test_updates")
+            cursor.execute(
+                """
+                CREATE FUNCTION first_real_send_test_reject_first_update() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF nextval('first_real_send_test_updates') = 1 THEN
+                        RAISE EXCEPTION 'Postgres rejected the update';
+                    END IF;
+                    RETURN NEW;
+                END
+                $$
+                """
+            )
+            cursor.execute(
+                "CREATE TRIGGER first_real_send_test_reject_first_update BEFORE UPDATE OF first_real_send_at"
+                " ON posthog_hogflow FOR EACH ROW EXECUTE FUNCTION first_real_send_test_reject_first_update()"
+            )
 
-        def filter_failing_for_first_batch(*args, **kwargs):
-            batch_ids = flow_ids.intersection(kwargs.get("pk__in", []))
-            if batch_ids and not failed_ids:
-                failed_ids.extend(batch_ids)
-                raise OperationalError("Postgres is down")
-            return real_filter(*args, **kwargs)
-
-        with patch.object(HogFlow.objects, "filter", side_effect=filter_failing_for_first_batch):
-            with self.assertRaises(OperationalError):
-                capture_workflow_first_real_sends()
+        with self.assertRaises(DatabaseError):
+            capture_workflow_first_real_sends()
 
         stamped = {flow.id for flow in HogFlow.objects.filter(pk__in=flow_ids, first_real_send_at__isnull=False)}
-        assert stamped == flow_ids - set(failed_ids)
         assert len(stamped) == 1
         assert [event["properties"]["hog_flow_id"] for event in captured_events(scoped_capture)] == [
             str(flow_id) for flow_id in stamped
