@@ -11,12 +11,11 @@ export type CredentialNameRule = (name: string) => boolean
 export const isLogCredentialName: CredentialNameRule = (name) =>
     CREDENTIAL_NAMES.has(name) || CREDENTIAL_NAME_FRAGMENTS.some((part) => name.includes(part))
 
-// A quoted name cannot contain an escaped quote of its own kind. Otherwise, in escaped JSON, every `\"` opens a name
+// A quoted name holds at most four escaped quotes of its own kind. Otherwise, in escaped JSON, every `\"` opens a name
 // that reads the following `\"` pairs as escapes until the end of the text, which makes the scan quadratic.
 const ASSIGNMENT_PATTERN =
-    /(?:^|(?<=[?&;\s{,("'\\]))(?:"((?:\\[^"]|[^"\\])*)"|'((?:\\[^']|[^'\\])*)'|([A-Za-z0-9_%.[\]-]+))\s*([=:])\s*/g
-// Each value scan reads at most this many characters, so that overlapping values cannot make redaction quadratic.
-// A value that runs past the window is redacted to the end of the text instead.
+    /(?:^|(?<=[?&;\s{,("'\\]))(?:"((?:\\[^"]|[^"\\])*(?:\\"(?:\\[^"]|[^"\\])*){0,4})"|'((?:\\[^']|[^'\\])*(?:\\'(?:\\[^']|[^'\\])*){0,4})'|([A-Za-z0-9_%.[\]-]+))\s*([=:])\s*/g
+// A value that runs past this window is redacted to the end of the text, so overlapping values stay linear.
 const MAX_VALUE_LENGTH = 4096
 const QUOTED_VALUE_PATTERN = /^("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/
 // The scheme is not matched, because a scheme pattern starts again at every word boundary of a long dotted run.

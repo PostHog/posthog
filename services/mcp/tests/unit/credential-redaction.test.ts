@@ -172,6 +172,11 @@ describe('credential redaction', () => {
             expected: 'password=[REDACTED]',
         },
         {
+            name: 'a credential name that contains an escaped quote',
+            input: `{"password\\"label":"${OTHER_SECRET}"}`,
+            expected: '{"password\\"label":"[REDACTED]"}',
+        },
+        {
             name: 'a long quoted credential name',
             input: `{"${'x'.repeat(130)}_password": "${OTHER_SECRET}"}`,
             expected: `{"${'x'.repeat(130)}_password": "[REDACTED]"}`,
