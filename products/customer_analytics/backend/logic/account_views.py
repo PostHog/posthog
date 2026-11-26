@@ -320,8 +320,18 @@ def get_account_sql_formatting_bytecodes() -> dict[str, str]:
 
 
 def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
-    if not set(config) <= {"query", "visualization"}:
-        return ["SQL query config must contain only a query and optional visualization settings."]
+    if not set(config) <= {"query", "visualization", "connectionId"}:
+        return [
+            "SQL query config must contain only a query, an optional connection, and optional visualization settings."
+        ]
+    if "connectionId" in config:
+        connection_id = config["connectionId"]
+        if not isinstance(connection_id, str):
+            return ["SQL connectionId must be a UUID string. Choose a connection again."]
+        try:
+            UUID(connection_id)
+        except ValueError:
+            return ["SQL connectionId must be a UUID string. Choose a connection again."]
     query = config.get("query")
     if not isinstance(query, str) or not query.strip():
         return ["SQL query config needs a query."]
@@ -380,7 +390,7 @@ class AccountViewQueryAccess:
         self.user = user
         self.can_query = can_query
         self.deadline = monotonic() + ACCOUNT_VIEW_SQL_VALIDATION_SECONDS
-        self.authorized_queries: set[str] = set()
+        self.authorized_queries: set[tuple[str | None, str]] = set()
 
     @cached_property
     def database(self) -> "Database":
@@ -394,12 +404,30 @@ class AccountViewQueryAccess:
         if monotonic() >= self.deadline:
             raise InvalidAccountViewContent(["SQL validation took too long. Try fewer or simpler SQL widgets."])
 
-    def authorize_query(self, query: str) -> None:
+    def authorize_query(self, query: str, connection_id: str | None = None) -> None:
         if not self.can_query:
             raise AccountViewPermissionDenied("Saving SQL widgets requires the query:read API scope.")
-        if query in self.authorized_queries:
+        query_key = (connection_id, query)
+        if query_key in self.authorized_queries:
             return
         self.check_deadline()
+
+        if connection_id is not None:
+            from posthog.hogql.direct_connection import (  # noqa: PLC0415 -- keep direct-query imports off startup
+                get_direct_connection_source_none_or_raise,
+            )
+            from posthog.hogql.direct_sql.capability import (  # noqa: PLC0415 -- keep drivers off startup
+                direct_supports_hogql,
+            )
+
+            source = get_direct_connection_source_none_or_raise(
+                self.team, connection_id, user=self.user, error_factory=AccountViewPermissionDenied
+            )
+            if source is None or source.direct_engine != "clickhouse" or not direct_supports_hogql(source):
+                raise AccountViewPermissionDenied(
+                    "SQL account widgets require a ClickHouse connection with HogQL support. Choose another connection."
+                )
+            self.check_deadline()
 
         from posthog.schema import HogLanguage, HogQLMetadata  # noqa: PLC0415 -- load query schemas only for SQL writes
 
@@ -413,19 +441,20 @@ class AccountViewQueryAccess:
                 query=query,
                 globals={"account_external_id": ""},
                 freshSources=True,
+                connectionId=connection_id,
             ),
             team=self.team,
             user=self.user,
-            database=self.database,
+            database=self.database if connection_id is None else None,
         )
         self.check_deadline()
         if not metadata.isValid:
             raise AccountViewPermissionDenied("The SQL query must be valid and accessible to the person saving it.")
-        self.authorized_queries.add(query)
+        self.authorized_queries.add(query_key)
 
 
 def authorize_sql_query_widget_config(config: dict[str, Any], access: AccountViewQueryAccess) -> None:
-    access.authorize_query(config["query"])
+    access.authorize_query(config["query"], config.get("connectionId"))
 
 
 ACCOUNT_VIEW_CONFIG_AUTHORIZERS: dict[str, Callable[[dict[str, Any], AccountViewQueryAccess], None]] = {

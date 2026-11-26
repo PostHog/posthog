@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.sources_cache import clear_sources_cache
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
@@ -23,7 +25,13 @@ from products.customer_analytics.backend.logic.account_views import (
     validate_sql_query_widget_config,
 )
 from products.customer_analytics.backend.models import Account, AccountView
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def account_view_content(*components: str) -> dict:
@@ -200,9 +208,37 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ("blank", {"query": "  "}, "SQL query config needs a query."),
             ("not_a_string", {"query": 1}, "SQL query config needs a query."),
             (
+                "connection",
+                {
+                    "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
+                    "connectionId": "11111111-1111-4111-8111-111111111111",
+                    "visualization": {"display": "ActionsTable"},
+                },
+                None,
+            ),
+            (
+                "unscoped_connection_query",
+                {
+                    "query": "SELECT account_id FROM engagements",
+                    "connectionId": "11111111-1111-4111-8111-111111111111",
+                },
+                "SQL query must filter by {account_external_id} in every SELECT's WHERE.",
+            ),
+            *[
+                (
+                    f"invalid_connection_{index}",
+                    {
+                        "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
+                        "connectionId": connection_id,
+                    },
+                    "SQL connectionId must be a UUID string. Choose a connection again.",
+                )
+                for index, connection_id in enumerate([None, "", " ", "not-a-uuid", 123, True, {}, []])
+            ],
+            (
                 "extra_field",
                 {"query": "select {account_external_id}", "limit": 10},
-                "SQL query config must contain only a query and optional visualization settings.",
+                "SQL query config must contain only a query, an optional connection, and optional visualization settings.",
             ),
         ]
     )
@@ -263,6 +299,153 @@ class TestAccountViewContentValidation(SimpleTestCase):
 
 
 class TestAccountViews(APIBaseTest):
+    def _create_sql_source(
+        self, *, team: Team | None = None, source_type: str = ExternalDataSourceType.CLICKHOUSE
+    ) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=team or self.team,
+            source_type=source_type,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "example.com", "database": "example"},
+        )
+
+    def _create_sql_table(self, source: ExternalDataSource, column_name: str = "account_id") -> DataWarehouseTable:
+        table = DataWarehouseTable.objects.create(
+            team=source.team,
+            name="engagements",
+            format="Parquet",
+            external_data_source=source,
+            url_pattern="direct://clickhouse",
+            columns={column_name: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(team=source.team, source=source, table=table, name="engagements")
+        return table
+
+    @parameterized.expand(
+        [
+            ("wrong_team", status.HTTP_403_FORBIDDEN),
+            ("deleted", status.HTTP_403_FORBIDDEN),
+            ("missing", status.HTTP_403_FORBIDDEN),
+            ("postgres", status.HTTP_403_FORBIDDEN),
+            ("raw_only", status.HTTP_403_FORBIDDEN),
+            ("direct_disabled", status.HTTP_403_FORBIDDEN),
+            ("warehouse_query", status.HTTP_403_FORBIDDEN),
+            ("malformed", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 60)
+    def test_sql_widget_rejects_unavailable_connection(self, source_state: str, expected_status: int) -> None:
+        source_team = Team.objects.create(organization=self.organization) if source_state == "wrong_team" else self.team
+        source_type = {
+            "postgres": ExternalDataSourceType.POSTGRES,
+            "raw_only": ExternalDataSourceType.SNOWFLAKE,
+        }.get(source_state, ExternalDataSourceType.CLICKHOUSE)
+        source = self._create_sql_source(team=source_team, source_type=source_type)
+        if source_state == "deleted":
+            source.deleted = True
+            source.save()
+        elif source_state == "direct_disabled":
+            source.access_method = ExternalDataSource.AccessMethod.WAREHOUSE
+            source.direct_query_enabled = False
+            source.save()
+        connection_id = (
+            "not-a-uuid" if source_state == "malformed" else str(uuid4() if source_state == "missing" else source.id)
+        )
+        config = {
+            "query": "SELECT name FROM system.accounts WHERE external_id = {account_external_id}",
+            "connectionId": connection_id,
+        }
+        content = account_view_content(f'<SqlQuery nodeId="sql-one" config={{{json.dumps(config)}}} />')
+
+        response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
+
+    @parameterized.expand(["external_data_source", "warehouse_table"])
+    @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 60)
+    def test_sql_widget_connection_checks_saving_user_access(self, resource: str) -> None:
+        source = self._create_sql_source()
+        table = self._create_sql_table(source)
+        membership = OrganizationMembership.objects.get(user=self.editor, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=str(source.id if resource == "external_data_source" else table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(self.editor)
+        config = {
+            "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
+            "connectionId": str(source.id),
+        }
+        content = account_view_content(f'<SqlQuery nodeId="sql-one" config={{{json.dumps(config)}}} />')
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
+
+    @parameterized.expand(
+        [
+            ("same_source", status.HTTP_201_CREATED),
+            ("matching_source", status.HTTP_201_CREATED),
+            ("different_columns", status.HTTP_403_FORBIDDEN),
+            ("warehouse", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 60)
+    def test_sql_widgets_authorize_identical_sql_per_connection(self, second_source: str, expected_status: int) -> None:
+        source = self._create_sql_source()
+        self._create_sql_table(source)
+        first_config = {
+            "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
+            "connectionId": str(source.id),
+            "visualization": {"display": "ActionsTable", "tableSettings": {"pinnedColumns": ["account_id"]}},
+        }
+        second_config = {**first_config}
+        if second_source == "warehouse":
+            second_config.pop("connectionId")
+        elif second_source != "same_source":
+            other_source = self._create_sql_source()
+            self._create_sql_table(
+                other_source, "other_account_id" if second_source == "different_columns" else "account_id"
+            )
+            second_config["connectionId"] = str(other_source.id)
+        content = account_view_content(
+            *(
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps(config)}}} />'
+                for index, config in enumerate([first_config, second_config])
+            )
+        )
+
+        response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert AccountView.objects.for_team(self.team.id).get(id=response.json()["id"]).content == content
+        else:
+            assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
+
+    @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 60)
+    def test_sql_widget_connection_uses_fresh_catalog(self) -> None:
+        source = self._create_sql_source()
+        self.addCleanup(clear_sources_cache)
+        Database.create_for(team=self.team, user=self.user, connection_id=str(source.id), use_cached_sources=True)
+        self._create_sql_table(source)
+        config = {
+            "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
+            "connectionId": str(source.id),
+        }
+        content = account_view_content(f'<SqlQuery nodeId="sql-one" config={{{json.dumps(config)}}} />')
+
+        response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert AccountView.objects.for_team(self.team.id).get(id=response.json()["id"]).content == content
+
     def test_sql_widgets_share_one_catalog_per_save(self) -> None:
         content = account_view_content(
             *(
@@ -281,10 +464,18 @@ class TestAccountViews(APIBaseTest):
         assert create_catalog.call_count == 1
         assert AccountView.objects.for_team(self.team.id).get(id=response.json()["id"]).content == content
 
-    def test_sql_validation_deadline_prevents_saving(self) -> None:
+    @parameterized.expand([False, True])
+    def test_sql_validation_deadline_prevents_saving(self, use_connection: bool) -> None:
+        connection_config = {}
+        query = "SELECT name FROM system.accounts WHERE external_id = {account_external_id}"
+        if use_connection:
+            source = self._create_sql_source()
+            self._create_sql_table(source)
+            connection_config = {"connectionId": str(source.id)}
+            query = "SELECT account_id FROM engagements WHERE account_id = {account_external_id}"
         content = account_view_content(
             *(
-                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": f"SELECT name FROM system.accounts WHERE external_id = {{account_external_id}} LIMIT {index + 1}"})}}} />'
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": f"{query} LIMIT {index + 1}", **connection_config})}}} />'
                 for index in range(3)
             )
         )
@@ -294,12 +485,27 @@ class TestAccountViews(APIBaseTest):
         assert "SQL validation took too long" in str(response.json())
         assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
 
-    @parameterized.expand([(False, status.HTTP_403_FORBIDDEN), (True, status.HTTP_201_CREATED)])
-    def test_sql_widget_writes_require_query_scope(self, can_query: bool, expected_status: int) -> None:
+    @parameterized.expand(
+        [
+            (can_query, expected_status, use_connection)
+            for can_query, expected_status in [(False, status.HTTP_403_FORBIDDEN), (True, status.HTTP_201_CREATED)]
+            for use_connection in [False, True]
+        ]
+    )
+    @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 60)
+    def test_sql_widget_writes_require_query_scope(
+        self, can_query: bool, expected_status: int, use_connection: bool
+    ) -> None:
         view = self._create()
-        content = account_view_content(
-            '<SqlQuery nodeId="sql-one" config={{"query":"SELECT name FROM system.accounts WHERE external_id = {account_external_id}"}} />'
-        )
+        config = {"query": "SELECT name FROM system.accounts WHERE external_id = {account_external_id}"}
+        if use_connection:
+            source = self._create_sql_source()
+            self._create_sql_table(source)
+            config = {
+                "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
+                "connectionId": str(source.id),
+            }
+        content = account_view_content(f'<SqlQuery nodeId="sql-one" config={{{json.dumps(config)}}} />')
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
