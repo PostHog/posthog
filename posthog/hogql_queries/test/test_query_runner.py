@@ -2080,6 +2080,20 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != key_granted
 
+    def test_unknown_query_resources_preserve_project_key_scopes(self):
+        from posthog.auth import ProjectSecretAPIKeyUser
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        narrow_user = ProjectSecretAPIKeyUser(ProjectSecretAPIKey(team=self.team, scopes=["endpoint:read"]))
+        wide_user = ProjectSecretAPIKeyUser(
+            ProjectSecretAPIKey(team=self.team, scopes=["endpoint:read", "feature_flag:read"])
+        )
+        narrow = self._runner(narrow_user)
+        wide = self._runner(wide_user)
+        assert "feature_flag" in narrow.get_cache_payload()["restricted_resources"]
+        assert "feature_flag" not in wide.get_cache_payload()["restricted_resources"]
+        assert narrow.get_cache_key() != wide.get_cache_key()
+
     @parameterized.expand(RUNNER_BASES)
     def test_fingerprint_covers_scopes_outside_the_legacy_resource_list(self, _name, base):
         # System tables declare access_scopes (e.g. batch_export, alert, annotation) that the old
@@ -2160,10 +2174,16 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != key_granted
 
-    def test_default_denied_resource_partitions_cache_without_access_control(self):
-        self.organization.available_product_features = []
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_default_denied_resource_partitions_cache(self, access_control, unknown_resources):
+        if not access_control:
+            self.organization.available_product_features = []
         self.organization.save()
-        query = {"kind": "HogQLQuery", "query": "select * from system.data_deletion_requests"}
+        query = {
+            "kind": "HogQLQuery",
+            "query": "select (" if unknown_resources else "select * from system.data_deletion_requests",
+            "tags": {"name": "("},
+        }
 
         member_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
