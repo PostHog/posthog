@@ -202,6 +202,11 @@ export type Load = z.infer<typeof Load>
 export const Host = z.object({ cpuCeiling: z.number().min(0).max(1) }).strict()
 export type Host = z.infer<typeof Host>
 
+export const AlertsProfile = z
+    .object({ rules: z.string(), labels: z.string(), exclude: z.array(z.string()).default([]) })
+    .strict()
+export type AlertsProfile = z.infer<typeof AlertsProfile>
+
 export const Profile = z
     .object({
         name: z.string(),
@@ -211,6 +216,7 @@ export const Profile = z
         backlog: Backlog.optional(),
         load: Load.optional(),
         host: Host.optional(),
+        alerts: AlertsProfile.optional(),
     })
     .strict()
 export type Profile = z.infer<typeof Profile>

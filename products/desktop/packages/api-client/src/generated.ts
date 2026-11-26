@@ -10537,6 +10537,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
      */
@@ -10569,6 +10570,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "early_significance"
         | "metrics_not_matured"
+        | "result_ready"
         | "flag_shared"
         | "stale_experiment";
     /**
@@ -10625,6 +10627,7 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10655,6 +10658,7 @@ export namespace Schemas {
         | "exposure_filters"
         | "early_significance"
         | "metrics_not_matured"
+        | "result_ready"
         | "stale_experiment"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
@@ -10696,6 +10700,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `flag_shared` - Flag Shared
          * * `stale_experiment` - Stale Experiment
          */
@@ -10758,6 +10763,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10823,6 +10829,7 @@ export namespace Schemas {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -10894,6 +10901,7 @@ export namespace Schemas {
         | "difference_percentage"
         | "detectable_difference_percentage"
         | "significant"
+        | "significant_since_at"
         | "forced_condition_count"
         | "matched_count"
         | "variant_matched_count"
@@ -10976,6 +10984,7 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -11056,6 +11065,7 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -11131,6 +11141,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures

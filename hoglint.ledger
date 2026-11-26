@@ -482,11 +482,9 @@ export-shape	products.error_tracking.backend.temporal.ACTIVITIES	products.error_
 export-shape	products.error_tracking.backend.temporal.WORKFLOWS	products.error_tracking.backend.facade.temporal	export-unknown	1
 export-shape	products.error_tracking.backend.temporal.lifecycle.ACTIVITIES	products.error_tracking.backend.facade.temporal	export-unknown	1
 export-shape	products.error_tracking.backend.temporal.lifecycle.WORKFLOWS	products.error_tracking.backend.facade.temporal	export-unknown	1
-export-shape	products.event_definitions.backend.models.property_definition.PropertyDefinition.Type	products.product_analytics.backend.facade.queries	export-shape(class)	1
 export-shape	products.experiments.backend.facade.contracts.Unset	products.experiments.backend.facade.api	export-shape(class)	1
 export-shape	products.experiments.backend.facade.contracts.Unset	products.experiments.backend.facade.contracts	export-shape(class)	1
 export-shape	products.experiments.backend.hogql_queries.experiment_query_builder.ExperimentQueryBuilder	products.experiments.backend.facade.queries	export-shape(class)	1
-export-shape	products.experiments.backend.models.experiment.Experiment	products.experiments.backend.facade.legacy_migration	export-denied(model)	1
 export-shape	products.experiments.backend.models.experiment.Experiment	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.experiments.backend.models.team_experiments_config.TeamExperimentsConfig	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.experiments.backend.temporal.recalculation.metrics.ExperimentsRecalculationMetricsInterceptor	products.experiments.backend.facade.temporal	export-shape(class)	1
@@ -3371,7 +3369,6 @@ reverse-accessor	products.event_definitions.backend.models.event_definition.Even
 reverse-accessor	products.event_definitions.backend.models.event_definition.EventDefinition	posthog.models.object_media_preview.ObjectMediaPreview	event_definition	media_previews	1
 reverse-accessor	products.event_definitions.backend.models.property_definition.PropertyDefinition	ee.models.property_definition.EnterprisePropertyDefinition	propertydefinition_ptr	enterprisepropertydefinition	1
 reverse-accessor	products.event_definitions.backend.models.property_definition.PropertyDefinition	posthog.models.materialized_column_slots.MaterializedColumnSlot	property_definition	materialized_column_slots	1
-reverse-accessor	products.event_definitions.backend.models.property_definition.PropertyDefinition	products.access_control.backend.models.property_access_control.PropertyAccessControl	property_definition	property_access_controls	1
 reverse-accessor	products.exports.backend.models.exported_asset.ExportedAsset	posthog.models.object_media_preview.ObjectMediaPreview	exported_asset	object_previews	1
 reverse-accessor	products.feature_flags.backend.models.feature_flag.FeatureFlag	products.early_access_features.backend.models.EarlyAccessFeature	feature_flag	features	1
 reverse-accessor	products.feature_flags.backend.models.feature_flag.FeatureFlag	products.experiments.backend.models.experiment.Experiment	feature_flag	experiment_set	1

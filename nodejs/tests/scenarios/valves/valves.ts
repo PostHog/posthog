@@ -198,6 +198,20 @@ export const pgEnqueueRefused: ValveDefinition = {
         }),
 }
 
+export const pgCommitReplyLost: ValveDefinition = {
+    name: 'pg.commit_reply_lost',
+    params: Dose,
+    target: z.literal('cyclotron'),
+    strandsRunningJobs: false,
+    roleExitGraceMs: 5000,
+    cyclotronThroughEdge: true,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'pg.commit_reply_lost', dose: Dose.parse(dose) }),
+        }),
+}
+
 export const VALVES: ValveDefinition[] = [
     roleKill,
     roleFreeze,
@@ -209,6 +223,7 @@ export const VALVES: ValveDefinition[] = [
     sesAmbiguous,
     destAmbiguous,
     pgEnqueueRefused,
+    pgCommitReplyLost,
 ]
 
 export const cyclotronThroughEdge = (entries: readonly ValveEntry[]): boolean =>

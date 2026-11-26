@@ -30,7 +30,11 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
     PayloadState,
 )
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from products.ai_observability.backend.models.score_definitions import (
+    ExperimentScoreSuiteDefault,
+    ScoreDefinition,
+    ScoreDefinitionVersion,
+)
 from products.ai_observability.backend.offline_evaluation_mutations import mutate_offline_evaluation
 from products.ai_observability.backend.offline_evaluation_service import (
     ExperimentReceipt,
@@ -94,6 +98,51 @@ class TestOfflineEvaluationService(TestCase):
             self.lifecycle.create(replace(self.experiment_submission, name="Different model"))
         self.assertEqual(error.exception.code, "content_conflict")
         self.assertEqual(OfflineExperiment.objects.for_team(self.team.id).count(), 1)
+
+    def test_suite_default_is_pinned_once_and_explicit_version_wins(self) -> None:
+        formula = ScoreDefinition.objects.create(
+            team=self.team, name="Run score", scope="experiment", calculation="composite", kind="numeric"
+        )
+        composition = {
+            "expression": "quality",
+            "inputs": [{"alias": "quality", "statistic": "mean", "scorer_version_id": str(self.version.id)}],
+        }
+        v1 = formula.create_new_version(config={}, composition=composition, created_by=None)
+        v2 = formula.create_new_version(config={}, composition=composition, created_by=None)
+        historical = replace(self.experiment_submission, id=uuid4(), suite_key="smoke")
+        self.assertIsNone(self.lifecycle.create(historical).experiment.experiment_scorer_version_id)
+        default = ExperimentScoreSuiteDefault.objects.for_team(self.team.id).create(
+            team=self.team, suite_key="smoke", scorer_version=v1
+        )
+        submission = replace(self.experiment_submission, id=uuid4(), suite_key="smoke")
+        self.assertEqual(self.lifecycle.create(submission).experiment.experiment_scorer_version_id, v1.id)
+        self.assertIsNone(self.lifecycle.create(historical).experiment.experiment_scorer_version_id)
+        default.scorer_version = v2
+        default.save(update_fields=["scorer_version"])
+        self.assertEqual(self.lifecycle.create(submission).experiment.experiment_scorer_version_id, v1.id)
+        self.assertEqual(
+            self.lifecycle.create(replace(submission, id=uuid4())).experiment.experiment_scorer_version_id, v2.id
+        )
+        explicit = self.lifecycle.create(replace(submission, id=uuid4(), experiment_scorer_version_id=v1.id))
+        self.assertEqual(explicit.experiment.experiment_scorer_version_id, v1.id)
+        with self.assertRaises(OfflineEvaluationValidationError):
+            self.lifecycle.create(replace(submission, id=uuid4(), experiment_scorer_version_id=self.version.id))
+
+    def test_suite_default_belongs_to_the_run_environment(self) -> None:
+        child = Team.objects.create(organization=self.team.organization, parent_team=self.team)
+        definition = ScoreDefinition.objects.create(
+            team=child, scope="experiment", name="Child release", kind="numeric"
+        )
+        version = definition.create_new_version(config={}, created_by=None)
+        binding = ExperimentScoreSuiteDefault.objects.for_team(child.id).create(
+            team=child, suite_key="release", scorer_version=version
+        )
+        self.assertEqual(binding.team_id, child.id)
+        submission = replace(self.experiment_submission, id=uuid4(), suite_key="release")
+        child_run = OfflineExperimentService(team_id=child.id, user_access_control=None).create(submission)
+        self.assertEqual(child_run.experiment.experiment_scorer_version_id, version.id)
+        parent_run = self.lifecycle.create(replace(submission, id=uuid4()))
+        self.assertIsNone(parent_run.experiment.experiment_scorer_version_id)
 
     @parameterized.expand([(None,), ("model-a",)])
     def test_upload_retry_preserves_identity_acceptance_and_retention(self, model_version: str | None) -> None:

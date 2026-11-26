@@ -100,6 +100,7 @@ from products.experiments.backend.health.checks.new_flag_no_traffic import (
     new_flag_no_traffic_values,
 )
 from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_values
+from products.experiments.backend.health.checks.result_ready import SIGNIFICANT_DAYS, result_ready, result_ready_values
 from products.experiments.backend.health.checks.shared_flag import flag_shared, flag_shared_values
 from products.experiments.backend.health.checks.split_changed import (
     split_changed_mid_run,
@@ -344,6 +345,17 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         ),
         run=metrics_not_matured,
         read=metrics_not_matured_values,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.RESULT_READY,
+        name="When to end the experiment",
+        description=(
+            f"Checks whether the primary metric has its answer: a variant that every result has shown as significant "
+            f"for {SIGNIFICANT_DAYS} days or more, or as many users as the running time estimate needs without a "
+            "significant variant. You can then end the experiment, or keep it running to measure more."
+        ),
+        run=result_ready,
+        read=result_ready_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.STALE_EXPERIMENT,
