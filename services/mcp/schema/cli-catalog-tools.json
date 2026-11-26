@@ -43341,7 +43341,27 @@
         },
         "response": {
             "list": true,
-            "filter": null,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "id",
+                    "skill_name",
+                    "display_name",
+                    "description",
+                    "scout_origin",
+                    "scout_role",
+                    "enabled",
+                    "status",
+                    "pause_reason",
+                    "emit",
+                    "run_interval_minutes",
+                    "run_cron_schedule",
+                    "last_run_at",
+                    "tags",
+                    "source_product"
+                ],
+                "selectable": false
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
@@ -43375,6 +43395,38 @@
                     "key": "precheck_query"
                 }
             ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "scout-config-retrieve": {
+        "name": "scout-config-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/signals/scout/configs/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -44859,6 +44911,11 @@
                     "csv": false
                 },
                 {
+                    "param": "exclude_skill_name",
+                    "key": "exclude_skill_name",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -44886,7 +44943,25 @@
         },
         "response": {
             "list": true,
-            "filter": null,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "run_id",
+                    "skill_name",
+                    "skill_version",
+                    "status",
+                    "created_at",
+                    "started_at",
+                    "completed_at",
+                    "summary_lead",
+                    "failure_reason",
+                    "emitted_count",
+                    "emitted_finding_ids",
+                    "emitted_report_ids",
+                    "edited_report_ids"
+                ],
+                "selectable": false
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
@@ -45132,6 +45207,11 @@
                 {
                     "param": "content_max_chars",
                     "key": "content_max_chars",
+                    "csv": false
+                },
+                {
+                    "param": "content_offset",
+                    "key": "content_offset",
                     "csv": false
                 },
                 {
@@ -46920,6 +47000,11 @@
                     "csv": false
                 },
                 {
+                    "param": "exclude_skill_name",
+                    "key": "exclude_skill_name",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -47156,6 +47241,11 @@
                 {
                     "param": "content_max_chars",
                     "key": "content_max_chars",
+                    "csv": false
+                },
+                {
+                    "param": "content_offset",
+                    "key": "content_offset",
                     "csv": false
                 },
                 {

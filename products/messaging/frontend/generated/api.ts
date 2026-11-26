@@ -96,101 +96,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/attachments/uploads/`
-}
-
-/**
- * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
- * @summary Prepare attachment uploads
- */
-export const messagingAttachmentsUploadsCreate = async (
-    projectId: string,
-    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
-    options?: RequestInit
-): Promise<AttachmentUploadsResponseApi> => {
-    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(attachmentUploadsRequestApi),
-    })
-}
-
-export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging/emails/${id}/`
-}
-
-/**
- * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. That 404 doesn't say whether the email went out yet, so read again a few seconds later.
- * @summary Get a transactional email's status
- */
-export const messagingEmailsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<EmailStatusApi> => {
-    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getMessagingEmailsStatusRetrieveUrl = (
-    projectId: string,
-    params?: MessagingEmailsStatusRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/messaging/emails/status/?${stringifiedParams}`
-        : `/api/projects/${projectId}/messaging/emails/status/`
-}
-
-/**
- * Get the status of one transactional email by its `message_id`, or by the `idempotency_key` it was sent with when the send's response was lost. Name exactly one of them. A key gives the latest send with it that PostHog has a status for. Compare the response's `created_at` with when you sent: an earlier time means an earlier send with the same key, not the one whose response was lost. It answers like the read by `message_id`, for 30 days after the send, and needs the same `transactional_email:read` scope. A 404 doesn't mean the email wasn't sent: its first status can take a few seconds to arrive. To make sure it goes out, send it again with the same key within 24 hours.
- * @summary Find a transactional email's status
- */
-export const messagingEmailsStatusRetrieve = async (
-    projectId: string,
-    params?: MessagingEmailsStatusRetrieveParams,
-    options?: RequestInit
-): Promise<EmailStatusApi> => {
-    return apiMutator<EmailStatusApi>(getMessagingEmailsStatusRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getMessagingPreferencesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging/preferences/`
-}
-
-/**
- * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
- * @summary Set a recipient's topic preferences
- */
-export const messagingPreferencesCreate = async (
-    projectId: string,
-    setPreferencesApi: SetPreferencesApi,
-    options?: RequestInit
-): Promise<TopicPreferencesApi> => {
-    return apiMutator<TopicPreferencesApi>(getMessagingPreferencesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(setPreferencesApi),
-    })
-}
-
 export const getMessagingSendEmailCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/send/email/`
 }
@@ -251,6 +156,101 @@ export const messagingSendPushBatchCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendPushBatchApi),
+    })
+}
+
+export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. That 404 doesn't say whether the email went out yet, so read again a few seconds later.
+ * @summary Get a transactional email's status
+ */
+export const messagingEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingEmailsStatusRetrieveUrl = (
+    projectId: string,
+    params?: MessagingEmailsStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/emails/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/emails/status/`
+}
+
+/**
+ * Get the status of one transactional email by its `message_id`, or by the `idempotency_key` it was sent with when the send's response was lost. Name exactly one of them. A key gives the latest send with it that PostHog has a status for. Compare the response's `created_at` with when you sent: an earlier time means an earlier send with the same key, not the one whose response was lost. It answers like the read by `message_id`, for 30 days after the send, and needs the same `transactional_email:read` scope. A 404 doesn't mean the email wasn't sent: its first status can take a few seconds to arrive. To make sure it goes out, send it again with the same key within 24 hours.
+ * @summary Find a transactional email's status
+ */
+export const messagingEmailsStatusRetrieve = async (
+    projectId: string,
+    params?: MessagingEmailsStatusRetrieveParams,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsStatusRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+}
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreate = async (
+    projectId: string,
+    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadsResponseApi> => {
+    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(attachmentUploadsRequestApi),
+    })
+}
+
+export const getMessagingPreferencesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/preferences/`
+}
+
+/**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
+ * @summary Set a recipient's topic preferences
+ */
+export const messagingPreferencesCreate = async (
+    projectId: string,
+    setPreferencesApi: SetPreferencesApi,
+    options?: RequestInit
+): Promise<TopicPreferencesApi> => {
+    return apiMutator<TopicPreferencesApi>(getMessagingPreferencesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setPreferencesApi),
     })
 }
 
