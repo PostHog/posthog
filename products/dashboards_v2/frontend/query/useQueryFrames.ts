@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 
-import { WidgetHostContext } from '../widgets/core/widgetHostContext'
+import { PanelHostContext } from '../panels/core/panelHostContext'
 import { cachedResult, runCachedQuery } from './queryCache'
 import type { QueryRequest, QueryResult, RunQuery } from './queryTypes'
 
@@ -54,7 +54,7 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
     // An edit rebuilds the request objects, so the queries run again only when their content changes.
     const queryKeys = requests.map((request) => JSON.stringify(request))
     const keysKey = JSON.stringify(queryKeys)
-    const { refresh, timing } = useContext(WidgetHostContext)
+    const { refresh, timing } = useContext(PanelHostContext)
     const [results, setResults] = useState<QueryFrames[]>(() => queryKeys.map((key) => initial(runQuery, key, refresh)))
     const resultKeys = useRef(queryKeys)
     useEffect(() => {

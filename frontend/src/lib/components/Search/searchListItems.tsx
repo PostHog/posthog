@@ -69,10 +69,13 @@ const byLastViewed = (a: SearchItem, b: SearchItem): number => {
 const visibleImports = (
     items: FileSystemImport[],
     featureFlags: FeatureFlagsSet,
-    showUnreleased: boolean
+    showUnreleased: boolean,
+    isOrganizationAdmin: boolean
 ): FileSystemImport[] =>
     items.filter(
-        (item) => (showUnreleased || item.category !== 'Unreleased') && isFileSystemImportShown(item, featureFlags)
+        (item) =>
+            (showUnreleased || item.category !== 'Unreleased') &&
+            isFileSystemImportShown(item, featureFlags, isOrganizationAdmin)
     )
 
 const withUniqueHref = (items: FileSystemImport[]): FileSystemImport[] => {
@@ -255,8 +258,12 @@ const ACTION_ITEMS = [
     }),
 ]
 
-export const starredSearchItems = (entries: FileSystemEntry[], featureFlags: FeatureFlagsSet): SearchItem[] => {
-    const hiddenHrefs = hiddenProductHrefs(featureFlags)
+export const starredSearchItems = (
+    entries: FileSystemEntry[],
+    featureFlags: FeatureFlagsSet,
+    isOrganizationAdmin = false
+): SearchItem[] => {
+    const hiddenHrefs = hiddenProductHrefs(featureFlags, isOrganizationAdmin)
     return entries
         .filter((entry) => entry.type !== 'folder' && !isHiddenProductShortcut(entry, hiddenHrefs))
         .slice(0, STARRED_LIMIT)
@@ -272,13 +279,15 @@ export const starredSearchItems = (entries: FileSystemEntry[], featureFlags: Fea
 export const productSearchItems = (
     featureFlags: FeatureFlagsSet,
     showUnreleased: boolean,
-    sceneViews: SceneViews
+    sceneViews: SceneViews,
+    isOrganizationAdmin = false
 ): SearchItem[] => {
     const sources = withUniqueHref(
         visibleImports(
             [...getTreeItemsProducts(), ...getTreeItemsMetadata().filter((item) => !isDefinitionsTabHref(item.href))],
             featureFlags,
-            showUnreleased
+            showUnreleased,
+            isOrganizationAdmin
         )
     )
     return destinationSearchItems(sources, {
@@ -293,12 +302,14 @@ export const productSearchItems = (
 export const dataManagementSearchItems = (
     featureFlags: FeatureFlagsSet,
     showUnreleased: boolean,
-    sceneViews: SceneViews
+    sceneViews: SceneViews,
+    isOrganizationAdmin = false
 ): SearchItem[] => {
     const sources = visibleImports(
         getTreeItemsMetadata().filter((item) => isDefinitionsTabHref(item.href)),
         featureFlags,
-        showUnreleased
+        showUnreleased,
+        isOrganizationAdmin
     )
     return destinationSearchItems(sources, {
         idPrefix: 'data-management',
@@ -311,9 +322,10 @@ export const dataManagementSearchItems = (
 export const newSearchItems = (
     featureFlags: FeatureFlagsSet,
     showUnreleased: boolean,
-    commandPalette: boolean
+    commandPalette: boolean,
+    isOrganizationAdmin = false
 ): SearchItem[] => [
-    ...visibleImports(getTreeItemsNew(), featureFlags, showUnreleased).map((item) => {
+    ...visibleImports(getTreeItemsNew(), featureFlags, showUnreleased, isOrganizationAdmin).map((item) => {
         const displayName = newItemDisplayName(item.path)
         return importToSearchItem(item, {
             id: `new-${item.path}`,

@@ -7033,7 +7033,7 @@ Note: Harvey publishes six OpenAPI specs (listed in https://developers.harvey.ai
 
 ## Hatchet — gaps
 
-Today (12): `crons`, `event_keys`, `events`, `logs`, `scheduled_runs`, `task_events`, `task_timings`, `tasks`, `tenant_members`, `workers`, `workflow_runs`, `workflows`
+Today (13): `crons`, `event_keys`, `events`, `logs`, `rate_limits`, `scheduled_runs`, `task_events`, `task_timings`, `tasks`, `tenant_members`, `workers`, `workflow_runs`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-contracts/openapi/openapi.yaml>
 
@@ -7049,7 +7049,7 @@ Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-
 - [x] `tenant members (GET /api/v1/tenants/{tenant}/members)` — membership table for the tenant whose runs are synced (medium)
 - [x] `logs (GET /api/v1/stable/tenants/{tenant}/logs, /tasks/{task}/logs)` — task log lines for failure triage alongside run rows (medium)
 - [ ] `workflow run metrics (GET /api/v1/tenants/{tenant}/workflows/runs/metrics, GET /api/v1/workflows/{workflow}/metrics)` — success/failure counts per workflow without re-aggregating raw runs (low). Skipped: the tenant endpoint returns one status-count object for whatever `createdAfter`/`createdBefore` window is requested, so it has no stable row grain (the counts derive from `workflow_runs`). The per-workflow endpoint returns concurrency group-key counts, not success/failure counts.
-- [ ] `rate limits (GET /api/v1/tenants/{tenant}/rate-limits)` — current vs limit consumption per key - explains queued-but-not-running tasks (low)
+- [x] `rate limits (GET /api/v1/tenants/{tenant}/rate-limits)` — current vs limit consumption per key - explains queued-but-not-running tasks (low)
 
 Note: The connector targets the stable v1 API (/api/v1/stable/tenants/{tenant}/...), but several still-current resources (workflows, workers, crons, scheduled, members, queue-metrics) live only under the older /api/v1/tenants/{tenant}/... prefix in the same spec. Webhooks, API tokens, feature flags, SNS/Slack integrations and alerting email groups were excluded as configuration.
 
@@ -11479,17 +11479,17 @@ Re-audited 2026-11-19 against <https://web.archive.org/web/20251120081157/https:
 
 ## Persona — gaps
 
-Today (11): `accounts`, `cases`, `events`, `inquiries`, `inquiry_sessions`, `inquiry_template_versions`, `inquiry_templates`, `reports`, `transactions`, `verifications`, `workflow_runs`
+Today (14): `accounts`, `cases`, `devices`, `events`, `inquiries`, `inquiry_sessions`, `inquiry_template_versions`, `inquiry_templates`, `lists`, `report_history`, `reports`, `transactions`, `verifications`, `workflow_runs`
 
 Diffed against: <https://docs.withpersona.com/2025-12-08/llms.txt>
 
 - [x] `GET /reports (List all Reports)` — watchlist, adverse-media and business reports - a headline Persona output missing entirely next to inquiries (high)
 - [x] `GET /inquiry-sessions` — per-attempt sessions under the inquiries already synced, needed for drop-off analysis (medium)
 - [x] `GET /workflow-runs (List all Workflow Runs)` — automation run history over inquiries and cases already synced (medium)
-- [ ] `GET /devices` — device records used for fraud and repeat-signup analysis (medium)
-- [ ] `GET /accounts/{account-id}/relations` — account-to-account relationship edges for the accounts already synced (medium)
-- [ ] `GET /reports/{report-id}/history (List Report history)` — continuous-monitoring state history per report (low)
-- [ ] `GET /lists (List all Lists)` — blocklist/allowlist definitions referenced by inquiry and verification outcomes (low)
+- [x] `GET /devices` — device records used for fraud and repeat-signup analysis (medium)
+- [ ] `GET /accounts/{account-id}/relations` — account-to-account relationship edges for the accounts already synced (medium) Skipped: requires a customer-defined `filter[key]` relation key, and no endpoint lists account types or their keys.
+- [x] `GET /reports/{report-id}/history (List Report history)` — continuous-monitoring state history per report (low)
+- [x] `GET /lists (List all Lists)` — blocklist/allowlist definitions referenced by inquiry and verification outcomes (low)
 - [ ] `GET /user-audit-logs` — reviewer action log for measuring manual review throughput (low)
 - [x] `GET /inquiry-template-versions` — published and draft versions of each inquiry template already synced (low)
 - [ ] `GET /workflow-versions` — workflow version history; needs `filter[workflow-id]` and Persona has no list-workflows endpoint to enumerate ids (low)

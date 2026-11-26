@@ -1,7 +1,7 @@
 import { type Dashboard, type Tile, isGridTab, isSection } from './dashboardTypes'
 
 export function everyTile(tiles: Tile[]): Tile[] {
-    return tiles.flatMap((tile) => (isSection(tile) ? [tile, ...everyTile(tile.widget.tiles)] : [tile]))
+    return tiles.flatMap((tile) => (isSection(tile) ? [tile, ...everyTile(tile.panel.tiles)] : [tile]))
 }
 
 export function allTiles(dashboard: Dashboard): Tile[] {
@@ -16,7 +16,7 @@ function changeTiles(tiles: Tile[], matches: (tile: Tile) => boolean, change: (t
     return tiles.flatMap((tile) => {
         // A matching section's own tiles may match too, so they change first.
         const inner = isSection(tile)
-            ? { ...tile, widget: { ...tile.widget, tiles: changeTiles(tile.widget.tiles, matches, change) } }
+            ? { ...tile, panel: { ...tile.panel, tiles: changeTiles(tile.panel.tiles, matches, change) } }
             : tile
         if (!matches(tile)) {
             return [inner]
