@@ -29,7 +29,11 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from prometheus_client import Counter
 from rest_framework.exceptions import PermissionDenied
 
-from posthog.hogql.database.database import credential_denied_scopes
+from posthog.hogql.database.database import (
+    READ_SCOPES_RECORDED_QUERY_STATUS_LABEL,
+    access_controlled_posthog_tables,
+    credential_denied_scopes,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -287,7 +291,14 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         return JsonResponse({"status": "running"}, status=202)
     if status.error:
         return JsonResponse({"error": status.error_message or "Query execution failed."}, status=400)
-    if read_scopes := read_scopes_from_labels(status.labels):
+    labels = status.labels or []
+    # A status without the marker came from a producer that recorded nothing, so it may hold any gated rows.
+    read_scopes: set[str] = (
+        read_scopes_from_labels(labels)
+        if READ_SCOPES_RECORDED_QUERY_STATUS_LABEL in labels
+        else set[str](access_controlled_posthog_tables().values())
+    )
+    if read_scopes:
         user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
         try:
             assert_read_scopes_readable(read_scopes, Team.objects.get(id=claims.team_id), user)
