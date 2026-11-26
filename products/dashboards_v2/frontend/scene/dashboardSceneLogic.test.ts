@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -167,6 +168,25 @@ describe('dashboardSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.disabledReasonFor('moveTile')).toContain('managed outside PostHog')
+    })
+
+    it('saves a pending edit when the scene closes before the save delay ends', async () => {
+        useBoard((save) => [200, { ...board(2, save.spec.title), spec: save.spec }])
+        await expectLogic(logic).toFinishAllListeners()
+
+        retitle('Mine, edited')
+        logic.unmount()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(saves.map((save) => save.spec.title)).toEqual(['Mine, edited'])
+    })
+
+    it('keeps the tab asked for in the URL while the board loads', async () => {
+        router.actions.push('/dashboard-v2/b1', { tab: 'main' })
+        useBoard(() => [200, {}])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.tab).toBe('main')
     })
 
     it.each([

@@ -13,7 +13,7 @@ import {
     tileSchema,
     panelRefSchema,
 } from './dashboardSchema'
-import { type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
+import { type DashboardDocument, type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
 
 // Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
 export const MAX_SECTION_DEPTH = 10
@@ -56,6 +56,23 @@ const dashboardHeadSchema = dashboardDocumentSchema.extend({
         .array(z.union([gridTabSchema.extend({ tiles: z.array(tileHeadSchema) }), linkTabSchema]))
         .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
+
+// Loading walks every section's tiles, so a section without them is not a dashboard's shape.
+function sectionsHaveTiles(tiles: TileHead[], depth: number): boolean {
+    return tiles.every((tile) => {
+        if (!('type' in tile.panel) || tile.panel.type !== 'section') {
+            return true
+        }
+        const section = sectionHeadSchema.safeParse(tile.panel)
+        return depth < MAX_SECTION_DEPTH && section.success && sectionsHaveTiles(section.data.tiles, depth + 1)
+    })
+}
+
+/** Whether a document has the shape of a dashboard. It checks each panel only for a `type`, as each panel type checks the rest. */
+export function isDashboardDocument(document: unknown): document is DashboardDocument {
+    const parsed = dashboardHeadSchema.safeParse(document)
+    return parsed.success && parsed.data.tabs.every((tab) => !('tiles' in tab) || sectionsHaveTiles(tab.tiles, 0))
+}
 
 function issuesAt(path: string, error: z.ZodError): DashboardProblem[] {
     return error.issues.map((issue) => ({

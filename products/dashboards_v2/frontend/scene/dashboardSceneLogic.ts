@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -11,6 +23,7 @@ import type { DashboardAction } from '../dashboard/dashboardContext'
 import type { UnavailableReason } from '../dashboard/DashboardUnavailable'
 import { type Dashboard, type GridTab, activeGridTab } from '../dashboard/document/dashboardTypes'
 import { loadDashboard, saveDashboard } from '../dashboard/document/sharedPanels'
+import { isDashboardDocument } from '../dashboard/document/validateDashboard'
 import { describeChanges } from '../dashboard/edits/dashboardChanges'
 import { type DashboardEdit, type View, applyEdit, settleDashboard } from '../dashboard/edits/dashboardEdits'
 import {
@@ -42,6 +55,15 @@ export type BoardConflict = {
     theirs: Board
     /** The dashboard both sides started from: the one this person last loaded or saved. */
     base: Dashboard
+}
+
+// The boards API stores a document as the client sent it, so a board can lack the shape of a dashboard.
+async function getDashboardBoard(uid: string): Promise<Board> {
+    const board = await getBoard(uid)
+    if (!isDashboardDocument(board.spec)) {
+        throw new Error('The board is not a dashboard document')
+    }
+    return board
 }
 
 function dashboardOf(board: Board): Dashboard {
@@ -224,7 +246,7 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
         board: [
             null as Board | null,
             {
-                loadBoard: async () => (props.uid ? await getBoard(props.uid) : null),
+                loadBoard: async () => (props.uid ? await getDashboardBoard(props.uid) : null),
             },
         ],
     })),
@@ -404,7 +426,7 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
                     return
                 }
                 try {
-                    const theirs = await getBoard(props.uid)
+                    const theirs = await getDashboardBoard(props.uid)
                     actions.boardConflicted({ theirs, base: values.savedDashboard ?? dashboard })
                 } catch {
                     actions.saveFailed()
@@ -431,9 +453,10 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
         },
     })),
     actionToUrl(({ values }) => ({
-        setActiveTab: () => [
+        setActiveTab: ({ tabId }) => [
             router.values.location.pathname,
-            { ...router.values.searchParams, tab: values.activeTab?.id },
+            // While the board loads there is no tab to check the id against, so the requested one stays in the URL.
+            { ...router.values.searchParams, tab: values.dashboard ? values.activeTab?.id : tabId },
             router.values.hashParams,
             { replace: true },
         ],
@@ -445,9 +468,31 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values, cache }) => {
         if (props.uid) {
             actions.loadBoard()
+        }
+        cache.disposables.add(
+            () => {
+                const warnIfUnsaved = (event: BeforeUnloadEvent): void => {
+                    if (values.saveState && values.saveState !== 'saved') {
+                        event.preventDefault()
+                    }
+                }
+                window.addEventListener('beforeunload', warnIfUnsaved)
+                return () => window.removeEventListener('beforeunload', warnIfUnsaved)
+                // A tab closed while hidden still has its edits to lose.
+            },
+            'warnIfUnsaved',
+            { pauseOnPageHidden: false }
+        )
+    }),
+    beforeUnmount(({ props, values }) => {
+        // Leaving the scene cancels the save that waits out `SAVE_DELAY_MS`, so it is sent now. Nothing is left to show
+        // whether it worked.
+        const { board, dashboard, saveState } = values
+        if (props.uid && board && dashboard && (saveState === 'unsaved' || saveState === 'failed')) {
+            void updateBoard(props.uid, saveDashboard(dashboard), board.version).catch(() => {})
         }
     }),
 ])
