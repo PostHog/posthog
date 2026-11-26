@@ -19,6 +19,9 @@ describe('push send redaction', () => {
         ['a single send', 'https://us.posthog.com/api/projects/1/messaging/send/push/', REDACTED],
         ['a batch send', '/api/projects/1/messaging/send/push_batch/', REDACTED],
         ['a send with a query', '/api/projects/1/messaging/send/push?x=1', REDACTED],
+        ['a broadcast test send', 'https://us.posthog.com/api/projects/1/hog_flows/new/invocations/', REDACTED],
+        ['a saved workflow test send', '/api/environments/1/hog_flows/0190-abc/invocations', REDACTED],
+        ['the workflow list', '/api/projects/1/hog_flows/', BODY],
         ['an email send', '/api/projects/1/messaging/send/email/', BODY],
         ['the push page', '/api/projects/1/messaging_templates/push/', BODY],
     ])('redacts only the body of a push send: %s', (_name, name, requestBody) => {
