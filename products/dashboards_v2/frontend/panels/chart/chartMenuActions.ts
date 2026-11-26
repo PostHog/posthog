@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import type { MenuAction } from '../../dashboard/menuAction'
-import type { WidgetMenuContext } from '../widgetDefinition'
+import type { PanelMenuContext } from '../panelDefinition'
 import type { ChartConfig } from './chartSpec'
 import type { VizSpec } from './vizTypes'
 
@@ -14,14 +14,14 @@ function optionLabel(key: string, field: z.ZodType): string {
 /** A menu entry for each option a kind of chart declares: a checkbox for a boolean, a submenu of choices for an enum. */
 function optionActions(
     viz: VizSpec,
-    { widget, setConfig, disabledReason }: WidgetMenuContext<ChartConfig>
+    { panel, setConfig, disabledReason }: PanelMenuContext<ChartConfig>
 ): MenuAction[] {
     if (!(viz.optionsSchema instanceof z.ZodObject)) {
         return []
     }
-    const options = (widget.config.viz.options ?? {}) as Options
+    const options = (panel.config.viz.options ?? {}) as Options
     const setOption = (key: string, value: unknown): void =>
-        setConfig({ ...widget.config, viz: { ...widget.config.viz, options: { ...options, [key]: value } } })
+        setConfig({ ...panel.config, viz: { ...panel.config.viz, options: { ...options, [key]: value } } })
 
     return Object.entries(viz.optionsSchema.shape as Record<string, z.ZodType>).flatMap(
         ([key, field]): MenuAction[] => {
@@ -60,9 +60,9 @@ function optionActions(
  * The chart's own menu entries: a "Chart type" submenu that switches the kind of chart, and the options the current
  * kind declares in its schema. Switching kind keeps the query and drops options the new kind does not have.
  */
-export function chartMenuActions(vizTypes: VizSpec[], context: WidgetMenuContext<ChartConfig>): MenuAction[] {
-    const { widget, setConfig, disabledReason } = context
-    const current = vizTypes.find((viz) => viz.type === widget.config.viz.type)
+export function chartMenuActions(vizTypes: VizSpec[], context: PanelMenuContext<ChartConfig>): MenuAction[] {
+    const { panel, setConfig, disabledReason } = context
+    const current = vizTypes.find((viz) => viz.type === panel.config.viz.type)
     const actions: MenuAction[] = [
         {
             key: 'chart-type',
@@ -76,8 +76,8 @@ export function chartMenuActions(vizTypes: VizSpec[], context: WidgetMenuContext
                 label: viz.label,
                 dataAttr: `dashboard-v2-chart-type-${viz.type}`,
                 disabledReason,
-                checked: viz.type === widget.config.viz.type,
-                onSelect: () => setConfig({ ...widget.config, viz: { type: viz.type } }),
+                checked: viz.type === panel.config.viz.type,
+                onSelect: () => setConfig({ ...panel.config, viz: { type: viz.type } }),
             })),
         },
     ]

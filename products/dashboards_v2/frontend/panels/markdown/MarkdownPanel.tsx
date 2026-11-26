@@ -1,4 +1,4 @@
-import './MarkdownWidget.css'
+import './MarkdownPanel.css'
 
 import { Placeholder } from '@tiptap/extensions'
 import { type Editor, EditorContent, useEditor, useEditorState } from '@tiptap/react'
@@ -26,7 +26,7 @@ import {
     createInlineMarkdownSlashCommandsExtension,
 } from 'lib/components/MarkdownEditor/inline/inlineMarkdownSlashCommands'
 
-import type { WidgetComponentProps } from '../widgetDefinition'
+import type { PanelComponentProps } from '../panelDefinition'
 import { MARKDOWN_EXTENSIONS, markdownContent, serializeMarkdown } from './markdownContent'
 import type { MarkdownConfig } from './markdownSpec'
 
@@ -45,8 +45,8 @@ const EXTENSIONS = [
  * Text that edits in place: what a person types is what viewers see. The config stays Markdown, so text written
  * before this editor, or by a host that writes Markdown, opens unchanged.
  */
-export function MarkdownWidget({ widget, setConfig }: WidgetComponentProps<MarkdownConfig>): JSX.Element {
-    const text = widget.config.text
+export function MarkdownPanel({ panel, setConfig }: PanelComponentProps<MarkdownConfig>): JSX.Element {
+    const text = panel.config.text
     const editable = !!setConfig
     const dirty = useRef(false)
 
@@ -70,20 +70,20 @@ export function MarkdownWidget({ widget, setConfig }: WidgetComponentProps<Markd
                 return
             }
             dirty.current = false
-            setConfigRef.current?.({ ...widget.config, text: serializeMarkdown(editor) })
+            setConfigRef.current?.({ ...panel.config, text: serializeMarkdown(editor) })
         }
         editor.on('blur', save)
         return () => {
             editor.off('blur', save)
             save()
         }
-    }, [editor, widget.config])
+    }, [editor, panel.config])
 
     useEffect(() => {
         editor.setEditable(editable)
     }, [editor, editable])
 
-    // An undo, or another tab showing the same widget, changes the text from outside the editor.
+    // An undo, or another tab showing the same panel, changes the text from outside the editor.
     useEffect(() => {
         if (editor.isFocused || dirty.current || serializeMarkdown(editor) === text) {
             return
@@ -98,8 +98,8 @@ export function MarkdownWidget({ widget, setConfig }: WidgetComponentProps<Markd
             <EditorContent
                 editor={editor}
                 className={clsx(
-                    'TileGrid__text dash-MarkdownWidget text-sm',
-                    editable && 'dash-MarkdownWidget--editable'
+                    'TileGrid__text dash-MarkdownPanel text-sm',
+                    editable && 'dash-MarkdownPanel--editable'
                 )}
             />
         </>
@@ -203,7 +203,7 @@ function FormatMenu({ editor }: { editor: Editor }): JSX.Element {
         <BubbleMenu
             ref={setMenuElement}
             editor={editor}
-            className="dash-MarkdownWidget__menu"
+            className="dash-MarkdownPanel__menu"
             // Inside the tile, the part of the menu above a tile near the top sits under the tile above it.
             appendTo={() => document.body}
             options={{ strategy: 'fixed' }}

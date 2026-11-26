@@ -13,7 +13,7 @@ import {
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 
 export function AddTileMenu({ gridId, label }: { gridId: string; label?: string }): JSX.Element {
-    const { widgets, onEdit } = useDashboardV2()
+    const { panels, onEdit } = useDashboardV2()
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
@@ -33,11 +33,11 @@ export function AddTileMenu({ gridId, label }: { gridId: string; label?: string 
             <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
                     <DropdownMenuLabel>Add a tile</DropdownMenuLabel>
-                    {widgets.flatMap(({ type, addMenuItems }) =>
+                    {panels.flatMap(({ type, addMenuItems }) =>
                         addMenuItems.map(({ label: itemLabel, create }) => (
                             <DropdownMenuItem
                                 key={`${type}-${itemLabel}`}
-                                onClick={() => onEdit({ edit: 'addTile', grid: gridId, widget: create() })}
+                                onClick={() => onEdit({ edit: 'addTile', grid: gridId, panel: create() })}
                             >
                                 {itemLabel}
                             </DropdownMenuItem>
@@ -50,7 +50,7 @@ export function AddTileMenu({ gridId, label }: { gridId: string; label?: string 
                         onEdit({
                             edit: 'addTile',
                             grid: gridId,
-                            widget: { type: 'section', title: 'Untitled section', tiles: [] },
+                            panel: { type: 'section', title: 'Untitled section', tiles: [] },
                         })
                     }
                 >

@@ -1,23 +1,23 @@
 import { dropIntoGrid, stackTiles } from '../grid/gridTiles'
 import { applyEdit, settleDashboard, withFolds, withoutTiles } from './dashboardEdits'
-import { type Dashboard, type SizeOf, type Tile, type WidgetSize, gridTabs, isSection } from './dashboardTypes'
+import { type Dashboard, type SizeOf, type Tile, type PanelSize, gridTabs, isSection } from './dashboardTypes'
 import { findTile } from './tileTree'
 
-const SIZES: Record<string, WidgetSize> = {
+const SIZES: Record<string, PanelSize> = {
     markdown: { w: 8, h: 8, minW: 3, minH: 4 },
     line: { w: 12, h: 16, minW: 4, minH: 8, stackedRows: { min: 10, max: 16 } },
 }
-const sizeOf: SizeOf = (widget) => SIZES[widget.type]
+const sizeOf: SizeOf = (panel) => SIZES[panel.type]
 
 const text = (id: string, x: number, y: number, w: number, h: number): Tile => ({
     id,
     place: { x, y, w, h },
-    widget: { type: 'markdown', config: { text: id } },
+    panel: { type: 'markdown', config: { text: id } },
 })
 const section = (id: string, x: number, y: number, w: number, tiles: Tile[]): Tile => ({
     id,
     place: { x, y, w, h: 1 },
-    widget: { type: 'section', title: id, tiles },
+    panel: { type: 'section', title: id, tiles },
 })
 const dashboard = (first: Tile[], second: Tile[] = []): Dashboard =>
     settleDashboard(
@@ -34,7 +34,7 @@ const dashboard = (first: Tile[], second: Tile[] = []): Dashboard =>
 const places = (tiles: Tile[], grid: string): string[] =>
     tiles.flatMap((tile) => [
         `${tile.id}@${grid}: ${tile.place.x},${tile.place.y},${tile.place.w},${tile.place.h}`,
-        ...(isSection(tile) ? places(tile.widget.tiles, tile.id) : []),
+        ...(isSection(tile) ? places(tile.panel.tiles, tile.id) : []),
     ])
 const allPlaces = (board: Dashboard): string[] => gridTabs(board).flatMap((tab) => places(tab.tiles, tab.id))
 
@@ -80,8 +80,8 @@ describe('dashboardEdits', () => {
         const parts = { header: false, footer: false }
         const board = applyEdit(nested, { edit: 'setTilesParts', ids: ['a'], parts }, sizeOf)
 
-        expect(findTile(board, 'a')?.widget).toMatchObject({ parts })
-        expect(findTile(board, 'below')?.widget).not.toHaveProperty('parts')
+        expect(findTile(board, 'a')?.panel).toMatchObject({ parts })
+        expect(findTile(board, 'below')?.panel).not.toHaveProperty('parts')
     })
 
     it('previews a section moved into a narrower grid with the height and children it is saved with', () => {
@@ -103,7 +103,7 @@ describe('dashboardEdits', () => {
         const chart = (id: string, x: number, y: number, w: number, h: number): Tile => ({
             id,
             place: { x, y, w, h },
-            widget: { type: 'line', config: {} },
+            panel: { type: 'line', config: {} },
         })
         const tiles = [
             chart('tall', 12, 0, 12, 24),
@@ -165,7 +165,7 @@ describe('dashboardEdits', () => {
     ])('$name', ({ h, expected, collapsed }) => {
         const saved = section('group', 0, 0, 24, [text('inside', 0, 0, 24, 8)])
         const board = dashboard([
-            { ...saved, widget: { ...saved.widget, collapsed } } as Tile,
+            { ...saved, panel: { ...saved.panel, collapsed } } as Tile,
             text('below', 0, 12, 24, 4),
         ])
         const view = (shown: Dashboard): Dashboard => withFolds(shown, { group: false }, sizeOf)
@@ -240,10 +240,10 @@ describe('dashboardEdits', () => {
         const board = dashboard([text('a', 0, 0, 8, 8)])
         const shared = applyEdit(board, { edit: 'addToGrid', id: 'a', grid: 'second' }, sizeOf)
         const copy = gridTabs(shared)[1].tiles[0]
-        const edited = applyEdit(shared, { edit: 'setWidgetConfig', id: copy.id, config: { text: 'new' } }, sizeOf)
-        expect([findTile(edited, 'a'), findTile(edited, copy.id)].map((tile) => tile?.widget)).toEqual([
-            { type: 'markdown', config: { text: 'new' }, ref: 'widget1' },
-            { type: 'markdown', config: { text: 'new' }, ref: 'widget1' },
+        const edited = applyEdit(shared, { edit: 'setPanelConfig', id: copy.id, config: { text: 'new' } }, sizeOf)
+        expect([findTile(edited, 'a'), findTile(edited, copy.id)].map((tile) => tile?.panel)).toEqual([
+            { type: 'markdown', config: { text: 'new' }, ref: 'panel1' },
+            { type: 'markdown', config: { text: 'new' }, ref: 'panel1' },
         ])
     })
 

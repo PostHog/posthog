@@ -1,21 +1,21 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { WidgetQuery } from '../dashboard/dashboardSchema'
-import { type ContentWidget, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
-import type { ChartConfig } from '../widgets/chart/chartSpec'
-import { type StatOptions, statSpec } from '../widgets/chart/viz/stat/statSpec'
+import type { PanelQuery } from '../dashboard/dashboardSchema'
+import { type ContentPanel, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
+import type { ChartConfig } from '../panels/chart/chartSpec'
+import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
 
-const chartOf = (title: string, query: WidgetQuery, viz: ChartConfig['viz']): ContentWidget<ChartConfig> => ({
+const chartOf = (title: string, query: PanelQuery, viz: ChartConfig['viz']): ContentPanel<ChartConfig> => ({
     type: 'chart',
     title,
     config: { query, viz },
 })
-const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'hogql', query: sql }, viz)
-const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'metrics', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
-const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(
         title,
         {
@@ -24,24 +24,24 @@ const traces = (title: string, service: string, viz: ChartConfig['viz']): Conten
         },
         viz
     )
-const stat = (title: string, sql: string, format?: StatOptions['format']): ContentWidget<ChartConfig> =>
+const stat = (title: string, sql: string, format?: StatOptions['format']): ContentPanel<ChartConfig> =>
     chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
-const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
-const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
-const text = (markdown: string): ContentWidget => ({ type: 'markdown', config: { text: markdown } })
+const line = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'line' })
+const bar = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'bar' })
+const text = (markdown: string): ContentPanel => ({ type: 'markdown', config: { text: markdown } })
 
-const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
+const tile = (id: string, x: number, y: number, w: number, h: number, panel: Tile['panel']): Tile => ({
     id,
     place: { x, y, w, h },
-    widget,
+    panel,
 })
 const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
     tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
 
 const STAT_ROWS = statSpec.size.h
-const statRow = (prefix: string, y: number, cols: number, stats: ContentWidget<ChartConfig>[]): Tile[] => {
+const statRow = (prefix: string, y: number, cols: number, stats: ContentPanel<ChartConfig>[]): Tile[] => {
     const w = Math.floor(cols / stats.length)
-    return stats.map((widget, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, widget))
+    return stats.map((panel, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, panel))
 }
 
 // The SQL reads the dashboard's time range through `{filters}`.
@@ -161,7 +161,7 @@ const BIG_TILE_COUNT = 120
 export const kitchenSinkDashboard: Dashboard = {
     version: 2,
     title: 'Dashboards v2',
-    description: 'Every widget, section and chart option on one dashboard.',
+    description: 'Every panel, section and chart option on one dashboard.',
     time: { from: 'now-14d', to: 'now' },
     tabs: [
         {

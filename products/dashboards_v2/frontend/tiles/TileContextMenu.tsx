@@ -18,13 +18,13 @@ import {
 
 import type { DashboardEdit } from '../dashboard/dashboardEdits'
 import { downloadImageAction } from '../dashboard/dashboardImage'
-import { type ContentWidget, type SectionWidget, gridTabs, widgetRef } from '../dashboard/dashboardTypes'
+import { type ContentPanel, type SectionPanel, gridTabs, panelRef } from '../dashboard/dashboardTypes'
 import { type DashboardV2State, useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { MenuAction } from '../dashboard/menuAction'
 import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
 import { everyTile } from '../dashboard/tileTree'
+import { findPanel } from '../panels/panelSpec'
 import { backgroundColorAction, showAction } from '../presentation/tileAppearance'
-import { findWidget } from '../widgets/widgetSpec'
 import { applyTileActionFilters } from './applyTileActions'
 
 const CONTEXT_MENU_PARTS: MenuParts = {
@@ -52,11 +52,11 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }
 
-export function useContentTileActions(id: string, widget: ContentWidget): MenuAction[] {
+export function useContentTileActions(id: string, panel: ContentPanel): MenuAction[] {
     const {
         dashboard,
         activeTab,
-        widgets,
+        panels,
         disabledReasonFor,
         onEdit,
         tileActions,
@@ -65,7 +65,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
         presentTile,
     } = useDashboardV2()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
-    const definition = findWidget(widgets, widget.type)
+    const definition = findPanel(panels, panel.type)
 
     const actions: MenuAction[] = [
         {
@@ -99,10 +99,8 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
             group: 'dashboard',
             disabledReason: disabledReasonFor('addToGrid'),
             submenu: otherTabs.map((tab) => {
-                // A tab already showing this widget is ticked, and picking it again takes the widget off that tab.
-                const shown = widget.ref
-                    ? everyTile(tab.tiles).find((tile) => widgetRef(tile) === widget.ref)
-                    : undefined
+                // A tab already showing this panel is ticked, and picking it again takes the panel off that tab.
+                const shown = panel.ref ? everyTile(tab.tiles).find((tile) => panelRef(tile) === panel.ref) : undefined
                 return {
                     key: tab.id,
                     label: tab.title,
@@ -116,14 +114,14 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
         })
     }
     actions.push(tileImageAction(id, downloadingImage, downloadImage))
-    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
+    const show = showAction(TILE_SHOW, [{ id, panel }], panels, disabledReasonFor('setTilesAppearance'), onEdit)
     if (show) {
         actions.push(show)
     }
     const backgroundColor = backgroundColorAction(
         TILE_BACKGROUND_COLOR,
-        [{ id, widget }],
-        widgets,
+        [{ id, panel }],
+        panels,
         disabledReasonFor('setTilesAppearance'),
         onEdit
     )
@@ -133,9 +131,9 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
     if (definition?.menuActions) {
         actions.push(
             ...definition.menuActions({
-                widget,
-                setConfig: (config) => onEdit({ edit: 'setWidgetConfig', id, config }),
-                disabledReason: disabledReasonFor('setWidgetConfig'),
+                panel,
+                setConfig: (config) => onEdit({ edit: 'setPanelConfig', id, config }),
+                disabledReason: disabledReasonFor('setPanelConfig'),
             })
         )
     }
@@ -149,8 +147,8 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
     })
     return applyTileActionFilters(
         actions,
-        { id, widget },
-        definition?.tileActions && ((list) => definition.tileActions!(list, { widget })),
+        { id, panel },
+        definition?.tileActions && ((list) => definition.tileActions!(list, { panel })),
         tileActions
     )
 }
@@ -197,9 +195,9 @@ function autoLayoutAction(
     }
 }
 
-export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
-    const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboardV2()
-    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
+export function useSectionActions(id: string, panel: SectionPanel, onStartRename: () => void): MenuAction[] {
+    const { panels, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboardV2()
+    const show = showAction(TILE_SHOW, [{ id, panel }], panels, disabledReasonFor('setTilesAppearance'), onEdit)
     const actions: MenuAction[] = [
         {
             key: 'rename',
@@ -220,7 +218,7 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
             onSelect: () => onEdit({ edit: 'removeTile', id }),
         },
     ]
-    return applyTileActionFilters(actions, { id, widget }, undefined, tileActions)
+    return applyTileActionFilters(actions, { id, panel }, undefined, tileActions)
 }
 
 /**

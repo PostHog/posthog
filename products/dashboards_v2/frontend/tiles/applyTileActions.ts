@@ -1,18 +1,18 @@
-import type { Widget } from '../dashboard/dashboardTypes'
+import type { Panel } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
 
-type TileActionsFilter = (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
+type TileActionsFilter = (actions: MenuAction[], tile: { id: string; panel: Panel }) => MenuAction[]
 
 /**
- * Runs the widget type's filter, then the host's. The host goes last so it has the final say on a page, for example to
- * hide an action a widget type added.
+ * Runs the panel type's filter, then the host's. The host goes last so it has the final say on a page, for example to
+ * hide an action a panel type added.
  */
 export function applyTileActionFilters(
     actions: MenuAction[],
-    tile: { id: string; widget: Widget },
-    widgetFilter: TileActionsFilter | undefined,
+    tile: { id: string; panel: Panel },
+    panelFilter: TileActionsFilter | undefined,
     hostFilter: TileActionsFilter | undefined
 ): MenuAction[] {
-    const afterWidget = widgetFilter ? widgetFilter(actions, tile) : actions
-    return hostFilter ? hostFilter(afterWidget, tile) : afterWidget
+    const afterPanel = panelFilter ? panelFilter(actions, tile) : actions
+    return hostFilter ? hostFilter(afterPanel, tile) : afterPanel
 }

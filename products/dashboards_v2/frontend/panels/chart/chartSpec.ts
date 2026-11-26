@@ -1,20 +1,20 @@
 import { z } from 'zod'
 
-import { type WidgetQuery, timeRangeSchema, widgetQuerySchema } from '../../dashboard/dashboardSchema'
+import { type PanelQuery, timeRangeSchema, panelQuerySchema } from '../../dashboard/dashboardSchema'
 import type { TimeRange } from '../../dashboard/dashboardTypes'
-import { UNKNOWN_WIDGET_SIZE, type WidgetSpec } from '../widgetSpec'
+import { UNKNOWN_PANEL_SIZE, type PanelSpec } from '../panelSpec'
 import type { VizSpec } from './vizTypes'
 
 /** One of the queries a chart draws together, such as a latency series next to the deploys that explain it. */
 export interface ChartTarget {
     refId: string
-    query: WidgetQuery
+    query: PanelQuery
     /** Names each series the query returns. `{{label}}` is replaced with that series' value of `label`. */
     legend?: string
 }
 
 export interface ChartConfig {
-    query?: WidgetQuery
+    query?: PanelQuery
     targets?: ChartTarget[]
     /** How the result is drawn. Changing it never changes the data. */
     viz: { type: string; options?: unknown }
@@ -28,7 +28,7 @@ const MAX_CHART_TARGETS = 26
 const chartTargetSchema = z.strictObject({
     // The query batch endpoint rejects a longer refId or legend, and with it every other tile's query in the batch.
     refId: z.string().min(1).max(200),
-    query: widgetQuerySchema,
+    query: panelQuerySchema,
     legend: z.string().max(1000).optional(),
 })
 
@@ -40,10 +40,10 @@ export function chartTargets(config: ChartConfig): ChartTarget[] {
 }
 
 /**
- * A widget that runs one query and draws it as one of `vizTypes`. The add menu offers one "Chart" item, which starts
+ * A panel that runs one query and draws it as one of `vizTypes`. The add menu offers one "Chart" item, which starts
  * as a line chart, and the tile's "Chart type" menu switches it to any other kind.
  */
-export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
+export function chartSpec(vizTypes: VizSpec[]): PanelSpec<ChartConfig> {
     const firstType = vizTypes.find((viz) => viz.type === 'line')?.type ?? vizTypes[0]?.type ?? 'line'
     const vizSchemas = vizTypes.map((viz) =>
         // Missing options are read as `{}`, so they are checked as `{}` too.
@@ -58,7 +58,7 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
             {
                 label: 'Chart',
                 // TODO(2026-11-23): Replace this hardcoded query with one the person picks when they add the tile.
-                // The query is temporary. It gives the add menu a widget to insert before a query picker exists.
+                // The query is temporary. It gives the add menu a panel to insert before a query picker exists.
                 create: () => ({
                     type: 'chart',
                     title: 'New chart',
@@ -69,11 +69,11 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
                 }),
             },
         ],
-        size: UNKNOWN_WIDGET_SIZE,
-        sizeFor: (widget) => vizTypes.find((viz) => viz.type === widget.config?.viz?.type)?.size ?? UNKNOWN_WIDGET_SIZE,
+        size: UNKNOWN_PANEL_SIZE,
+        sizeFor: (panel) => vizTypes.find((viz) => viz.type === panel.config?.viz?.type)?.size ?? UNKNOWN_PANEL_SIZE,
         configSchema: z
             .strictObject({
-                query: widgetQuerySchema.optional(),
+                query: panelQuerySchema.optional(),
                 targets: z.array(chartTargetSchema).min(1).max(MAX_CHART_TARGETS).optional(),
                 viz: vizSchemas.length > 0 ? z.union(vizSchemas) : z.never(),
                 time: timeRangeSchema.optional(),
