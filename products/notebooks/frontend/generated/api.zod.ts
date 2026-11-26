@@ -1809,6 +1809,39 @@ export const NotebooksAppQueriesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksAppRefreshScheduleCreateBodyRevisionMin = 0
+
+export const notebooksAppRefreshScheduleCreateBodyIntervalMinutesDefault = 1440
+export const notebooksAppRefreshScheduleCreateBodyIntervalMinutesMin = 60
+export const notebooksAppRefreshScheduleCreateBodyIntervalMinutesMax = 10080
+
+export const notebooksAppRefreshScheduleCreateBodyFreshnessMinutesDefault = 1440
+export const notebooksAppRefreshScheduleCreateBodyFreshnessMinutesMin = 60
+export const notebooksAppRefreshScheduleCreateBodyFreshnessMinutesMax = 43200
+
+export const NotebooksAppRefreshScheduleCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(notebooksAppRefreshScheduleCreateBodyRevisionMin)
+        .describe('Published revision to refresh.'),
+    enabled: zod.boolean().describe('Whether this schedule runs.'),
+    interval_minutes: zod
+        .number()
+        .min(notebooksAppRefreshScheduleCreateBodyIntervalMinutesMin)
+        .max(notebooksAppRefreshScheduleCreateBodyIntervalMinutesMax)
+        .default(notebooksAppRefreshScheduleCreateBodyIntervalMinutesDefault)
+        .describe('Minutes between scheduled refreshes.'),
+    freshness_minutes: zod
+        .number()
+        .min(notebooksAppRefreshScheduleCreateBodyFreshnessMinutesMin)
+        .max(notebooksAppRefreshScheduleCreateBodyFreshnessMinutesMax)
+        .default(notebooksAppRefreshScheduleCreateBodyFreshnessMinutesDefault)
+        .describe('Maximum acceptable result age, in minutes.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCollabMarkdownSaveCreateBodyTextContentDefault = ``
 export const notebooksCollabMarkdownSaveCreateBodyCursorOneHeadMin = 0
 

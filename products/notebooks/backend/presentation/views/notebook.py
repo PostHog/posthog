@@ -143,6 +143,9 @@ from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookN
 from products.notebooks.backend.presentation.app_serializers import (
     NotebookAppLayoutField,
     NotebookAppLayoutSerializer,
+    NotebookAppRefreshOutputsSerializer,
+    NotebookAppRefreshStatusSerializer,
+    NotebookAppScheduleSettingsSerializer,
     notebook_app_builder_enabled,
     update_app_revision,
 )
@@ -931,7 +934,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         throttles = super().get_throttles()
         if self.action == "create":
             return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
-        if self.action in ("app_queries", "app_draft_queries"):
+        if self.action in ("app_queries", "app_draft_queries", "app_refresh_outputs"):
             return [*throttles, NotebookAppQueryBurstThrottle(), NotebookAppQuerySustainedThrottle()]
         if self.action in ("kernel_start", "kernel_restart", "app_compute", "app_draft_compute"):
             return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
@@ -960,6 +963,56 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if release is None:
             raise Http404()
         return Response(NotebookAppReleaseSerializer(release).data)
+
+    def _published_app(self, request: Request) -> Notebook:
+        notebook = self.get_object()
+        if notebook.app_published is None or not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        return notebook
+
+    @extend_schema(responses=NotebookAppRefreshStatusSerializer)
+    @action(methods=["GET"], detail=True, required_scopes=["notebook:read"])
+    def app_refresh_status(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_refresh import refresh_status
+
+        notebook = self._published_app(request)
+        return Response(NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk)).data)
+
+    @extend_schema(request=NotebookAppScheduleSettingsSerializer, responses=NotebookAppRefreshStatusSerializer)
+    @action(methods=["POST"], detail=True, required_scopes=["notebook:write", "query:read"])
+    def app_refresh_schedule(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_refresh import configure, refresh_status
+
+        notebook = self._published_app(request)
+        serializer = NotebookAppScheduleSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not self._has_query_access() or not isinstance(request.user, User):
+            raise PermissionDenied()
+        data = serializer.validated_data
+        configure(
+            notebook.team_id,
+            notebook.pk,
+            request.user.pk,
+            data["revision"],
+            data["interval_minutes"],
+            data["freshness_minutes"],
+            data["enabled"],
+        )
+        return Response(NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk)).data)
+
+    @extend_schema(responses=NotebookAppRefreshOutputsSerializer)
+    @action(methods=["GET"], detail=True, required_scopes=["notebook:read", "query:read"])
+    def app_refresh_outputs(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_refresh import read_outputs
+
+        notebook = self._published_app(request)
+        if not self._has_query_access() or not isinstance(request.user, User):
+            raise PermissionDenied()
+        release = read_release(notebook.team_id, notebook.pk)
+        if release is None:
+            raise Http404()
+        outputs = read_outputs(notebook.team_id, notebook.pk, request.user.pk, release.revision)
+        return Response(NotebookAppRefreshOutputsSerializer({"revision": release.revision, "outputs": outputs}).data)
 
     @extend_schema(request=NotebookAppViewerRequestSerializer, responses=NotebookAppViewerQuerySerializer(many=True))
     @action(

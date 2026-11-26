@@ -9,6 +9,7 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import type { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import type { NotebookAppRefreshedOutputApi } from '../generated/api.schemas'
 import { type PublishedRunResult, type SavedRows, savedQueryResult } from './notebookAppPublishedResults'
 import type { ViewerOutput } from './notebookAppViewerLogic'
 
@@ -64,6 +65,7 @@ function publishedQueryHeight(
 export function PublishedNotebookQuery({
     cell,
     current,
+    scheduled,
     pinned,
     sessionId,
     chartInputFilters,
@@ -71,6 +73,7 @@ export function PublishedNotebookQuery({
 }: {
     cell: NotebookComponentBlockNode
     current?: ViewerOutput
+    scheduled?: NotebookAppRefreshedOutputApi
     pinned?: PublishedRunResult
     sessionId: string
     draft?: boolean
@@ -79,7 +82,12 @@ export function PublishedNotebookQuery({
     const attributes = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }
     const output = current
         ? { result: current.result, rows: 'complete' as const }
-        : savedQueryResult(attributes, pinned)
+        : scheduled
+          ? {
+                result: { results: scheduled.results, columns: scheduled.columns ?? [], types: scheduled.types ?? [] },
+                rows: scheduled.hasMore ? ('partial' as const) : ('complete' as const),
+            }
+          : savedQueryResult(attributes, pinned)
     if (output === 'loading') {
         return <Spinner />
     }
@@ -114,6 +122,7 @@ export function PublishedNotebookQuery({
                     embedded
                 />
             </div>
+            {!current && scheduled && <small className="text-secondary">Scheduled result · </small>}
             {!current && <small className="text-secondary">{rowSummary(rows, result.results.length, draft)}</small>}
         </div>
     )
