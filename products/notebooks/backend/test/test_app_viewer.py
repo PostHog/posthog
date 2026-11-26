@@ -178,6 +178,35 @@ def test_query_dropdown_refreshes_hidden_choices_with_upstream_input() -> None:
     assert "West" in plan.query and not plan.matches_defaults
 
 
+def test_date_range_exposes_and_orders_both_bounds() -> None:
+    import pytest
+
+    from rest_framework.exceptions import ValidationError
+
+    release = AppRelease(
+        revision=1,
+        published_at=None,
+        results_as_of=None,
+        title="Date range",
+        has_previous=False,
+        markdown='<SQLV2 nodeId="summary" code="select {date_from}, {date_to}" />',
+        variables=[
+            {"name": "date_from", "type": "date", "value": "2026-09-01"},
+            {"name": "date_to", "type": "date", "value": "2026-09-30"},
+        ],
+        layout={
+            "blocks": [
+                {"kind": "input", "input_kind": "date_range", "variable": "date_from", "end_variable": "date_to"},
+                {"kind": "cell", "node_id": "summary"},
+            ]
+        },
+    )
+    [plan] = resolve_viewer_queries(release, {"date_from": "2026-09-14", "date_to": "2026-09-16"})
+    assert "2026-09-14" in plan.query and "2026-09-16" in plan.query
+    with pytest.raises(ValidationError, match="end date"):
+        resolve_viewer_queries(release, {"date_to": "2026-08-20"})
+
+
 class TestPublishedAppResults(APIBaseTest):
     @patch(
         "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True

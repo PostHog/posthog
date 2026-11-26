@@ -28,6 +28,7 @@ class AppBlockSource:
     display: str = ""
     input_kind: str = ""
     option_column: str = ""
+    end_variable: str = ""
 
     @property
     def needs_query_choices(self) -> bool:

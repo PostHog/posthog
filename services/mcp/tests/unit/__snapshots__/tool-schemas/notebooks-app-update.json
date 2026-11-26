@@ -15,6 +15,12 @@
                                         "enum": ["output", "source", "both"],
                                         "type": "string"
                                     },
+                                    "end_variable": {
+                                        "default": "",
+                                        "description": "End date variable for a date range.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
                                     "id": {
                                         "description": "Stable component identifier within the app.",
                                         "maxLength": 80,
@@ -22,8 +28,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "query_select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `date_range` - Date range\n* `slider` - Slider",
+                                        "enum": ["auto", "select", "query_select", "date_range", "slider"],
                                         "type": "string"
                                     },
                                     "kind": {
@@ -165,6 +171,12 @@
                                         "enum": ["output", "source", "both"],
                                         "type": "string"
                                     },
+                                    "end_variable": {
+                                        "default": "",
+                                        "description": "End date variable for a date range.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
                                     "id": {
                                         "description": "Stable component identifier within the app.",
                                         "maxLength": 80,
@@ -172,8 +184,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "query_select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `date_range` - Date range\n* `slider` - Slider",
+                                        "enum": ["auto", "select", "query_select", "date_range", "slider"],
                                         "type": "string"
                                     },
                                     "kind": {

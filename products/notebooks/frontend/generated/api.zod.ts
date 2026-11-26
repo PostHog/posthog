@@ -115,6 +115,9 @@ export const notebooksCreateBodyAppDraftOneBlocksItemTextMax = 20000
 export const notebooksCreateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksCreateBodyAppDraftOneBlocksItemVariableMax = 80
 
+export const notebooksCreateBodyAppDraftOneBlocksItemEndVariableDefault = ``
+export const notebooksCreateBodyAppDraftOneBlocksItemEndVariableMax = 80
+
 export const notebooksCreateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
 export const notebooksCreateBodyAppDraftOneBlocksItemOptionColumnDefault = ``
 export const notebooksCreateBodyAppDraftOneBlocksItemOptionColumnMax = 256
@@ -158,6 +161,9 @@ export const notebooksCreateBodyAppPublishedOneBlocksItemTextMax = 20000
 
 export const notebooksCreateBodyAppPublishedOneBlocksItemVariableDefault = ``
 export const notebooksCreateBodyAppPublishedOneBlocksItemVariableMax = 80
+
+export const notebooksCreateBodyAppPublishedOneBlocksItemEndVariableDefault = ``
+export const notebooksCreateBodyAppPublishedOneBlocksItemEndVariableMax = 80
 
 export const notebooksCreateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
 export const notebooksCreateBodyAppPublishedOneBlocksItemOptionColumnDefault = ``
@@ -298,14 +304,19 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksCreateBodyAppDraftOneBlocksItemVariableMax)
                                 .default(notebooksCreateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksCreateBodyAppDraftOneBlocksItemEndVariableMax)
+                                .default(notebooksCreateBodyAppDraftOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksCreateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -421,14 +432,19 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksCreateBodyAppPublishedOneBlocksItemVariableMax)
                                 .default(notebooksCreateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksCreateBodyAppPublishedOneBlocksItemEndVariableMax)
+                                .default(notebooksCreateBodyAppPublishedOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksCreateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -516,6 +532,9 @@ export const notebooksUpdateBodyAppDraftOneBlocksItemTextMax = 20000
 export const notebooksUpdateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksUpdateBodyAppDraftOneBlocksItemVariableMax = 80
 
+export const notebooksUpdateBodyAppDraftOneBlocksItemEndVariableDefault = ``
+export const notebooksUpdateBodyAppDraftOneBlocksItemEndVariableMax = 80
+
 export const notebooksUpdateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
 export const notebooksUpdateBodyAppDraftOneBlocksItemOptionColumnDefault = ``
 export const notebooksUpdateBodyAppDraftOneBlocksItemOptionColumnMax = 256
@@ -559,6 +578,9 @@ export const notebooksUpdateBodyAppPublishedOneBlocksItemTextMax = 20000
 
 export const notebooksUpdateBodyAppPublishedOneBlocksItemVariableDefault = ``
 export const notebooksUpdateBodyAppPublishedOneBlocksItemVariableMax = 80
+
+export const notebooksUpdateBodyAppPublishedOneBlocksItemEndVariableDefault = ``
+export const notebooksUpdateBodyAppPublishedOneBlocksItemEndVariableMax = 80
 
 export const notebooksUpdateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
 export const notebooksUpdateBodyAppPublishedOneBlocksItemOptionColumnDefault = ``
@@ -699,14 +721,19 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksUpdateBodyAppDraftOneBlocksItemVariableMax)
                                 .default(notebooksUpdateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksUpdateBodyAppDraftOneBlocksItemEndVariableMax)
+                                .default(notebooksUpdateBodyAppDraftOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksUpdateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -822,14 +849,19 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksUpdateBodyAppPublishedOneBlocksItemVariableMax)
                                 .default(notebooksUpdateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksUpdateBodyAppPublishedOneBlocksItemEndVariableMax)
+                                .default(notebooksUpdateBodyAppPublishedOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksUpdateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -917,6 +949,9 @@ export const notebooksPartialUpdateBodyAppDraftOneBlocksItemTextMax = 20000
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemVariableMax = 80
 
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemEndVariableDefault = ``
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemEndVariableMax = 80
+
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionColumnDefault = ``
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionColumnMax = 256
@@ -960,6 +995,9 @@ export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemTextMax = 20000
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemVariableDefault = ``
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemVariableMax = 80
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemEndVariableDefault = ``
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemEndVariableMax = 80
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemOptionColumnDefault = ``
@@ -1100,14 +1138,19 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemVariableMax)
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemEndVariableMax)
+                                .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -1223,14 +1266,19 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemVariableMax)
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemEndVariableMax)
+                                .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -1313,6 +1361,9 @@ export const notebooksAppPreviewCreateBodyBlocksItemTextMax = 20000
 export const notebooksAppPreviewCreateBodyBlocksItemVariableDefault = ``
 export const notebooksAppPreviewCreateBodyBlocksItemVariableMax = 80
 
+export const notebooksAppPreviewCreateBodyBlocksItemEndVariableDefault = ``
+export const notebooksAppPreviewCreateBodyBlocksItemEndVariableMax = 80
+
 export const notebooksAppPreviewCreateBodyBlocksItemInputKindDefault = `auto`
 export const notebooksAppPreviewCreateBodyBlocksItemOptionColumnDefault = ``
 export const notebooksAppPreviewCreateBodyBlocksItemOptionColumnMax = 256
@@ -1394,14 +1445,19 @@ export const NotebooksAppPreviewCreateBody = /* @__PURE__ */ zod.object({
                     .max(notebooksAppPreviewCreateBodyBlocksItemVariableMax)
                     .default(notebooksAppPreviewCreateBodyBlocksItemVariableDefault)
                     .describe('Notebook variable controlled by an input.'),
+                end_variable: zod
+                    .string()
+                    .max(notebooksAppPreviewCreateBodyBlocksItemEndVariableMax)
+                    .default(notebooksAppPreviewCreateBodyBlocksItemEndVariableDefault)
+                    .describe('End date variable for a date range.'),
                 input_kind: zod
-                    .enum(['auto', 'select', 'query_select', 'slider'])
+                    .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                     .describe(
-                        '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                        '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                     )
                     .default(notebooksAppPreviewCreateBodyBlocksItemInputKindDefault)
                     .describe(
-                        'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                        'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                     ),
                 option_column: zod
                     .string()
@@ -1672,6 +1728,9 @@ export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemTextMax = 2000
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemVariableMax = 80
 
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemEndVariableMax = 80
+
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemOptionColumnDefault = ``
 export const notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemOptionColumnMax = 256
@@ -1715,6 +1774,9 @@ export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemTextMax = 
 
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemVariableDefault = ``
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemVariableMax = 80
+
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemEndVariableMax = 80
 
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemOptionColumnDefault = ``
@@ -1855,14 +1917,19 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemVariableMax)
                                 .default(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelExecuteCreateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -1982,14 +2049,19 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemVariableMax)
                                 .default(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelExecuteCreateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -2109,6 +2181,9 @@ export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemTextMax = 2000
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemVariableMax = 80
 
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemEndVariableMax = 80
+
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemOptionColumnDefault = ``
 export const notebooksKernelRestartCreateBodyAppDraftOneBlocksItemOptionColumnMax = 256
@@ -2152,6 +2227,9 @@ export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemTextMax = 
 
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemVariableDefault = ``
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemVariableMax = 80
+
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemEndVariableMax = 80
 
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemOptionColumnDefault = ``
@@ -2292,14 +2370,19 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemVariableMax)
                                 .default(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelRestartCreateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -2419,14 +2502,19 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemVariableMax)
                                 .default(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelRestartCreateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -2518,6 +2606,9 @@ export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemTextMax = 20000
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemVariableMax = 80
 
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemEndVariableMax = 80
+
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemOptionColumnDefault = ``
 export const notebooksKernelStartCreateBodyAppDraftOneBlocksItemOptionColumnMax = 256
@@ -2561,6 +2652,9 @@ export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemTextMax = 20
 
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemVariableDefault = ``
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemVariableMax = 80
+
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemEndVariableMax = 80
 
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelStartCreateBodyAppPublishedOneBlocksItemOptionColumnDefault = ``
@@ -2701,14 +2795,19 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStartCreateBodyAppDraftOneBlocksItemVariableMax)
                                 .default(notebooksKernelStartCreateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelStartCreateBodyAppDraftOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelStartCreateBodyAppDraftOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelStartCreateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -2826,14 +2925,19 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemVariableMax)
                                 .default(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelStartCreateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -2925,6 +3029,9 @@ export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemTextMax = 20000
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemVariableMax = 80
 
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemEndVariableMax = 80
+
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemOptionColumnDefault = ``
 export const notebooksKernelStopCreateBodyAppDraftOneBlocksItemOptionColumnMax = 256
@@ -2968,6 +3075,9 @@ export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemTextMax = 200
 
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemVariableDefault = ``
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemVariableMax = 80
+
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemEndVariableDefault = ``
+export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemEndVariableMax = 80
 
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
 export const notebooksKernelStopCreateBodyAppPublishedOneBlocksItemOptionColumnDefault = ``
@@ -3108,14 +3218,19 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStopCreateBodyAppDraftOneBlocksItemVariableMax)
                                 .default(notebooksKernelStopCreateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelStopCreateBodyAppDraftOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelStopCreateBodyAppDraftOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelStopCreateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()
@@ -3233,14 +3348,19 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                 .max(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemVariableMax)
                                 .default(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
+                            end_variable: zod
+                                .string()
+                                .max(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemEndVariableMax)
+                                .default(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemEndVariableDefault)
+                                .describe('End date variable for a date range.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'query_select', 'slider'])
+                                .enum(['auto', 'select', 'query_select', 'date_range', 'slider'])
                                 .describe(
-                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 )
                                 .default(notebooksKernelStopCreateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `query_select` - Query dropdown\n\* `date_range` - Date range\n\* `slider` - Slider'
                                 ),
                             option_column: zod
                                 .string()

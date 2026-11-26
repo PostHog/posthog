@@ -97,7 +97,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS, group_anchored_prose=True
         )
     }
-    variables = {variable["name"] for variable in notebook.variables or []}
+    variables = {variable["name"]: variable for variable in notebook.variables or []}
     result_ids = {
         block.node_id
         for block in blocks
@@ -110,6 +110,18 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         name = block.title or block.id
         if block.kind == "input" and block.variable not in variables:
             problems.append(f"{name}: choose an existing notebook variable.")
+        if block.kind == "input" and block.input_kind == "date_range":
+            start = variables.get(block.variable, {})
+            end = variables.get(block.end_variable, {})
+            if start.get("type") != "date" or end.get("type") != "date" or block.variable == block.end_variable:
+                problems.append(f"{name}: choose two different date variables.")
+            elif (
+                isinstance(start_value := start.get("value"), str)
+                and isinstance(end_value := end.get("value"), str)
+                and end_value
+                and start_value[:10] > end_value[:10]
+            ):
+                problems.append(f"{name}: the start date must be on or before the end date.")
         if block.kind != "cell" and not block.needs_query_choices:
             continue
         node_id = block.node_id

@@ -38,7 +38,12 @@ export interface ViewerResults {
 
 function exposedVariables(release: NotebookAppReleaseApi): NotebookVariable[] {
     return parseNotebookVariables(release.variables).filter((variable) =>
-        release.layout.blocks.some((block) => block.kind === 'input' && block.variable === variable.name)
+        release.layout.blocks.some(
+            (block) =>
+                block.kind === 'input' &&
+                (block.variable === variable.name ||
+                    (block.input_kind === 'date_range' && block.end_variable === variable.name))
+        )
     )
 }
 
