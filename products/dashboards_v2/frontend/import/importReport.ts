@@ -152,7 +152,6 @@ export function notePanel(
 
 // The query batch endpoint rejects a chart with more targets, and with it every other tile in the batch.
 export const MAX_TARGETS = 26
-// The board schema's limits on a chart target.
 export const MAX_LEGEND = 1000
 export const MAX_REF_ID = 200
 

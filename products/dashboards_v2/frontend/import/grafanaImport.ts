@@ -88,10 +88,8 @@ function statFormat(unit: unknown): StatOptions['format'] | undefined {
     return typeof unit === 'string' && unit.startsWith('currency') ? 'currency' : undefined
 }
 
-// The stat shows the latest value, which is what these Grafana reducers pick.
 const LATEST_REDUCERS = new Set(['last', 'lastNotNull'])
 
-// A Grafana LogQL panel picks its range window from the step. Imported queries need a fixed one.
 const LOGQL_WINDOW = '1m'
 
 /**
@@ -120,7 +118,6 @@ function variableValue(variable: Json): string | undefined {
         : escapeString(values[0])
 }
 
-/** Text for a markdown note's heading or inline code: one line, no backticks, so it can't open markup of its own. */
 const inline = (value: unknown): string =>
     String(value)
         .replace(/[`\r\n]+/g, ' ')

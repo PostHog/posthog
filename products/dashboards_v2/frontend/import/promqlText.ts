@@ -117,10 +117,6 @@ export function stripStepWindows(expr: string): string {
     return out + expr.slice(kept)
 }
 
-/**
- * LogQL needs a window on every range function, so Grafana's per-panel windows become a fixed one. Returns the text and
- * whether any window was replaced, so the report can say the tile may differ.
- */
 export function fixLogqlWindows(expr: string, window: string): { text: string; replaced: boolean } {
     let replaced = false
     const text = expr.replace(/\[\s*(\$\{?__(?:rate_interval|interval|auto|range)\}?)\s*\]/g, () => {
