@@ -27,6 +27,17 @@ describe('CLI agent help', () => {
         expect(help).toContain('query-trends')
     })
 
+    it.each([
+        ['with the inbox list tool', true],
+        ['without it', false],
+    ])('points to the Self-driving inbox only when the catalog has the list tool: %s', (_name, hasTool) => {
+        const tools = getCliTools({ aiConsentGiven: true }).filter(
+            (tool) => hasTool || tool.name !== 'inbox-reports-list'
+        )
+
+        expect(buildAgentHelp(tools).includes('start with `call inbox-reports-list <json_input>`')).toBe(hasTool)
+    })
+
     it('does not require credentials to build', () => {
         expect(() => buildAgentHelp(getCliTools())).not.toThrow()
     })
