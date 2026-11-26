@@ -22,7 +22,12 @@ from .offline_evaluations import (
 from .parser_recipe import ParserRecipe
 from .provider_keys import LLMProvider, LLMProviderKey
 from .review_queues import ReviewQueue, ReviewQueueItem
-from .score_definitions import ScoreDefinition, ScoreDefinitionInput, ScoreDefinitionVersion
+from .score_definitions import (
+    ExperimentScoreSuiteDefault,
+    ScoreDefinition,
+    ScoreDefinitionInput,
+    ScoreDefinitionVersion,
+)
 from .trace_reviews import TraceReview, TraceReviewScore
 
 __all__ = [
@@ -59,6 +64,7 @@ __all__ = [
     "ReviewQueue",
     "ReviewQueueItem",
     "ScoreDefinition",
+    "ExperimentScoreSuiteDefault",
     "ScoreDefinitionInput",
     "ScoreDefinitionVersion",
     "TraceReview",

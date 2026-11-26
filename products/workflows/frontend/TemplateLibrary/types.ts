@@ -18,5 +18,6 @@ export interface MessageTemplate {
     transactional_hog_flow_id?: MessageTemplateApi['transactional_hog_flow_id']
     draft_content?: MessageTemplateApi['draft_content']
     sensitive?: MessageTemplateApi['sensitive']
+    click_tracking_enabled?: MessageTemplateApi['click_tracking_enabled']
     tags?: MessageTemplateApi['tags']
 }

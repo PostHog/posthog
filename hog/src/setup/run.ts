@@ -3,9 +3,10 @@ import { join } from 'node:path'
 import type { Context } from '@/core/context'
 
 import { AGENTS_FILE, blockStage } from './agents-md'
+import { productLabel, type ProductId } from './products'
 import type { DoneStep, EventsContext, SetupInput, SetupResult } from './result'
 import { completed, SetupRun, type Step } from './setup-run'
-import { readState, setupScope, STEP_IDS, type StepId } from './state'
+import { readState, SETUP_COMMAND, setupScope, STEP_IDS, type StepId } from './state'
 import { purpose } from './steps/01-purpose'
 import { login } from './steps/02-login'
 import { project } from './steps/03-project'
@@ -13,7 +14,7 @@ import { agentsMd } from './steps/04-agents-md'
 import { install } from './steps/05-install'
 import { review } from './steps/06-review'
 import { countEvents, eventsContext, verify } from './steps/07-verify'
-import { ADD_SKILLS, products } from './steps/08-products'
+import { products } from './steps/08-products'
 import { mcp } from './steps/09-mcp'
 import { connected } from './steps/10-connected'
 
@@ -67,30 +68,81 @@ const READ_PROXY = 'hog skills read instrument-reverse-proxy'
 const CONNECTED =
     'PostHog is set up in this folder. The PostHog section in `AGENTS.md` lists the commands for later PostHog work.'
 const NO_EVENTS = "PostHog hasn't received any events yet. Run the app and use it, then run `hog setup` to check again."
-const TELL_USER = `At the end of your turn, tell the user what else PostHog can do, from \`context.products\`, and which skills named in \`context.skills\` they can add with \`${ADD_SKILLS}\`. \`hog skills search <words>\` describes the skills that match.`
-const SUGGEST_PROXY = `If the app uses posthog-js and its \`api_host\` is still a PostHog host, also tell the user that a reverse proxy sends PostHog's browser requests through the app's own domain, so events, feature flags, and surveys keep loading where requests to PostHog's domains are blocked, and that \`${READ_PROXY}\` sets one up. Don't set one up unless they ask: it can need a DNS change and an organization admin.`
+const SUGGEST_PROXY = `If the app uses posthog-js and its \`api_host\` is still a PostHog host, also tell the user, without commands, that a reverse proxy sends PostHog's browser requests through the app's own domain, so events, feature flags, and surveys keep loading where requests to PostHog's domains are blocked, and that you can set one up. Don't set one up unless they ask: it can need a DNS change and an organization admin. If they ask, run \`${READ_PROXY}\` and follow it.`
+const FOLLOW_UPS = `When the user asks for something the message offers, use \`context\`: a product's \`command\` in \`context.products\`, \`hog skills add <name...>\` with names from \`context.skills\`, \`context.mcp.command\` for the MCP server, and \`${SETUP_COMMAND}\` to check for events again.`
 
-// Only the call that finishes setup has the lists, and a person at a terminal sees them printed.
-function doneInstructions(run: SetupRun, events: EventsContext | undefined): string {
-    const finishedForAgent = run.ctx.prompts === undefined && run.done.some(({ step }) => step === 'connected')
+const SKILL_WORDS: Partial<Record<ProductId, string>> = {
+    'session-replay': 'replay',
+    'feature-flags': 'flag',
+    experiments: 'experiment',
+    surveys: 'survey',
+    'error-tracking': 'error',
+    'llm-analytics': 'llm',
+    logs: 'log',
+    'web-analytics': 'web-analytics',
+    'data-warehouse': 'warehouse',
+}
+const MAX_OTHER_PRODUCTS = 5
 
-    const { mcp } = run.context
-    const tellMcp =
-        !finishedForAgent || !mcp || mcp.configured
-            ? ''
-            : mcp.foreign
-              ? `Also tell the user that the \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server, and that \`${mcp.command}\` replaces it with PostHog's.`
-              : `Also tell the user they can connect PostHog's MCP server with \`${mcp.command}\`.`
+// The wrap-up the agent sends as it is, so the person gets every part of it whatever the agent's style.
+// A product label inside a sentence, keeping acronyms such as AI.
+function inSentence(label: string): string {
+    return /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label
+}
 
-    return [
-        CONNECTED,
-        events?.count === 0 ? NO_EVENTS : '',
-        finishedForAgent ? TELL_USER : '',
-        finishedForAgent ? SUGGEST_PROXY : '',
-        tellMcp,
+function listed(items: string[]): string {
+    return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+function doneMessage(run: SetupRun, events: EventsContext | undefined): string {
+    const { context, state } = run
+    const chosen = state?.products ?? []
+    const skills = context.skills ?? []
+    const region = context.host === undefined ? '' : ` on ${context.host}`
+
+    const withSkills = chosen.filter((id) => {
+        const word = SKILL_WORDS[id]
+        return word !== undefined && skills.some((skill) => skill.id.includes(word))
+    })
+    // The install sets up product analytics, so it isn't offered again.
+    const others = (context.products ?? [])
+        .filter((product) => !product.chosen && product.id !== 'product-analytics')
+        .slice(0, MAX_OTHER_PRODUCTS)
+    const { mcp } = context
+
+    const offers = [
+        others.length > 0 ? `Set up ${listed(others.map((product) => inSentence(product.label)))}` : '',
+        withSkills.length > 0
+            ? `Add PostHog skills for ${listed(withSkills.map((id) => inSentence(productLabel(id))))}, so later sessions know how to work with them`
+            : 'Add PostHog skills, so later sessions know how to work with PostHog',
+        mcp?.foreign
+            ? `Replace the \`posthog\` MCP server in \`${mcp.foreign.path}\`, which points at another server`
+            : mcp && !mcp.configured
+              ? "Connect PostHog's MCP server, so I can look at your PostHog data in later sessions"
+              : '',
+    ].filter(Boolean)
+
+    const status = [
+        `PostHog is set up in this app, in project ${context.projectId ?? 'unknown'}${region}.`,
+        events?.count === 0
+            ? "PostHog hasn't received any events from the app yet. Start the app and click around a few pages, then tell me and I'll check again."
+            : events?.count
+              ? `PostHog has received ${events.count} ${events.count === 1 ? 'event' : 'events'} since setup started.`
+              : '',
     ]
         .filter(Boolean)
-        .join(' ')
+        .join('\n')
+
+    return `${status}\n\nIf you want, I can also:\n${offers.map((offer) => `- ${offer}`).join('\n')}`
+}
+
+// Only the call that finishes setup has the lists, and a person at a terminal sees them printed.
+function finishedForAgent(run: SetupRun): boolean {
+    return run.ctx.prompts === undefined && run.done.some(({ step }) => step === 'connected')
+}
+
+function doneInstructions(events: EventsContext | undefined): string {
+    return [CONNECTED, events?.count === 0 ? NO_EVENTS : ''].filter(Boolean).join(' ')
 }
 
 // Once connected, `hog setup` reports the folder instead of a step.
@@ -109,10 +161,13 @@ async function connectedResult(run: SetupRun): Promise<SetupResult> {
         done,
         context,
         next: context.loggedIn
-            ? {
-                  kind: 'done',
-                  instructions: doneInstructions(run, events),
-              }
+            ? finishedForAgent(run)
+                ? {
+                      kind: 'done',
+                      instructions: `PostHog is set up. End your turn with a short summary of what you changed in the app, then send the user \`next.message\` as it is. ${FOLLOW_UPS} ${SUGGEST_PROXY}`,
+                      message: doneMessage(run, events),
+                  }
+                : { kind: 'done', instructions: doneInstructions(events) }
             : {
                   kind: 'run',
                   command: 'hog auth login',
@@ -130,7 +185,7 @@ async function cloneIsConnected(run: SetupRun): Promise<boolean> {
     return config?.host !== undefined && config.projectId !== undefined && stage === 'final'
 }
 
-// `hog setup` (next false) only describes. `hog setup next` does the current step and every step
+// `hog setup status` (next false) only describes. `hog setup` does the current step and every step
 // after it that needs nobody, and stops at the first one that needs the person or the agent.
 export async function runSetup(ctx: Context, input: SetupInput): Promise<SetupResult> {
     const scope = await setupScope(ctx)

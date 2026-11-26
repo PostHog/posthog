@@ -6,6 +6,7 @@ use metrics::{counter, gauge};
 use rdkafka::message::Message;
 use tokio::time::Instant;
 
+use super::completed_polls::CompletedPolls;
 use super::poll::InFlightPoll;
 use super::{report_revoked, Collector, Parts, PollingStrategy, Step};
 use crate::charge_limit::ChargeLimit;
@@ -18,6 +19,7 @@ pub(crate) struct ContinuousPolling {
     settlement: Arc<GroupSettlement>,
     uncommitted: UncommittedCharges,
     processed: ProcessedTimestamps,
+    completed_polls: CompletedPolls,
     limits: ChargeLimit,
     at_limit: bool,
     accepting_new_batches: bool,
@@ -31,6 +33,7 @@ impl ContinuousPolling {
             settlement: parts.settlement,
             uncommitted: UncommittedCharges::default(),
             processed: ProcessedTimestamps::new(parts.group_id),
+            completed_polls: CompletedPolls::new(parts.debug_recorder),
             limits,
             at_limit: false,
             accepting_new_batches: true,
@@ -78,6 +81,8 @@ impl PollingStrategy for ContinuousPolling {
         if outcome == RunOutcome::Stale {
             return Ok(());
         }
+        self.completed_polls
+            .record_settled(topic_partition, &completion.offsets);
         counter!("ingestion_consumer_messages_processed_total")
             .increment(completion.offsets.len() as u64);
         self.commit_due = true;
@@ -118,6 +123,7 @@ impl PollingStrategy for ContinuousPolling {
     fn on_submitted(&mut self, poll: InFlightPoll) {
         self.uncommitted.record_poll(&poll);
         self.processed.record_poll(&poll);
+        self.completed_polls.record_poll(&poll);
     }
 
     fn next_step(&mut self, now: Instant) -> Option<Step> {
@@ -149,6 +155,7 @@ impl ContinuousPolling {
         let building = self.collector.remove_partitions(topic_partitions) as u64;
         self.uncommitted.forget(topic_partitions);
         self.processed.forget(topic_partitions);
+        self.completed_polls.forget(topic_partitions);
         report_revoked(building);
     }
 }
@@ -401,9 +408,15 @@ mod tests {
             "the old assignment's completion is stale"
         );
         assert_eq!(processed(), 0, "a stale completion processed nothing");
+        assert_eq!(
+            harness.completed_polls(),
+            polls(&[]),
+            "a stale completion completes no poll of the next assignment"
+        );
         harness.complete(0, &[0, 1]);
         assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
         assert_eq!(processed(), 2);
+        assert_eq!(harness.completed_polls(), polls(&[("poll-1", 2)]));
     }
 
     #[test]
@@ -582,5 +595,83 @@ mod tests {
         harness.complete(0, &[0]);
         assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(1))]));
         assert!(matches!(harness.step(), Some(Step::Stop)));
+    }
+
+    fn polls(completed: &[(&str, u32)]) -> Vec<(String, u32)> {
+        completed
+            .iter()
+            .map(|&(poll_id, accepted)| (poll_id.to_string(), accepted))
+            .collect()
+    }
+
+    #[test]
+    fn a_poll_completes_once_its_own_offsets_settle_on_every_partition() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 2]);
+        harness.receive(1, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        harness.receive(0, &[4, 5]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+
+        harness.complete(0, &[2, 4, 5]);
+        assert_eq!(
+            harness.completed_polls(),
+            polls(&[("poll-1", 2)]),
+            "a later poll completes before an earlier one"
+        );
+
+        harness.complete(0, &[0]);
+        assert_eq!(
+            harness.completed_polls(),
+            polls(&[("poll-1", 2)]),
+            "partition 1 still holds poll-0"
+        );
+
+        harness.complete(1, &[0]);
+        assert_eq!(
+            harness.completed_polls(),
+            polls(&[("poll-1", 2), ("poll-0", 3)]),
+            "a compacted offset inside a poll's span never settles, so it does not count"
+        );
+    }
+
+    #[test]
+    fn a_poll_completes_without_a_partition_whose_charge_the_ledger_rejected() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0]);
+        harness.receive(1, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit_with_a_stale_charge_on(&[1]);
+
+        harness.complete(0, &[0]);
+
+        assert_eq!(harness.completed_polls(), polls(&[("poll-0", 1)]));
+    }
+
+    #[test]
+    fn a_revoke_leaves_a_poll_its_other_partitions_and_drops_a_poll_it_empties() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.receive(1, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        harness.receive(0, &[2]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+
+        harness.revoke(0);
+        harness.receive(0, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        harness.complete(1, &[0]);
+        harness.complete(0, &[0]);
+
+        assert_eq!(
+            harness.completed_polls(),
+            polls(&[("poll-0", 1), ("poll-2", 1)]),
+            "poll-1 held only the revoked partition"
+        );
     }
 }

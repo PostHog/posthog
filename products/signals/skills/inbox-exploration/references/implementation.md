@@ -78,7 +78,9 @@ posthog:inbox-reports-claim
 
 ### Step 4 — Open the PR and attach it
 
-Open the PR following the repo's PR conventions, then attach it to the report:
+Open the PR following the repo's PR conventions.
+Put the report's `_posthogUrl` in the PR description so that reviewers can see the context.
+Then attach the PR to the report:
 
 ```json
 posthog:inbox-reports-claim
@@ -92,8 +94,7 @@ posthog:inbox-reports-claim
 PR links are additive and retries do not duplicate them. Send every known PR together so completion
 considers the entire stack. The same PR may be attached to multiple reports. Connected repositories receive immediate state
 validation and webhook updates. PRs from unconnected repositories are accepted with unknown state,
-so resolve those reports manually after the work lands. Also reference the report's `_posthogUrl`
-in the PR description so the loop is traceable from either side.
+so resolve those reports manually after the work lands.
 
 **Don't resolve a report because you opened a PR.** A report resolves when all linked PRs are closed
 or merged and at least one merged.

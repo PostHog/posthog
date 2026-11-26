@@ -1,7 +1,5 @@
 import json
 import asyncio
-from typing import get_args
-from uuid import UUID
 
 import pytest
 from unittest.mock import patch
@@ -17,14 +15,12 @@ from posthog.llm.gateway_client import (
     AIGatewayConfig,
     AIGatewayHostError,
     GatewayNotConfiguredError,
-    Product,
     build_ai_gateway_openai_client,
     build_anthropic_client,
     build_async_anthropic_client,
     build_async_openai_client,
     build_gemini_client,
     build_openai_client,
-    get_llm_client,
     private_scout_gateway,
     resolve_ai_gateway_config,
     resolve_https_ai_gateway_config,
@@ -35,65 +31,6 @@ from posthog.llm.gateway_client import (
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
 AI_GATEWAY_KEY = "phs_project_secret"
 TEAM_42_TRACE_ID = "30a04c7a-98b4-5119-8597-8c696e44a270"
-
-
-class TestGetLlmClient:
-    @pytest.mark.parametrize("product", get_args(Product))
-    def test_valid_products(self, product: str):
-        assert product in get_args(Product)
-
-    @patch("posthog.llm.gateway_client.settings")
-    def test_raises_when_gateway_url_missing(self, mock_settings):
-        mock_settings.LLM_GATEWAY_URL = ""
-        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
-
-        with pytest.raises(GatewayNotConfiguredError, match="LLM_GATEWAY_URL and an API key must be configured"):
-            get_llm_client(product="django")
-
-    @patch("posthog.llm.gateway_client.settings")
-    def test_raises_when_gateway_api_key_missing(self, mock_settings):
-        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
-        mock_settings.LLM_GATEWAY_API_KEY = ""
-
-        with pytest.raises(GatewayNotConfiguredError, match="LLM_GATEWAY_URL and an API key must be configured"):
-            get_llm_client(product="django")
-
-    @patch("posthog.llm.gateway_client.settings")
-    def test_returns_client_with_correct_base_url(self, mock_settings):
-        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
-        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
-
-        client = get_llm_client(product="django")
-
-        assert str(client.base_url) == "http://gateway:8080/django/v1/"
-        assert client.api_key == "test-key"
-
-    @pytest.mark.parametrize(
-        "product,expected_path",
-        [
-            ("django", "/django/v1/"),
-            ("posthog_code", "/posthog_code/v1/"),
-            ("wizard", "/wizard/v1/"),
-            ("signals", "/signals/v1/"),
-        ],
-    )
-    @patch("posthog.llm.gateway_client.settings")
-    def test_product_in_base_url(self, mock_settings, product: Product, expected_path: str):
-        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
-        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
-
-        client = get_llm_client(product=product)
-
-        assert expected_path in str(client.base_url)
-
-    @patch("posthog.llm.gateway_client.settings")
-    def test_strips_trailing_slash_from_gateway_url(self, mock_settings):
-        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080/"
-        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
-
-        client = get_llm_client(product="django")
-
-        assert str(client.base_url) == "http://gateway:8080/django/v1/"
 
 
 class TestResolveAIGatewayConfig:
@@ -234,7 +171,7 @@ class TestTeamTraceId:
             (487950, "78c3f90a-d69e-5fe6-b2b2-3f22a4d7ebb1"),
         ],
     )
-    def test_matches_python_gateway_derivation(self, team_id: int, expected: str):
+    def test_matches_captured_trace_ids(self, team_id: int, expected: str):
         assert team_trace_id(team_id) == expected
 
     def test_unattributed_call_has_no_trace_id(self):
@@ -245,12 +182,6 @@ class TestTeamTraceId:
 
 
 class TestTraceIdFromSeed:
-    # The Go route sends this value verbatim and the Python route hashes anything it cannot parse,
-    # so a non-UUID would give one call two different trace ids.
-    def test_result_parses_as_a_uuid_so_both_gateway_routes_agree(self):
-        derived = trace_id_from_seed("slack-thread-T123-1700000000.000100")
-        assert str(UUID(derived)) == derived
-
     def test_distinct_seeds_do_not_share_a_trace(self):
         assert trace_id_from_seed("slack-thread-T1-1.1") != trace_id_from_seed("slack-thread-T1-1.2")
 
@@ -409,8 +340,7 @@ class TestBuildersRequireGoGateway:
         ],
         ids=["unset", "half_applied", "missing_v1"],
     )
-    @override_settings(LLM_GATEWAY_URL="https://gateway.example", LLM_GATEWAY_API_KEY="shared-credential")
-    def test_raises_instead_of_using_the_python_gateway(self, builder, url, api_key, message):
+    def test_raises_when_the_gateway_is_unset_or_misconfigured(self, builder, url, api_key, message):
         with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
             with pytest.raises(GatewayNotConfiguredError, match=message):
                 builder()
@@ -448,12 +378,10 @@ class TestBuildAIGatewayOpenAIClient:
             (AI_GATEWAY_URL, "", "api_key is required"),
         ],
     )
-    @patch("posthog.llm.gateway_client.get_llm_client")
-    def test_raises_instead_of_using_the_python_gateway(self, mock_get_llm_client, url, api_key, message):
+    def test_raises_when_the_gateway_is_not_configured(self, url, api_key, message):
         with override_settings(AI_GATEWAY_URL=url):
             with pytest.raises(GatewayNotConfiguredError, match=message):
                 build_ai_gateway_openai_client(api_key=api_key, ai_product="custom_image_scans")
-        mock_get_llm_client.assert_not_called()
 
 
 class TestBuildGeminiClient:
@@ -626,10 +554,9 @@ class TestPrivateScoutGateway:
     @override_settings(
         SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
         AI_GATEWAY_URL=AI_GATEWAY_URL,
-        LLM_GATEWAY_URL="https://gateway.example",
-        LLM_GATEWAY_API_KEY="shared-credential",
+        AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
     )
-    def test_private_context_cannot_use_python_gateway(self) -> None:
-        with private_scout_gateway("phe_trial_credential"):
-            with pytest.raises(GatewayNotConfiguredError, match="require the Go AI gateway"):
-                get_llm_client(product="signals")
+    def test_go_only_client_uses_private_context(self) -> None:
+        with patch.object(gateway_client, "Anthropic") as client, private_scout_gateway("phe_trial_credential"):
+            build_anthropic_client()
+        assert client.call_args.kwargs["api_key"] == "phe_trial_credential"

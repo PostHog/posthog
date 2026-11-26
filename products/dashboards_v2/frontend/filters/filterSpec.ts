@@ -1,10 +1,9 @@
 import type { z } from 'zod'
 
-import type { DashboardFilter } from '../dashboard/dashboardTypes'
+import type { DashboardFilter, SavedFilter } from '../dashboard/document/dashboardTypes'
 
-export interface AddFilterMenuItem<Config = unknown> {
+export type AddFilterOption<Config = unknown> = {
     label: string
-    /** Builds the filter the menu adds. The dashboard gives it an id. */
     create: () => Omit<DashboardFilter<Config>, 'id'>
 }
 
@@ -12,9 +11,9 @@ export interface AddFilterMenuItem<Config = unknown> {
  * Everything about a kind of filter except how its control renders. It is plain data with no React, so code outside
  * the browser can load it, such as `validateDashboard`.
  */
-export interface FilterSpec<Config = unknown> {
+export type FilterSpec<Config = unknown> = {
     type: string
-    addMenuItems: AddFilterMenuItem<Config>[]
+    addFilterOptions: AddFilterOption<Config>[]
     pickerLabel?: string
     configSchema: z.ZodType<Config>
     /**
@@ -25,11 +24,11 @@ export interface FilterSpec<Config = unknown> {
 }
 
 export function hasFilterOn(
-    filters: Omit<DashboardFilter, 'id'>[],
-    filter: Omit<DashboardFilter, 'id'>,
+    filters: Omit<SavedFilter, 'id'>[],
+    filter: Omit<SavedFilter, 'id'>,
     types: FilterSpec[]
 ): boolean {
-    const field = (candidate: Omit<DashboardFilter, 'id'>): string => {
+    const field = (candidate: Omit<SavedFilter, 'id'>): string => {
         const spec = findFilterType(types, candidate.type)
         return spec?.fieldOf ? spec.fieldOf(candidate.config) : JSON.stringify(candidate.config)
     }

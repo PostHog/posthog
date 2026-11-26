@@ -398,6 +398,11 @@ export interface FeatureFlagConditionGroupSchemaApi {
      * @nullable
      */
     aggregation_group_type_index?: number | null
+    /**
+     * Display-only name for this release condition group. It does not affect evaluation.
+     * @nullable
+     */
+    description?: string | null
 }
 
 /**
@@ -2377,6 +2382,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `multiple_variants_share` - Multiple Variants Share
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
  * * `metric_cannot_compile` - Metric Cannot Compile
  * * `metric_calculation_failed` - Metric Calculation Failed
  * * `metric_all_zero` - Metric All Zero
@@ -2396,6 +2402,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `result_ready` - Result Ready
  * * `flag_shared` - Flag Shared
  * * `stale_experiment` - Stale Experiment
  */
@@ -2411,6 +2418,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     MultipleVariantsShare: 'multiple_variants_share',
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
     MetricCannotCompile: 'metric_cannot_compile',
     MetricCalculationFailed: 'metric_calculation_failed',
     MetricAllZero: 'metric_all_zero',
@@ -2430,6 +2438,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    ResultReady: 'result_ready',
     FlagShared: 'flag_shared',
     StaleExperiment: 'stale_experiment',
 } as const
@@ -2490,6 +2499,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
  * * `metric_cannot_compile` - Metric Cannot Compile
  * * `metric_calculation_failed` - Metric Calculation Failed
  * * `metric_all_zero` - Metric All Zero
@@ -2497,6 +2507,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `result_ready` - Result Ready
  * * `stale_experiment` - Stale Experiment
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -2522,6 +2533,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     NewFlagNoTraffic: 'new_flag_no_traffic',
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
     MetricCannotCompile: 'metric_cannot_compile',
     MetricCalculationFailed: 'metric_calculation_failed',
     MetricAllZero: 'metric_all_zero',
@@ -2529,6 +2541,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    ResultReady: 'result_ready',
     StaleExperiment: 'stale_experiment',
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
@@ -2556,6 +2569,7 @@ export interface ExperimentHealthFindingApi {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -2575,6 +2589,7 @@ export interface ExperimentHealthFindingApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment */
     code: ExperimentHealthFindingCodeEnumApi
@@ -2620,6 +2635,7 @@ export interface ExperimentHealthFindingApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -2627,6 +2643,7 @@ export interface ExperimentHealthFindingApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -2697,6 +2714,7 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
  * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
  * * `significant` - Whether a variant's difference from the control is significant
+ * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
  * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
  * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
  * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -2771,6 +2789,7 @@ export const ExperimentHealthValueKeyEnumApi = {
     DifferencePercentage: 'difference_percentage',
     DetectableDifferencePercentage: 'detectable_difference_percentage',
     Significant: 'significant',
+    SignificantSinceAt: 'significant_since_at',
     ForcedConditionCount: 'forced_condition_count',
     MatchedCount: 'matched_count',
     VariantMatchedCount: 'variant_matched_count',
@@ -2867,6 +2886,7 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -2944,6 +2964,7 @@ export interface ExperimentHealthCheckRuleApi {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -3020,6 +3041,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -3027,6 +3049,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -3343,7 +3366,7 @@ export interface ExperimentWriteApi {
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
-    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
     /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
@@ -3501,7 +3524,7 @@ export interface ExperimentApi {
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
-    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
     /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
@@ -3655,7 +3678,7 @@ export interface PatchedExperimentWriteApi {
     readonly is_legacy?: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure?: boolean
-    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event?: string
     /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health?: ExperimentHealthApi | null

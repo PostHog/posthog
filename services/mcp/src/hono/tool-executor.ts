@@ -10,6 +10,7 @@ import {
     toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { clearBusinessKnowledgeContentAfterSourceCreate } from '@/lib/business-knowledge-content'
 import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
@@ -35,7 +36,7 @@ import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
-import { byteLength, responseTokenBudget } from '@/lib/response-budget'
+import { byteLength } from '@/lib/response-budget'
 import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
@@ -588,6 +589,7 @@ export class ToolExecutor {
                 markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
                 ignoredKeys
             )
+            await clearBusinessKnowledgeContentAfterSourceCreate(tool.name, state.context)
 
             if (isContextSwitch) {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
@@ -628,7 +630,7 @@ export class ToolExecutor {
                     appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 })
             }
-            response = this.capResponse(response, tool.name, state, validation.data, guidance)
+            response = this.capResponse(response, tool.name, state, guidance)
 
             const guided = attachGuidanceNotice(response, guidance)
             void trackToolCall(
@@ -753,20 +755,15 @@ export class ToolExecutor {
         response: ToolResultPayload,
         toolName: string,
         state: ResolvedState,
-        args: unknown,
         guidance: GuidanceNotice | undefined
     ): ToolResultPayload {
-        const clientLimit = state.clientProfile.capabilities.toolResultTokenLimit
         const capped = capResponseToBudget(
             response,
-            responseTokenBudget(clientLimit, args),
+            state.clientProfile.capabilities.toolResultTokenLimit,
             guidance?.text ? byteLength(guidance.text) : 0
         )
         if (capped !== response) {
-            toolResponsesShortenedTotal.inc({
-                tool: toolName,
-                budget: clientLimit === undefined ? 'default' : 'client',
-            })
+            toolResponsesShortenedTotal.inc({ tool: toolName })
         }
         return capped
     }
@@ -916,13 +913,7 @@ export class ToolExecutor {
                           resultEmpty: execMetrics.resultEmpty,
                       })
             const duration = Date.now() - startMs
-            const response = this.capResponse(
-                built,
-                execToolName(),
-                state,
-                execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : undefined,
-                guidance
-            )
+            const response = this.capResponse(built, execToolName(), state, guidance)
             const guided = attachGuidanceNotice(response, guidance, {
                 jsonOutput: execMetrics.innerOutputFormat === 'json',
             })
