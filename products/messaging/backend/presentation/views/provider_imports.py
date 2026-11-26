@@ -17,10 +17,12 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.models.organization import OrganizationMembership
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.messaging.backend.facade.provider_imports import (
     CONTACT_STEPS,
     IMPORT_PROVIDER_CHOICES,
@@ -277,8 +279,7 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
             # The Customer.io key stays stored for the project, so anyone else could read every profile with it.
             if data["provider"] == CUSTOMERIO_PROVIDER:
-                level = self.user_permissions.team(self.team).effective_membership_level
-                if level is None or level < OrganizationMembership.Level.ADMIN:
+                if not authorization.check(resource=Resource.project(self.team.id), action=Action.EDIT):
                     raise PermissionDenied("Only project admins can import Customer.io contacts.")
         provider = next((provider for provider in self._providers() if provider.key == data["provider"]), None)
         if provider is None:
