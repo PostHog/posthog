@@ -16,7 +16,7 @@ const REQUEST_TIMEOUT_MS = 10_000
 const RETRY_WAIT_CAP_MS = 60_000
 const RATE_LIMIT_HEADERS = ['x-ratelimit-remaining', 'x-ratelimit-reset', 'retry-after']
 
-export type OriginIo = Pick<Controller, 'env' | 'now' | 'sleep' | 'warn'>
+export type OriginIo = Pick<Controller, 'now' | 'sleep' | 'warn'>
 
 async function messageOf(response: FetchResponse): Promise<string | undefined> {
     const { message } = ((await response.json().catch(() => ({}))) ?? {}) as { message?: unknown }
@@ -67,6 +67,8 @@ async function onMasterInGit(repo: string, remote: string, commit: string): Prom
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_CONFIG_GLOBAL: os.devNull,
         GIT_TERMINAL_PROMPT: '0',
+        GIT_HTTP_LOW_SPEED_LIMIT: '1000',
+        GIT_HTTP_LOW_SPEED_TIME: '30',
     }
     const inScratch = (...args: string[]): Promise<string> => run(scratch, scratchEnv, args)
     const gitDir = path.resolve(repo, await inRepo('rev-parse', '--git-common-dir'))
@@ -107,7 +109,6 @@ export function githubOrigin(
     repo = __dirname,
     remote = `https://github.com/${REPOSITORY}`
 ): Origin {
-    const token = io.env.GITHUB_TOKEN
     return {
         head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
         cardAt: (commit, id) =>
@@ -129,7 +130,6 @@ export function githubOrigin(
                     headers: {
                         Accept: 'application/vnd.github+json',
                         'User-Agent': 'posthog-scenario-runner',
-                        ...(token && { Authorization: `Bearer ${token}` }),
                     },
                     timeoutMs: REQUEST_TIMEOUT_MS,
                 })

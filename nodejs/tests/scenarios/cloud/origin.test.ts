@@ -67,12 +67,11 @@ describe('githubOrigin', () => {
     const viaApi = (io: OriginIo): ReturnType<typeof githubOrigin> =>
         githubOrigin(io, api, checkout, `file://${repos}/missing.git`)
 
-    const scripted = (env: NodeJS.ProcessEnv = {}): { io: OriginIo; waits: number[]; warned: string[] } => {
+    const scripted = (): { io: OriginIo; waits: number[]; warned: string[] } => {
         const waits: number[] = []
         const warned: string[] = []
         return {
             io: {
-                env,
                 now: () => new Date(NOW_S * 1000),
                 sleep: (ms) => {
                     waits.push(ms)
@@ -290,16 +289,6 @@ describe('githubOrigin', () => {
             expect({ requests: authorizations.length, waits }).toEqual({ requests, waits: waited })
         }
     )
-
-    it.each([
-        ['sends the token the environment sets', { GITHUB_TOKEN: 'example-token' }, 'Bearer example-token'],
-        ['sends no authorization without a token', {}, undefined],
-        ['sends no authorization with an empty token', { GITHUB_TOKEN: '' }, undefined],
-    ])('%s', async (_story, env, authorization) => {
-        await viaApi(scripted(env).io).onMaster(COMMIT)
-
-        expect(authorizations).toEqual([authorization])
-    })
 
     it('reads a card as the commit holds it, never as the working tree holds it', () => {
         const repo = mkdtempSync(path.join(os.tmpdir(), 'scenario-origin-'))
