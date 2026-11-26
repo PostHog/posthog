@@ -158,6 +158,9 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
 
 # SES replaces our Message-ID with `<MessageId@email.amazonses.com>`, or `@<region>.amazonses.com` outside us-east-1,
 # and the sent row keeps only the MessageId its API returned.
+# The headers come from an inbound email anyone can send, and each extra id lets the bloom index skip fewer granules.
+# Sends cap References at 100 ids, so a real reply never needs more.
+_MAX_WIRE_IDS = 100
 _SES_WIRE_MESSAGE_ID = re.compile(r"<([^<>@\s]+)@[a-z0-9-]+\.amazonses\.com>", re.IGNORECASE)
 # A reply carries no send time, so this reads every partition the retention keeps and skips granules by the index.
 _SENT_MESSAGE_QUERY = f"""
@@ -175,6 +178,8 @@ def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMe
     wire_ids: dict[str, str] = {}
     for header in headers:
         for match in _SES_WIRE_MESSAGE_ID.finditer(header):
+            if len(wire_ids) == _MAX_WIRE_IDS:
+                break
             wire_ids.setdefault(match[1], match[0])
     if not wire_ids:
         return ()
