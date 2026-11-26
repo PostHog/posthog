@@ -6,6 +6,7 @@ therefore an HTTP call with a project secret API key, and not a query on the cal
 
 from __future__ import annotations
 
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -24,8 +25,14 @@ DOCS_LIBRARY_FLAG = "docs-search-business-knowledge-library"
 DOCS_LIBRARY_TIMEOUT = httpx.Timeout(4.0, connect=2.0)
 DOCS_LIBRARY_RESULT_LIMIT = 10
 # Every customer reads what the library returns. A source that someone adds to the library by mistake
-# can hold internal pages, so a result on any other host is dropped.
-_PUBLIC_DOCS_HOSTS = frozenset({"posthog.com"})
+# can hold internal pages, so a result on any other host is dropped. Subdomains are not accepted,
+# because some of them serve internal sites.
+_PUBLIC_DOCS_HOSTS = frozenset({"posthog.com", "www.posthog.com"})
+# All organizations share the one key, and so the one rate limit. After a throttled response, this
+# process sends no request until the wait ends, so a throttled library costs no extra round trip.
+_DEFAULT_THROTTLE_WAIT_SECONDS = 60.0
+_MAX_THROTTLE_WAIT_SECONDS = 300.0
+_throttled_until = 0.0
 
 
 def is_docs_library_configured() -> bool:
@@ -57,10 +64,7 @@ def _is_public_docs_url(url: str) -> bool:
         parsed = urlsplit(url.strip())
     except ValueError:
         return False
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https":
-        return False
-    return host in _PUBLIC_DOCS_HOSTS or any(host.endswith(f".{public_host}") for public_host in _PUBLIC_DOCS_HOSTS)
+    return parsed.scheme == "https" and (parsed.hostname or "").lower() in _PUBLIC_DOCS_HOSTS
 
 
 def pages_from_results(rows: list[Any]) -> list[DocsPage]:
@@ -92,6 +96,14 @@ def pages_from_results(rows: list[Any]) -> list[DocsPage]:
     return pages
 
 
+def _throttle_wait_seconds(response: httpx.Response) -> float:
+    try:
+        wait = float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        return _DEFAULT_THROTTLE_WAIT_SECONDS
+    return min(max(wait, 1.0), _MAX_THROTTLE_WAIT_SECONDS)
+
+
 async def fetch_docs_library_pages(query: str, *, transport: httpx.AsyncBaseTransport | None = None) -> list[DocsPage]:
     url = (
         f"{settings.DOCS_SEARCH_LIBRARY_HOST}/api/projects/{settings.DOCS_SEARCH_LIBRARY_PROJECT_ID}"
@@ -108,6 +120,9 @@ async def fetch_docs_library_pages(query: str, *, transport: httpx.AsyncBaseTran
             },
             headers={"Authorization": f"Bearer {settings.DOCS_SEARCH_LIBRARY_API_KEY}"},
         )
+    if response.status_code == 429:
+        global _throttled_until
+        _throttled_until = time.monotonic() + _throttle_wait_seconds(response)
     response.raise_for_status()
     rows = response.json()
     if not isinstance(rows, list):
@@ -120,6 +135,8 @@ async def search_docs_library(
 ) -> list[DocsPage]:
     """Pages for `query` from the docs library. An empty list tells the caller to use its other docs search."""
     if not is_docs_library_configured() or not has_docs_library_feature_flag(organization_id):
+        return []
+    if time.monotonic() < _throttled_until:
         return []
     try:
         pages = await fetch_docs_library_pages(query, transport=transport)

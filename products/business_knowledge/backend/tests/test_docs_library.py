@@ -8,6 +8,7 @@ from django.urls import resolve
 import httpx
 from parameterized import parameterized
 
+from products.business_knowledge.backend import docs_library
 from products.business_knowledge.backend.docs_library import pages_from_results, search_docs_library
 from products.business_knowledge.backend.facade.contracts import DocsPage
 
@@ -45,7 +46,8 @@ class TestPagesFromResults(SimpleTestCase):
     @parameterized.expand(
         [
             ("docs_page", "https://posthog.com/docs/feature-flags", True),
-            ("subdomain", "https://us.posthog.com/docs/api", True),
+            ("www", "https://www.posthog.com/docs/api", True),
+            ("other_subdomain", "https://wiki.posthog.com/runbook", False),
             ("internal_wiki", "https://wiki.internal.example.com/runbook", False),
             ("lookalike_host", "https://posthog.com.example.com/docs", False),
             ("plain_http", "http://posthog.com/docs/feature-flags", False),
@@ -66,6 +68,9 @@ class TestSearchDocsLibrary(SimpleTestCase):
         flag = patch("posthoganalytics.feature_enabled", return_value=True)
         self.feature_enabled = flag.start()
         self.addCleanup(flag.stop)
+        throttle = patch.object(docs_library, "_throttled_until", 0.0)
+        throttle.start()
+        self.addCleanup(throttle.stop)
 
     def _transport(self, response: httpx.Response | Exception) -> httpx.MockTransport:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -108,6 +113,15 @@ class TestSearchDocsLibrary(SimpleTestCase):
         )
 
         assert pages == []
+        assert len(self.requests) == 1
+
+    async def test_a_throttled_library_gets_no_request_until_the_wait_ends(self) -> None:
+        transport = self._transport(httpx.Response(429, headers={"Retry-After": "30"}, json={"detail": "Throttled."}))
+
+        for _ in range(2):
+            pages = await search_docs_library("how do flags work", organization_id=ORGANIZATION_ID, transport=transport)
+            assert pages == []
+
         assert len(self.requests) == 1
 
     @parameterized.expand(

@@ -304,8 +304,13 @@ async def perform_inkeep_docs_search(
 
 async def docs_library_response(team: Team, query: str, *, include_system_reminder: bool = True) -> str | None:
     """The formatted docs library results, or None when the caller must search Inkeep."""
+    # The library is editable content, so a page must not be able to close or open the reminder block.
     pages = [
-        page
+        DocsPage(
+            title=sanitize_for_system_reminder(page.title),
+            url=sanitize_for_system_reminder(page.url),
+            text=sanitize_for_system_reminder(page.text),
+        )
         for page in await search_docs_library(query=query, organization_id=str(team.organization_id))
         if not is_community_question_url(page.url)
     ]
