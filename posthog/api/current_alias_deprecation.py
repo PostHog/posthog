@@ -9,7 +9,7 @@ from posthog.api.scope_resolution import CURRENT_ALIAS
 
 CURRENT_ALIAS_DEPRECATED_AT = datetime(2026, 11, 25, tzinfo=UTC)
 CURRENT_ALIAS_SUNSET_AT = datetime(2027, 4, 30, 23, 59, 59, tzinfo=UTC)
-CURRENT_ALIAS_DOCS_URL = "https://posthog.com/docs/api/current-alias-deprecation"
+STATE_DEPENDENT_REQUESTS_DOCS_URL = "https://posthog.com/docs/api/state-dependent-requests"
 # RFC 9745 gives the Deprecation header a structured-field date: "@" and Unix seconds.
 CURRENT_ALIAS_DEPRECATION = f"@{int(CURRENT_ALIAS_DEPRECATED_AT.timestamp())}"
 CURRENT_ALIAS_SUNSET = http_date(CURRENT_ALIAS_SUNSET_AT.timestamp())
@@ -48,7 +48,7 @@ def add_current_alias_deprecation_headers(request: HttpRequest, response: HttpRe
 
     response["Deprecation"] = CURRENT_ALIAS_DEPRECATION
     response["Sunset"] = CURRENT_ALIAS_SUNSET
-    links = [f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"']
+    links = [f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"']
     successor = _successor(request, response, segments)
     if successor is not None:
         links.insert(0, f'<{successor}>; rel="successor-version"')

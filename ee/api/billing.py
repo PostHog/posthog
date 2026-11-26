@@ -2,7 +2,7 @@ import re
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, NoReturn, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -22,6 +22,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.current_alias_deprecation import CURRENT_ALIAS_SUNSET, STATE_DEPENDENT_REQUESTS_DOCS_URL, successor_url
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -841,6 +842,17 @@ class _BillingSchema(PostHogAutoSchema):
         return super().get_operation(path, path_regex, path_prefix, method, registry)
 
 
+FLAT_BILLING_DEPRECATED_AT = datetime(2026, 11, 26, tzinfo=UTC)
+# RFC 9745 gives the Deprecation header a structured-field date: "@" and Unix seconds.
+FLAT_BILLING_DEPRECATION = f"@{int(FLAT_BILLING_DEPRECATED_AT.timestamp())}"
+# The organization billing API serves these reads at other paths, in its own shapes.
+_FLAT_BILLING_SUCCESSOR_PATHS = {
+    "usage": "usage/timeseries",
+    "spend": "spend/timeseries",
+    "usage/team_options": "projects",
+}
+
+
 def _billing_period_response(organization: Organization) -> dict[str, Any]:
     billing_period = organization.current_billing_period
     return BillingPeriodResponseSerializer(
@@ -922,6 +934,28 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 matches = False
             if not matches:
                 raise ValidationError({"organization_id": "Does not match the organization in the path."})
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        if not self._organization_in_path:
+            self._mark_flat_route_deprecated(request, response)
+        return response
+
+    def _mark_flat_route_deprecated(self, request: Request, response: Response) -> None:
+        """/api/billing/ takes the organization from the user's current project, so its responses carry the same
+        deprecation headers as @current and link the organization route that replaces it."""
+        response["Deprecation"] = FLAT_BILLING_DEPRECATION
+        response["Sunset"] = CURRENT_ALIAS_SUNSET
+        links = [f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"']
+        organization = self._get_org() if 200 <= response.status_code < 300 else None
+        if organization is not None:
+            rest = request.path.removeprefix("/api/billing").strip("/")
+            rest = _FLAT_BILLING_SUCCESSOR_PATHS.get(rest, rest)
+            path = f"/api/organizations/{organization.id}/billing/{rest}"
+            if rest and request.path.endswith("/"):
+                path += "/"
+            links.insert(0, f'<{successor_url(path, request.GET)}>; rel="successor-version"')
+        response["Link"] = ", ".join(links)
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
