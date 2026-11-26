@@ -58,13 +58,22 @@ FROM (
 GROUP BY hour
 """
 
+# How long a stored window stays fresh. The key is the age of the window's start: under one day, under
+# four days, then everything older. Late events still change recent days, so a recent window is rebuilt
+# often and an old one is kept for weeks.
 TTL_SECONDS: dict[str, int] = {
     "1d": 6 * 60 * 60,
     "4d": 24 * 60 * 60,
     "default": 35 * 24 * 60 * 60,
 }
+# One build job covers at most this many days. A long range then builds as several short INSERTs, and
+# an expired or failed job rebuilds only its own days.
 MAX_WINDOW_DAYS = 7
+# A window that was built sooner than this after it ended is rebuilt once the time has passed, because
+# events for it can still arrive.
 LATE_EVENTS_SETTLING_SECONDS = 60 * 60
+# A longer range is refused, so one query cannot start an unbounded number of build jobs. The limit is
+# the days of a leap year.
 MAX_RANGE_DAYS = 366
 
 _BUCKET_EXPRS: dict[str, str] = {
@@ -161,7 +170,8 @@ def _crosses_dst(buckets: list[datetime]) -> bool:
     return len({bucket.utcoffset() for bucket in buckets}) > 1
 
 
-def _range_unaligned(runner: TrendsQueryRunner, buckets: list[datetime], date_to: datetime) -> bool:
+def _first_or_last_bucket_is_partial(runner: TrendsQueryRunner, buckets: list[datetime], date_to: datetime) -> bool:
+    # Stored rows are whole hours, so they cannot reproduce a bucket that the range cuts short.
     date_range = runner.query_date_range
     if not date_range.use_start_of_interval() and date_range.date_from() != buckets[0]:
         return True
@@ -296,7 +306,7 @@ def closed_series_values(
         reason = "dst_transition"
     if reason is None and not buckets:
         reason = "nothing_closed"
-    if reason is None and _range_unaligned(runner, buckets, date_to):
+    if reason is None and _first_or_last_bucket_is_partial(runner, buckets, date_to):
         reason = "unaligned_range"
     if reason is not None:
         return SeriesValuesUnavailable(reason=reason)
