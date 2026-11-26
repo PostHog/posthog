@@ -38,6 +38,7 @@ class MessageTemplateRow:
     transactional_hog_flow_id: UUID | None
     draft_content: dict[str, Any] | None
     sensitive: bool
+    click_tracking_enabled: bool | None
     # Tag names, sorted. Keeps its default last, so every field without one stays above it.
     tags: tuple[str, ...] = ()
 
@@ -61,6 +62,7 @@ class MessageTemplateBasicRow:
     deleted: bool
     transactional_hog_flow_id: UUID | None
     sensitive: bool
+    click_tracking_enabled: bool | None
     has_draft: bool
     tags: tuple[str, ...]
 
@@ -80,6 +82,7 @@ def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemp
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         draft_content=row.draft_content,
         sensitive=row.sensitive,
+        click_tracking_enabled=row.click_tracking_enabled,
         tags=tuple(sorted(current_tag_names(row))) if with_tags else (),
     )
 
@@ -97,6 +100,7 @@ def _to_basic_contract(row: MessageTemplate) -> MessageTemplateBasicRow:
         deleted=row.deleted,
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         sensitive=row.sensitive,
+        click_tracking_enabled=row.click_tracking_enabled,
         has_draft=row.has_draft,  # type: ignore[attr-defined]
         tags=tuple(sorted(current_tag_names(row))),
     )
@@ -121,6 +125,24 @@ def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = Tru
         return _to_contract(templates_service.team_template(team_id, template_id), with_tags=with_tags)
     except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
         raise MessageTemplateMissing() from e
+
+
+@frozen
+class TransactionalTemplateTracking:
+    sensitive: bool
+    click_tracking_enabled: bool | None
+
+
+def get_transactional_template_tracking(team_id: int, hog_flow_id: UUID) -> TransactionalTemplateTracking | None:
+    """Return sensitivity and click tracking for the live template linked to a transactional workflow, or None."""
+    row = (
+        MessageTemplate.objects.filter(team_id=team_id, transactional_hog_flow_id=hog_flow_id, deleted=False)
+        .values_list("sensitive", "click_tracking_enabled")
+        .first()
+    )
+    if row is None:
+        return None
+    return TransactionalTemplateTracking(sensitive=bool(row[0]), click_tracking_enabled=row[1])
 
 
 @frozen
