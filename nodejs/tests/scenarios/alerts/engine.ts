@@ -16,6 +16,7 @@ const VICTORIA_METRICS_IMAGE =
 const VMALERT_IMAGE =
     'victoriametrics/vmalert:v1.136.0@sha256:e756ea8839f295b4e789a739c3ac80d70404e11b918973506a6182aacca2b11e'
 const READY_WITHIN_MS = 90_000
+const DOCKER_RUN_MS = 300_000
 const READY_EVERY_MS = 250
 const REQUEST_TIMEOUT_MS = 5000
 
@@ -28,11 +29,15 @@ const LabelMap = z
     })
     .strict()
 
+const Scraped = z.object({
+    data: z.object({ result: z.array(z.object({ value: z.tuple([z.number(), z.string()]) })) }),
+})
+
 export type ScrapeTarget = { role: string; replica: number; metricsUrl: string }
 
 export type Engine = {
-    metrics(route: string, params: Record<string, string>): Promise<any>
-    alerting(route: string, params: Record<string, string>): Promise<any>
+    metrics(route: string, params: Record<string, string>): Promise<unknown>
+    alerting(route: string, params: Record<string, string>): Promise<unknown>
     stop(): Promise<void>
 }
 
@@ -73,7 +78,7 @@ function scrapeConfigOf(targets: ScrapeTarget[], labelsFile: string, intervalMs:
     })
 }
 
-async function getJson(url: string): Promise<any> {
+async function getJson(url: string): Promise<unknown> {
     const response = await internalFetch(url, { timeoutMs: REQUEST_TIMEOUT_MS })
     if (response.status !== 200) {
         throw new Error(`${url} answered ${response.status}: ${await response.text()}`)
@@ -101,27 +106,20 @@ export async function startEngine(
     targets: ScrapeTarget[],
     scrapeIntervalMs: number
 ): Promise<Engine> {
+    const scrapeConfig = scrapeConfigOf(targets, labelsFile, scrapeIntervalMs)
     const dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-alerts-'))
     writeFileSync(path.join(dir, 'rules.yaml'), rules)
-    writeFileSync(path.join(dir, 'scrape.yaml'), scrapeConfigOf(targets, labelsFile, scrapeIntervalMs))
+    writeFileSync(path.join(dir, 'scrape.yaml'), scrapeConfig)
     const [metricsPort, alertPort] = [await freePort(), await freePort()]
     const names = ['metrics', 'vmalert'].map((name) => `scenario-alerts-${name}-${randomUUID()}`)
     const metricsUrl = `http://127.0.0.1:${metricsPort}`
     const alertUrl = `http://127.0.0.1:${alertPort}`
     const container = (name: string, image: string, args: string[]): Promise<unknown> =>
-        run('docker', [
-            'run',
-            '-d',
-            '--rm',
-            '--name',
-            name,
-            '--network',
-            'host',
-            '-v',
-            `${dir}:/alerts:ro`,
-            image,
-            ...args,
-        ])
+        run(
+            'docker',
+            ['run', '-d', '--rm', '--name', name, '--network', 'host', '-v', `${dir}:/alerts:ro`, image, ...args],
+            { timeout: DOCKER_RUN_MS }
+        )
     const stop = async (): Promise<void> => {
         await run('docker', ['rm', '-f', ...names]).catch(() => undefined)
         rmSync(dir, { recursive: true, force: true })
@@ -136,11 +134,14 @@ export async function startEngine(
             `-httpListenAddr=127.0.0.1:${alertPort}`,
             '-rule=/alerts/rules.yaml',
             `-datasource.url=${metricsUrl}`,
+            `-remoteWrite.url=${metricsUrl}`,
             '-notifier.blackhole',
             '-rule.evalDelay=0s',
         ])
         await until(async () => {
-            const { data } = await getJson(`${metricsUrl}/api/v1/query?query=${encodeURIComponent('count(up == 1)')}`)
+            const { data } = Scraped.parse(
+                await getJson(`${metricsUrl}/api/v1/query?query=${encodeURIComponent('count(up)')}`)
+            )
             return Number(data.result[0]?.value[1]) === targets.length ? true : undefined
         }, 'the metrics store did not scrape every role')
         await until(() => getJson(`${alertUrl}/api/v1/rules?type=alert`), 'vmalert did not answer')

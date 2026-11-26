@@ -1,10 +1,12 @@
 import { readFileSync } from 'fs'
 import { parse, stringify } from 'yaml'
+import { z } from 'zod'
 
 import { Engine, ScrapeTarget, startEngine } from './engine'
 import { selectorsOf } from './selectors'
 
 const SCRAPE_INTERVAL_MS = 5000
+const NEVER_EVALUATED = 'vmalert did not evaluate it during the run'
 
 export type AlertRules = { rules: string; labels: string; exclude: string[] }
 
@@ -32,7 +34,10 @@ export interface Alerts {
     close(): Promise<void>
 }
 
-type VmRule = { name: string; query: string; lastError: string }
+const VmRule = z.object({ name: z.string(), query: z.string(), lastError: z.string(), lastEvaluation: z.string() })
+const VmRules = z.object({ data: z.object({ groups: z.array(z.object({ rules: z.array(VmRule) })) }) })
+const Expanded = z.object({ expr: z.string() })
+const Series = z.object({ data: z.array(z.unknown()) })
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -48,16 +53,13 @@ function withoutExcluded(file: string, exclude: string[]): { rules: string; excl
 }
 
 async function missingSelectorsOf(engine: Engine, query: string, since: number): Promise<string[]> {
-    const { expr } = await engine.metrics('/expand-with-exprs', { query, format: 'json' })
+    const { expr } = Expanded.parse(await engine.metrics('/expand-with-exprs', { query, format: 'json' }))
     const missing = []
     for (const selector of selectorsOf(expr)) {
         const end = `${Math.ceil(Date.now() / 1000)}`
-        const { data } = await engine.metrics('/api/v1/series', {
-            'match[]': selector,
-            start: `${since}`,
-            end,
-            limit: '1',
-        })
+        const { data } = Series.parse(
+            await engine.metrics('/api/v1/series', { 'match[]': selector, start: `${since}`, end, limit: '1' })
+        )
         if (data.length === 0) {
             missing.push(selector)
         }
@@ -83,14 +85,15 @@ function recordAlerts(engine: Engine, since: number, excluded: string[]): Alerts
     let closed: Promise<void> | undefined
     const close = (): Promise<void> => (closed ??= engine.stop())
     const finish = async (): Promise<AlertsRead> => {
-        const { data } = await engine.alerting('/api/v1/rules', { type: 'alert' })
-        const rules = (data.groups as { rules: VmRule[] }[]).flatMap((group) => group.rules)
+        const { data } = VmRules.parse(await engine.alerting('/api/v1/rules', { type: 'alert' }))
+        const rules = data.groups.flatMap((group) => group.rules)
         const lines: RuleLine[] = []
-        for (const { name: rule, query, lastError } of rules) {
+        for (const { name: rule, query, lastError, lastEvaluation } of rules) {
             const selectors = await missingSelectorsOf(engine, query, since)
+            const error = lastError || (Date.parse(lastEvaluation) >= since * 1000 ? undefined : NEVER_EVALUATED)
             lines.push(
-                selectors.length > 0 || lastError
-                    ? { type: 'rule', rule, state: 'unevaluable', selectors, ...(lastError && { error: lastError }) }
+                selectors.length > 0 || error
+                    ? { type: 'rule', rule, state: 'unevaluable', selectors, ...(error && { error }) }
                     : { type: 'rule', rule, state: 'evaluated' }
             )
         }

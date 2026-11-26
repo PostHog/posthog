@@ -1,9 +1,9 @@
-import { readFileSync, readdirSync, writeFileSync } from 'fs'
-import { mkdtempSync } from 'fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
+import { setTimeout as sleep } from 'timers/promises'
 import { parse, stringify } from 'yaml'
 
 import { PROFILES_DIR } from '../cards'
@@ -11,6 +11,7 @@ import { startAlerts } from './alerts'
 import { selectorsOf } from './selectors'
 
 const ENGINE_MS = 120_000
+const GROUP_INTERVAL_MS = 1000
 const SCENARIOS_DIR = path.join(__dirname, '..')
 
 type Metrics = { server: Server; url: string }
@@ -24,10 +25,13 @@ async function serveMetrics(): Promise<Metrics> {
     return { server, url: `http://127.0.0.1:${port}/_metrics` }
 }
 
-function writeFiles(rules: unknown[]): { rules: string; labels: string } {
+const fixtureDirs: string[] = []
+
+function writeFiles(groups: { name: string; interval: string; rules: unknown[] }[]): { rules: string; labels: string } {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-alerts-test-'))
+    fixtureDirs.push(dir)
     const files = { rules: path.join(dir, 'rules.yaml'), labels: path.join(dir, 'labels.yaml') }
-    writeFileSync(files.rules, stringify({ groups: [{ name: 'synthetic', interval: '1s', rules }] }))
+    writeFileSync(files.rules, stringify({ groups }))
     writeFileSync(
         files.labels,
         stringify({
@@ -38,6 +42,14 @@ function writeFiles(rules: unknown[]): { rules: string; labels: string } {
     return files
 }
 
+async function closedPortUrl(): Promise<string> {
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    await new Promise((resolve) => server.close(resolve))
+    return `http://127.0.0.1:${port}/_metrics`
+}
+
 describe('alerts on a scenario run', () => {
     let metrics: Metrics
     beforeEach(async () => {
@@ -45,31 +57,51 @@ describe('alerts on a scenario run', () => {
     })
     afterEach(async () => {
         await new Promise((resolve) => metrics.server.close(resolve))
+        fixtureDirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }))
     })
 
     it(
-        'names each selector that matched no series as unevaluable, and reports excluded rules',
+        'names each selector that matched no series and each rule never evaluated as unevaluable, and reports excluded rules',
         async () => {
             const files = writeFiles([
-                { alert: 'SyntheticQueueSeen', expr: 'sum(synthetic_queue_depth{queue="q"}) > 100' },
                 {
-                    alert: 'SyntheticNeedsMissingSeries',
-                    expr: 'WITH (lost = sum(synthetic_lost_total{kind="gone"})) sum(synthetic_queue_depth) > 0 and on() lost > 0',
+                    name: 'synthetic',
+                    interval: `${GROUP_INTERVAL_MS}ms`,
+                    rules: [
+                        { alert: 'SyntheticQueueSeen', expr: 'sum(synthetic_queue_depth{queue="q"}) > 100' },
+                        {
+                            alert: 'SyntheticNeedsMissingSeries',
+                            expr: 'WITH (lost = sum(synthetic_lost_total{kind="gone"})) sum(synthetic_queue_depth) > 0 and on() lost > 0',
+                        },
+                        { alert: 'SyntheticLeftOut', expr: 'sum(synthetic_queue_depth) > 0' },
+                        { record: 'synthetic:queue_depth:sum', expr: 'sum(synthetic_queue_depth)' },
+                    ],
                 },
-                { alert: 'SyntheticLeftOut', expr: 'sum(synthetic_queue_depth) > 0' },
+                {
+                    name: 'synthetic-daily',
+                    interval: '24h',
+                    rules: [{ alert: 'SyntheticNeverEvaluated', expr: 'sum(synthetic_queue_depth) > 100' }],
+                },
             ])
             const alerts = await startAlerts({
                 alerts: { ...files, exclude: ['SyntheticLeftOut'] },
-                targets: [{ role: 'synthetic-role', replica: 0, metricsUrl: metrics.url }],
+                targets: [
+                    { role: 'synthetic-role', replica: 0, metricsUrl: metrics.url },
+                    { role: 'synthetic-role', replica: 1, metricsUrl: await closedPortUrl() },
+                ],
                 scrapeIntervalMs: 1000,
             })
             try {
+                // vmalert evaluates each group on its own clock, which a test cannot advance.
+                await sleep(2 * GROUP_INTERVAL_MS)
                 const { lines, coverage } = await alerts.finish()
 
+                const neverEvaluated = 'vmalert did not evaluate it during the run'
                 expect(coverage).toEqual({
                     evaluated: ['SyntheticQueueSeen'],
                     unevaluable: [
                         { rule: 'SyntheticNeedsMissingSeries', selectors: ['synthetic_lost_total{kind="gone"}'] },
+                        { rule: 'SyntheticNeverEvaluated', selectors: [], error: neverEvaluated },
                     ],
                     excluded: ['SyntheticLeftOut'],
                 })
@@ -80,6 +112,13 @@ describe('alerts on a scenario run', () => {
                         rule: 'SyntheticNeedsMissingSeries',
                         state: 'unevaluable',
                         selectors: ['synthetic_lost_total{kind="gone"}'],
+                    },
+                    {
+                        type: 'rule',
+                        rule: 'SyntheticNeverEvaluated',
+                        state: 'unevaluable',
+                        selectors: [],
+                        error: neverEvaluated,
                     },
                     { type: 'rule', rule: 'SyntheticLeftOut', state: 'excluded' },
                 ])
@@ -98,6 +137,12 @@ describe('selectorsOf', () => {
         ['braces and words inside strings', 'label_replace(x{a="}"}, "dst", "$1", "src", "(sum) {b}")', ['x{a="}"}']],
         ['offsets, subqueries and numbers', 'min_over_time(x[6h:5m] offset 2m) > 1e3 unless on() vector(0)', ['x']],
         ['a bare matcher', '{__name__=~"a|b"} == 1', ['{__name__=~"a|b"}']],
+        [
+            'the MetricsQL default and atan2 operators',
+            '(sum(rate(x[5m])) default 0) > 1 or (y atan2 z)',
+            ['x', 'y', 'z'],
+        ],
+        ['a limit and a join prefix', 'sum(x) by (q) limit 3 * on (q) group_left (p) prefix "rhs_" y', ['x', 'y']],
     ])('%s', (_, expr, selectors) => {
         expect(selectorsOf(expr)).toEqual(selectors)
     })

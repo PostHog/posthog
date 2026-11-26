@@ -1,5 +1,20 @@
 const LABEL_LISTS = new Set(['by', 'without', 'on', 'ignoring', 'group_left', 'group_right'])
-const KEYWORDS = new Set(['and', 'or', 'unless', 'bool', 'offset', 'inf', 'nan', 'keep_metric_names', 'if', 'ifnot'])
+const KEYWORDS = new Set([
+    'and',
+    'or',
+    'unless',
+    'bool',
+    'offset',
+    'inf',
+    'nan',
+    'keep_metric_names',
+    'if',
+    'ifnot',
+    'default',
+    'atan2',
+    'limit',
+    'prefix',
+])
 const WORD = /[a-zA-Z_:][a-zA-Z0-9_:.]*/y
 const NUMBER = /[0-9.][0-9.a-zA-Z_]*(?:[eE][+-]?[0-9]+)?/y
 
