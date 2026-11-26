@@ -160,6 +160,19 @@ describe('sourceFilterModalLogic', () => {
         expect(preview.values.previewInput).toEqual({ expression: 'priority = 1', scopeIds: ['team-b'] })
     })
 
+    it('waits for an edit before previewing a filter saved on an older catalog', () => {
+        mountWith({ hogql_filter: { expression: "project_name = 'Mobile'", catalog_version: 1 } })
+        const preview = sourceFilterPreviewLogic({ sourceConfig: logic.props.sourceConfig, catalog })
+        expect(logic.values.previewWaitsForEdit).toBe(true)
+
+        logic.actions.setSourceFilterValue('teamScope', 'all')
+        expect(preview.values.previewInput).toBeNull()
+
+        logic.actions.setSourceFilterValue('expression', "project_name = 'Web'")
+        expect(logic.values.previewWaitsForEdit).toBe(false)
+        expect(preview.values.previewInput).toEqual({ expression: "project_name = 'Web'", scopeIds: [] })
+    })
+
     it('reports a failed Linear connection load and recovers on retry', async () => {
         integrationsFail = true
         mountWith({})

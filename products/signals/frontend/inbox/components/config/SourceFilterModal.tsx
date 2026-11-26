@@ -41,6 +41,7 @@ export function SourceFilterModal({
         isRemovingFilter,
         savedFilter,
         savedOnOlderCatalog,
+        previewWaitsForEdit,
         selectedField,
         selectedFieldName,
         teamsEditable,
@@ -191,14 +192,20 @@ export function SourceFilterModal({
                             </LemonField>
                         </div>
                         <div className="min-w-0 flex-1 @3xl:border-l @3xl:pl-4">
-                            <SourceFilterPreviewPanel
-                                result={previewResult}
-                                loading={previewLoading}
-                                requestError={previewRequestError}
-                                onRetry={retryPreview}
-                                sourceLabel={sourceLabel}
-                                noun={noun}
-                            />
+                            {previewWaitsForEdit ? (
+                                <LemonBanner type="info">
+                                    {`The preview checks the current ${sourceLabel} fields, but this filter was saved on older ones. Edit the filter to preview it.`}
+                                </LemonBanner>
+                            ) : (
+                                <SourceFilterPreviewPanel
+                                    result={previewResult}
+                                    loading={previewLoading}
+                                    requestError={previewRequestError}
+                                    onRetry={retryPreview}
+                                    sourceLabel={sourceLabel}
+                                    noun={noun}
+                                />
+                            )}
                         </div>
                     </div>
                 </div>

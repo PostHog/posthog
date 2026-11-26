@@ -133,6 +133,7 @@ export interface sourceFilterModalLogicValues {
     isSourceFilterSubmitting: boolean
     isSourceFilterValid: boolean
     linearIntegration: IntegrationType | null
+    previewWaitsForEdit: boolean
     savedFilter: SavedSourceFilter | null
     savedOnOlderCatalog: boolean
     selectedField: SourceFilterCatalogFieldApi | null
@@ -236,6 +237,11 @@ export interface sourceFilterModalLogicMeta {
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
         ) => IntegrationType | null
         integrationsUnknown: (integrations: IntegrationType[] | null) => boolean
+        previewWaitsForEdit: (
+            savedOnOlderCatalog: boolean,
+            savedFilter: SavedSourceFilter | null,
+            sourceFilter: SourceFilterFormValues
+        ) => boolean
     }
 }
 
@@ -247,6 +253,9 @@ export type sourceFilterModalLogicType = MakeLogicType<
 >
 
 function updatePreview(logic: sourceFilterModalLogicType): void {
+    if (logic.values.previewWaitsForEdit) {
+        return
+    }
     const { expression, teamScope, teamIds } = logic.values.sourceFilter
     logic.actions.setPreviewInput({
         expression,
@@ -431,6 +440,17 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
             },
         },
     })),
+    selectors({
+        // Preview runs on the active catalog, but an unchanged expression keeps its saved catalog on save.
+        previewWaitsForEdit: [
+            (s) => [s.savedOnOlderCatalog, s.savedFilter, s.sourceFilter],
+            (
+                savedOnOlderCatalog: boolean,
+                savedFilter: SavedSourceFilter | null,
+                sourceFilter: SourceFilterFormValues
+            ): boolean => savedOnOlderCatalog && sourceFilter.expression.trim() === savedFilter?.expression.trim(),
+        ],
+    }),
     listeners((logic) => ({
         // A server error describes the text that was submitted, so editing the text clears it.
         setSourceFilterValue: () => {
