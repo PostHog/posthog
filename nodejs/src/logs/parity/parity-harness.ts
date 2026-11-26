@@ -369,7 +369,6 @@ export function buildParityConsumer(
 
     const deps: TracesIngestionConsumerDeps = {
         teamManager: teamManager as unknown as LogsIngestionConsumerDeps['teamManager'],
-        // Only the logs server gets this resolver, so a secret key does not authenticate a trace.
         secretKeyTeams:
             scenario.consumer === 'traces'
                 ? undefined
