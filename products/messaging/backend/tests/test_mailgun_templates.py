@@ -248,6 +248,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("percent_signs_in_text", "handlebars", "100% of 50%off% today"),
             ("link_to_a_website", "handlebars", '<a href="https://example.com">See our website</a>'),
             ("link_to_something_online", "handlebars", '<a href="https://example.com/o/1">View your order online</a>'),
+            (
+                "link_to_continue_in_a_browser",
+                "handlebars",
+                '<a href="https://example.com/m">Continue in your browser</a>',
+            ),
+            (
+                "address_with_view_inside_a_word",
+                "handlebars",
+                '<a href="https://example.com/overview/online-courses">x</a>',
+            ),
             ("printf_verbs_in_a_go_template", "go", '{{printf "%s%d" .x}}'),
         ]
     )
@@ -256,7 +266,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
     ) -> None:
         notes = convert_version({"template": template, "engine": engine, "headers": {"Subject": "Hi"}}).notes
 
-        assert not any("as written" in note or "view in browser" in note for note in notes)
+        assert [note for note in notes if "Go templates" not in note and "whole template" not in note] == []
 
     def test_a_go_value_prints_lists_and_maps_the_go_way(self) -> None:
         converted = convert_text("<p>{{.x}}</p>", engine="go").text

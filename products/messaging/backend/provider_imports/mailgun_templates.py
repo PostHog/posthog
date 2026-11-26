@@ -45,11 +45,13 @@ _ANCHOR = re.compile(r"<a\b[^<>]{0,4000}+>", re.IGNORECASE)
 _ANCHOR_END = re.compile(r"</a\s*>", re.IGNORECASE)
 _HREF = re.compile(r"(?<![\w-])href\s*=\s*(?:\"([^\"]*+)\"|'([^']*+)'|([^\s\"'>]++))", re.IGNORECASE)
 _BROWSER_LINK_TEXT = re.compile(
-    r"\bin\s+(?:(?:your|a|the|my)\s+)?(?:web\s+)?browser\b|\b(?:web|online|browser)\s+version\b"
+    r"\b(?:view|read|see)\b[^<>]{0,40}?\bin\s+(?:(?:your|a|the|my)\s+)?(?:web\s+)?browser\b|\b(?:web|online|browser)\s+version\b"
     r"|\b(?:email|newsletter|message)\s+(?:online|on\s+the\s+web)\b|^(?:view|read)\s+(?:it\s+|this\s+)?online$",
     re.IGNORECASE,
 )
-_BROWSER_LINK_NAME = re.compile(r"view.?in.?browser|view.?online|web.?version|browser.?(?:link|url)", re.IGNORECASE)
+_BROWSER_LINK_NAME = re.compile(
+    r"(?<![a-z])view[-_]?(?:in[-_]?browser|online)|web[-_]?version|browser[-_]?(?:link|url)", re.IGNORECASE
+)
 _MARKUP = re.compile(r"<[^<>]{0,4000}+>")
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
@@ -117,7 +119,7 @@ def _browser_links(html_body: str) -> list[str]:
         href = _HREF.search(anchor.group(0))
         address = next((group for group in href.groups() if group is not None), "").strip() if href else ""
         if _BROWSER_LINK_NAME.search(address) or _BROWSER_LINK_TEXT.search(text):
-            found.append(address or f'"{text}"')
+            found.append(address[:100] or f'"{text[:100]}"')
     return found
 
 
