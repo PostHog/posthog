@@ -410,9 +410,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
     private eventArrivals = new WeakMap<HogFunctionInvocationGlobals, Date>()
     private filterFirst: FilterFirstMode
+    private combinedLookup: boolean
+    private preparedLookups: boolean
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
+        this.combinedLookup = config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_COMBINED_LOOKUP
+        this.preparedLookups = config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PREPARED_LOOKUPS
         this.filterFirst = parseFilterFirstMode(config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST)
         this.postgres = deps.postgres
         this.pinnedGoalsMode = parseFilterFirstMode(
@@ -1029,8 +1033,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return false
     }
 
-    // Both lookups go out as one query when an events batch needs both, so the database sees one round trip,
-    // parse and plan instead of two. Each side keeps its own statement, and its own index plan, inside it.
+    // With the combined lookup on, a batch that needs both lookups sends them as one query, so the database sees
+    // one round trip, parse and plan instead of two. Each side keeps its own statement, and its own index plan.
     private async lookUpCandidates(
         watchers: IndexedBatch | null,
         parked: { indexed: IndexedBatch; functionIds: string[] } | null,
@@ -1056,57 +1060,69 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                   earliestArrival,
               ]
             : []
-        let sql: string
-        let name: string
-        if (watchers && parked) {
-            name = 'hogflow-matcher-watchers-and-parked'
-            sql = `SELECT 'watcher' AS source, id, team_id, function_id, run_id, parent_run_id::text AS parent_run_id,
-                    NULL::text AS action_id, distinct_id, person_id, flow_version, goal, created_at, expires_at,
-                    NULL::timestamptz AS scheduled, NULL::text AS status
-                 FROM (${WATCHER_LOOKUP_SQL}) w
-                 UNION ALL
-                 SELECT 'parked' AS source, id, team_id, function_id, NULL::uuid, parent_run_id, action_id, distinct_id,
-                    person_id, NULL::int, NULL::jsonb, NULL::timestamptz, NULL::timestamptz, scheduled, status::text
-                 FROM (${shiftPlaceholders(PARKED_LOOKUP_SQL, watcherParams.length)}) p`
+        let watcherRows: any[] = []
+        let parkedRows: any[] = []
+        if (watchers && parked && this.combinedLookup) {
+            const stopWatcherTimer = histogramHogflowMatcherFindWatchers.startTimer()
+            const stopParkedTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
+            let rows: any[]
+            try {
+                rows = await this.runLookup(
+                    'hogflow-matcher-watchers-and-parked',
+                    `SELECT 'watcher' AS source, id, team_id, function_id, run_id, parent_run_id::text AS parent_run_id,
+                        NULL::text AS action_id, distinct_id, person_id, flow_version, goal, created_at, expires_at,
+                        NULL::timestamptz AS scheduled, NULL::text AS status
+                     FROM (${WATCHER_LOOKUP_SQL}) w
+                     UNION ALL
+                     SELECT 'parked' AS source, id, team_id, function_id, NULL::uuid, parent_run_id, action_id, distinct_id,
+                        person_id, NULL::int, NULL::jsonb, NULL::timestamptz, NULL::timestamptz, scheduled, status::text
+                     FROM (${shiftPlaceholders(PARKED_LOOKUP_SQL, watcherParams.length)}) p`,
+                    [...watcherParams, ...parkedParams]
+                )
+            } finally {
+                stopWatcherTimer()
+                stopParkedTimer()
+            }
+            watcherRows = rows.filter((row) => row.source === 'watcher')
+            parkedRows = rows.filter((row) => row.source === 'parked')
         } else {
-            sql = watchers ? WATCHER_LOOKUP_SQL : PARKED_LOOKUP_SQL
-            name = watchers ? 'hogflow-matcher-watchers' : 'hogflow-matcher-parked'
-        }
-        const stopWatcherTimer = watchers ? histogramHogflowMatcherFindWatchers.startTimer() : undefined
-        const stopParkedTimer = parked
-            ? histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
-            : undefined
-        let result
-        try {
-            // Named, so each connection plans the statement once instead of on every lookup.
-            result = await this.cyclotronPool.query({ name, text: sql, values: [...watcherParams, ...parkedParams] })
-        } finally {
-            stopWatcherTimer?.()
-            stopParkedTimer?.()
+            if (watchers) {
+                const stopTimer = histogramHogflowMatcherFindWatchers.startTimer()
+                try {
+                    watcherRows = await this.runLookup('hogflow-matcher-watchers', WATCHER_LOOKUP_SQL, watcherParams)
+                } finally {
+                    stopTimer()
+                }
+            }
+            if (parked) {
+                const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
+                try {
+                    parkedRows = await this.runLookup('hogflow-matcher-parked', PARKED_LOOKUP_SQL, parkedParams)
+                } finally {
+                    stopTimer()
+                }
+            }
         }
 
-        const watcherRows: any[] = []
-        const parkedCandidates: ParkedCandidate[] = []
-        for (const row of result.rows) {
-            const isWatcher = watchers && parked ? row.source === 'watcher' : Boolean(watchers)
-            if (isWatcher) {
-                watcherRows.push(row)
-                continue
-            }
-            parkedCandidates.push({
-                id: row.id,
-                teamId: row.team_id,
-                functionId: row.function_id,
-                parentRunId: row.parent_run_id,
-                actionId: row.action_id,
-                distinctId: row.distinct_id,
-                personId: row.person_id,
-                // The hub's type parsers return timestamps as ISO strings, not dates.
-                scheduledAt: new Date(row.scheduled).getTime(),
-                status: row.status,
-            })
-        }
+        const parkedCandidates: ParkedCandidate[] = parkedRows.map((row) => ({
+            id: row.id,
+            teamId: row.team_id,
+            functionId: row.function_id,
+            parentRunId: row.parent_run_id,
+            actionId: row.action_id,
+            distinctId: row.distinct_id,
+            personId: row.person_id,
+            // The hub's type parsers return timestamps as ISO strings, not dates.
+            scheduledAt: new Date(row.scheduled).getTime(),
+            status: row.status,
+        }))
         return { watcherRows, parkedCandidates }
+    }
+
+    private async runLookup(name: string, text: string, values: unknown[]): Promise<any[]> {
+        // A named statement is planned once per connection instead of on every lookup.
+        const query = this.preparedLookups ? { name, text, values } : { text, values }
+        return (await this.cyclotronPool.query(query)).rows
     }
 
     // Only ever resumes runs. Conversions are counted by claimConversionWatchers, which is what keeps
