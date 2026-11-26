@@ -28,10 +28,11 @@ class TestMetricsSqlInsight(APIBaseTest):
             ("metrics_table", "SELECT now() AS time, count() AS value FROM posthog.metrics", None),
             ("interval_placeholder", "SELECT toStartOfInterval(timestamp, {interval}) AS time FROM events", None),
             ("dashboard_variable", "SELECT count() FROM events WHERE event = $event", None),
+            ("quoted_dashboard_variable", "SELECT count() FROM events WHERE event = '$event'", None),
             ("invalid_sql", "SELECT FROM WHERE", None),
             (
                 "other_table",
-                "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= {date_from}",
+                "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= { date_from }",
                 "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= {filters.dateRange.from}",
             ),
         ]
@@ -39,7 +40,14 @@ class TestMetricsSqlInsight(APIBaseTest):
     def test_sql_over_other_tables_becomes_a_sql_insight(self, _name: str, sql: str, expected: str | None) -> None:
         converted = sql_insight_for_metrics_sql(
             self.team,
-            {"kind": "MetricsQuery", "language": "sql", "sql": sql, "clauses": [], "display": {"type": "table"}},
+            {
+                "kind": "MetricsQuery",
+                "language": "sql",
+                "sql": sql,
+                "clauses": [],
+                "display": {"type": "table"},
+                "variables": {"event": {"values": ["$pageleave"]}},
+            },
         )
 
         if expected is None:
