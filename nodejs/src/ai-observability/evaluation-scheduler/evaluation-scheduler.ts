@@ -157,7 +157,6 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         return false
     }
 
-    // The CDP builder sets every global the backend lets a condition read, and HogVM throws on a missing one.
     let filterGlobals
     try {
         filterGlobals = Object.assign(convertClickhouseRawEventToFilterGlobals(event), {

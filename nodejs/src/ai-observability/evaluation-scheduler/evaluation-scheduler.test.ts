@@ -265,8 +265,10 @@ describe('Evaluation Scheduler', () => {
             ],
             ['$group_0 is group-key-1', ['_H', 1, 32, 'group-key-1', 32, '$group_0', 1, 1, 11]],
             ['group 0 plan is pro', ['_H', 1, 32, 'pro', 32, 'plan', 32, 'properties', 32, 'group_0', 1, 3, 11]],
-            // Saved before the backend stopped compiling person_id filters, and still in use.
-            ['person_id is person-uuid-1', ['_H', 1, 32, 'person-uuid-1', 32, 'person_id', 1, 1, 11]],
+            [
+                'person_id is person-uuid-1, in a condition saved before the backend rejected it',
+                ['_H', 1, 32, 'person-uuid-1', 32, 'person_id', 1, 1, 11],
+            ],
         ])('matches a condition on %s', async (_name, bytecode) => {
             const event = createAiGenerationEvent(teamId, {
                 timestamp: '2026-11-25 12:00:00.000000' as ClickHouseTimestamp,
