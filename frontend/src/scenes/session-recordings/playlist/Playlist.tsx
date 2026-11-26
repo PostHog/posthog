@@ -11,6 +11,7 @@ import { Heading, Text } from '@posthog/quill'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { ReplayListMessageRow } from 'scenes/messaging-cta-prototype/ReplayListMessageRow'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
@@ -342,6 +343,7 @@ export function Playlist({
                             )}
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
+                        <ReplayListMessageRow />
                         {selectedRecordingOutsideFilters &&
                             (newLayout ? (
                                 <QuillListNotice tone="warning" className="m-2">

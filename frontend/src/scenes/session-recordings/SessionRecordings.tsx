@@ -21,6 +21,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
+import { MessagingCtaPrototypeSwitcher } from 'scenes/messaging-cta-prototype/MessagingCtaPrototypeSwitcher'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
@@ -362,6 +363,7 @@ export function SessionsRecordings(): JSX.Element {
                 <ReplayTitleSection />
                 <SessionRecordingsPageTabs />
                 <MainPanel />
+                <MessagingCtaPrototypeSwitcher area="replay" />
             </SceneContent>
         </BindLogic>
     )

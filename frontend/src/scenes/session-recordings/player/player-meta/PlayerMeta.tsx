@@ -11,6 +11,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils/guards'
+import { ReplayPlayerMessageChip } from 'scenes/messaging-cta-prototype/ReplayPlayerMessageChip'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import {
@@ -219,6 +220,7 @@ export function PlayerMeta(): JSX.Element {
                         )}
                     </div>
                     <PlayerMetaExperimentTags />
+                    <ReplayPlayerMessageChip />
                     <PlayerMetaControls size={size} />
                 </div>
             </div>
