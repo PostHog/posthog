@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 from django.http import HttpRequest, HttpResponseBase, QueryDict
-from django.utils.encoding import escape_uri_path
 from django.utils.http import http_date
 
 from posthog.api.request_scope import request_scope_shadow
@@ -28,7 +28,8 @@ def successor_url(path: str, query: QueryDict) -> str:
     kept = query.copy()
     for name in CREDENTIAL_QUERY_PARAMS:
         kept.pop(name, None)
-    escaped_path = escape_uri_path(path)
+    # The safe characters of Django's escape_uri_path, which this module can't import: contracts modules reach it.
+    escaped_path = quote(path, safe="/:@&+$,-_.!~*'()")
     return f"{escaped_path}?{kept.urlencode()}" if kept else escaped_path
 
 
