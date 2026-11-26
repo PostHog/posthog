@@ -11724,22 +11724,24 @@ Note: Plain is GraphQL-only; I enumerated every \*Connection field on type Query
 
 ## Plane — gaps
 
-Today (7): `cycles`, `labels`, `members`, `modules`, `projects`, `states`, `work_items`
+Today (11): `cycles`, `estimates`, `labels`, `members`, `modules`, `projects`, `states`, `work_item_activities`, `work_item_comments`, `work_item_types`, `work_items`
 
 Diffed against: <https://developers.plane.so/llms.txt>
 
-- [ ] `Work item comments (GET /api/v2/workspaces/{slug}/projects/{project_id}/work-items/{work_item_id}/comments/)` — discussion on each work item, the only way to read it; flat rows with parent_id for threads; fan-out per work item (high)
-- [ ] `Work item activities (GET /api/v2/workspaces/{slug}/projects/{project_id}/work-items/{work_item_id}/activities/)` — field change history per work item, for state transitions and cycle time; fan-out per work item (high)
+- [x] `Work item comments (GET /api/v2/workspaces/{slug}/projects/{project_id}/work-items/{work_item_id}/comments/)` — discussion on each work item, the only way to read it; flat rows with parent_id for threads; fan-out per work item (high)
+- [x] `Work item activities (GET /api/v2/workspaces/{slug}/projects/{project_id}/work-items/{work_item_id}/activities/)` — field change history per work item, for state transitions and cycle time; fan-out per work item (high)
 - [ ] `Work item worklogs (GET /api/v2/workspaces/{slug}/projects/{project_id}/work-items/{work_item_id}/worklogs/)` — time logged against work items, for effort reporting; fan-out per work item (medium)
 - [ ] `Milestones (GET /api/v2/workspaces/{slug}/projects/{project_id}/milestones/)` — project milestones, a sibling to the cycles and modules we sync; fan-out per project (medium)
 - [ ] `Initiatives (GET /api/v2/workspaces/{slug}/initiatives/)` — workspace-level goals that group projects (medium)
-- [ ] `Work item types (GET /api/v2/workspaces/{slug}/projects/{project_id}/work-item-types/)` — lookup for the type carried on work items; fan-out per project (medium)
-- [ ] `Estimates (GET /api/v2/workspaces/{slug}/projects/{project_id}/estimates/)` — estimate scales and points, a lookup for work item estimate values; fan-out per project (medium)
+- [x] `Work item types (GET /api/v2/workspaces/{slug}/projects/{project_id}/work-item-types/)` — lookup for the type carried on work items; fan-out per project (medium)
+- [x] `Estimates (GET /api/v2/workspaces/{slug}/projects/{project_id}/estimates/)` — estimate scales and points, a lookup for work item estimate values; fan-out per project (medium)
 - [ ] `Releases (GET /api/v2/workspaces/{slug}/releases/)` — release records for shipped-work reporting (low)
 - [ ] `Customers (GET /api/v2/workspaces/{slug}/customers/); Customer requests (GET /api/v2/workspaces/{slug}/customers/{customer_id}/requests/)` — customer records and the requests tied to work items (low)
 - [ ] `Teamspaces (GET /api/v2/workspaces/{slug}/teamspaces/)` — team groupings of members and projects (low)
 
 Note: Used llms.txt and per-endpoint .md pages of the v2 API, which show the exact path. Our 7 tables cover the core hierarchy only. Work item sub-resources need one call per work item, so an implementer should check for workspace-wide or filtered list routes. Some objects (initiatives, teamspaces, customers, milestones, releases) may be plan-gated. Excluded: audit logs, webhooks and logs, automations, workflows, permissions, templates, assets, attachments, pages and stickies as content or config.
+
+Built 2026-11-26: `work_item_comments`, `work_item_activities`, `estimates` (with `expand=points`) and `work_item_types`. Neither work item sub-resource has a workspace-wide list, so both fan out over the workspace work item list (sparse `fields=id,project_id`) and bind `project_id` and `work_item_id` from each row. Both are full refresh: comments have no time filter, and a watermark taken across work items would skip rows written to an earlier work item during the run. Estimates and work item types fan out per project and key on `project_id` + `id`, because a type shared from the workspace is listed in each project.
 
 ## Planhat — **thin**
 
