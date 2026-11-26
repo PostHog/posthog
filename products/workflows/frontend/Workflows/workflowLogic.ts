@@ -4166,11 +4166,16 @@ export const workflowLogic = kea<workflowLogicType>([
                             return result
                         } catch (error) {
                             if (error instanceof ApiError && error.status === 409) {
-                                if (initiatedByAutoSave && values.pendingSchedule === false) {
+                                if (
+                                    initiatedByAutoSave &&
+                                    values.pendingSchedule === false &&
+                                    values.keepsLocalEditsOnExternalEdit
+                                ) {
                                     // An auto-save losing the race is not a decision point: the user never
-                                    // asked to overwrite anything, so reconcile to the newer copy silently.
-                                    // A pending schedule change is the exception: only a manual save
-                                    // persists it, and the reload would wipe it, so that gets the banner.
+                                    // asked to overwrite anything, so reconcile to the newer copy silently,
+                                    // keeping the edits. A pending schedule change is the exception: only a
+                                    // manual save persists it, and the reload would wipe it, so that gets the
+                                    // banner, as does a reload that would drop the edits being saved.
                                     actions.setSyncingExternalEdit(true)
                                     actions.loadWorkflow()
                                 } else {
@@ -4980,10 +4985,11 @@ export const workflowLogic = kea<workflowLogicType>([
             // While auto-save can flush the local buffer, reconcile silently instead of interrupting
             // with a conflict banner. When auto-save can't flush (toggled off, no name to save under,
             // or a pending schedule change, which only a manual save persists), the buffer can hold
-            // real work, so the banner lets the user choose.
+            // real work, so the banner lets the user choose. Without the keep-local-edits reload, a
+            // silent reload would drop the unsaved edits, so they get the banner too.
             const autoSaveCanFlush =
                 values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
-            if (values.hasUnsavedChanges && !autoSaveCanFlush) {
+            if (values.hasUnsavedChanges && !(autoSaveCanFlush && values.keepsLocalEditsOnExternalEdit)) {
                 actions.setExternallyEdited(true)
             } else {
                 // Flag the sync first so the editor shows a brief working/disabled overlay and
