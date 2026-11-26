@@ -127,6 +127,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     validate_pipeline_address,
     with_code_send_reason,
 )
+from products.messaging.backend.presentation.views.docs_order import MessagingDocsOrder
 from products.messaging.backend.presentation.views.refusals import (
     ExplainedRefusal,
     RequestBodyCapMixin,
@@ -1847,6 +1848,7 @@ class MessageTemplatesViewSet(
 
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = MessagingDocsOrder.SEND
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
