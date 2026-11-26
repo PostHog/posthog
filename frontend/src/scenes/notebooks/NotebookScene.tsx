@@ -13,11 +13,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayFileScenePinButton } from '~/layout/today/TodayFileScenePinButton'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { NotebookAppScene } from 'products/notebooks/frontend/AppBuilder/NotebookAppScene'
@@ -149,7 +149,7 @@ export function NotebookScene(): JSX.Element {
                     name={notebook?.title || 'Unnamed'}
                     isLoading={!notebook}
                     resourceType={{ type: 'notebook' }}
-                    nameAction={<AnalyticsScenePinButton dataAttrKey="notebook" />}
+                    nameAction={<TodayFileScenePinButton pane="analytics" dataAttrKey="notebook" />}
                 />
             )}
             <div className={cn('flex flex-wrap gap-2 items-center justify-between', sceneMenuBarEnabled && 'mt-2')}>

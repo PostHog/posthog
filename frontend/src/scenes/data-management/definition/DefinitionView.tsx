@@ -43,6 +43,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -275,6 +276,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={formattedName}
+                nameAction={<TodayScenePinButton />}
                 resourceType={
                     isEvent
                         ? {

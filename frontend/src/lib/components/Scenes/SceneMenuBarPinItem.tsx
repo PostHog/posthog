@@ -4,11 +4,10 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
-import { pinTargetKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { fileSystemPinTarget, pinTargetKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 
 import { sceneFileLogic } from './sceneFileLogic'
 
@@ -19,7 +18,7 @@ export function SceneMenuBarPinItem({ dataAttrKey }: { dataAttrKey: string }): J
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { pinnedShortcutIds, shortcutDataLoading } = useValues(sidebarPinsLogic)
     const { togglePinned } = useActions(sidebarPinsLogic)
-    const target = scenePinTarget(projectTreeRefEntry)
+    const target = fileSystemPinTarget(projectTreeRefEntry)
     if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] || !target) {
         return null
     }

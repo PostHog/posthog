@@ -9,6 +9,7 @@ import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/ma
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 
 import { canEditNodeDescription } from './nodeDescriptionState'
 import { NodeDetailActions } from './NodeDetailActions'
@@ -40,6 +41,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         <>
             <SceneTitleSection
                 name={node?.name}
+                nameAction={<TodayScenePinButton />}
                 nameSuffix={<NodeDetailTitleTags nodeType={nodeType} node={node} />}
                 actions={
                     // A failed saved query never resolves on its own, so the placeholder must not
