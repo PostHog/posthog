@@ -1,12 +1,19 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
+from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, User
 from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.service_accounts.emails import generated_service_account_email
+
+from products.access_control.backend.models.role import Role, RoleMembership
 
 
 class TestServiceAccountAPI(APIBaseTest):
@@ -156,3 +163,64 @@ class TestServiceAccountAPI(APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         assert self.client.get(self.url).status_code == 403
         assert self.client.post(self.url, {"name": "Forbidden"}).status_code == 403
+
+    @parameterized.expand(["valid", "expired", "revoked"])
+    def test_disable_and_enable_preserve_only_valid_credentials(self, credential_state) -> None:
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            user=self.account, label="Deploy", secure_value=hash_key_value(token), scopes=["user:read"]
+        )
+        membership = self.account.organization_memberships.get()
+        role = Role.objects.create(organization=self.organization, name="Deployers")
+        assignment = RoleMembership.objects.create(role=role, user=self.account, organization_member=membership)
+        account_client = APIClient()
+        account_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        assert account_client.get("/api/users/@me/").status_code == 200
+
+        response = self.client.post(f"{self.url}{self.account.uuid}/disable/", {})
+        assert response.status_code == 200, response.json()
+        assert response.json()["is_active"] is False
+        assert account_client.get("/api/users/@me/").status_code == 401
+        assert PersonalAPIKey.objects.get(pk=key.pk).secure_value == key.secure_value
+        assert self.account.organization_memberships.get().id == membership.id
+        assert RoleMembership.objects.filter(pk=assignment.pk).exists()
+        assert self.client.get(f"{self.url}{self.account.uuid}/").status_code == 200
+        assert str(self.account.uuid) in [account["id"] for account in self.client.get(self.url).json()["results"]]
+        assert (
+            self.client.patch(f"{self.url}{self.account.uuid}/", {"name": "Renamed while disabled"}).status_code == 200
+        )
+
+        if credential_state == "expired":
+            key.expires_at = timezone.now() - timedelta(seconds=1)
+            key.save(update_fields=["expires_at"])
+        elif credential_state == "revoked":
+            key.delete()
+        self.flag.return_value = False
+        response = self.client.post(f"{self.url}{self.account.uuid}/enable/", {})
+        assert response.status_code == 200, response.json()
+        assert response.json()["is_active"] is True
+        assert account_client.get("/api/users/@me/").status_code == (200 if credential_state == "valid" else 401)
+        assert self.account.organization_memberships.get().id == membership.id
+        assert RoleMembership.objects.filter(pk=assignment.pk).exists()
+
+    @parameterized.expand(["disable", "enable"])
+    def test_lifecycle_actions_reject_members_and_out_of_scope_targets(self, action) -> None:
+        other_org = Organization.objects.create(name="Other organization")
+        other = User.objects.create_and_join(other_org, "other@example.com", None, type=UserType.SERVICE_ACCOUNT)
+        for target in [self.user, other]:
+            assert self.client.post(f"{self.url}{target.uuid}/{action}/", {}).status_code == 404
+        self.organization.memberships.filter(user=self.user).update(level=OrganizationMembership.Level.MEMBER)
+        assert self.client.post(f"{self.url}{self.account.uuid}/{action}/", {}).status_code == 403
+
+    @parameterized.expand(["disable", "enable"])
+    def test_lifecycle_actions_require_write_scope(self, action) -> None:
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            user=self.user, label="Management", secure_value=hash_key_value(token), scopes=["organization_member:read"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        assert self.client.post(f"{self.url}{self.account.uuid}/{action}/", {}).status_code == 403
+        key.scopes = ["organization_member:write"]
+        key.save(update_fields=["scopes"])
+        assert self.client.post(f"{self.url}{self.account.uuid}/{action}/", {}).status_code == 200

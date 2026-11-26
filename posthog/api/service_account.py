@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
@@ -37,14 +38,16 @@ class ServiceAccountSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "user", "is_active", "created_at"]
 
 
-class ServiceAccountWriteSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=150, help_text="Display name of the service account.")
-
+class ServiceAccountActionSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         unknown_fields = set(self.initial_data) - self.fields.keys()
         if unknown_fields:
-            raise serializers.ValidationError(dict.fromkeys(unknown_fields, "Only the name can be set."))
+            raise serializers.ValidationError(dict.fromkeys(unknown_fields, "This field cannot be set."))
         return attrs
+
+
+class ServiceAccountWriteSerializer(ServiceAccountActionSerializer):
+    name = serializers.CharField(max_length=150, help_text="Display name of the service account.")
 
 
 @extend_schema(extensions={"x-product": "core"})
@@ -87,4 +90,18 @@ class ServiceAccountViewSet(
         membership = operations.rename_service_account(
             self.organization, membership.user.uuid, name=request.validated_data["name"]
         )
+        return Response(self.get_serializer(membership).data)
+
+    @action(methods=["POST"], detail=True, required_scopes=["organization_member:write"])
+    @validated_request(ServiceAccountActionSerializer, responses={200: ServiceAccountSerializer})
+    def disable(self, request: ValidatedRequest, **kwargs) -> Response:
+        membership = self.get_object()
+        membership = operations.set_service_account_active(self.organization, membership.user.uuid, is_active=False)
+        return Response(self.get_serializer(membership).data)
+
+    @action(methods=["POST"], detail=True, required_scopes=["organization_member:write"])
+    @validated_request(ServiceAccountActionSerializer, responses={200: ServiceAccountSerializer})
+    def enable(self, request: ValidatedRequest, **kwargs) -> Response:
+        membership = self.get_object()
+        membership = operations.set_service_account_active(self.organization, membership.user.uuid, is_active=True)
         return Response(self.get_serializer(membership).data)

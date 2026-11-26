@@ -1600,6 +1600,42 @@ export const serviceAccountsPartialUpdate = async (
     })
 }
 
+export const getServiceAccountsDisableCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/${id}/disable/`
+}
+
+export const serviceAccountsDisableCreate = async (
+    organizationId: string,
+    id: string,
+    serviceAccountApi?: NonReadonly<ServiceAccountApi>,
+    options?: RequestInit
+): Promise<ServiceAccountApi> => {
+    return apiMutator<ServiceAccountApi>(getServiceAccountsDisableCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(serviceAccountApi),
+    })
+}
+
+export const getServiceAccountsEnableCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/service_accounts/${id}/enable/`
+}
+
+export const serviceAccountsEnableCreate = async (
+    organizationId: string,
+    id: string,
+    serviceAccountApi?: NonReadonly<ServiceAccountApi>,
+    options?: RequestInit
+): Promise<ServiceAccountApi> => {
+    return apiMutator<ServiceAccountApi>(getServiceAccountsEnableCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(serviceAccountApi),
+    })
+}
+
 export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
 }
