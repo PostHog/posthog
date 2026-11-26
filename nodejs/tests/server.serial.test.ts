@@ -60,46 +60,62 @@ describe('server', () => {
         expect(process.exit).not.toHaveBeenCalledWith(1)
     })
 
-    it.each(EMAIL_QUEUES)('starts a worker that claims jobs on the %s queue', async (queue) => {
-        const dbUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
-        const manager = new CyclotronV2Manager({
-            pool: { dbUrl },
-            depthLimit: 1_000_000,
-            depthCheckIntervalMs: 0,
-            ...CYCLOTRON_QUEUE_ROLES,
-        })
-        const pool = new Pool({ connectionString: dbUrl })
-        let id: string | undefined
-        try {
-            const { rows: databases } = await pool.query('SELECT current_database() AS name')
-            assertTestDatabaseName(databases[0].name, 'Cyclotron node Postgres')
-            await manager.connect()
-            ;[id] = await manager.bulkCreateJobs([
-                { teamId: 1, queueName: queue, functionId: uuidv7(), scheduled: new Date(), state: null },
-            ])
-            pluginsServer = new PluginServer({
-                LOG_LEVEL: 'warn',
-                PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_email,
-                PERSONHOG_ENABLED: true,
-                PERSONHOG_ADDR: 'localhost:50052',
-            })
-            await pluginsServer.start()
+    const emailStartups = EMAIL_QUEUES.flatMap(
+        (queue) =>
+            [
+                [queue, 'plain', {}],
+                [
+                    queue,
+                    'rate-limited',
+                    { SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1', SES_RATE_LIMITER_VALKEY_PORT: 6390 },
+                ],
+            ] as const
+    )
 
-            await waitForExpect(async () => {
-                const { rows } = await pool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
-                expect(rows).toEqual([{ status: expect.stringMatching(/^(completed|failed)$/) }])
-            }, 15_000)
-        } finally {
+    it.each(emailStartups)(
+        'starts a worker that claims jobs on the %s queue with %s start-up',
+        async (queue, _startup, sesLimiter) => {
+            const dbUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
+            const manager = new CyclotronV2Manager({
+                pool: { dbUrl },
+                depthLimit: 1_000_000,
+                depthCheckIntervalMs: 0,
+                ...CYCLOTRON_QUEUE_ROLES,
+            })
+            const pool = new Pool({ connectionString: dbUrl })
+            let id: string | undefined
             try {
-                if (id) {
-                    await pool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
-                }
+                const { rows: databases } = await pool.query('SELECT current_database() AS name')
+                assertTestDatabaseName(databases[0].name, 'Cyclotron node Postgres')
+                await manager.connect()
+                ;[id] = await manager.bulkCreateJobs([
+                    { teamId: 1, queueName: queue, functionId: uuidv7(), scheduled: new Date(), state: null },
+                ])
+                pluginsServer = new PluginServer({
+                    LOG_LEVEL: 'warn',
+                    PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_email,
+                    PERSONHOG_ENABLED: true,
+                    PERSONHOG_ADDR: 'localhost:50052',
+                    ...sesLimiter,
+                })
+                await pluginsServer.start()
+
+                await waitForExpect(async () => {
+                    const { rows } = await pool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
+                    expect(rows).toEqual([{ status: expect.stringMatching(/^(completed|failed)$/) }])
+                }, 15_000)
             } finally {
-                await pool.end()
-                await manager.disconnect()
+                try {
+                    if (id) {
+                        await pool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                    }
+                } finally {
+                    await pool.end()
+                    await manager.disconnect()
+                }
             }
         }
-    })
+    )
 
     it('keeps batch resolver healthy for the configured audience budget plus processing headroom', async () => {
         pluginsServer = new PluginServer({
