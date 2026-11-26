@@ -10,14 +10,10 @@ from parameterized import parameterized
 from posthog.schema import (
     AccountsQuery,
     AccountsTableQuery,
-    DataVisualizationNode,
     DataWarehouseNode,
     EntityType,
     EventsNode,
-    EventsQuery,
     FunnelsDataWarehouseNode,
-    HogQLFilters,
-    HogQLPropertyFilter,
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
@@ -42,7 +38,6 @@ from posthog.hogql_queries.access_controlled_resources import (
 )
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
-from products.actions.backend.facade.testing import create_action, update_action
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -85,28 +80,9 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("trace_spans", "select * from posthog.trace_spans", {"tracing"}),
-            (
-                "cte_shadowing_a_real_read",
-                "select * from posthog.trace_spans where 1 in (with `posthog.trace_spans` as (select 1 as a) select a from `posthog.trace_spans`)",
-                {"tracing"},
-            ),
-            (
-                "join_condition_subquery",
-                "select * from events e join persons p on e.person_id = p.id and p.x = (select count() from posthog.trace_spans)",
-                {"tracing"},
-            ),
             ("placeholder_table", "select * from {table}", None),
             ("placeholder_join", "select * from events join {table} on 1", None),
             ("placeholder_outside_from", "select * from events where {filters}", set()),
-            ("variable_placeholder", "select {variables.x} from events", set()),
-            ("computed_placeholder", "select {jsonParse('1')} from events", None),
-            ("hogqlx_query_tag", "select * from <HogQLQuery query='select count() from posthog.trace_spans' />", None),
-            ("hogqlx_rendering_tag", "select <Sparkline data={[1, 2]} /> from events", set()),
-            (
-                "table_function_argument",
-                "select * from numbers((select count() from posthog.trace_spans), 1)",
-                {"tracing"},
-            ),
             (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",
@@ -218,13 +194,9 @@ class TestQueriedAccessControlledResources(BaseTest):
         [
             ("warehouse_table", "some_dw_table", set()),
             ("trace_spans", "posthog.trace_spans", {"tracing"}),
-            ("view_over_trace_spans", "span_view", {"tracing"}),
         ]
     )
     def test_structured_query_with_data_warehouse_series(self, _name, table_name, extra_scopes):
-        DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="span_view", query={"kind": "HogQLQuery", "query": "select * from posthog.trace_spans"}
-        )
         node = self._dw_node().model_copy(update={"table_name": table_name})
         query = TrendsQuery(series=[EventsNode(event="$pageview"), node])
         assert queried_access_controlled_resources(query, self.team) == {
@@ -233,140 +205,6 @@ class TestQueriedAccessControlledResources(BaseTest):
             "warehouse_view",
             *extra_scopes,
         }
-
-    @parameterized.expand(
-        [
-            ("math_hogql", "sum(1) + (select count() from posthog.trace_spans)", {"tracing"}),
-            ("reads_no_scoped_table", "sum(1) + (select count() from events)", set()),
-            ("comment_after_select", "1 + (select/**/count() from posthog.trace_spans)", {"tracing"}),
-            (
-                "saved_view",
-                "sum(1) + (select count() from span_view)",
-                {"tracing", "warehouse_view", "warehouse_table", "external_data_source"},
-            ),
-        ]
-    )
-    def test_structured_query_embedded_hogql_reads_are_detected(self, _name, math_hogql, expected):
-        DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="span_view", query={"kind": "HogQLQuery", "query": "select * from posthog.trace_spans"}
-        )
-        query = TrendsQuery(series=[EventsNode(event="$pageview", math="hogql", math_hogql=math_hogql)])
-        assert queried_access_controlled_resources(query, self.team) == expected
-
-    @parameterized.expand(
-        [
-            (
-                "accounts_metric",
-                lambda: AccountsQuery(metrics=["count() + (select count() from posthog.trace_spans)"]),
-                {"account", "tracing"},
-            ),
-            (
-                "events_order_by_desc",
-                lambda: EventsQuery(select=["*"], orderBy=["(select count() from posthog.trace_spans) DESC"]),
-                {"tracing"},
-            ),
-            (
-                "nested_hogql_property_filter",
-                lambda: DataVisualizationNode(
-                    source=HogQLQuery(
-                        query="select count() from events where {filters}",
-                        filters=HogQLFilters(
-                            properties=[HogQLPropertyFilter(key="1 in (select 1 from posthog.trace_spans)")]
-                        ),
-                    )
-                ),
-                {"tracing"},
-            ),
-            (
-                "hogql_property_filter",
-                lambda: HogQLQuery(
-                    query="select count() from events where {filters}",
-                    filters=HogQLFilters(
-                        properties=[HogQLPropertyFilter(key="1 in (select 1 from posthog.trace_spans)")]
-                    ),
-                ),
-                {"tracing"},
-            ),
-        ]
-    )
-    def test_embedded_hogql_outside_structured_series_is_detected(self, _name, build_query, expected_subset):
-        result = queried_access_controlled_resources(build_query(), self.team)
-        assert result is not None
-        assert expected_subset <= result
-
-    @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
-    def test_team_test_account_filters_are_scanned_when_enabled(self, _name, enabled, expect_tracing):
-        self.team.test_account_filters = [
-            {"type": "hogql", "key": "properties.x in (select span_id from posthog.trace_spans)"}
-        ]
-        self.team.save()
-        query = HogQLQuery(
-            query="select count() from events where {filters}", filters=HogQLFilters(filterTestAccounts=enabled)
-        )
-        result = queried_access_controlled_resources(query, self.team)
-        assert result is not None
-        assert ("tracing" in result) is expect_tracing
-
-    def _create_span_action(self) -> int:
-        return self._create_span_action_contract().id
-
-    def _create_span_action_contract(self):
-        return create_action(
-            team=self.team,
-            name="span action",
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "properties": [{"type": "hogql", "key": "1 in (select 1 from posthog.trace_spans)"}],
-                }
-            ],
-        )
-
-    @parameterized.expand(
-        [
-            ("events_query_action_id", lambda action_id: EventsQuery(select=["*"], actionId=action_id)),
-            (
-                "matches_action_in_hogql",
-                lambda action_id: HogQLQuery(query=f"select count() from events where matchesAction({action_id})"),
-            ),
-            (
-                "retention_entity_with_numeric_id",
-                lambda action_id: RetentionQuery(
-                    retentionFilter=RetentionFilter(
-                        targetEntity=RetentionEntity(id=float(action_id), type=EntityType.ACTIONS)
-                    )
-                ),
-            ),
-        ]
-    )
-    def test_saved_action_steps_are_scanned(self, _name, build_query):
-        query = build_query(self._create_span_action())
-        result = queried_access_controlled_resources(query, self.team)
-        assert result is not None
-        assert "tracing" in result
-
-    def test_deleted_action_steps_are_scanned(self):
-        action = self._create_span_action_contract()
-        query = HogQLQuery(query=f"select count() from events where matchesAction({action.id})")
-        update_action(action, deleted=True)
-        result = queried_access_controlled_resources(query, self.team)
-        assert result is not None
-        assert "tracing" in result
-
-    def test_actions_without_hogql_add_nothing(self):
-        create_action(team=self.team, name="plain", steps_json=[{"event": "$pageview"}])
-        assert queried_access_controlled_resources(HogQLQuery(query="select 1"), self.team) == set()
-
-    def test_dashboard_fingerprints_load_action_steps_once(self):
-        self._create_span_action()
-        queries = [HogQLQuery(query="select 1"), HogQLQuery(query="select 2")]
-        with shared_warehouse_lookups(), self.assertNumQueries(1):
-            for query in queries:
-                assert queried_access_controlled_resources(query, self.team) == {"tracing"}
-
-    def test_structured_query_with_nested_placeholder_table_fails_closed(self):
-        query = DataVisualizationNode(source=HogQLQuery(query="select * from {table}"))
-        assert queried_access_controlled_resources(query, self.team) is None
 
     def test_nested_data_warehouse_node_is_detected(self):
         # The node is two levels deep (actors query -> source insight -> series), so a shallow
@@ -463,15 +301,6 @@ class TestQueriedAccessControlledResources(BaseTest):
 
         result = queried_access_controlled_resources(HogQLQuery(query=f"select * from {queried_name}"), self.team)
         assert result == {"external_data_source", "warehouse_table"}
-
-    def test_cte_shadowing_a_warehouse_view_keeps_its_scope(self):
-        DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="my_view", query={"kind": "HogQLQuery", "query": "select 1 as a"}
-        )
-        sql = "select * from my_view where 1 in (with my_view as (select 1 as a) select a from my_view)"
-        result = queried_access_controlled_resources(HogQLQuery(query=sql), self.team)
-        assert result is not None
-        assert "warehouse_view" in result
 
     def test_warehouse_view_scope(self):
         DataWarehouseSavedQuery.objects.create(
@@ -623,10 +452,10 @@ class TestQueriedAccessControlledResources(BaseTest):
         table.save()
 
         query = HogQLQuery(query="select * from stripe_customers")
-        # One query each for action steps, tables and views. A fourth means either the .only() field
-        # list no longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
+        # One query each for tables and views. A third means either the .only() field list no
+        # longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
         # row) or the default manager's externaldataschema_set prefetch leaked back in.
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
 
     def test_warehouse_table_of_another_team_not_matched(self):

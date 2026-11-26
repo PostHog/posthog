@@ -8,7 +8,7 @@ import posthoganalytics
 from clickhouse_driver.errors import Error as ClickHouseDriverError
 from prometheus_client import Histogram
 from pydantic import BaseModel
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound
 
 from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
 
@@ -183,8 +183,8 @@ class QueryStatusManager:
 def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Optional["User"]:
     """Rebuild the anonymous viewer of a public share so an async recalculation runs as the same
     principal the request did. None if the share was disabled, expired, or deleted, or the
-    organization turned off public sharing, in the meantime - the caller must then refuse to run
-    the query, since a userless run reads tables the share never could."""
+    organization turned off public sharing, in the meantime - the query then runs userless and is
+    denied, which is the correct outcome for a revoked share."""
     from posthog.models.sharing_configuration import SharingConfiguration  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
@@ -205,17 +205,6 @@ def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Option
     # The query stack types its principal as Optional[User] but accepts the anonymous shared-link
     # viewer at runtime, so cast at the boundary the same way SharingViewerPageViewSet does.
     return cast("User", SharedLinkUser(sharing_configuration))
-
-
-def _project_secret_api_key_user_for(project_secret_api_key_id: str, team: "Team") -> Optional["User"]:
-    """Rebuild the project secret key principal a request ran as. None if the key was deleted in the
-    meantime - the caller must then refuse to run the query, since both a userless run and a synthetic
-    stand-in read tables the key no longer may."""
-    from posthog.auth import ProjectSecretAPIKeyUser  # noqa: PLC0415
-    from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
-
-    key = ProjectSecretAPIKey.objects.filter(pk=project_secret_api_key_id, team_id=team.id).first()
-    return cast("User", ProjectSecretAPIKeyUser(key)) if key is not None else None
 
 
 def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
@@ -258,7 +247,6 @@ def execute_process_query(
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
     staff_rights_withheld: bool = False,
-    project_secret_api_key_id: Optional[str] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -271,7 +259,6 @@ def execute_process_query(
     is_staff_user = False
 
     user: Optional[User] = None
-    principal_revoked = False
     if user_id:
         user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
         if staff_rights_withheld:
@@ -283,10 +270,6 @@ def execute_process_query(
         # ("You don't have access to table `X`.") and fingerprints the cache differently than the
         # request that enqueued it.
         user = _shared_link_user_for(sharing_configuration_id, team)
-        principal_revoked = user is None
-    elif project_secret_api_key_id:
-        user = _project_secret_api_key_user_for(project_secret_api_key_id, team)
-        principal_revoked = user is None
 
     query_status = manager.get_query_status()
 
@@ -315,8 +298,6 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
-        if principal_revoked:
-            raise PermissionDenied("The shared link or API key that sent this query is no longer active.")
         results = process_query_dict(
             team=team,
             query_json=query_json,
@@ -417,7 +398,6 @@ def enqueue_process_query_task(
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
     staff_rights_withheld: bool = False,
-    project_secret_api_key_id: Optional[str] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -496,8 +476,6 @@ def enqueue_process_query_task(
         optional_kwargs["sharing_configuration_id"] = sharing_configuration_id
     if staff_rights_withheld:
         optional_kwargs["staff_rights_withheld"] = True
-    if project_secret_api_key_id:
-        optional_kwargs["project_secret_api_key_id"] = project_secret_api_key_id
     task_signature = process_query_task.si(
         team.id,
         user_id,

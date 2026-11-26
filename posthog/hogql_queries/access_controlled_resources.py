@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import field
 from functools import reduce
@@ -111,7 +111,6 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
-    action_expressions: dict[int, list[str]] = field(default_factory=dict)
 
     def for_next_fingerprint(self) -> "_WarehouseCatalog":
         """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
@@ -123,16 +122,7 @@ class _WarehouseCatalog:
             looked_up_table_names=self.looked_up_table_names,
             view_queries=self.view_queries,
             looked_up_names=self.looked_up_names,
-            action_expressions=self.action_expressions,
         )
-
-    def action_hogql_expressions(self, project_id: int) -> list[str]:
-        """The HogQL in the project's action steps, read once per shared lookup scope."""
-        if project_id not in self.action_expressions:
-            from products.actions.backend.facade import api as actions_facade  # noqa: PLC0415
-
-            self.action_expressions[project_id] = actions_facade.hogql_step_expressions(project_id=project_id)
-        return self.action_expressions[project_id]
 
     def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
@@ -240,7 +230,6 @@ def queried_access_controlled_resources(
     *,
     bypassed_scopes: frozenset[str] = frozenset(),
     _catalog: Optional[_WarehouseCatalog] = None,
-    _nested: bool = False,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -260,40 +249,17 @@ def queried_access_controlled_resources(
     later path to it adds nothing, and views that reference each other end."""
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql.database.database import access_controlled_posthog_tables  # noqa: PLC0415
+    from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
     catalog = _catalog or _catalog_for_fingerprint(team.pk)
 
-    # HogQL embedded anywhere in the query (a `math_hogql` expression, an AccountsQuery metric, a HogQL
-    # property filter attached to a raw query) reads tables too, so each piece gets the same analysis as a
-    # raw HogQL query: placeholders fail closed and saved views are walked. A raw query's own SQL is
-    # analysed below, so only its other fields are scanned here.
-    is_hogql_query = getattr(query, "kind", None) == "HogQLQuery"
-    embedded_scopes: set[str] = set()
-    embedded_sources = (
-        [value for name, value in query.__dict__.items() if name != "query"] if is_hogql_query else [query]
-    )
-    if not _nested:
-        # Execution also applies HogQL stored outside the query: the team's test-account filters when the
-        # query turns them on, and the steps of the actions it names. Either can read any table. A query can
-        # name an action in too many ways (series, `matchesAction(...)`, behavioral filters) to find them all,
-        # so the HogQL in every action of the project counts, deleted ones too: an unused one only adds scopes.
-        if _enables_test_account_filters(query):
-            embedded_sources.append(team.test_account_filters)
-        embedded_sources.append(catalog.action_hogql_expressions(team.project_id))
-    with nullcontext() if _shared_catalogs.get() is not None else shared_warehouse_lookups():
-        for embedded_sql in _embedded_hogql(embedded_sources):
-            nested = queried_access_controlled_resources(
-                HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes, _nested=True
-            )
-            if nested is None:
-                return None
-            embedded_scopes |= nested
-
     if getattr(query, "kind", None) == "AccountsTableQuery":
-        return _with_fallback_parents({"account"}, bypassed_scopes) | embedded_scopes
+        return _with_fallback_parents({"account"}, bypassed_scopes)
 
     if getattr(query, "kind", None) == "AccountsQuery":
         expressions = [
@@ -313,10 +279,10 @@ def queried_access_controlled_resources(
         account_scopes = {"account"}
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
             account_scopes.add("ticket")
-        return _with_fallback_parents(account_scopes, bypassed_scopes) | embedded_scopes
+        return _with_fallback_parents(account_scopes, bypassed_scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
-    if is_hogql_query:
+    if getattr(query, "kind", None) == "HogQLQuery":
         sql = getattr(query, "query", None)
         if not isinstance(sql, str):
             return None
@@ -328,8 +294,11 @@ def queried_access_controlled_resources(
         if _has_placeholder_table(select):
             return None  # the table is unknown until the placeholder expands -> fail closed
 
-        table_names = _table_names_including_join_constraints(select)
-        system_scopes = _table_scopes()
+        table_names = set(get_table_names(select))
+        system_scopes = {
+            **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
+            **access_controlled_posthog_tables(),
+        }
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
         scopes_from_system_tables = set(scopes)
 
@@ -403,7 +372,10 @@ def queried_access_controlled_resources(
                 if not isinstance(view_sql, str):
                     return None  # a view without a definition cannot expand -> fail closed
                 nested = queried_access_controlled_resources(
-                    HogQLQuery(query=view_sql), team, bypassed_scopes=bypassed_scopes, _catalog=catalog, _nested=True
+                    HogQLQuery(query=view_sql),
+                    team,
+                    bypassed_scopes=bypassed_scopes,
+                    _catalog=catalog,
                 )
                 if nested is None:
                     return None
@@ -411,38 +383,20 @@ def queried_access_controlled_resources(
                 # A nested result keeps a bypassed scope only when a system table carries it.
                 scopes_from_system_tables |= nested & bypassed_scopes
 
-        return (
-            _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
-        ) | embedded_scopes
-
-    scoped_tables = _table_scopes()
+        return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
 
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     if not _references_data_warehouse(query):
-        return _with_fallback_parents(embedded_scopes, bypassed_scopes) - (bypassed_scopes - embedded_scopes)
-    table_names = set(_data_warehouse_table_names(query))
-    table_scopes: set[str] = embedded_scopes | {
-        scope for name in table_names if (scope := scoped_tables.get(name)) is not None
+        return set()
+    # Its scope is kept even when bypassed on warehouse objects, as for tables a HogQL query names.
+    table_scopes = {
+        scope
+        for table_name in _data_warehouse_table_names(query)
+        if (scope := access_controlled_posthog_tables().get(table_name)) is not None
     }
-    # A cache hit skips resolving a saved view, so the tables its definition reads must key the cache too.
-    view_scopes: set[str] = set()
-    for view_name, view_query in catalog.get_views(table_names):
-        if view_name in catalog.walked_views:
-            continue
-        catalog.walked_views.add(view_name)
-        view_sql = view_query.get("query") if isinstance(view_query, dict) else None
-        if not isinstance(view_sql, str):
-            return None
-        nested = queried_access_controlled_resources(
-            HogQLQuery(query=view_sql), team, bypassed_scopes=bypassed_scopes, _catalog=catalog, _nested=True
-        )
-        if nested is None:
-            return None
-        view_scopes |= nested
-        table_scopes |= nested & bypassed_scopes
-    return _with_fallback_parents(
-        {"warehouse_table", "warehouse_view"} | table_scopes | view_scopes, bypassed_scopes
-    ) - (bypassed_scopes - table_scopes)
+    return _with_fallback_parents({"warehouse_table", "warehouse_view"} | table_scopes, bypassed_scopes) - (
+        bypassed_scopes - table_scopes
+    )
 
 
 def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) -> set[str]:
@@ -457,100 +411,9 @@ def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) ->
     }
 
 
-def _table_scopes() -> dict[str, str]:
-    """Qualified table name -> the resource that gates it, for system tables and `posthog.*` product tables."""
-    # Deferred to break the query_runner -> this module -> hogql import cycle.
-    from posthog.hogql.database.database import access_controlled_posthog_tables  # noqa: PLC0415
-    from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
-
-    return {
-        **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
-        **access_controlled_posthog_tables(),
-    }
-
-
-def _embedded_hogql(value) -> Iterator[str]:
-    """SQL for each piece of HogQL in a structured query's tree: a nested HogQLQuery as written, and any
-    other string that parses as an expression and contains parentheses (a subquery needs them) wrapped
-    into a select so one analysis covers both. Comments can split keywords, so no keyword filter applies."""
-    # Deferred to break the query_runner -> this module -> hogql import cycle.
-    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
-    from posthog.hogql.parser import parse_expr, parse_order_expr  # noqa: PLC0415
-
-    if isinstance(value, HogQLQuery):
-        if isinstance(value.query, str):
-            yield value.query
-        for name, item in value.__dict__.items():
-            if name != "query":
-                yield from _embedded_hogql(item)
-    elif isinstance(value, str):
-        if "(" not in value:
-            return
-        try:
-            parse_expr(value)
-            yield f"select (\n{value}\n)"
-            return
-        except BaseHogQLError:
-            pass
-        try:
-            parse_order_expr(value)  # a sort expression such as `(...) DESC`
-            yield f"select 1 order by\n{value}\n"
-        except BaseHogQLError:
-            return
-    elif isinstance(value, BaseModel):
-        for item in value.__dict__.values():
-            yield from _embedded_hogql(item)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _embedded_hogql(item)
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _embedded_hogql(item)
-
-
-def _enables_test_account_filters(value) -> bool:
-    """Whether a `filterTestAccounts` flag is on anywhere in the query's tree."""
-    if isinstance(value, BaseModel):
-        if getattr(value, "filterTestAccounts", None):
-            return True
-        return any(_enables_test_account_filters(item) for item in value.__dict__.values())
-    if isinstance(value, (list, tuple)):
-        return any(_enables_test_account_filters(item) for item in value)
-    if isinstance(value, dict):
-        return bool(value.get("filterTestAccounts")) or any(
-            _enables_test_account_filters(item) for item in value.values()
-        )
-    return False
-
-
-def _table_names_including_join_constraints(select) -> set[str]:
-    """Every table name a select reads, including in subqueries inside `JOIN ... ON` or table-function
-    arguments (which `get_table_names` skips). CTE names are not subtracted: a CTE is scoped to its own select, so a name it shadows may still be
-    read as the real table elsewhere in the query, and an extra name only adds scopes."""
-    # Deferred to break the query_runner -> this module -> hogql import cycle.
-    from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
-
-    class _Collector(TableCollector):
-        def visit_join_expr(self, node: ast.JoinExpr):
-            super().visit_join_expr(node)
-            for arg in node.table_args or []:
-                self.visit(arg)
-            self.visit(node.constraint)
-
-    collector = _Collector()
-    collector.visit(select)
-    return collector.table_names
-
-
 def _has_placeholder_table(select) -> bool:
-    """Whether the select reads something unknown until it expands: a placeholder in a table position, a
-    computed placeholder (such as `{jsonParse(...)}`) that can expand to a subquery, or a HogQLX query tag
-    (such as `<HogQLQuery query='...' />`) that expands to a whole query. Named placeholders such as
-    `{filters}` and rendering tags such as `<Sparkline>` expand to expressions the analysis already covers."""
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS  # noqa: PLC0415
     from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
 
     class _PlaceholderTableFinder(TraversingVisitor):
@@ -560,15 +423,6 @@ def _has_placeholder_table(select) -> bool:
             if isinstance(node.table, ast.Placeholder):
                 self.found = True
             super().visit_join_expr(node)
-
-        def visit_placeholder(self, node: ast.Placeholder) -> None:
-            if node.chain is None:
-                self.found = True
-
-        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
-            if node.kind not in HOGQLX_TAGS and node.kind not in HOGQLX_COMPONENTS:
-                self.found = True
-            super().visit_hogqlx_tag(node)
 
     finder = _PlaceholderTableFinder()
     finder.visit(select)

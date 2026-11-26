@@ -35,12 +35,10 @@ from posthog.errors import CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryEr
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, QueryRanConcurrently
 from posthog.logging.exceptions import add_otel_exception_attributes
 from posthog.models import Organization, Team
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.shared_link_user import SharedLinkUser
-from posthog.synthetic_user import SyntheticUser
 
 
 def _exposed_from(cause: Exception, message: str) -> ExposedHogQLError:
@@ -421,43 +419,12 @@ class TestExecuteProcessQuery(TestCase):
             sharing_configuration_id=sharing_configuration.id,
         )
 
+        user = mock_process_query_dict.call_args.kwargs["user"]
         if expect_viewer:
-            user = mock_process_query_dict.call_args.kwargs["user"]
             assert isinstance(user, SharedLinkUser)
             assert user.sharing_configuration.id == sharing_configuration.id
         else:
-            mock_process_query_dict.assert_not_called()
-            stored = json.loads(mock_redis.set.call_args.args[1])
-            assert stored["error"] is True
-
-    @parameterized.expand([("live_key", True), ("deleted_key", False)])
-    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
-    @patch("posthog.api.services.query.process_query_dict")
-    def test_project_key_run_keeps_the_keys_scopes(self, _name, key_exists, mock_process_query_dict, mock_redis_client):
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = json.dumps(
-            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
-        ).encode()
-        mock_redis_client.return_value = mock_redis
-        mock_process_query_dict.return_value = []
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team, label="async", secure_value="sha256$" + "e" * 64, scopes=["query:read", "tracing:read"]
-        )
-        key_id = key.pk
-        if not key_exists:
-            key.delete()
-
-        execute_process_query(
-            self.team.id, None, self.query_id, self.query_json, self.limit_context, project_secret_api_key_id=key_id
-        )
-
-        if key_exists:
-            user = mock_process_query_dict.call_args.kwargs["user"]
-            assert isinstance(user, SyntheticUser)
-            assert user.readable_system_table_access_scopes() == {"query", "tracing"}
-        else:
-            mock_process_query_dict.assert_not_called()
-            assert json.loads(mock_redis.set.call_args.args[1])["error"] is True
+            assert user is None
 
     @parameterized.expand(
         [

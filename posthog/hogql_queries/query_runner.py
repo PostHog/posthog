@@ -2353,12 +2353,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
-        from posthog.auth import ProjectSecretAPIKeyUser  # noqa: PLC0415 - posthog.auth pulls in DRF
-
-        # Same for a project secret key: run userless, the worker would read tables the key's scopes don't cover.
-        project_secret_api_key_id = (
-            principal.project_secret_api_key.pk if isinstance(principal, ProjectSecretAPIKeyUser) else None
-        )
 
         return enqueue_process_query_task(
             team=self.team,
@@ -2366,7 +2360,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # The worker loads the user by id, which restores stored staff rights this request withholds.
             staff_rights_withheld=isinstance(principal, User) and principal.staff_rights_withheld,
             sharing_configuration_id=sharing_configuration_id,
-            project_secret_api_key_id=project_secret_api_key_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=self._query_json_with_events_schema(),
@@ -4023,9 +4016,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
-                # The tables are unknown, so key on every scope the principal can't read; a bare "*" would
-                # let principals with different scopes share one entry.
-                return ["*", *sorted(set(API_SCOPE_OBJECTS) - user.readable_system_table_access_scopes())]
+                return ["*"]
             restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 
@@ -4033,9 +4024,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if user_access_control is None:
             return None
         if queried_resources is None:
-            # The tables are unknown, so key on every scope the user can't read, default-denied ones included:
-            # `blocked_resources` lists only explicit rules, so an admin and a member would share one entry.
-            queried_resources = set(API_SCOPE_OBJECTS)
+            return user_access_control.blocked_resources or None
         # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
         # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
         # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.

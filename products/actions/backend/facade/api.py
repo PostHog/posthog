@@ -193,22 +193,6 @@ def get_actions(
     return [_to_contract(action) for action in queryset.filter(pk__in=list(action_ids))]
 
 
-def hogql_step_expressions(*, project_id: int) -> list[str]:
-    """The HogQL expressions in the step property filters of the project's actions, deleted ones included
-    because `matchesAction(...)` still expands them. A query can reach any action (a series, `matchesAction`,
-    a behavioral filter), and these expressions can read any table."""
-    queryset = logic.scoped(project_id=project_id, team_id=None)
-    return [
-        prop["key"]
-        for steps in queryset.filter(steps_json__contains=[{"properties": [{"type": "hogql"}]}]).values_list(
-            "steps_json", flat=True
-        )
-        for step in steps or []
-        for prop in step.get("properties") or []
-        if isinstance(prop, dict) and prop.get("type") == "hogql" and isinstance(prop.get("key"), str)
-    ]
-
-
 def list_actions(
     *, project_id: int | None = None, team_id: int | None = None, include_deleted: bool = False
 ) -> list[contracts.Action]:

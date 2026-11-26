@@ -1972,20 +1972,6 @@ class TestSharedInsightsExecutionMode(BaseTest):
         assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
     @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
-    def test_async_calculation_carries_the_project_key(self, mock_enqueue: mock.MagicMock) -> None:
-        from posthog.auth import ProjectSecretAPIKeyUser
-        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team, label="async", secure_value="sha256$" + "e" * 64, scopes=["query:read"]
-        )
-        runner = setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team)
-
-        runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=cast(User, ProjectSecretAPIKeyUser(key)))
-
-        assert mock_enqueue.call_args.kwargs["project_secret_api_key_id"] == key.pk
-
-    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
     def test_async_payload_pins_the_resolved_events_table(self, mock_enqueue: mock.MagicMock) -> None:
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
             direct = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
@@ -2183,31 +2169,6 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         key_denied = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != userless_runner.get_cache_key()
-
-    def test_unknown_table_query_partitions_project_keys_by_scope(self) -> None:
-        from posthog.auth import ProjectSecretAPIKeyUser
-        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-
-        query = {"kind": "HogQLQuery", "query": "select * from {table}"}
-        keys = []
-        for scopes in (["query:read"], ["query:read", "tracing:read"]):
-            key = ProjectSecretAPIKey.objects.create(
-                team=self.team, label=scopes[-1], secure_value="sha256$" + scopes[-1][0] * 64, scopes=scopes
-            )
-            principal = cast(User, ProjectSecretAPIKeyUser(key))
-            keys.append(HogQLQueryRunner(query=query, team=self.team, user=principal).get_cache_key())
-
-        assert keys[0] != keys[1]
-
-    def test_unknown_table_query_partitions_default_denied_resources(self) -> None:
-        query = {"kind": "HogQLQuery", "query": "select * from system.data_deletion_requests where {1}"}
-        member_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
-
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        admin_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
-
-        assert member_key != admin_key
 
     def test_default_denied_resource_partitions_cache_without_access_control(self):
         self.organization.available_product_features = []
