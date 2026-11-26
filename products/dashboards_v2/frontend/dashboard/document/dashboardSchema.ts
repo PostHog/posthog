@@ -204,8 +204,6 @@ export const dashboardSchema = z.object({
      * Stored with the board and not shown yet. They match the dashboard-level fields of Dash and Grafana dashboards,
      * so a board imported from either keeps them. Each entry stays open, so its shape can grow without a new schema.
      */
-    tags: z.array(z.string()).optional(),
-    folder: z.string().optional(),
     links: z.array(z.looseObject({ title: z.string(), href: safeHrefSchema })).optional(),
     /** How often the board reloads its data, such as `5m`. */
     refresh: z.string().optional(),
