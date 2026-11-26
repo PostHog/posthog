@@ -76,7 +76,10 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
-from products.tasks.backend.temporal.process_task.activities.agent_egress import AgentEgressProbeInput
+from products.tasks.backend.temporal.process_task.activities.agent_egress import (
+    AgentEgressProbeInput,
+    await_agent_egress_git,
+)
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
 from products.tasks.backend.temporal.process_task.activities.persist_agent_memory import PersistAgentMemoryOutput
@@ -888,6 +891,81 @@ class TestSandboxRotation:
 
         assert output.jwt_kid == "kid-provisioned"
         assert wf._sandbox_jwt_kid == "kid-provisioned"
+
+    @pytest.mark.parametrize("ready", [True, False])
+    async def test_git_enrollment_precedes_clone_and_failure_never_clones(self, monkeypatch, ready: bool) -> None:
+        wf = self._workflow(monkeypatch)
+        wf._context = _build_context(github_integration_id=None, repository="example/private")
+        wf._context.agent_egress_git_reads = True
+        wf._git_egress_supported = True
+        wf._context.agent_egress_enrollment_enabled = True
+        wf._context.agent_egress_observation_config = "/run/egress/enrollment.json"
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="example/private",
+            github_token="",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=False,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="base",
+            sandbox_creation_timeout_seconds=180,
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sb-git", sandbox_url="https://sandbox.example.com", connect_token=None
+        )
+        observing = asyncio.Event()
+        events: list[str] = []
+
+        async def child_workflow(workflow_fn, input: AgentEgressProbeInput, **kwargs):
+            assert input.sandbox_id == "sb-git"
+            assert input.enrollment
+            events.append("enroll")
+            observing.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("revoke")
+
+        async def execute(activity_fn, input, **kwargs):
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                events.append("create")
+                return created
+            if activity_fn is await_agent_egress_git:
+                await observing.wait()
+                if not ready:
+                    raise ValueError("enrollment unavailable")
+                events.append("ready")
+                return None
+            assert activity_fn is clone_repository_in_sandbox
+            assert events[-1] == "ready"
+            assert input.github_token == ""
+            assert input.repository == "example/private"
+            events.append("clone")
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+        if ready:
+            result = await wf._get_sandbox_for_repository()
+            assert result.sandbox_id == "sb-git"
+        else:
+            with pytest.raises(ValueError, match="enrollment unavailable"):
+                await wf._get_sandbox_for_repository()
+        await wf._stop_egress_observation()
+        assert events == (["create", "enroll", "ready", "clone", "revoke"] if ready else ["create", "enroll", "revoke"])
 
     @pytest.mark.parametrize("sized, expected", [(True, True), (False, False)])
     async def test_preview_stays_enabled_only_when_the_sandbox_was_sized_for_it(self, monkeypatch, sized, expected):
@@ -2030,6 +2108,62 @@ class TestProcessTaskWorkflowUnit:
     @pytest.fixture(autouse=True)
     def _workflow_patches_applied(self, monkeypatch):
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+    @pytest.mark.parametrize("supported", [False, True])
+    async def test_git_egress_starts_refresh_without_task_integration_ids(self, monkeypatch, supported: bool) -> None:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=None)
+        wf._context.agent_egress_git_reads = True
+        wf._git_egress_supported = supported
+        delivered: list[RefreshSandboxCredentialsInput] = []
+
+        async def execute(activity_fn, input, **kwargs):
+            assert activity_fn is refresh_sandbox_credentials
+            delivered.append(input)
+            return RefreshSandboxCredentialsOutput(next_refresh_seconds=1200, refreshed_kinds=[], task_gone=True)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", AsyncMock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger(__name__))
+        task = wf._spawn_credential_refresh("sb-git")
+        if supported:
+            assert task is not None
+            await task
+            assert delivered == [RefreshSandboxCredentialsInput(context=wf.context, sandbox_id="sb-git")]
+        else:
+            assert task is None
+            assert delivered == []
+
+    @pytest.mark.parametrize("required", [False, True])
+    @pytest.mark.parametrize("outcome", ["failed", "ended", "parent_cancelled"])
+    async def test_required_git_relay_loss_ends_the_run(self, monkeypatch, required: bool, outcome: str) -> None:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=None)
+        wf._context.agent_egress_git_reads = required
+        wf._git_egress_supported = True
+        wf._context.agent_egress_observation_config = "/run/egress/enrollment.json"
+
+        async def child(*args, **kwargs):
+            if outcome == "failed":
+                raise RuntimeError("renewal failed after readiness")
+            if outcome == "parent_cancelled":
+                raise asyncio.CancelledError
+            return {}
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="test"))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger(__name__))
+        if outcome == "parent_cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await wf._observe_egress("sb-git")
+        else:
+            await wf._observe_egress("sb-git")
+        assert wf._task_completed is (required and outcome != "parent_cancelled")
+        if wf._task_completed:
+            assert wf._completion_status == "failed"
+            assert wf._completion_error_type == "agent_egress_unavailable"
+            assert wf._completion_error == "Git egress connection was lost"
 
     @pytest.mark.parametrize("origin", ["signals_scout", "signal_report", "signals_chat", "scout_suggestions"])
     @pytest.mark.parametrize("patched", [False, True])
