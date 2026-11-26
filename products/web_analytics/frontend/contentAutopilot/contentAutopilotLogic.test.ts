@@ -19,11 +19,13 @@ describe('contentAutopilotLogic', () => {
     afterEach(() => logic.unmount())
 
     it.each([
-        ['rankings', 'rankings'],
-        ['settings', 'settings'],
-        ['not-a-tab', 'overview'],
-    ])('opens the tab a link names (%s)', async (param, expected) => {
-        router.actions.push(urls.webAnalyticsContentAutopilot(), { tab: param })
+        ['?tab=rankings', { tab: 'rankings' }, undefined, 'rankings'],
+        ['?tab=settings', { tab: 'settings' }, undefined, 'settings'],
+        ['?tab=Rankings', { tab: 'Rankings' }, undefined, 'rankings'],
+        ['#tab:Rankings', undefined, '#tab:Rankings', 'rankings'],
+        ['?tab=not-a-tab', { tab: 'not-a-tab' }, undefined, 'overview'],
+    ])('opens the tab a link names (%s)', async (_link, search, hash, expected) => {
+        router.actions.push(urls.webAnalyticsContentAutopilot(), search, hash)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.workspaceTab).toBe(expected)
     })
