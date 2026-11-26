@@ -215,13 +215,30 @@ describe('InstructionsFormatter prompt snapshots', () => {
             tools: ['inbox-reports-retrieve'],
             expected: { inboxFirstEnabled: false, inboxNudgeEnabled: false },
         },
+        {
+            name: 'both flags on in a task run',
+            first: true,
+            nudge: true,
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            run: { isTaskBound: true },
+            expected: { inboxFirstEnabled: true, inboxNudgeEnabled: false },
+        },
+        {
+            name: 'both flags on in a sandbox run',
+            first: true,
+            nudge: true,
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            run: { sandboxTaskId: 'task-1' },
+            expected: { inboxFirstEnabled: true, inboxNudgeEnabled: false },
+        },
     ])(
-        'derives the inbox sections from their flags and the advertised tools: $name',
-        ({ first, nudge, tools, expected }) => {
+        'derives the inbox sections from their flags, the advertised tools and the kind of run: $name',
+        ({ first, nudge, tools, run, expected }) => {
             const state = {
                 allTools: tools.map((name) => ({ name })),
                 clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
                 toolFeatureFlags: { [MCP_INBOX_FIRST_FLAG]: first, [MCP_SELF_DRIVING_NUDGE_FLAG]: nudge },
+                ...run,
             } as unknown as ResolvedState
 
             expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state)).toMatchObject(expected)
