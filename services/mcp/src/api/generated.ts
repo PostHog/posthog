@@ -78184,10 +78184,17 @@ export namespace Schemas {
       results_as_of: string | null;
     }
 
+    export interface NotebookAppWidgetSlot {
+      node_id: string;
+      version_id: string;
+      slot: string;
+    }
+
     export interface NotebookAppViewerQuery {
       node_id: string;
       query: string;
       matches_defaults: boolean;
+      widget_slots?: NotebookAppWidgetSlot[];
     }
 
     export interface NotebookAppViewerRequest {
@@ -132448,6 +132455,8 @@ export namespace Schemas {
     }
 
     export interface WidgetFrame {
+      /** Notebook cell authorized for this version and dataframe slot. */
+      sourceNodeId?: string;
       /** Logical dataframe name. */
       name: string;
       /** Completed notebook run used for every page in this iframe load. */

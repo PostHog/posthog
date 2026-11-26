@@ -29,6 +29,7 @@ export interface ViewerOutput {
     query: string
     result: HogQLQueryResponse
     generation: number
+    widgetSlots: NonNullable<NotebookAppViewerQueryApi['widget_slots']>
 }
 export interface ViewerResults {
     outputs: Record<string, ViewerOutput>
@@ -83,7 +84,7 @@ async function resolveViewerOutputs(
             continue
         }
         if (!force && previous?.query === plan.query) {
-            outputs[plan.node_id] = previous
+            outputs[plan.node_id] = { ...previous, widgetSlots: plan.widget_slots ?? [] }
             continue
         }
         pending.push(
@@ -91,7 +92,12 @@ async function resolveViewerOutputs(
                 abortController: controller,
                 fn: async () => {
                     const result = await executeViewerQuery(plan.query, project, controller, force)
-                    outputs[plan.node_id] = { query: plan.query, result, generation: (previous?.generation ?? 0) + 1 }
+                    outputs[plan.node_id] = {
+                        query: plan.query,
+                        result,
+                        generation: (previous?.generation ?? 0) + 1,
+                        widgetSlots: plan.widget_slots ?? [],
+                    }
                 },
             })
         )

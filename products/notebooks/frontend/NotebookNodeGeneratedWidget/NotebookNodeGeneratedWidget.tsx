@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useContext, useEffect } from 'react'
 
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
@@ -14,6 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ViewerWidgetOutputs, viewerWidgetFrames, viewerWidgetPage } from '../AppBuilder/viewerWidgetFrames'
 import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
 import { applyReusableWidgetBinding, getReusableWidgetInputBinding } from '../ReusableWidget/reusableWidgetBindings'
 import {
@@ -144,6 +145,10 @@ function ExpandedWidget({
         persistNotebook: logicProps.persistNotebook,
     }
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
+    const viewerFrames = viewerWidgetFrames(useContext(ViewerWidgetOutputs), attributes.nodeId, selectedVersionId)
+    const viewerRevision = JSON.stringify(
+        Array.from(viewerFrames, ([name, { sourceNodeId, output }]) => [name, sourceNodeId, output.generation])
+    )
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
@@ -340,24 +345,33 @@ function ExpandedWidget({
                             </div>
                         ) : null}
                         <WidgetArtifactFrame
-                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}`}
+                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${viewerRevision}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={async (name, offset, limit, runId, signal) => {
+                                const viewerFrame = viewerFrames.get(name)
                                 const frame = await loadWidgetFrame(
                                     String(currentTeamId),
                                     notebookShortId,
                                     attributes.nodeId,
                                     selectedVersionId,
                                     name,
-                                    offset,
-                                    limit,
+                                    viewerFrame ? 0 : offset,
+                                    viewerFrame ? 1 : limit,
                                     runId,
                                     signal
                                 )
                                 return applyReusableWidgetBinding(
-                                    frame,
+                                    viewerFrame
+                                        ? viewerWidgetPage(
+                                              frame,
+                                              viewerFrame.sourceNodeId,
+                                              viewerFrame.output,
+                                              offset,
+                                              limit
+                                          )
+                                        : frame,
                                     name,
                                     getReusableWidgetInputBinding(status?.input_bindings ?? {}, name),
                                     status?.input_contract

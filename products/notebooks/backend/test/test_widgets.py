@@ -32,6 +32,8 @@ from products.canvas.backend.facade.notebooks import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.notebooks.backend.app_viewer import plan_viewer_queries
+from products.notebooks.backend.facade.contracts import AppWidgetSlot
 from products.notebooks.backend.models import (
     GeneratedWidget,
     GeneratedWidgetGenerationJob,
@@ -935,6 +937,30 @@ class TestWidgetData(APIBaseTest):
             }
         ]
 
+    def test_viewer_plan_follows_the_visible_widget_version_and_bound_source(self) -> None:
+        instance = self._mapping()
+        instance.input_bindings = {self.INPUT_NAME: {"source": "regions"}}
+        instance.save(update_fields=["input_bindings"])
+        self.notebook.content = markdown_content(
+            '<SQLV2 nodeId="source" code="SELECT {region} AS region" returnVariable="regions" />\n\n'
+            '<SQLV2 nodeId="other" code="SELECT 1" returnVariable="unrelated" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.variables = [{"name": "region", "type": "string", "value": "All"}]
+        block = {"kind": "cell", "node_id": self.NODE_ID}
+        self.notebook.app_published = {"blocks": [block, {"kind": "input", "variable": "region"}]}
+        self.notebook.save(update_fields=["content", "variables", "app_published"])
+        [plan] = plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"})
+        assert plan.node_id == "source"
+        assert "Europe" in plan.query
+        assert plan.widget_slots == [
+            AppWidgetSlot(node_id=self.NODE_ID, version_id=self._pinned_version(instance).id, slot=self.INPUT_NAME)
+        ]
+        assert not plan.matches_defaults
+        block["display"] = "source"
+        self.notebook.save(update_fields=["app_published"])
+        assert plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"}) == []
+
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()
         self._mapping()
@@ -947,6 +973,7 @@ class TestWidgetData(APIBaseTest):
             user=self.user,
         )
 
+        assert result.frame["sourceNodeId"] == "source"
         assert result.frame["includedRowCount"] == 100
         assert result.frame["truncated"] is True
         assert len(str(result.frame).encode()) < MAX_FRAME_BYTES

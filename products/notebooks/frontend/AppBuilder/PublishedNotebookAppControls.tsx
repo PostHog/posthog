@@ -40,12 +40,11 @@ export function PublishedNotebookAppControls({
     const logic = notebookAppViewerLogic(viewer)
     const { variables, results, resultsLoading: busy, auto, dirty } = useValues(logic)
     const { setAuto, refresh } = useActions(logic)
-    const hasNativeSql = cells.some(
+    const hasRefreshableOutput = cells.some(
         (cell) =>
             cell.type === 'component' &&
-            cell.tagName === 'SQLV2' &&
-            !cell.props.connectionId &&
-            !cell.props.sendRawQuery &&
+            (cell.tagName === 'Widget' ||
+                (cell.tagName === 'SQLV2' && !cell.props.connectionId && !cell.props.sendRawQuery)) &&
             layout.blocks.some((block) => block.node_id === cell.id && block.display !== 'source')
     )
 
@@ -74,7 +73,7 @@ export function PublishedNotebookAppControls({
                 Copy app link
             </LemonButton>
             {variables.length > 0 && <LemonCheckbox label="Auto-update results" checked={auto} onChange={setAuto} />}
-            {(hasNativeSql || variables.length > 0) && (
+            {(hasRefreshableOutput || variables.length > 0) && (
                 <LemonButton type="secondary" size="small" loading={busy} onClick={() => refresh(!dirty)}>
                     {dirty ? 'Apply filters' : 'Refresh results'}
                 </LemonButton>

@@ -272,6 +272,9 @@ class WidgetFrameColumnSerializer(serializers.Serializer):
 
 
 class WidgetFrameSerializer(serializers.Serializer):
+    sourceNodeId = serializers.CharField(
+        required=False, help_text="Notebook cell authorized for this version and dataframe slot."
+    )
     name = serializers.CharField(help_text="Logical dataframe name.")
     runId = serializers.UUIDField(help_text="Completed notebook run used for every page in this iframe load.")
     columns = WidgetFrameColumnSerializer(many=True, help_text="Dataframe columns in display order.")

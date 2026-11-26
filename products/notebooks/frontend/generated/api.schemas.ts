@@ -303,6 +303,8 @@ export interface WidgetFrameColumnApi {
 }
 
 export interface WidgetFrameApi {
+    /** Notebook cell authorized for this version and dataframe slot. */
+    sourceNodeId?: string
     /** Logical dataframe name. */
     name: string
     /** Completed notebook run used for every page in this iframe load. */
@@ -979,10 +981,17 @@ export interface NotebookAppViewerRequestApi {
     variables: NotebookVariableApi[]
 }
 
+export interface NotebookAppWidgetSlotApi {
+    node_id: string
+    version_id: string
+    slot: string
+}
+
 export interface NotebookAppViewerQueryApi {
     node_id: string
     query: string
     matches_defaults: boolean
+    widget_slots?: NotebookAppWidgetSlotApi[]
 }
 
 export interface NotebookAppReleaseApi {

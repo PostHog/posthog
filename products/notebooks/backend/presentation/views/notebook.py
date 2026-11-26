@@ -322,10 +322,17 @@ class NotebookAppViewerRequestSerializer(serializers.Serializer):
     )
 
 
+class NotebookAppWidgetSlotSerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    version_id = serializers.UUIDField()
+    slot = serializers.CharField()
+
+
 class NotebookAppViewerQuerySerializer(serializers.Serializer):
     node_id = serializers.CharField()
     query = serializers.CharField()
     matches_defaults = serializers.BooleanField()
+    widget_slots = NotebookAppWidgetSlotSerializer(many=True, required=False)
 
 
 class NotebookAppReleaseSerializer(serializers.Serializer):
