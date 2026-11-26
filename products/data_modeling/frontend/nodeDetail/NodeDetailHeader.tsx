@@ -1,41 +1,21 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Skeleton } from '@posthog/quill'
 
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 
-import { canEditNodeDescription } from './nodeDescriptionState'
 import { NodeDetailActions } from './NodeDetailActions'
-import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailTitleTags } from './NodeDetailTitleTags'
-import { nodeTypeForDisplay } from './nodeTypeForDisplay'
+import { useNodeDetailHeader } from './useNodeDetailHeader'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
-    const {
-        node,
-        nodeLoading,
-        savedQuery: initialSavedQuery,
-        savedQueryError,
-    } = useValues(nodeDetailSceneLogic({ id }))
-    const { updateNodeDescription } = useActions(nodeDetailSceneLogic({ id }))
+    const { node, nodeLoading, savedQuery, savedQueryError, nodeType, canEdit, updateNodeDescription } =
+        useNodeDetailHeader(id)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-
-    const { savedQuery: currentSavedQuery } = useValues(
-        materializationJobsLogic({
-            viewId: node?.saved_query_id ?? '',
-            kind: node?.type === 'endpoint' ? 'endpoint' : 'view',
-        })
-    )
-    const savedQuery = currentSavedQuery ?? initialSavedQuery
-    const nodeType = nodeTypeForDisplay(node, savedQuery)
-    const canEdit = canEditNodeDescription(node, savedQuery)
 
     return (
         <>
