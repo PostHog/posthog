@@ -676,7 +676,12 @@ describe('hog setup', () => {
             'mcp-analytics',
         ],
         ['answers with status', ['setup', 'status', '--reason', 'x'], 'setup_status_takes_no_options', 'hog setup'],
-        ['an action other than status', ['setup', 'next'], 'invalid_setup_command', 'hog setup status'],
+        [
+            'an action other than status',
+            ['setup', 'next'],
+            'invalid_setup_command',
+            'steps in order (say what PostHog is for, log in,',
+        ],
     ])('%s fails with a hint', async (_name, argv, code, hint) => {
         const result = await world().run(argv)
 
