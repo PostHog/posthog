@@ -69,7 +69,11 @@ from products.approvals.backend.actions.experiments import LaunchExperimentActio
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentVersionConflict
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentVelocityStats,
+    ExperimentVersionConflict,
+)
 from products.experiments.backend.facade.enums import FEATURE_FLAG_CONFIG_KEYS, LEGACY_METRIC_KINDS
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
@@ -5084,7 +5088,7 @@ class ExperimentService:
     # Velocity stats
     # ------------------------------------------------------------------
 
-    def get_velocity_stats(self) -> dict:
+    def get_velocity_stats(self) -> ExperimentVelocityStats:
         """Get experimentation velocity statistics."""
         team_tz = ZoneInfo(self.team.timezone) if self.team.timezone else ZoneInfo("UTC")
         today = datetime.now(team_tz).date()
@@ -5114,13 +5118,13 @@ class ExperimentService:
             end_date__gte=last_30d_start, end_date__lt=today + timedelta(days=1)
         ).count()
 
-        return {
-            "launched_last_30d": launched_last_30d,
-            "launched_previous_30d": launched_previous_30d,
-            "percent_change": round(percent_change, 1),
-            "active_experiments": active_experiments,
-            "completed_last_30d": completed_last_30d,
-        }
+        return ExperimentVelocityStats(
+            launched_last_30d=launched_last_30d,
+            launched_previous_30d=launched_previous_30d,
+            percent_change=round(percent_change, 1),
+            active_experiments=active_experiments,
+            completed_last_30d=completed_last_30d,
+        )
 
     def _build_serializer_context(self) -> dict:
         """Build minimal DRF serializer context for internal service use."""

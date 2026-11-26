@@ -6224,11 +6224,11 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         result = service.get_velocity_stats()
 
-        assert result["launched_last_30d"] == 0
-        assert result["launched_previous_30d"] == 0
-        assert result["percent_change"] == 0.0
-        assert result["active_experiments"] == 0
-        assert result["completed_last_30d"] == 0
+        assert result.launched_last_30d == 0
+        assert result.launched_previous_30d == 0
+        assert result.percent_change == 0.0
+        assert result.active_experiments == 0
+        assert result.completed_last_30d == 0
 
     def test_get_velocity_stats_with_experiments(self):
         service = self._service()
@@ -6249,7 +6249,7 @@ class TestExperimentService(APIBaseTest):
             end_date=now - timedelta(days=3),
         )
 
-        # Read through the API, so a stats field that the service and the response contract disagree on fails here.
+        # Read through the API, so the test also covers how the stats endpoint renders the service result.
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/stats/")
 
         assert response.json() == {
@@ -6282,10 +6282,10 @@ class TestExperimentService(APIBaseTest):
 
         result = service.get_velocity_stats()
 
-        assert result["launched_last_30d"] == 1
-        assert result["launched_previous_30d"] == 3
+        assert result.launched_last_30d == 1
+        assert result.launched_previous_30d == 3
         expected_change = round(((1 - 3) / 3) * 100, 1)
-        assert result["percent_change"] == expected_change
+        assert result.percent_change == expected_change
 
     # ------------------------------------------------------------------
     # Legacy metrics update restrictions

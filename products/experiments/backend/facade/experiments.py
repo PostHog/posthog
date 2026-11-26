@@ -251,7 +251,7 @@ def change_experiment_tags(
 
 
 def get_velocity_stats(*, team: Team) -> ExperimentVelocityStats:
-    return ExperimentVelocityStats(**ExperimentService(team=team, user=None).get_velocity_stats())
+    return ExperimentService(team=team, user=None).get_velocity_stats()
 
 
 def get_experiment_handle(*, team: Team, experiment_id: int) -> ExperimentHandle | None:

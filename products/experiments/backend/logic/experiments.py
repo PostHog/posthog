@@ -40,7 +40,7 @@ from products.feature_flags.backend.facade.filters import stored_payloads
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
-# Heavy JSON columns that the list and bulk tag changes skip. The list filters, status and mapper must not read them.
+# Heavy JSON columns that the list does not return. The list filters, the status and the list mapper must not read them.
 LIST_DEFERRED_FIELDS = (
     "metrics",
     "metrics_secondary",
@@ -234,10 +234,13 @@ def list_page(
     *, team: Team, filters: ExperimentListFilters, access: ListAccess | None, page: PageRequest
 ) -> Page[Experiment]:
     rows = _experiments(team).defer(*LIST_DEFERRED_FIELDS).annotate(is_legacy_annotation=_list_is_legacy_annotation())
-    queryset = ExperimentService(team=team, user=None).filter_experiments_queryset(
-        visible_to(rows, access), action="list", query_params=_query_params(asdict(filters))
+    return select_page(strict_fetch(_apply_list_filters(team, visible_to(rows, access), filters)), page)
+
+
+def _apply_list_filters(team: Team, rows: QuerySet[Experiment], filters: ExperimentListFilters) -> QuerySet[Experiment]:
+    return ExperimentService(team=team, user=None).filter_experiments_queryset(
+        rows, action="list", query_params=_query_params(asdict(filters))
     )
-    return select_page(strict_fetch(queryset), page)
 
 
 _REF_FIELDS = ("id", "team_id", "created_by_id")
@@ -245,12 +248,8 @@ _REF_FIELDS = ("id", "team_id", "created_by_id")
 
 def list_refs(*, team: Team, filters: ExperimentListFilters) -> QuerySet[Experiment]:
     """Every experiment that the list shows for the filters, in the order of the list, with the columns of a ref."""
-    queryset = ExperimentService(team=team, user=None).filter_experiments_queryset(
-        Experiment.objects.filter(team__project_id=team.project_id),
-        action="list",
-        query_params=_query_params(asdict(filters)),
-    )
-    return strict_fetch(queryset.only(*_REF_FIELDS))
+    rows = Experiment.objects.filter(team__project_id=team.project_id)
+    return strict_fetch(_apply_list_filters(team, rows, filters).only(*_REF_FIELDS))
 
 
 def _live_among(team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:
@@ -273,9 +272,9 @@ def change_tags(
     tag_action: str,
     tags: Sequence[str],
 ) -> list[dict[str, Any]]:
-    experiments = (
+    experiments = strict_fetch(
         _live_among(team, experiment_ids)
-        .defer(*LIST_DEFERRED_FIELDS)
+        .only("id", "team_id", "name")
         .prefetch_related(
             Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
         )

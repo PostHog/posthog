@@ -485,16 +485,18 @@ class EnterpriseExperimentsViewSet(
             resource="experiment", id=str(record.id), team_id=self.team.id, created_by_id=record.created_by_id
         )
 
-    def _can_edit_each(self, experiments: Sequence[ExperimentRef]) -> list[bool]:
+    def _can_edit_by_id(self, experiments: Sequence[ExperimentRef]) -> dict[int, bool]:
         subject = request_subject(self.request)
-        return authorization.check(
-            [
-                CheckRequest(
-                    resource=resource_for_ref(self.object_access_ref(experiment)), action=Action.EDIT, subject=subject
-                )
-                for experiment in experiments
-            ]
-        )
+        checks = [
+            CheckRequest(
+                resource=resource_for_ref(self.object_access_ref(experiment)), action=Action.EDIT, subject=subject
+            )
+            for experiment in experiments
+        ]
+        return {
+            experiment.id: can_edit
+            for experiment, can_edit in zip(experiments, authorization.check(checks), strict=True)
+        }
 
     def _experiment_response(self, experiment_id: int, *, team: Team | None = None, status_code: int = 200) -> Response:
         """The experiment with the id as the detail endpoint shows it, read again after a write."""
@@ -614,12 +616,10 @@ class EnterpriseExperimentsViewSet(
         Accepts the same query params as the list endpoint and returns only
         IDs of experiments the user has permission to edit.
         """
-        experiments = experiments_facade.list_experiment_refs(team=self.team, filters=_list_filters(request))
-        editable_ids = [
-            experiment.id
-            for experiment, can_edit in zip(experiments, self._can_edit_each(experiments), strict=True)
-            if can_edit
-        ]
+        can_edit = self._can_edit_by_id(
+            experiments_facade.list_experiment_refs(team=self.team, filters=_list_filters(request))
+        )
+        editable_ids = [experiment_id for experiment_id, editable in can_edit.items() if editable]
         return Response(ExperimentMatchingIdsResponseSerializer({"ids": editable_ids, "total": len(editable_ids)}).data)
 
     @extend_schema(
@@ -632,34 +632,22 @@ class EnterpriseExperimentsViewSet(
         serializer.is_valid(raise_exception=True)
         experiment_ids: list[int] = serializer.validated_data["ids"]
 
-        editable_ids: list[int] = []
-        skipped: list[dict[str, Any]] = []
-        experiments = experiments_facade.experiment_refs_among(team=self.team, experiment_ids=experiment_ids)
-        for experiment, can_edit in zip(experiments, self._can_edit_each(experiments), strict=True):
-            if can_edit:
-                editable_ids.append(experiment.id)
-            else:
-                skipped.append({"id": experiment.id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})
-        found_ids = {experiment.id for experiment in experiments}
-        skipped += [
-            {"id": experiment_id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON}
-            for experiment_id in experiment_ids
-            if experiment_id not in found_ids
-        ]
+        can_edit = self._can_edit_by_id(
+            experiments_facade.experiment_refs_among(team=self.team, experiment_ids=experiment_ids)
+        )
+        skipped_ids = [experiment_id for experiment_id, editable in can_edit.items() if not editable]
+        skipped_ids += [experiment_id for experiment_id in experiment_ids if experiment_id not in can_edit]
 
         changes = experiments_facade.change_experiment_tags(
             team=self.team,
             user=cast(User, request.user),
             was_impersonated=is_impersonated(request),
-            experiment_ids=editable_ids,
+            experiment_ids=[experiment_id for experiment_id, editable in can_edit.items() if editable],
             tag_action=serializer.validated_data["action"],
             tags=serializer.validated_data["tags"],
         )
-        return Response(
-            BulkUpdateTagsResponseSerializer(
-                {"updated": [{"id": change.id, "tags": list(change.tags)} for change in changes], "skipped": skipped}
-            ).data
-        )
+        skipped = [{"id": experiment_id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON} for experiment_id in skipped_ids]
+        return Response(BulkUpdateTagsResponseSerializer({"updated": changes, "skipped": skipped}).data)
 
     # Shared so this endpoint is documented like every TaggedItemViewSetMixin bulk tag endpoint.
     bulk_update_tags.__doc__ = TaggedItemViewSetMixin.bulk_update_tags.__doc__
