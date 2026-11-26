@@ -1,7 +1,7 @@
 import { LookupAnswer, lookupAnswers, loopbackAddresses } from '~/tests/helpers/mocks/dns.mock'
 
-import http, { Agent, ClientRequest, IncomingMessage, RequestListener, ServerResponse, createServer } from 'node:http'
-import https, { createServer as createTlsServer } from 'node:https'
+import { IncomingMessage, RequestListener, ServerResponse, createServer } from 'node:http'
+import { createServer as createTlsServer } from 'node:https'
 import { AddressInfo, Server, Socket } from 'node:net'
 import tls from 'node:tls'
 import { register } from 'prom-client'
@@ -11,6 +11,7 @@ import { ENDPOINT_THAT_REFUSES_CONNECTIONS, attachmentFile, sesTransportFor } fr
 import { SesTransport } from './ses-transport'
 
 const SDK_SOCKETS_PER_HOST = 50
+const SENDS_QUEUED_FOR_A_SOCKET_GIVE_UP_MS = 10_000
 
 const LOOPBACK_ONLY_TEST_KEY = `-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg42UWsxxJds3SJDeC
@@ -72,16 +73,6 @@ const notFound: LookupAnswer = (_options, callback) =>
         })
     )
 
-const networkUnreachable: LookupAnswer = (_options, callback) =>
-    callback(
-        Object.assign(new Error('connect ENETUNREACH 192.0.2.1:443'), {
-            code: 'ENETUNREACH',
-            syscall: 'connect',
-            address: '192.0.2.1',
-            port: 443,
-        })
-    )
-
 type RetryToken = { getRetryCount: () => number; getRetryDelay: () => number }
 
 const retriesTwice = {
@@ -96,22 +87,6 @@ const retriesTwice = {
 function retryToken(retryCount: number): RetryToken {
     return { getRetryCount: () => retryCount, getRetryDelay: () => 0 }
 }
-
-const watchRequests = (protocol: keyof typeof peerFor, onRequest: (request: ClientRequest) => void): void => {
-    const client = protocol === 'https' ? https : http
-    const request = client.request as (...args: unknown[]) => ClientRequest
-    jest.spyOn(client, 'request').mockImplementation(((...args: unknown[]) => {
-        const created = request(...args)
-        onRequest(created)
-        return created
-    }) as typeof client.request)
-}
-
-const queuedForASocket = (request: ClientRequest): number =>
-    Object.values((request as ClientRequest & { agent: Agent }).agent.requests).reduce(
-        (queued, queue) => queued + (queue?.length ?? 0),
-        0
-    )
 
 describe('SesTransport', () => {
     let transport: SesTransport | undefined
@@ -160,35 +135,28 @@ describe('SesTransport', () => {
         async (protocol) => {
             const inFlight = SDK_SOCKETS_PER_HOST + 1
             const held: ServerResponse[] = []
+            let heldAtOnce = 0
             const ses = await sesPeer(protocol, (_request, response) => {
                 held.push(response)
+                heldAtOnce = Math.max(heldAtOnce, held.length)
                 if (held.length === inFlight) {
                     held.forEach((answer, index) => answerAccepted(answer, `m-${index}`))
                 }
             })
-            const deadline = new AbortController()
-            let created = 0
-            let queued = 0
-            watchRequests(protocol, (request) => {
-                if (++created === inFlight) {
-                    queued = queuedForASocket(request)
-                    if (queued > 0) {
-                        setImmediate(() => deadline.abort())
-                    }
-                }
-            })
             transport = sesTransportFor({ endpoint: ses.endpoint })
+            const deadline = AbortSignal.timeout(SENDS_QUEUED_FOR_A_SOCKET_GIVE_UP_MS)
 
             const outcomes = await Promise.all(
-                Array.from({ length: inFlight }, () => transport!.send({ email, files, deadline: deadline.signal }))
+                Array.from({ length: inFlight }, () => transport!.send({ email, files, deadline }))
             )
 
             expect({
-                queued,
+                heldAtOnce,
                 accepted: outcomes.filter(({ kind }) => kind === 'accepted').length,
                 connections: ses.connections.size,
-            }).toEqual({ queued: 0, accepted: inFlight, connections: inFlight })
-        }
+            }).toEqual({ heldAtOnce: inFlight, accepted: inFlight, connections: inFlight })
+        },
+        SENDS_QUEUED_FOR_A_SOCKET_GIVE_UP_MS * 2
     )
 
     it.each(['http', 'https'] as const)(
@@ -250,14 +218,7 @@ describe('SesTransport', () => {
             },
             'ENOTFOUND',
         ],
-        [
-            'the network to the SES host is unreachable',
-            (): string => {
-                lookupAnswers('ses.unreachable.test', networkUnreachable)
-                return 'https://ses.unreachable.test'
-            },
-            'ENETUNREACH',
-        ],
+        ['the kernel finds no route for the connection', (): string => 'https://255.255.255.255', 'ENETUNREACH'],
     ])(
         'when %s, counts a send with files as before_connect with the reason, because it never reached SES',
         async (_name, endpoint, reason) => {
