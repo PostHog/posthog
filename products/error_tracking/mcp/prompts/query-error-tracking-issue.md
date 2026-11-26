@@ -31,4 +31,4 @@ When the user asks to track the issue in an external tool, use `error-tracking-e
 
 When `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.
 
-Self-driving is not active in this project, so there are no automatic investigation reports from agents on this issue. Tell the user, and give them the activation link from the notice in this result.
+Self-driving can hold automatic investigation reports from agents on this issue. Call `self-driving-status-get` once; when it is not active, tell the user and give them the activation link from that result.
