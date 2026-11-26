@@ -5,7 +5,7 @@ import { everyTile } from './tileTree'
 const HOST_FIELD = { pinned: true }
 
 describe('sharedPanels', () => {
-    it('loads a panel that nests tiles without being a section, however deep, without walking them', () => {
+    it('leaves out a panel that nests tiles without being a section, however deep, without walking them', () => {
         let nested: unknown = { type: 'markdown', config: { text: 'deep' } }
         for (let depth = 0; depth < 100_000; depth++) {
             nested = { type: 'markdown', config: { text: 'deep' }, tiles: [{ id: 't', place: {}, panel: nested }] }
@@ -17,7 +17,7 @@ describe('sharedPanels', () => {
         } as DashboardDocument
 
         const [tab] = loadDashboard(document).tabs
-        expect('tiles' in tab && everyTile(tab.tiles).map((tile) => tile.id)).toEqual(['a'])
+        expect('tiles' in tab && everyTile(tab.tiles).map((tile) => tile.id)).toEqual([])
     })
 
     it.each(['signups', 'constructor', '__proto__'])(

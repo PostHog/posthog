@@ -12,12 +12,15 @@ const SHARED_KEYS = new Set(Object.keys(sharedPanelSchema.shape))
 function loadTiles(tiles: DocumentTile[], panels: Record<string, SharedPanel>): Tile[] {
     return tiles.flatMap((tile): Tile[] => {
         const panel = tile.panel
-        if ('type' in panel) {
-            // `isDashboardDocument` bounds how deep sections nest, so only a section's tiles are walked. A `tiles` field
-            // on any other panel is its own data.
-            return panel.type === 'section' && 'tiles' in panel
+        if ('tiles' in panel) {
+            // `isDashboardDocument` bounds how deep sections nest, so a tile whose `tiles` hang off another kind of
+            // panel is left out rather than walked. `validateDashboard` reports it.
+            return panel.type === 'section'
                 ? [{ ...tile, panel: { ...panel, tiles: loadTiles(panel.tiles, panels) } }]
-                : [{ ...tile, panel }]
+                : []
+        }
+        if ('type' in panel) {
+            return [{ ...tile, panel }]
         }
         const shared = Object.hasOwn(panels, panel.ref) ? panels[panel.ref] : undefined
         // `validateDashboard` reports a reference to a missing panel. Loading leaves the tile out.
