@@ -25,6 +25,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     SendEmailSerializer,
     SendWarningSerializer,
     TransactionalEmailRejected,
+    refused_recipient_properties,
 )
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal
 
@@ -273,12 +274,12 @@ def email_batch_response(sent: EmailBatchSent) -> dict[str, Any]:
     ).data
 
 
-def email_batch_outcome(result: QueuedEmail | EmailNotQueued) -> dict[str, Any]:
+def email_batch_outcome(result: QueuedEmail | EmailNotQueued, to: str) -> dict[str, Any]:
     if isinstance(result, QueuedEmail):
         return {"outcome": "replayed" if result.replayed else "queued"}
     if isinstance(result.error, DeliveryUnavailable):
         return {"outcome": "unavailable"}
-    return {"outcome": "rejected", "error_code": result.error.code}
+    return {"outcome": "rejected", "error_code": result.error.code, **refused_recipient_properties(result.error, to)}
 
 
 def _result(result: QueuedEmail | EmailNotQueued) -> dict[str, Any]:

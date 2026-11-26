@@ -1,6 +1,6 @@
 """The transactional email viewsets at /api/messaging/, with the project taken from the project secret API key."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
 
@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from posthog.rate_limit import reserve_units
 
 from products.messaging.backend.facade.transactional_email import (
+    BatchRecipient,
     BatchTooLarge,
     DeliveryUnavailable,
     EmailBatchSent,
@@ -136,13 +137,20 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
         except DeliveryUnavailable:
             self._report_transactional_email_send(request, {"outcome": "unavailable"})
             raise unconfirmed_batch() from None
-        self._report_batch(request, sent, usage_properties)
+        self._report_batch(request, recipients, sent, usage_properties)
         return Response(email_batch_response(sent), status=status.HTTP_200_OK)
 
-    def _report_batch(self, request: Any, sent: EmailBatchSent, usage_properties: dict[str, Any]) -> None:
+    def _report_batch(
+        self,
+        request: Any,
+        recipients: Sequence[BatchRecipient],
+        sent: EmailBatchSent,
+        usage_properties: dict[str, Any],
+    ) -> None:
         with transactional_email_stage("usage_event"):
-            for result in sent.results:
-                self._report_transactional_email_send(request, {**usage_properties, **email_batch_outcome(result)})
+            for recipient, result in zip(recipients, sent.results, strict=True):
+                outcome = email_batch_outcome(result, recipient.to)
+                self._report_transactional_email_send(request, {**usage_properties, **outcome})
         if any(isinstance(result, QueuedEmail) and not result.replayed for result in sent.results):
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
 
