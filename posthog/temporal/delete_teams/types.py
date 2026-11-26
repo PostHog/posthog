@@ -54,7 +54,7 @@ class OrganizationEmailInputs:
         return {"user_id": self.user_id}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DeleteTeamsDataWorkflowInputs:
     """Inputs for the reusable core ``DeleteTeamsDataWorkflow``."""
 
