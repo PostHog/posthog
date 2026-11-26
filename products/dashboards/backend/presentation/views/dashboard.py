@@ -4705,11 +4705,12 @@ class DashboardsViewSet(
                 for payload in widget_payloads
             ],
         )
+        # The tiles were just written, so read them from the writer: a replica that lags would miss them.
         tiles_by_id = {
             tile.id: tile
-            for tile in DashboardTile.objects.select_related(
-                "widget", "widget__created_by", "widget__last_modified_by"
-            ).filter(dashboard=dashboard, id__in=tile_ids)
+            for tile in DashboardTile.objects.using(router.db_for_write(DashboardTile))
+            .select_related("widget", "widget__created_by", "widget__last_modified_by")
+            .filter(dashboard=dashboard, id__in=tile_ids)
         }
         tiles = [tiles_by_id[tile_id] for tile_id in tile_ids]
 

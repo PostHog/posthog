@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 from uuid import UUID
 
-from django.db import transaction
+from django.db import router, transaction
 from django.utils.timezone import now
 
 import structlog
@@ -173,7 +173,10 @@ def update_widget(
     patch: WidgetPatch,
 ) -> UpdatedWidget:
     """Write the patch in the caller's transaction."""
-    widget = DashboardWidget.objects.for_team(team_id).get(id=widget_id)
+    # Read from the writer, because the save below writes back every field this read loaded.
+    widget = (
+        DashboardWidget.objects.db_manager(router.db_for_write(DashboardWidget)).for_team(team_id).get(id=widget_id)
+    )
     check_widget_tile_product_access(widget, user_access_control)
     if patch.widget_type is not None and patch.widget_type != widget.widget_type:
         raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
