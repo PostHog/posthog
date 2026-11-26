@@ -135,6 +135,43 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(responses[0]["urls"]), 3)
         self.assertEqual(set(responses[0]["urls"]), {"/entry", "/middle", "/exit"})  # order is not guaranteed
 
+    @parameterized.expand(
+        [("mv", False, None), ("backfill", True, None), ("backfill_sharded_events", True, "sharded_events")]
+    )
+    def test_entry_exit_and_attribution_skip_events_without_url(
+        self, _name: str, backfill: bool, events_table: str | None
+    ) -> None:
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+        events = [
+            ("server_side_event", {}, "2024-03-08T01:00:00"),
+            (
+                "$pageview",
+                {"$current_url": "/entry", "$referring_domain": "example.com", "utm_source": "source"},
+                "2024-03-08T02:00:00",
+            ),
+            ("$pageview", {"$current_url": "/exit"}, "2024-03-08T03:00:00"),
+            ("server_side_event", {}, "2024-03-08T04:00:00"),
+        ]
+        for event, properties, timestamp in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                properties={"$session_id": session_id, **properties},
+                timestamp=timestamp,
+            )
+        if backfill:
+            query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(events_table=events_table) + "AND team_id = %(team_id)s"
+            sync_execute("INSERT INTO raw_sessions" + query, {"team_id": self.team.id})
+
+        responses = self.select_by_session_id(session_id)
+        self.assertEqual(len(responses), 1)
+        self.assertEqual(responses[0]["entry_url"], "/entry")
+        self.assertEqual(responses[0]["end_url"], "/exit")
+        self.assertEqual(responses[0]["initial_referring_domain"], "example.com")
+        self.assertEqual(responses[0]["initial_utm_source"], "source")
+
     def test_handles_initial_utm_properties(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()

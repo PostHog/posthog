@@ -5757,8 +5757,26 @@ CREATE MATERIALIZED VIEW posthog.raw_sessions_mv TO posthog.writable_raw_session
   max(timestamp) AS max_timestamp,
   max(coalesce(inserted_at, now64())) AS max_inserted_at,
   groupUniqArray(nullIf(JSONExtractString(properties, '$current_url'), '')) AS urls,
-  argMinState(JSONExtractString(properties, '$current_url'), timestamp) AS entry_url,
-  argMaxState(JSONExtractString(properties, '$current_url'), timestamp) AS end_url,
+  argMinState(
+    JSONExtractString(properties, '$current_url'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS entry_url,
+  argMaxState(
+    JSONExtractString(properties, '$current_url'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp - toIntervalYear(1),
+      timestamp - toIntervalYear(2)
+    )
+  ) AS end_url,
   argMaxState(JSONExtractString(properties, '$external_click_url'), timestamp) AS last_external_click_url,
   argMinState(JSONExtractString(properties, '$browser'), timestamp) AS initial_browser,
   argMinState(JSONExtractString(properties, '$browser_version'), timestamp) AS initial_browser_version,
@@ -5772,30 +5790,246 @@ CREATE MATERIALIZED VIEW posthog.raw_sessions_mv TO posthog.writable_raw_session
   argMinState(JSONExtractString(properties, '$geoip_subdivision_1_name'), timestamp) AS initial_geoip_subdivision_1_name,
   argMinState(JSONExtractString(properties, '$geoip_subdivision_city_name'), timestamp) AS initial_geoip_subdivision_city_name,
   argMinState(JSONExtractString(properties, '$geoip_time_zone'), timestamp) AS initial_geoip_time_zone,
-  argMinState(JSONExtractString(properties, '$referring_domain'), timestamp) AS initial_referring_domain,
-  argMinState(JSONExtractString(properties, 'utm_source'), timestamp) AS initial_utm_source,
-  argMinState(JSONExtractString(properties, 'utm_campaign'), timestamp) AS initial_utm_campaign,
-  argMinState(JSONExtractString(properties, 'utm_medium'), timestamp) AS initial_utm_medium,
-  argMinState(JSONExtractString(properties, 'utm_term'), timestamp) AS initial_utm_term,
-  argMinState(JSONExtractString(properties, 'utm_content'), timestamp) AS initial_utm_content,
-  argMinState(JSONExtractString(properties, 'gclid'), timestamp) AS initial_gclid,
-  argMinState(JSONExtractString(properties, 'gad_source'), timestamp) AS initial_gad_source,
-  argMinState(JSONExtractString(properties, 'gclsrc'), timestamp) AS initial_gclsrc,
-  argMinState(JSONExtractString(properties, 'dclid'), timestamp) AS initial_dclid,
-  argMinState(JSONExtractString(properties, 'gbraid'), timestamp) AS initial_gbraid,
-  argMinState(JSONExtractString(properties, 'wbraid'), timestamp) AS initial_wbraid,
-  argMinState(JSONExtractString(properties, 'fbclid'), timestamp) AS initial_fbclid,
-  argMinState(JSONExtractString(properties, 'msclkid'), timestamp) AS initial_msclkid,
-  argMinState(JSONExtractString(properties, 'twclid'), timestamp) AS initial_twclid,
-  argMinState(JSONExtractString(properties, 'li_fat_id'), timestamp) AS initial_li_fat_id,
-  argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) AS initial_mc_cid,
-  argMinState(JSONExtractString(properties, 'igshid'), timestamp) AS initial_igshid,
-  argMinState(JSONExtractString(properties, 'ttclid'), timestamp) AS initial_ttclid,
-  argMinState(JSONExtractString(properties, 'epik'), timestamp) AS initial_epik,
-  argMinState(JSONExtractString(properties, 'qclid'), timestamp) AS initial_qclid,
-  argMinState(JSONExtractString(properties, 'sccid'), timestamp) AS initial_sccid,
-  argMinState(JSONExtractString(properties, '_kx'), timestamp) AS initial__kx,
-  argMinState(JSONExtractString(properties, 'irclid'), timestamp) AS initial_irclid,
+  argMinState(
+    JSONExtractString(properties, '$referring_domain'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_referring_domain,
+  argMinState(
+    JSONExtractString(properties, 'utm_source'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_utm_source,
+  argMinState(
+    JSONExtractString(properties, 'utm_campaign'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_utm_campaign,
+  argMinState(
+    JSONExtractString(properties, 'utm_medium'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_utm_medium,
+  argMinState(
+    JSONExtractString(properties, 'utm_term'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_utm_term,
+  argMinState(
+    JSONExtractString(properties, 'utm_content'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_utm_content,
+  argMinState(
+    JSONExtractString(properties, 'gclid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_gclid,
+  argMinState(
+    JSONExtractString(properties, 'gad_source'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_gad_source,
+  argMinState(
+    JSONExtractString(properties, 'gclsrc'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_gclsrc,
+  argMinState(
+    JSONExtractString(properties, 'dclid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_dclid,
+  argMinState(
+    JSONExtractString(properties, 'gbraid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_gbraid,
+  argMinState(
+    JSONExtractString(properties, 'wbraid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_wbraid,
+  argMinState(
+    JSONExtractString(properties, 'fbclid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_fbclid,
+  argMinState(
+    JSONExtractString(properties, 'msclkid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_msclkid,
+  argMinState(
+    JSONExtractString(properties, 'twclid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_twclid,
+  argMinState(
+    JSONExtractString(properties, 'li_fat_id'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_li_fat_id,
+  argMinState(
+    JSONExtractString(properties, 'mc_cid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_mc_cid,
+  argMinState(
+    JSONExtractString(properties, 'igshid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_igshid,
+  argMinState(
+    JSONExtractString(properties, 'ttclid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_ttclid,
+  argMinState(
+    JSONExtractString(properties, 'epik'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_epik,
+  argMinState(
+    JSONExtractString(properties, 'qclid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_qclid,
+  argMinState(
+    JSONExtractString(properties, 'sccid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_sccid,
+  argMinState(
+    JSONExtractString(properties, '_kx'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial__kx,
+  argMinState(
+    JSONExtractString(properties, 'irclid'),
+    multiIf(
+      (event IN ('$pageview', '$screen')),
+      timestamp,
+      JSONExtractString(properties, '$current_url') != '',
+      timestamp + toIntervalYear(1),
+      timestamp + toIntervalYear(2)
+    )
+  ) AS initial_irclid,
   sumIf(1, event = '$pageview') AS pageview_count,
   uniqState(CAST(if(event = '$pageview', uuid, NULL), 'Nullable(UUID)')) AS pageview_uniq,
   sumIf(1, event = '$autocapture') AS autocapture_count,
