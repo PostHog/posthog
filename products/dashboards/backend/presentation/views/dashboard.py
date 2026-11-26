@@ -46,6 +46,7 @@ from drf_spectacular.extensions import OpenApiSerializerExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
+from pydantic import JsonValue
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -136,7 +137,6 @@ from products.dashboards.backend.facade.access import (
     record_dashboard_view,
 )
 from products.dashboards.backend.facade.api import (
-    CachedTileStatus,
     CannotAddToDashboard,
     add_insight_to_dashboard,
     apply_dashboard_template,
@@ -152,7 +152,10 @@ from products.dashboards.backend.facade.api import (
     widget_product_access_error,
 )
 from products.dashboards.backend.facade.contracts import (
+    CachedTileResult,
     DashboardCustomizationRejected,
+    DashboardQuerySharingCachedEvent,
+    DashboardQuerySharingTileEvent,
     NewWidgetTile,
     WidgetPatch,
     WidgetRun,
@@ -181,15 +184,12 @@ from products.dashboards.backend.facade.enums import (
     MAX_GROUPS,
     MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
     MAX_WIDGETS_BATCH_SIZE,
+    CachedTileStatus,
     DashboardAccessMethod,
     DashboardTileBadge,
     ResultFormat,
 )
-from products.dashboards.backend.facade.query_sharing import (
-    MAX_CACHED_TILES_BATCH_SIZE,
-    DashboardQuerySharingStream,
-    DashboardQuerySharingStreamEvent,
-)
+from products.dashboards.backend.facade.query_sharing import MAX_CACHED_TILES_BATCH_SIZE, query_results_stream
 from products.dashboards.backend.facade.widgets import (
     EXPECTED_WIDGET_TYPES,
     plan_widget_runs,
@@ -548,13 +548,20 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
-def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> DashboardQuerySharingStreamEvent:
+def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> DashboardQuerySharingTileEvent:
     _, data = serialize_tile_with_context(tile, order, context)
-    return {"type": "tile", "tile": cast(dict[str, object], data)}
+    return DashboardQuerySharingTileEvent(tile=cast(dict[str, JsonValue], data))
 
 
-def _shared_tile_access_denied(tile_id: int) -> DashboardQuerySharingStreamEvent:
-    return {"type": "tile", "tile": {"id": tile_id, "error": {"type": "access_denied"}}}
+def _shared_tile_access_denied(tile_id: int) -> DashboardQuerySharingTileEvent:
+    return DashboardQuerySharingTileEvent(tile={"id": tile_id, "error": {"type": "access_denied"}})
+
+
+def _cached_tile_json(result: CachedTileResult) -> dict[str, Any]:
+    data: dict[str, Any] = {"id": result.id, "status": result.status}
+    if result.insight is not None:
+        data["insight"] = result.insight
+    return data
 
 
 def serialize_tile_in_request_context(
@@ -3773,17 +3780,16 @@ class DashboardsViewSet(
         )
         context.update(tile_insights_context(tiles))
         by_id = {tile.id: tile for tile in tiles}
-        initial_events: list[DashboardQuerySharingStreamEvent] = []
+        cached: DashboardQuerySharingCachedEvent | None = None
         compute_ids = tile_ids
         if params.validated_data["cached_first"]:
             cached = board_stream_cached_event(
                 self._read_cached_tiles(request, dashboard, tile_ids),
                 force=params.validated_data["refresh"] == DashboardSharingRefreshType.FORCE_BLOCKING,
             )
-            compute_ids = cached["pending"]
-            initial_events.append(cached)
+            compute_ids = cached.pending
         order_of = {tile_id: order for order, tile_id in enumerate(tile_ids)}
-        jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
+        jobs: list[Callable[[], DashboardQuerySharingTileEvent]] = []
         for tile_id in compute_ids:
             tile = by_id[tile_id]
             level = access_by_team[tile.insight.team_id].get_user_access_level(tile.insight)
@@ -3791,19 +3797,16 @@ class DashboardsViewSet(
                 jobs.append(partial(_shared_tile_access_denied, tile_id))
             else:
                 jobs.append(partial(_serialize_shared_tile, tile, order_of[tile_id], context))
-        stream = DashboardQuerySharingStream(
+        stream = query_results_stream(
             jobs=jobs,
             team_id=self.team.pk,
             query_id=str(params.validated_data["client_query_id"]),
-            debug_tile_ids=compute_ids if params.validated_data["debug"] else (),
-            initial_events=initial_events,
             share_queries=share_queries,
-            kind="board" if initial_events else "sharing",
+            asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
+            debug_tile_ids=compute_ids if params.validated_data["debug"] else (),
+            cached=cached,
         )
-        return sse_streaming_response(
-            stream.astream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream.stream(),
-            endpoint="dashboard_query_sharing",
-        )
+        return sse_streaming_response(stream, endpoint="dashboard_query_sharing")
 
     def _get_layout_size_from_request(self, request: Request) -> str:
         """Extract layout size parameter from request."""
@@ -4574,9 +4577,10 @@ class DashboardsViewSet(
             serialize_tile=serialize_tile,
             context=context,
         )
-        for result in results:
-            result |= tile_formats.get(result["id"], {})
-        return results
+        cached_tiles = [_cached_tile_json(result) for result in results]
+        for cached_tile in cached_tiles:
+            cached_tile |= tile_formats.get(cached_tile["id"], {})
+        return cached_tiles
 
     @extend_schema(
         parameters=[
