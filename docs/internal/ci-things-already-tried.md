@@ -570,6 +570,20 @@ A block of `run:` steps is safe, and `ci-backend.yml`, `ci-python.yml`, `ci-fron
 
 _Also asked as:_ parallel steps, run the setup steps at the same time, Collection was modified, key was not present in the dictionary, Install Rust fails in setup
 
+### Run the Django and ClickHouse migrations side by side in the MCP job
+
+**Verdict: reverted** · Nov 2026 · [#137747](https://github.com/PostHog/posthog/pull/137747)
+
+`ci-mcp.yml`'s `Integration Tests` job put `migrate` and `migrate_clickhouse` in one `parallel:` block, on the belief that `migrate_clickhouse` never reads Postgres.
+It does: ClickHouse migration `0026` calls `get_materialized_column_for_property`, which reads `posthog_instancesetting`.
+With a restored schema dump the table already exists, so the race stays hidden.
+When the dump is newer than the checkout, for example after master gains a migration that a stacked branch lacks, the prime step rejects it and Django migrates from scratch.
+`migrate_clickhouse` then fails with `relation "posthog_instancesetting" does not exist`, and a re-run on the same merge base fails the same way.
+
+The migrations now run in order inside one entry. The Rust flags build still runs beside them.
+
+_Also asked as:_ parallelize the MCP migrations, `posthog_instancesetting` does not exist in MCP CI, MCP Integration Tests fails on ClickHouse migrations
+
 ### Use sparse-checkout on the large CI workflows
 
 **Verdict: abandoned** · Oct 2025 · [#39239](https://github.com/PostHog/posthog/pull/39239)
