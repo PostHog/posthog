@@ -481,6 +481,7 @@ export interface emailTemplaterLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     preflight: PreflightStatus | null // preflightLogic
     currentProjectId: number | string // teamLogic
+    currentTeamIdStrict: number | string // teamLogic
     activeContentTab: 'plaintext' | 'visual'
     appliedTemplate: MessageTemplate | null
     convertedEmailDocument: EmailDocument | null
@@ -722,7 +723,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
     connect(() => ({
-        values: [preflightLogic, ['preflight'], teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            preflightLogic,
+            ['preflight'],
+            teamLogic,
+            ['currentProjectId', 'currentTeamIdStrict'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
@@ -860,7 +868,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             {
                 loadTemplates: async () => {
                     // The editor only asks whether any template exists; the picker loads its own pages.
-                    const response = await messagingTemplatesList(String(values.currentProjectId), {
+                    const response = await messagingTemplatesList(String(values.currentTeamIdStrict), {
                         basic: true,
                         limit: 1,
                     })

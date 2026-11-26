@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Editor as TiptapEditor } from '@tiptap/core'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -81,7 +84,7 @@ describe('emailTemplaterLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
                 '/api/projects/:team_id/property_definitions/': { results: [] },
             },
         })
@@ -497,6 +500,28 @@ describe('emailTemplaterLogic', () => {
     })
 
     describe('starting-point picker', () => {
+        it('looks for templates in the open environment, not in its parent project', async () => {
+            const environmentId = MOCK_DEFAULT_TEAM.id + 1
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/messaging_templates/': (req) => [
+                        200,
+                        { results: req.params.team_id === String(environmentId) ? [{ id: 'template-1' }] : [] },
+                    ],
+                },
+            })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                id: environmentId,
+                project_id: MOCK_DEFAULT_TEAM.id,
+            })
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+            expect(logic.values.templates).toHaveLength(1)
+        })
+
         it('closes the picker when the editor modal closes', async () => {
             logic = emailTemplaterLogic(makeProps())
             logic.mount()
