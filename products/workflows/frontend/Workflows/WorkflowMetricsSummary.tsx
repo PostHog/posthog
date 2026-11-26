@@ -21,7 +21,6 @@ import {
     METRIC_COLORS,
     type PushMetricRow,
     SANDBOX_EMAIL_METRICS,
-    subtractSeries,
     sumSeries,
     WORKFLOW_EMAIL_METRICS,
     WORKFLOW_SUMMARY_METRICS,
@@ -108,9 +107,18 @@ export function WorkflowMetricsSummary({
         previous: boolean
     ): ReturnType<typeof getSingleTrendSeries> => {
         const receipts = getSingleTrendSeries(delivered, previous)
-        return receipts?.series[0]?.values.some(Boolean)
-            ? receipts
-            : subtractSeries(getSingleTrendSeries(sent, previous), getSingleTrendSeries(bounced, previous), delivered)
+        if (receipts?.series[0]?.values.some(Boolean)) {
+            return receipts
+        }
+        const sends = getSingleTrendSeries(sent, previous)
+        const bounces = getSingleTrendSeries(bounced, previous)?.series[0]?.values ?? []
+        // Unclamped per bucket, so a bounce in a later bucket than its send nets out as in the table's total.
+        return (
+            sends && {
+                ...sends,
+                series: [{ name: delivered, values: sends.series[0].values.map((v, i) => v - (bounces[i] ?? 0)) }],
+            }
+        )
     }
     // PostHog test sender sends record their own metric names, so each card adds them in.
     const transactionalSeries = (key: EmailMetric, previous = false): ReturnType<typeof getSingleTrendSeries> =>
@@ -123,11 +131,13 @@ export function WorkflowMetricsSummary({
                   ].map((name) => getSingleTrendSeries(name, previous)),
             WORKFLOW_EMAIL_METRICS[key].name
         )
-    const transactionalTrends = transactional &&
-        appMetricsTrends && {
-            ...appMetricsTrends,
-            series: TRANSACTIONAL_METRIC_KEYS.flatMap((key) => transactionalSeries(key)?.series ?? []),
-        }
+    const transactionalTrends =
+        transactional && appMetricsTrends
+            ? {
+                  ...appMetricsTrends,
+                  series: TRANSACTIONAL_METRIC_KEYS.flatMap((key) => transactionalSeries(key)?.series ?? []),
+              }
+            : null
 
     // Email and push don't share a funnel, so each channel gets its own table with the columns that
     // actually apply — email keeps the delivery→open→click funnel, push surfaces skipped/failed as

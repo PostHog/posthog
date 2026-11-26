@@ -195,8 +195,8 @@ describe('CodeEmailTabs', () => {
         [
             'counting sent minus bounced as delivered before any receipt, like the Email steps table',
             [
-                [['2026-03-14'], 'email_sent', [7]],
-                [['2026-03-14'], 'email_bounced', [2]],
+                [['2026-03-13', '2026-03-14'], 'email_sent', [7, 0]],
+                [['2026-03-13', '2026-03-14'], 'email_bounced', [0, 2]],
             ] as [string[], string, number[]][],
         ],
     ])('shows email outcome cards instead of workflow run cards, %s', async (_, rows) => {
