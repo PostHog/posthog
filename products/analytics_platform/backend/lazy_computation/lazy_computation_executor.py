@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import time
 import uuid
 import hashlib
@@ -1872,6 +1873,7 @@ def ensure_precomputed(
     read_after_write: bool = True,
     database: "Database | None" = None,
     insert_settings: Mapping[str, int | str] | None = None,
+    insert_deadline: float | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1959,6 +1961,10 @@ def ensure_precomputed(
         insert_settings: ClickHouse settings applied last to every INSERT, over the defaults
                       and `spill_to_disk`. For a precompute kind whose INSERT needs more
                       memory or time than the defaults allow.
+        insert_deadline: A `time.monotonic()` value. Every INSERT gets the time left until it as
+                      its `max_execution_time`, over `insert_settings`. `wait_timeout_seconds`
+                      alone only stops the next INSERT from starting, so an INSERT that starts
+                      late can run far past the caller's budget.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -2046,6 +2052,10 @@ def ensure_precomputed(
         }
         if query_type:
             tag_kwargs["query_type"] = query_type
+        overrides = insert_settings
+        if insert_deadline is not None:
+            seconds_left = max(1, math.ceil(insert_deadline - time.monotonic()))
+            overrides = {**(insert_settings or {}), "max_execution_time": seconds_left}
         execute_start = time.monotonic()
         with tags_context(**tag_kwargs):
             rows_written = _written_rows(
@@ -2057,7 +2067,7 @@ def ensure_precomputed(
                         table,
                         spill_to_disk=spill_to_disk,
                         read_after_write=read_after_write,
-                        overrides=insert_settings,
+                        overrides=overrides,
                         modifiers=modifiers,
                     ),
                 )

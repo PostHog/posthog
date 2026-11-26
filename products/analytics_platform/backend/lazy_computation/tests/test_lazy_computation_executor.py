@@ -3767,6 +3767,21 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         # The coverage landed in this call, so quorum-skipping callers must not read it yet.
         assert result.freshly_built is True
 
+    def test_an_insert_gets_only_the_time_left_until_the_deadline(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                insert_deadline=time_mod.monotonic() + 30,
+            )
+
+        [insert_call] = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
+        assert 1 <= insert_call.kwargs["settings"]["max_execution_time"] <= 30
+
     @parameterized.expand(
         [
             ("quorum_skipped_waits_for_replication", {"read_after_write": False}, True),

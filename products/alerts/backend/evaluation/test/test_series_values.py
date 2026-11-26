@@ -178,7 +178,8 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert cold_properties["buckets_compared"] > 0
         assert cold_properties["alert_kind"] == ("detector" if detector else "threshold")
         assert cold_properties["insight_kind"] == "trends"
-        assert self._insert_execution_limits() == {str(SHADOW_BUILD_BUDGET_SECONDS)}
+        limits = self._insert_execution_limits()
+        assert limits and all(1 <= int(limit) <= SHADOW_BUILD_BUDGET_SECONDS for limit in limits)
 
     @parameterized.expand([("threshold", None), ("detector", _THRESHOLD_DETECTOR)])
     def test_a_mismatch_never_changes_the_check(self, _name: str, detector: dict[str, Any] | None) -> None:
