@@ -301,6 +301,19 @@ function isAccountSqlSelectScoped(node: ASTNode, aliases: Set<string>): boolean 
     )
 }
 
+function getAccountSqlQueryScopeAliases(node: ASTNode, aliases: Set<string>): Set<string> {
+    if (!['SelectQuery', 'SelectSetQuery'].includes(node.node)) {
+        return aliases
+    }
+    const localAliases = new Set(aliases)
+    if (node.node === 'SelectSetQuery') {
+        collectAccountSqlUnionAliases(node, localAliases)
+    } else {
+        Object.values(node).forEach((child) => collectAccountSqlQueryAliases(child, localAliases))
+    }
+    return localAliases
+}
+
 function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boolean {
     if (!value || typeof value !== 'object') {
         return true
@@ -316,16 +329,9 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
     if (node.node === 'JoinExpr' && !isAccountSqlQuerySource(node)) {
         return false
     }
-    if (node.node === 'SelectSetQuery') {
-        aliases = new Set(aliases)
-        collectAccountSqlUnionAliases(node, aliases)
-    }
-    if (node.node === 'SelectQuery') {
-        aliases = new Set(aliases)
-        Object.values(node).forEach((child) => collectAccountSqlQueryAliases(child, aliases))
-        if (!isAccountSqlSelectScoped(node, aliases)) {
-            return false
-        }
+    aliases = getAccountSqlQueryScopeAliases(node, aliases)
+    if (node.node === 'SelectQuery' && !isAccountSqlSelectScoped(node, aliases)) {
+        return false
     }
     return Object.values(value).every((child) => isAccountSqlQueryAstScoped(child, aliases))
 }
