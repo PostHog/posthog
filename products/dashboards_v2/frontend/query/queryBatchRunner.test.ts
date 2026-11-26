@@ -23,6 +23,7 @@ const DAY_1 = Date.UTC(2026, 10, 1)
 
 type OpenStream = {
     body: any
+    signal: AbortSignal
     push: (text: string) => void
     close: () => void
 }
@@ -43,6 +44,7 @@ describe('createQueryBatchRunner', () => {
             const stream = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) })
             streams.push({
                 body: JSON.parse(String(init.body)),
+                signal: init.signal as AbortSignal,
                 push: (text) => controller.enqueue(new TextEncoder().encode(text)),
                 close: () => controller.close(),
             })
@@ -65,7 +67,7 @@ describe('createQueryBatchRunner', () => {
             `${JSON.stringify({ i, result: { frames: [{ name: null, labels: {}, fields: [{ name: 'total', type: 'number', values: [total] }], meta: {}, hash: 'h' }] } })}\n`
         )
     const totalOf = (total: number): unknown => ({
-        frames: [{ fields: [{ name: 'total', type: 'number', values: [total] }] }],
+        frames: [{ meta: {}, hash: 'h', fields: [{ name: 'total', type: 'number', values: [total] }] }],
     })
 
     it('sends the queries asked in one tick as one stream and settles each as its line arrives', async () => {
@@ -92,12 +94,12 @@ describe('createQueryBatchRunner', () => {
 
         const frame = {
             name: null,
-            labels: {},
+            labels: { series_index: '0' },
             fields: [
                 { name: 'day', type: 'time', unit: 'date', values: [DAY_1] },
-                { name: 'total', type: 'number', unit: 's', values: [42] },
+                { name: 'total', type: 'number', unit: 's', values: [42], labels: { le: '0.5' } },
             ],
-            meta: {},
+            meta: { interval: 'day', end: DAY_1 },
             hash: 'h',
         }
         streams[0].push(
@@ -107,9 +109,12 @@ describe('createQueryBatchRunner', () => {
         await expect(second).resolves.toEqual({
             frames: [
                 {
+                    labels: { series_index: '0' },
+                    meta: { interval: 'day', end: DAY_1 },
+                    hash: 'h',
                     fields: [
                         { name: 'day', type: 'time', values: ['2026-11-01'] },
-                        { name: 'total', type: 'number', values: [42], unit: 's' },
+                        { name: 'total', type: 'number', values: [42], unit: 's', labels: { le: '0.5' } },
                     ],
                 },
             ],
@@ -164,6 +169,37 @@ describe('createQueryBatchRunner', () => {
             answer(streams[stream], 0, 3 + stream)
         }
         await expect(Promise.all(later)).resolves.toEqual(later.map((_, index) => totalOf(4 + index)))
+    })
+
+    it('leaves out a query that aborted before its batch was sent', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const gone = new AbortController()
+        const aborted = runQuery(SQL, gone.signal)
+        const kept = runQuery(TRENDS)
+        gone.abort()
+        await expect(aborted).rejects.toMatchObject({ name: 'AbortError' })
+        await flush()
+
+        expect(streams[0].body.queries).toEqual([
+            { target: { refId: '0', language: 'query', query: '{"kind":"TrendsQuery","series":[]}' }, time: TIME },
+        ])
+        answer(streams[0], 0, 1)
+        await expect(kept).resolves.toEqual(totalOf(1))
+    })
+
+    it('keeps a stream open while one of its queries still waits, and stops it when none do', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const [first, second] = [new AbortController(), new AbortController()]
+        const results = [runQuery(SQL, first.signal), runQuery(TRENDS, second.signal)]
+        await flush()
+
+        first.abort()
+        expect(streams[0].signal.aborted).toBe(false)
+        second.abort()
+        expect(streams[0].signal.aborted).toBe(true)
+        for (const result of results) {
+            await expect(result).rejects.toMatchObject({ name: 'AbortError' })
+        }
     })
 
     it('asks once more for a query answered busy, a second after the stream ends, even when another stream is free', async () => {
