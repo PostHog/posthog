@@ -32,6 +32,7 @@ from products.stamphog.backend.facade.enums import (
     AudienceReason,
     ChannelResolutionSource,
     DigestRunStatus,
+    ExpressRequestDeliveryKind,
     ExpressRequestSource,
     ExpressRequestStatus,
     ReviewMode,
@@ -57,6 +58,7 @@ from products.stamphog.backend.logic.workflow_proofs import RunOrder, seen_on_he
 from products.stamphog.backend.models import (
     DigestRun,
     ExpressRequest,
+    ExpressRequestDelivery,
     ExpressRequestParticipant,
     PullRequest,
     PullRequestAudience,
@@ -4448,8 +4450,8 @@ def _express_repo_config(team_id: int) -> StamphogRepoConfig:
     return repo_config
 
 
-def _ask_people(team_id: int, number: int, sandbox: Any) -> ExpressRequest:
-    ask = ExpressRequestAsk(
+def _ask_people(team_id: int, number: int, sandbox: Any, ask: ExpressRequestAsk | None = None) -> ExpressRequest:
+    ask = ask or ExpressRequestAsk(
         requested_by_user_id=None,
         requested_via=ExpressRequestSource.SLACK,
         requester_slack_user_id="U0ASKER",
@@ -4543,6 +4545,105 @@ def test_a_express_request_posts_one_card_when_stamphog_does_not_approve(
     else:
         assert fakes.FakeSlackIntegration.updated_messages == []
         assert links == []
+
+
+ASKER_USER_ID = 9101
+
+
+def _earlier_request(
+    team_id: int,
+    pull_request: PullRequest,
+    *,
+    days_ago: float,
+    delivery: ExpressRequestDelivery.State | None = ExpressRequestDelivery.State.POSTED,
+    **identity: Any,
+) -> None:
+    request = ExpressRequest.objects.for_team(team_id).create(
+        team_id=team_id,
+        pull_request=pull_request,
+        head_sha="sha-earlier",
+        status=ExpressRequestStatus.CLOSED,
+        requested_via=ExpressRequestSource.API,
+        **identity,
+    )
+    if delivery is not None:
+        posted = delivery == ExpressRequestDelivery.State.POSTED
+        ExpressRequestDelivery.objects.for_team(team_id).create(
+            team_id=team_id,
+            express_request=request,
+            kind=ExpressRequestDeliveryKind.SLACK_MESSAGE,
+            state=delivery,
+            channel_id=EXPRESS_CHANNEL,
+            message_ts="1700000000.000100" if posted else "",
+            posted_at=timezone.now() - timedelta(days=days_ago) if posted else None,
+        )
+
+
+@pytest.mark.parametrize(
+    "ask, expect_count, expect_line",
+    [
+        # The same account asked through the API, and the same login, in other letter case, asked on GitHub.
+        pytest.param(
+            ExpressRequestAsk(
+                requested_by_user_id=ASKER_USER_ID,
+                requested_via=ExpressRequestSource.GITHUB,
+                requester_github_login="Dev-Example",
+            ),
+            3,
+            "Asked by Dev-Example · 3rd this week",
+            id="from_github",
+        ),
+        # A Slack user with no PostHog account matches only their own Slack requests.
+        pytest.param(
+            ExpressRequestAsk(
+                requested_by_user_id=None, requested_via=ExpressRequestSource.SLACK, requester_slack_user_id="U0ASKER"
+            ),
+            2,
+            "Asked by <@U0ASKER> · 2nd this week",
+            id="from_slack",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_card_counts_the_cards_its_requester_caused_this_week(
+    team, stamphog_chain: StamphogChain, ask: ExpressRequestAsk, expect_count: int, expect_line: str
+) -> None:
+    repo_config = _express_repo_config(team.id)
+    earlier = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=180, author_login="devex-dev"
+    )
+    everyone_of_theirs: dict[str, Any] = {
+        "requested_by_user_id": ASKER_USER_ID,
+        "requester_slack_user_id": "U0ASKER",
+        "requester_github_login": "dev-example",
+    }
+    _earlier_request(team.id, earlier, days_ago=1, requested_by_user_id=ASKER_USER_ID)
+    _earlier_request(team.id, earlier, days_ago=2, requester_github_login="dev-example")
+    _earlier_request(team.id, earlier, days_ago=3, requester_slack_user_id="U0ASKER")
+    # Never counted: a card from before the week, a request that asked nobody, a card Slack refused, and
+    # someone else's card.
+    _earlier_request(team.id, earlier, days_ago=8, **everyone_of_theirs)
+    _earlier_request(team.id, earlier, days_ago=1, delivery=None, **everyone_of_theirs)
+    _earlier_request(team.id, earlier, days_ago=1, delivery=ExpressRequestDelivery.State.FAILED, **everyone_of_theirs)
+    _earlier_request(
+        team.id,
+        earlier,
+        days_ago=1,
+        requested_by_user_id=ASKER_USER_ID + 1,
+        requester_slack_user_id="U0OTHER",
+        requester_github_login="someone-else",
+    )
+    stamphog_chain.recorder.register_pr(REPO, 181, _silent_review_pr(181, "sha181a"), _pr_files())
+
+    request = _ask_people(team.id, 181, fakes.make_fake_sandbox_class(_refused_engine_output()), ask)
+
+    (card,) = _cards()
+    assert expect_line in _rendered(card["blocks"])
+    # The count is the one the card went out with, so a card the same person causes later leaves it alone.
+    _earlier_request(team.id, earlier, days_ago=0, **everyone_of_theirs)
+    _refresh(request)
+    assert expect_line in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
+    assert express_request_to_dto(team.id, request.id).requester_card_count == expect_count
 
 
 @pytest.mark.parametrize("silent", [False, True], ids=["visible_refusal", "withheld_silent_refusal"])

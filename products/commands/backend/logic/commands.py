@@ -122,6 +122,8 @@ class CommandRequest:
     channel: ChannelName
     # Blank unless the command came from Slack. Identifies the requester there, unlike `requester`.
     slack_user_id: str = ""
+    # Blank unless the command came from a pull request comment. The login GitHub reported for the commenter.
+    github_login: str = ""
 
 
 @frozen

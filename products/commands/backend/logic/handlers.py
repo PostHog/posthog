@@ -16,7 +16,7 @@ import structlog
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.utils import absolute_uri
+from posthog.utils import absolute_uri, ordinal
 
 from products.error_tracking.backend.facade import issues as error_tracking_issues
 from products.knowledge_writer.backend.facade import (
@@ -150,7 +150,8 @@ _EXPRESS_REQUEST_SOURCES: dict[ChannelName, stamphog_enums.ExpressRequestSource]
 def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO) -> str | None:
     """The reply to `stamp --express`, or None to fall back to the reply about the run.
 
-    Built from fixed text, the channel name a manager set, and the Slack link, so it never repeats the note.
+    Built from fixed text, the channel name a manager set, the Slack link and the requester's weekly card count,
+    so it never repeats the note.
     """
     express_request = result.express_request
     if express_request is None:
@@ -166,6 +167,9 @@ def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO) ->
     if status == stamphog_enums.ExpressRequestStatus.PENDING:
         return f"Stamphog is reviewing. If it doesn't approve, this goes to {channel}."
     if status == stamphog_enums.ExpressRequestStatus.OPEN:
+        card_count = result.express_request_card_count
+        if card_count is not None and card_count >= 2:
+            return f"Stamphog didn't approve, so this goes to {channel}. It's your {ordinal(card_count)} this week."
         return f"Stamphog didn't approve, so this goes to {channel}."
     return None
 
@@ -196,6 +200,7 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
             note=args.note,
             requested_via=_EXPRESS_REQUEST_SOURCES[context.request.channel],
             requester_slack_user_id=context.request.slack_user_id,
+            requester_github_login=context.request.github_login,
         )
     except stamphog_contracts.ReviewRequestRefusedError as error:
         # Stamphog writes its refusals for the requester, from the repository name and PR number only.

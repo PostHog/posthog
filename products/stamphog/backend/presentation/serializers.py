@@ -543,6 +543,14 @@ class ExpressRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="Where the request was posted. Empty until auto-approval does not approve.",
     )
+    requester_card_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "How many Express messages the requester caused in the 7 days up to this request's message, this one "
+            "included. Counted once when the message is posted. Null until then."
+        ),
+    )
 
     class Meta:
         dataclass = contracts.ExpressRequestDTO
@@ -555,6 +563,7 @@ class ExpressRequestSerializer(DataclassSerializer):
             "looking",
             "approved_by_login",
             "deliveries",
+            "requester_card_count",
             "created_at",
             "updated_at",
         ]

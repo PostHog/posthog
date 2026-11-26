@@ -677,6 +677,25 @@ class ExpressRequestCardTests(SimpleTestCase):
             value = json.loads(look["value"])
             assert (value["request_id"], value["integration_id"], value["team_id"]) == ("req-1", 42, 3)
 
+    @parameterized.expand(
+        [
+            ("not_counted_yet", None, ""),
+            ("first_this_week", 1, ""),
+            ("second", 2, " · 2nd this week"),
+            ("third", 3, " · 3rd this week"),
+            ("fifth", 5, " · 5th this week"),
+            ("eleventh", 11, " · 11th this week"),
+            ("twelfth", 12, " · 12th this week"),
+            ("thirteenth", 13, " · 13th this week"),
+            ("twenty_first", 21, " · 21st this week"),
+            ("twenty_second", 22, " · 22nd this week"),
+            ("hundred_and_twelfth", 112, " · 112th this week"),
+        ]
+    )
+    def test_the_asked_by_line_counts_only_a_repeat_requester(self, _name: str, count: int | None, suffix: str) -> None:
+        rendered = json.dumps(card_blocks(self._card(requester_card_count=count)), ensure_ascii=False)
+        assert f'"Asked by <@U0ASKER>{suffix}"' in rendered
+
 
 class DigestConfigFetchTests(SimpleTestCase):
     def test_transient_fetch_errors_propagate(self) -> None:

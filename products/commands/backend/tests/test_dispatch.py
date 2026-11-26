@@ -202,6 +202,7 @@ class TestDispatchCommentCommand(BaseTest):
             note="",
             requested_via=ExpressRequestSource.GITHUB,
             requester_slack_user_id="",
+            requester_github_login="octo",
         )
         # A login can pass to another account after a rename; the permission must be for this id.
         assert github.permission_lookups == [self.github_id]
@@ -514,6 +515,22 @@ class TestDispatchCommentCommand(BaseTest):
             ),
             ("open", ExpressRequestStatus.OPEN, [], "reviews", "Stamphog didn't approve, so this goes to #reviews."),
             (
+                "open_first_card_this_week",
+                ExpressRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, so this goes to #reviews.",
+                1,
+            ),
+            (
+                "open_twelfth_card_this_week",
+                ExpressRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, so this goes to #reviews. It's your 12th this week.",
+                12,
+            ),
+            (
                 "already_posted",
                 ExpressRequestStatus.OPEN,
                 ["https://example.slack.com/archives/C1/p100200"],
@@ -538,7 +555,13 @@ class TestDispatchCommentCommand(BaseTest):
         ]
     )
     def test_stamp_express_replies_with_where_the_request_stands(
-        self, _name: str, status: ExpressRequestStatus, urls: list[str | None], channel_name: str, expected: str
+        self,
+        _name: str,
+        status: ExpressRequestStatus,
+        urls: list[str | None],
+        channel_name: str,
+        expected: str,
+        card_count: int | None = None,
     ) -> None:
         express_request = ExpressRequestDTO(
             id=uuid4(),
@@ -555,7 +578,12 @@ class TestDispatchCommentCommand(BaseTest):
             subject=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
-        result = MagicMock(created=True, express_request=express_request, express_request_channel_name=channel_name)
+        result = MagicMock(
+            created=True,
+            express_request=express_request,
+            express_request_channel_name=channel_name,
+            express_request_card_count=card_count,
+        )
 
         with patch(REQUEST_STAMPHOG_REVIEW, return_value=result):
             outcome = handle_stamp(context, StampArgs(express=True, note="ask Jane about billing"))
@@ -755,6 +783,7 @@ class TestDispatchCommentCommand(BaseTest):
             "note": "check the billing migration",
             "requested_via": ExpressRequestSource.SLACK,
             "requester_slack_user_id": "U1",
+            "requester_github_login": "",
         }
         assert [answer.split("\n")[0] for answer in answers] == [
             "Stamphog is reviewing. If it doesn't approve, this goes to #reviews."

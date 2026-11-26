@@ -8,10 +8,13 @@ change to a request goes through one idempotent path.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import IntegrityError, router, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -53,6 +56,9 @@ REQUEST_CREATED_EVENT = "stamphog_express_request_created"
 CARD_POSTED_EVENT = "stamphog_express_card_posted"
 LOOK_CLICKED_EVENT = "stamphog_express_look_clicked"
 
+# The rolling window of the requester's card count on the card.
+CARD_COUNT_WINDOW = timedelta(days=7)
+
 # The outcomes that send a pull request to people. A WAIT is absent because stamphog reviews the head again.
 _NOT_APPROVED_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
 
@@ -64,6 +70,8 @@ class ExpressRequestAsk:
     requested_by_user_id: int | None
     requested_via: ExpressRequestSource
     requester_slack_user_id: str = ""
+    # The commenter's login, for a request from a pull request comment.
+    requester_github_login: str = ""
     # Shown in Slack only. It is never written to GitHub, because pull request comments are public.
     note: str = ""
 
@@ -129,6 +137,7 @@ def open_express_request(
                     requested_by_user_id=ask.requested_by_user_id,
                     requested_via=ask.requested_via,
                     requester_slack_user_id=ask.requester_slack_user_id,
+                    requester_github_login=ask.requester_github_login,
                     note=ask.note,
                 )
             )
@@ -217,9 +226,48 @@ def _findings(run: ReviewRun | None) -> tuple[str, ...]:
 
 
 def _requester_name(request: ExpressRequest) -> str:
-    if request.requester_slack_user_id or request.requested_by_user_id is None:
+    if request.requester_slack_user_id:
         return ""
-    return User.objects.filter(id=request.requested_by_user_id).values_list("first_name", flat=True).first() or ""
+    name = ""
+    if request.requested_by_user_id is not None:
+        name = User.objects.filter(id=request.requested_by_user_id).values_list("first_name", flat=True).first() or ""
+    return name or request.requester_github_login
+
+
+def _same_requester(request: ExpressRequest) -> Q | None:
+    """Requests by the person who made ``request``: any one of its identities matches. None when it has none."""
+    match = Q()
+    if request.requested_by_user_id is not None:
+        match |= Q(express_request__requested_by_user_id=request.requested_by_user_id)
+    if request.requester_slack_user_id:
+        match |= Q(express_request__requester_slack_user_id=request.requester_slack_user_id)
+    if request.requester_github_login:
+        # GitHub logins are case-insensitive.
+        match |= Q(express_request__requester_github_login__iexact=request.requester_github_login)
+    return match or None
+
+
+def requester_card_count(request: ExpressRequest, *, at: datetime, using: str) -> int:
+    """How many cards the person who made ``request`` caused in the window up to ``at``, its own card included.
+
+    Only posted cards count, because a request that stamphog approved asked nobody to look.
+    """
+    match = _same_requester(request)
+    if match is None:
+        return 1
+    earlier = (
+        ExpressRequestDelivery.objects.for_team(request.team_id)
+        .using(using)
+        .filter(
+            match,
+            kind=ExpressRequestDeliveryKind.SLACK_MESSAGE,
+            state=ExpressRequestDelivery.State.POSTED,
+            posted_at__gt=at - CARD_COUNT_WINDOW,
+        )
+        .exclude(express_request_id=request.id)
+        .count()
+    )
+    return earlier + 1
 
 
 def _card(
@@ -258,6 +306,7 @@ def _card(
         requester_name=_requester_name(request),
         lookers=tuple(CardLooker(slack_user_id=p.slack_user_id, display_name=p.display_name) for p in lookers),
         approved_by_login=approved_by_login,
+        requester_card_count=request.requester_card_count,
     )
 
 
@@ -323,6 +372,9 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         delivery = deliveries.select_for_update().get(express_request=request, kind=kind)
         if delivery.state == ExpressRequestDelivery.State.POSTED:
             return
+        posted_at = timezone.now()
+        card_count = requester_card_count(request, at=posted_at, using=using)
+        card = dataclasses.replace(card, requester_card_count=card_count)
         try:
             ts = post_card(card, repo_config.express_slack_channel_id, repo_config.express_slack_channel_name)
         except ExpressRequestSlackError as e:
@@ -337,10 +389,22 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         delivery.message_ts = ts
         delivery.permalink = card_permalink(card, delivery.channel_id, ts)
         delivery.state = ExpressRequestDelivery.State.POSTED
-        delivery.save(update_fields=["integration_id", "channel_id", "message_ts", "permalink", "state", "updated_at"])
-        # The people who look later see the card at this head, so only a later head pings them.
+        delivery.posted_at = posted_at
+        delivery.save(
+            update_fields=[
+                "integration_id",
+                "channel_id",
+                "message_ts",
+                "permalink",
+                "state",
+                "posted_at",
+                "updated_at",
+            ]
+        )
+        # The people who look later see the card at this head, so only a later head pings them. Later edits show
+        # the count the card went out with.
         ExpressRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
-            pinged_head_sha=head_sha, updated_at=timezone.now()
+            pinged_head_sha=head_sha, requester_card_count=card_count, updated_at=timezone.now()
         )
     _capture(request, CARD_POSTED_EVENT, {"stamphog_express_request_status": card.status.value})
 

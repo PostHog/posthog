@@ -60,6 +60,7 @@ class GitHubCommentChannel:
             requester=f"@{comment.commenter_login}",
             requested_via="a pull request comment",
             channel="github",
+            github_login=comment.commenter_login,
         )
 
     def admit(self) -> Admission | DispatchOutcome:

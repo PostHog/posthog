@@ -122,6 +122,9 @@ class ExpressRequestDTO:
     looking: list[str] = Field(default_factory=list)
     approved_by_login: str = ""
     deliveries: list[ExpressRequestDeliveryDTO] = Field(default_factory=list)
+    # How many cards the requester caused in the 7 days up to this request's card, that card included.
+    # None until the card is posted.
+    requester_card_count: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -310,6 +313,9 @@ class ReviewRequestResultDTO:
     express_request: ExpressRequestDTO | None = None
     # The Slack channel name the repository sends Express requests to, without the '#'. Blank when unknown.
     express_request_channel_name: str = ""
+    # The requester's weekly card count that the request's card shows, or will show once the card that is on
+    # its way goes out. None while no card is posted or on its way.
+    express_request_card_count: int | None = None
 
 
 @dataclass(frozen=True)

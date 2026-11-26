@@ -483,6 +483,8 @@ class ExpressRequest(ProductTeamModel):
     requested_via = models.CharField(max_length=16, choices=ExpressRequestSource.choices)
     # Blank unless the request came from Slack.
     requester_slack_user_id = models.CharField(max_length=64, blank=True, default="")
+    # The commenter's GitHub login. Blank unless the request came from a pull request comment.
+    requester_github_login = models.CharField(max_length=255, blank=True, default="")
     # A request from a pull request comment never carries a note, because pull request comments are public.
     # The note never goes to GitHub.
     note = models.CharField(max_length=200, blank=True, default="")
@@ -490,6 +492,9 @@ class ExpressRequest(ProductTeamModel):
     approved_by_login = models.CharField(max_length=255, blank=True, default="")
     # The head that already sent its one thread reply to the people looking, so a retry does not reply twice.
     pinged_head_sha = models.CharField(max_length=64, blank=True, default="")
+    # How many cards the requester caused in the 7 days up to this request's card, that card included.
+    # Set once when the card is first posted, so later edits show the same number. Null until then.
+    requester_card_count = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -532,6 +537,8 @@ class ExpressRequestDelivery(ProductTeamModel):
     # Blank when the lookup failed.
     permalink = models.CharField(max_length=512, blank=True, default="")
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    # When the message went out. The requester's weekly card count reads it.
+    posted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

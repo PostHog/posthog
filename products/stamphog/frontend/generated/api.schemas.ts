@@ -280,6 +280,11 @@ export interface CodeReviewApprovalExpressRequestApi {
     readonly approved_by_login: string
     /** Where the request was posted. Empty until auto-approval does not approve. */
     readonly deliveries: readonly CodeReviewApprovalExpressRequestDeliveryApi[]
+    /**
+     * How many Express messages the requester caused in the 7 days up to this request's message, this one included. Counted once when the message is posted. Null until then.
+     * @nullable
+     */
+    readonly requester_card_count: number | null
     /** When somebody asked for people to review. */
     readonly created_at: string
     /** When the request last changed. */

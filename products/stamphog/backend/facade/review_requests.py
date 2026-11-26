@@ -8,12 +8,16 @@ serializer imports on every request.
 import dataclasses
 from collections.abc import Collection
 
+from django.db import router
+from django.utils import timezone
+
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.api import _review_run_to_dto, express_request_to_dto
-from products.stamphog.backend.facade.enums import ExpressRequestSource
-from products.stamphog.backend.logic.express_requests import ExpressRequestAsk
+from products.stamphog.backend.facade.enums import ExpressRequestSource, ExpressRequestStatus
+from products.stamphog.backend.logic.express_requests import ExpressRequestAsk, requester_card_count
+from products.stamphog.backend.models import ExpressRequest
 from products.stamphog.backend.tasks.tasks import (
     request_manual_review,
     reviewing_team_ids as _reviewing_team_ids,
@@ -38,6 +42,7 @@ def request_review(
     note: str = "",
     requested_via: ExpressRequestSource = ExpressRequestSource.API,
     requester_slack_user_id: str = "",
+    requester_github_login: str = "",
 ) -> contracts.ReviewRequestResultDTO:
     """Queue a stamphog review of a PR, or return the run already covering its current head.
 
@@ -55,6 +60,7 @@ def request_review(
             requested_by_user_id=user_id,
             requested_via=requested_via,
             requester_slack_user_id=requester_slack_user_id,
+            requester_github_login=requester_github_login,
             note=note,
         )
         if express
@@ -66,9 +72,16 @@ def request_review(
     if queued.express_request is None:
         return contracts.ReviewRequestResultDTO(run=run, created=queued.created)
     express_request = express_request_to_dto(project_id, queued.express_request.id)
+    card_count = express_request.requester_card_count
+    if card_count is None and express_request.status == ExpressRequestStatus.OPEN:
+        # The card is on its way, and the count it will show includes it.
+        card_count = requester_card_count(
+            queued.express_request, at=timezone.now(), using=router.db_for_write(ExpressRequest)
+        )
     return contracts.ReviewRequestResultDTO(
         run=dataclasses.replace(run, express_request=express_request),
         created=queued.created,
         express_request=express_request,
         express_request_channel_name=queued.express_request_channel_name,
+        express_request_card_count=card_count,
     )

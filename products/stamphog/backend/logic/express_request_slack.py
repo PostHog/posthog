@@ -37,7 +37,7 @@ from posthog.slack.channels import (
     update_message,
 )
 from posthog.slack.formatting import escape_slack_mrkdwn
-from posthog.utils import get_instance_region
+from posthog.utils import get_instance_region, ordinal
 
 from ..facade.enums import ExpressRequestStatus
 
@@ -127,6 +127,8 @@ class ExpressRequestCard:
     requester_name: str
     lookers: tuple[CardLooker, ...]
     approved_by_login: str
+    # How many cards the requester caused this week, this one included. None until the first post counts it.
+    requester_card_count: int | None = None
 
 
 def _mention_or_name(slack_user_id: str, name: str) -> str:
@@ -180,9 +182,13 @@ def _notes(card: ExpressRequestCard) -> str:
 
 
 def _asked_by(card: ExpressRequestCard) -> str:
-    if card.requester_slack_user_id or card.requester_name:
-        return f"Asked by {_mention_or_name(card.requester_slack_user_id, card.requester_name)}"
-    return ""
+    if not (card.requester_slack_user_id or card.requester_name):
+        return ""
+    line = f"Asked by {_mention_or_name(card.requester_slack_user_id, card.requester_name)}"
+    # A first card says nothing, so the count shows only for a person who asks again.
+    if card.requester_card_count is not None and card.requester_card_count >= 2:
+        line += f" · {ordinal(card.requester_card_count)} this week"
+    return line
 
 
 def _looking(card: ExpressRequestCard) -> str:

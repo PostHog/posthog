@@ -73,6 +73,10 @@ class Migration(migrations.Migration):
                     "requester_slack_user_id",
                     models.CharField(blank=True, default="", max_length=64),
                 ),
+                (
+                    "requester_github_login",
+                    models.CharField(blank=True, default="", max_length=255),
+                ),
                 ("note", models.CharField(blank=True, default="", max_length=200)),
                 (
                     "approved_by_login",
@@ -82,6 +86,7 @@ class Migration(migrations.Migration):
                     "pinged_head_sha",
                     models.CharField(blank=True, default="", max_length=64),
                 ),
+                ("requester_card_count", models.PositiveIntegerField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -134,6 +139,7 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
+                ("posted_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (

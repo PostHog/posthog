@@ -192,6 +192,7 @@ def _express_request_to_dto(obj: ExpressRequest) -> contracts.ExpressRequestDTO:
             )
             for delivery in obj.deliveries.all()
         ],
+        requester_card_count=obj.requester_card_count,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
