@@ -1130,6 +1130,11 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             '"a"."id" AS "__hogql_duplicate_id_1"',
             '"b"."user_id" AS "__hogql_duplicate_id_',
         ),
+        (
+            "WITH cm AS (SELECT id, user_id AS x FROM users) SELECT cm.*, cm.x FROM cm",
+            'SELECT "cm"."id", "cm"."x", "cm"."x" AS "x" FROM "cm"',
+            '"cm"."x" AS "x", "cm"."x" AS "x"',
+        ),
         # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
         (
             "SELECT groupArray(id) AS ids, arrayMap(i -> ids[i], range(1, 3)) AS r FROM users",
