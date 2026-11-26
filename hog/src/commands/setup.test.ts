@@ -193,16 +193,16 @@ describe('hog setup', () => {
         const machine = world({ '/work/AGENTS.md': '# My app\n\nUse pnpm.\n' })
 
         const fresh = await machine.run(['setup'])
+        expect(fresh.exitCode).toBe(EXIT_SUCCESS)
         expect(fresh.json()).toMatchObject({
             step: 'purpose',
             status: 'in_progress',
             code: 'setup_needs_answers',
             done: [],
             next: {
-                kind: 'ask_user',
-                ask: 'What do you want to use PostHog for?',
-                command: 'hog setup next --reason "<their answer>" --products <id,id>',
-                instructions: expect.stringContaining('If you already know what the user wants PostHog for'),
+                kind: 'run',
+                command: 'hog setup next --reason "<what the project uses PostHog for>" --products <id,id>',
+                instructions: expect.stringContaining("Don't ask the user what PostHog is for."),
             },
             context: { folder: '/work', configPath: null },
         })
@@ -375,6 +375,13 @@ describe('hog setup', () => {
         expect(result.stdout).not.toContain(TOKEN)
     })
 
+    test('a person sees how to answer at the terminal, not the instructions for an agent', async () => {
+        const result = await world().run(['setup'], { person: [] })
+
+        expect(result.stdout).toContain('Next: Run hog setup next to say what you want to use PostHog for.')
+        expect(result.stdout).not.toContain("Don't ask the user")
+    })
+
     test('a person answers at the terminal, and options they pass are not asked again', async () => {
         const machine = world()
         machine.token = 'phc_custom\u001b]52;c;aGk=\u0007'
@@ -456,7 +463,7 @@ describe('hog setup', () => {
         machine.intentStatus = 500
 
         const status = await machine.run(['setup'])
-        expect(status.json()).toMatchObject({ step: 'purpose', next: { kind: 'ask_user' } })
+        expect(status.json()).toMatchObject({ step: 'purpose', next: { kind: 'run' } })
 
         const resumed = await machine.run(['setup', 'next', '--reason', 'Again', '--products', 'session-replay'])
         expect(resumed.json()).toMatchObject({

@@ -24,7 +24,7 @@ const OPTIONS = {
         placeholder: 'text',
         parse: (raw: string, failure: ParseFailure) => parseOrThrow(Reason, raw, failure),
         description:
-            'What the user wants to use PostHog for, in their words. hog sends it to PostHog unless telemetry is off',
+            'What the project uses PostHog for, from the conversation or the code. hog sends it to PostHog unless telemetry is off',
     },
     products: {
         type: 'string',
@@ -96,8 +96,6 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
     const setupNext = out.style('hog setup next', 'bold')
 
     switch (next.kind) {
-        case 'ask_user':
-            return [`Run ${setupNext} to answer this question at the terminal.`, `  ${escapeControls(next.ask)}`]
         case 'wait':
             return [
                 `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. ${SIGN_UP_NOTE} Then run ${setupNext}.`,
@@ -112,8 +110,11 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
     }
 }
 
-function nextBlock(out: Output, next: NextAction): string[] {
-    const [first, ...rest] = nextLines(out, next)
+function nextBlock(out: Output, result: SetupResult): string[] {
+    const [first, ...rest] =
+        result.step === 'purpose'
+            ? [`Run ${out.style('hog setup next', 'bold')} to say what you want to use PostHog for.`]
+            : nextLines(out, result.next)
     return [`${out.style('Next:', 'bold')} ${first}`, ...rest]
 }
 
@@ -126,7 +127,7 @@ function printSetup(out: Output, result: SetupResult, ranSteps: boolean): void {
         ...context.warnings.map(escapeControls),
         ...(context.events?.count === 0 ? [`No events since ${context.events.since}`] : []),
     ]
-    const notes = joinBlocks([...contextLines(out, result), nextBlock(out, result.next)])
+    const notes = joinBlocks([...contextLines(out, result), nextBlock(out, result)])
 
     if (result.status === 'connected') {
         out.report({
@@ -170,7 +171,7 @@ export default defineCommand({
         '`hog setup` shows the current step and what `hog setup next` will do, and changes nothing.',
         '`hog setup next` does the current step and keeps going until a step needs you or your agent. Its output names that step.',
         'The setup belongs to the folder of the closest posthog.json, or to this folder when there is none, so each app in a monorepo has its own.',
-        "An agent passes the answers as options and asks the user only what it can't tell. It runs `hog setup next` again only when a step stops.",
+        'An agent works out the answers from the conversation and the code, and passes them as options. It runs `hog setup next` again only when a step stops.',
     ].join('\n'),
     examples: [
         'hog setup',
@@ -220,9 +221,8 @@ export default defineCommand({
         out.json(agentResult(result), { first: AGENT_LEADING_KEYS })
     },
 
-    // The agent does `run` and `read` itself, so only a question or an approval waits on the person.
-    exitCode: (result) =>
-        result.next.kind === 'ask_user' || result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS,
+    // The agent does `run` and `read` itself, so only an approval waits on the person.
+    exitCode: (result) => (result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS),
 
     telemetry: ({ args, result }) => ({
         setup_action: args.action ?? 'status',

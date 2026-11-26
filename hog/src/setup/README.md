@@ -68,7 +68,7 @@ sequenceDiagram
 
 ## You with a coding agent
 
-The agent runs every command. It asks you what PostHog is for only when it can't tell, you approve the login, and it tells you what else PostHog can do at the end of its turn.
+The agent runs every command. It works out what PostHog is for from your conversation and code, you approve the login, and it tells you what else PostHog can do at the end of its turn.
 
 ```mermaid
 sequenceDiagram
@@ -79,11 +79,8 @@ sequenceDiagram
 
     Note over You,PH: 1. purpose
     Agent->>hog: hog setup next
-    hog-->>Agent: ask_user, with the question and the product list
-    opt The agent can't tell what PostHog is for
-        Agent->>You: What do you want to use PostHog for?
-        You->>Agent: Your answer
-    end
+    hog-->>Agent: run, with the product list
+    Agent->>Agent: Work out what PostHog is for from the conversation and the code
     Agent->>hog: hog setup next --reason "..." --products a,b
 
     Note over You,PH: 2. login
