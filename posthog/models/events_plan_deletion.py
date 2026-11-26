@@ -1,6 +1,7 @@
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+from functools import partial
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -167,7 +168,7 @@ def apply_events_retention_change(
         states = reschedule_plan_deletions(deleting_plans(shortened), cleanup_date())
     deletion_on = min((state.next_deletion_on for state in states.values()), default=None)
     notice = {**_notice(organization, deletion_on), "previous_retention_months": previous_months}
-    report_events_retention_shortened.delay(str(organization.id), notice)
+    transaction.on_commit(partial(report_events_retention_shortened.delay, str(organization.id), notice))
 
 
 def _shortened_teams(
