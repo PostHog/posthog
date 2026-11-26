@@ -54,6 +54,12 @@ class TestMetricsSqlInsight(APIBaseTest):
                 None,
             ),
             (
+                "quoted_unbraced_variable_with_a_format",
+                "SELECT count() FROM events WHERE properties.service = '$service:raw'",
+                None,
+            ),
+            ("quoted_built_in_variable", "SELECT count() FROM events WHERE timestamp > '$__from'", None),
+            (
                 "quoted_text",
                 "SELECT count() FROM events WHERE event = '$pageview'",
                 "SELECT count() FROM events WHERE event = '$pageview'",

@@ -43,8 +43,10 @@ _DATE_PLACEHOLDERS = {
 # Metrics SQL fills in `$name` and a whole quoted `'$name'`. `properties.$browser` is a field, not a reference.
 _UNQUOTED_REFERENCE = re.compile(r"(?<![\w.'\"`])\$\{?[A-Za-z0-9_]")
 _QUOTED_REFERENCE = re.compile(
-    r"(['\"])\$(?:\{(?P<braced>[A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|(?P<plain>[A-Za-z0-9_]+))\1"
+    r"(['\"])\$(?:\{(?P<braced>[A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|(?P<plain>[A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?)\1"
 )
+# Metrics SQL fills these in from the date range and the interval.
+_BUILT_IN_VARIABLES = frozenset({"__from", "__to", "__interval", "__interval_seconds"})
 
 
 def _uses_dashboard_variables(team: Team, query: dict[str, Any], sql: str) -> bool:
@@ -56,7 +58,7 @@ def _uses_dashboard_variables(team: Team, query: dict[str, Any], sql: str) -> bo
     variables = query.get("variables")
     known = set(variables) if isinstance(variables, dict) else set()
     # A dashboard can fill in a variable at render time, so a quoted name that no dashboard defines is text.
-    return bool(quoted & (known | metric_variable_names(team_id=team.pk)))
+    return bool(quoted & (known | _BUILT_IN_VARIABLES | metric_variable_names(team_id=team.pk)))
 
 
 def sql_insight_for_metrics_sql(team: Team, query: dict[str, Any]) -> dict[str, Any] | None:
