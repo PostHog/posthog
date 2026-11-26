@@ -63,6 +63,11 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
+from products.messaging.backend.facade.categories import (
+    MARKETING_CATEGORY_TYPE,
+    MessageCategoryMissing,
+    get_category_by_key,
+)
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
@@ -86,6 +91,7 @@ from products.messaging.backend.facade.transactional_email import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailCategory,
     EmailTracking,
     FieldNotAccepted,
     MessageTooLarge,
@@ -603,6 +609,7 @@ EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
 SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)
 EMAIL_IMPACT_FLAG = "workflows-email-impact"
 EMAIL_BATCH_FLAG = "workflows-email-batch-sends"
+CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -864,6 +871,17 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "template matches. It can't be false when the matched template is sensitive.",
     )
 
+    category = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Key of one of the project's message categories, such as `newsletter`, for the email your code "
+        "rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills "
+        "`{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing "
+        "email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own "
+        "category. Categories on emails your code rendered are on only in some projects so far, and a project without "
+        "them refuses this field with a 400.",
+    )
+
     def to_internal_value(self, data: Any) -> Any:
         # posthog-node 5.61.0 and posthog 7.81.0 send `template.id` and `identifiers.distinct_id`, so that shape
         # stays accepted. It is left out of the schema so that new callers use the flat fields.
@@ -878,6 +896,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         fields["from"] = fields.pop("from_address")
+        if _is_template_send(getattr(self, "initial_data", None)):
+            fields.pop("category")
         return fields
 
     def validate_html(self, value: str) -> str:
@@ -925,11 +945,19 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             raise serializers.ValidationError(
                 {"message_data": "A send with `template_key` carries content your code rendered, not `message_data`."}
             )
+        if "category" in sent and not data.get("category"):
+            raise serializers.ValidationError({"category": "`category` needs the key of a message category."})
         if not data.get("subject"):
             raise serializers.ValidationError({"subject": "A send with `template_key` needs a subject."})
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _is_template_send(initial_data: Any) -> bool:
+    return isinstance(initial_data, Mapping) and (
+        "template_id" in initial_data or isinstance(initial_data.get("template"), Mapping)
+    )
 
 
 def _sent_fields(initial_data: Any) -> set[str]:
@@ -1875,9 +1903,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
             self._check_scheduled_at(request.validated_data.get("scheduled_at"))
+            self._require_categories_flag(request.validated_data)
         data = request.validated_data
         self._require_code_email_access(data["template_key"])
-        email = code_email(data)
+        email = code_email(data, self._send_category(data, request.headers.get("Idempotency-Key")))
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1892,6 +1921,42 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             unavailable=unconfirmed_email_send,
         )
 
+    def _require_categories_flag(self, data: Mapping[str, Any]) -> None:
+        if "category" in data and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
+            raise serializers.ValidationError(
+                {"category": "Categories are off for this project, so PostHog didn't send the email."}
+            )
+
+    def _send_category(self, data: Mapping[str, Any], idempotency_key: str | None) -> EmailCategory | None:
+        if "category" not in data:
+            return None
+        key = data["category"]
+        try:
+            try:
+                row = get_category_by_key(self.team_id, key)
+            except MessageCategoryMissing:
+                if not idempotency_key:
+                    raise
+                row = get_category_by_key(self.team_id, key, deleted=True)
+        except MessageCategoryMissing:
+            raise ExplainedRefusal(
+                f"This project has no message category with the key `{key}`, so PostHog didn't send the email.",
+                code="category_not_found",
+                attr="category",
+                why="A send names a category by the key it has in the project's message categories.",
+                fix="Send the key of a category that exists and isn't deleted.",
+            ) from None
+        copies = next((field for field in ("cc", "bcc") if data.get(field)), None)
+        if row.category_type == MARKETING_CATEGORY_TYPE and copies:
+            raise ExplainedRefusal(
+                f"A marketing email can't have `{copies}`, so PostHog didn't send it.",
+                code="marketing_copies_unsupported",
+                attr=copies,
+                why="PostHog checks opt-outs and builds the unsubscribe link for the `to` recipient only.",
+                fix="Send each copy as its own email, with its recipient in `to`.",
+            )
+        return EmailCategory(id=row.id, type=row.category_type, archived=row.deleted)
+
     def _require_code_email_access(self, key: str) -> None:
         with transactional_email_stage("workflow_access"):
             require_code_email_access(
@@ -1902,7 +1967,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             )
 
 
-def code_email(data: Mapping[str, Any]) -> CodeEmail:
+def code_email(data: Mapping[str, Any], category: EmailCategory | None = None) -> CodeEmail:
     return CodeEmail(
         key=data["template_key"],
         subject=data["subject"],
@@ -1917,6 +1982,7 @@ def code_email(data: Mapping[str, Any]) -> CodeEmail:
         cc=tuple(data.get("cc") or ()),
         bcc=tuple(data.get("bcc") or ()),
         attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+        category=category,
     )
 
 

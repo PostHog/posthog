@@ -17,6 +17,7 @@ MESSAGE_CATEGORY_TYPE_CHOICES: list[tuple[str, str]] = [
     (value, str(label)) for value, label in MessageCategoryType.choices
 ]
 DEFAULT_MESSAGE_CATEGORY_TYPE: str = MessageCategoryType.MARKETING.value
+MARKETING_CATEGORY_TYPE: str = MessageCategoryType.MARKETING.value
 
 
 class MessageCategoryMissing(Exception):
@@ -62,6 +63,14 @@ def get_category(team_id: int, category_id: UUID | str) -> MessageCategoryRow:
     try:
         return _to_contract(categories_service.team_category(team_id, category_id))
     except (MessageCategory.DoesNotExist, ValidationError, ValueError, TypeError) as e:
+        raise MessageCategoryMissing() from e
+
+
+def get_category_by_key(team_id: int, key: str, *, deleted: bool = False) -> MessageCategoryRow:
+    lookup = categories_service.last_category_by_key if deleted else categories_service.team_category_by_key
+    try:
+        return _to_contract(lookup(team_id, key))
+    except MessageCategory.DoesNotExist as e:
         raise MessageCategoryMissing() from e
 
 
