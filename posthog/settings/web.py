@@ -1428,9 +1428,13 @@ AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 
 # AI gateway inference endpoint: OpenAI-compatible URL (include /v1) + phs_ project
-# secret for routing LLM calls through the gateway. Unset = direct to the provider.
-AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
-AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+# secret. Unset, every gateway client builder raises. Local dev defaults to the sibling
+# Go gateway and the key `bin/setup-gateway-e2e` registers.
+_LOCAL_AI_GATEWAY = DEBUG and not TEST
+AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "http://localhost:8080/v1" if _LOCAL_AI_GATEWAY else "")
+AI_GATEWAY_API_KEY = get_from_env(
+    "AI_GATEWAY_API_KEY", "phs_localgatewaye2elocalgatewaye2e0001" if _LOCAL_AI_GATEWAY else ""
+)
 
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.

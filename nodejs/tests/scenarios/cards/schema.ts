@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
 
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 export const CdpRole = z.enum([
     'cdp-processed-events',
     'cdp-cyclotron-worker-hogflow',
@@ -41,7 +43,11 @@ export const ValveEntry = z
         for: Duration,
     })
     .strict()
-    .refine((entry) => (entry.at === undefined) !== (entry.when === undefined), 'exactly one of at, when')
+    .refine((entry) => entry.at !== undefined || entry.when !== undefined, 'give at, when or both')
+    .refine((entry) => entry.at === undefined || durationMs(entry.at) <= MAX_TIMER_MS, {
+        message: `at is past ${MAX_TIMER_MS}ms, the longest a timer waits`,
+        path: ['at'],
+    })
 export type ValveEntry = z.infer<typeof ValveEntry>
 
 export const RampStep = z.object({ scale: z.number().positive(), for: Duration }).strict()
@@ -62,8 +68,17 @@ export const Card = z
                 minOffered: z.number().min(0).max(1).default(0.9),
                 ramp: z.array(RampStep).min(1).optional(),
                 stopOnBreak: z.literal(true).optional(),
+                warmUp: Duration.optional(),
             })
             .strict()
+            .refine(({ for: lasts, warmUp }) => warmUp === undefined || durationMs(warmUp) < durationMs(lasts), {
+                message: 'the warm-up must end before the drive does',
+                path: ['warmUp'],
+            })
+            .refine(({ ramp, warmUp }) => warmUp === undefined || ramp === undefined, {
+                message: 'a drive with a ramp takes no warm-up',
+                path: ['warmUp'],
+            })
             .refine(
                 ({ for: lasts, ramp }) =>
                     ramp === undefined ||
@@ -91,8 +106,14 @@ export const Card = z
         measure: z.array(Named).default([]),
         bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
+        pair: z.boolean().optional(),
+        unpaired: z.string().trim().min(1).optional(),
     })
     .strict()
+    .refine(({ pair, unpaired }) => !pair || unpaired === undefined, {
+        message: 'a card that runs paired names no reason to run unpaired',
+        path: ['unpaired'],
+    })
     .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {
         message: 'a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         path: ['valves'],

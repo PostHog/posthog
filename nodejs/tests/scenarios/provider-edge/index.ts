@@ -7,8 +7,9 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCertificates } from './certificates'
-import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, ruleOf } from './faults'
+import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, hitOf, ruleOf } from './faults'
 import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
+import { PgProxy, startPgProxy } from './postgres'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
 import {
@@ -36,45 +37,54 @@ const FAULT_POLL_MS = 100
 export type FaultHold = {
     observed(holdEnds?: AbortSignal): Promise<boolean>
     accepted?(until: AbortSignal): Promise<boolean>
+    hits?(): Promise<string[]>
     release(): Promise<void>
 }
 
-type HeldFault = { firstAppliedAt(): Promise<number | undefined>; remove(): Promise<void> }
+type HeldFault = {
+    firstAppliedAt(): Promise<number | undefined>
+    hits?(): Promise<string[]>
+    remove(): Promise<void>
+}
+
+async function appliedBefore(
+    fault: HeldFault,
+    windowEnds: AbortSignal | undefined,
+    deadline: number
+): Promise<boolean> {
+    let windowEndsAt = deadline
+    const endWindow = (): void => {
+        windowEndsAt = Math.min(windowEndsAt, Date.now())
+    }
+    if (windowEnds?.aborted) {
+        endWindow()
+    }
+    windowEnds?.addEventListener('abort', endWindow, { once: true })
+    const appliedInWindow = async (): Promise<boolean> => {
+        const appliedAt = await fault.firstAppliedAt()
+        return appliedAt !== undefined && appliedAt <= windowEndsAt
+    }
+    try {
+        let readFrom = Date.now()
+        let applied = await appliedInWindow()
+        while (!applied && !windowEnds?.aborted && Date.now() <= deadline) {
+            await sleep(FAULT_POLL_MS, undefined, { signal: windowEnds }).catch(() => undefined)
+            readFrom = Date.now()
+            applied = await appliedInWindow()
+        }
+        // A read that started before the window ended can answer after it, so its negative answer gets one more read.
+        return applied || (readFrom <= windowEndsAt && (await appliedInWindow()))
+    } finally {
+        windowEnds?.removeEventListener('abort', endWindow)
+    }
+}
 
 export function holdOf(fault: HeldFault): FaultHold {
     return {
-        observed: async (holdEnds) => {
-            const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
-            let windowEndsAt = deadline
-            const holdEnded = (): void => {
-                windowEndsAt = Math.min(windowEndsAt, Date.now())
-            }
-            if (holdEnds?.aborted) {
-                return false
-            }
-            holdEnds?.addEventListener('abort', holdEnded, { once: true })
-            const answeredInWindow = async (): Promise<boolean> =>
-                ((await fault.firstAppliedAt()) ?? Infinity) <= windowEndsAt
-            try {
-                let answered = await answeredInWindow()
-                while (!answered && Date.now() <= deadline && !holdEnds?.aborted) {
-                    await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
-                    answered = await answeredInWindow()
-                }
-                return answered
-            } finally {
-                holdEnds?.removeEventListener('abort', holdEnded)
-            }
-        },
-        accepted: async (until) => {
-            const applied = async (): Promise<boolean> => (await fault.firstAppliedAt()) !== undefined
-            let accepted = await applied()
-            while (!accepted && !until.aborted) {
-                await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
-                accepted = await applied()
-            }
-            return accepted
-        },
+        observed: async (holdEnds) =>
+            !holdEnds?.aborted && (await appliedBefore(fault, holdEnds, Date.now() + FAULT_OBSERVED_WITHIN_MS)),
+        accepted: (until) => appliedBefore(fault, until, Infinity),
+        hits: () => fault.hits?.() ?? Promise.resolve([]),
         release: () => fault.remove(),
     }
 }
@@ -92,9 +102,11 @@ export type ProviderEdgeOptions = {
 export type ProviderEdge = {
     url: string
     caCertPath?: string
+    pgProxyOf(upstream: string): Promise<string>
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
     firstAppliedAt(faultId: string): number | undefined
+    hitsOf(faultId: string): string[]
     removeFault(faultId: string): void
     hold(rule: FaultRule): FaultHold
     clearFaults(): void
@@ -159,7 +171,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const { message } = request
         const recipients = addressesOf(message.to)
         const correlation = { unitId: unitIdOf(recipients), ...trackedOf(trackingCodeOf(message)) }
-        const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
+        const addresses = addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])])
+        const fault = faults.takeSes(addresses, hitOf(correlation.unitId, [...addresses].sort().join(',')))
         if (fault?.answer.kind === 'ambiguous' && !fault.answer.accepted) {
             return 'drop-connection'
         }
@@ -333,7 +346,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         const [, unitId, actionId] = /^\/u\/([^/?]+)\/([^/?]+)/.exec(target) ?? []
-        const fault = faults.takeWebhook(host)
+        const fault = faults.takeWebhook(host, hitOf(unitId, `${host}${target.split('?')[0]}`))
         if (fault?.answer.kind === 'webhook-ambiguous' && !fault.answer.accepted) {
             req.socket.destroy()
             return
@@ -387,24 +400,43 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         })
     })
     const { port } = server.address() as AddressInfo
+    // One proxy per Cyclotron database, opened when a card first routes roles through the edge to it.
+    const pgProxies = new Map<string, Promise<PgProxy>>()
+    const pgProxyOf = (upstream: string): Promise<PgProxy> => {
+        const proxy = pgProxies.get(upstream) ?? startPgProxy(upstream, faults)
+        pgProxies.set(upstream, proxy)
+        proxy.catch(() => pgProxies.delete(upstream))
+        return proxy
+    }
 
     return {
         url: `http://127.0.0.1:${port}`,
         caCertPath: certificates?.caCertPath,
+        pgProxyOf: async (upstream) => (await pgProxyOf(upstream)).url,
         sent,
         addFault: (rule) => faults.add(rule),
         firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
+        hitsOf: (faultId) => faults.hitsOf(faultId),
         removeFault: (faultId) => void removeFault(faultId),
         hold: (rule) => {
             const id = faults.add(rule)
             return holdOf({
                 firstAppliedAt: () => Promise.resolve(faults.firstAppliedAt(id)),
+                hits: () => Promise.resolve(faults.hitsOf(id)),
                 remove: () => Promise.resolve(void removeFault(id)),
             })
         },
         clearFaults,
         close: async () => {
             proxy?.close()
+            await Promise.all(
+                [...pgProxies.values()].map((pg) =>
+                    pg.then(
+                        (started) => started.close(),
+                        () => undefined
+                    )
+                )
+            )
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
         },

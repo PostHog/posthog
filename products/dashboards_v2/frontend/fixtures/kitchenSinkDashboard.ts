@@ -1,10 +1,13 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { WidgetQuery } from '../dashboard/dashboardSchema'
-import { type ContentWidget, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
+import type { WidgetQuery } from '../dashboard/document/dashboardSchema'
+import { type ContentWidget, type SavedWidget, type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
 import type { ChartConfig } from '../widgets/chart/chartSpec'
 import { type StatOptions, statSpec } from '../widgets/chart/viz/stat/statSpec'
+
+// TODO(2026-11-25): Delete once the scene loads dashboards from the API.
+// It stands in for a saved dashboard and shows every widget and layout case.
 
 const chartOf = (title: string, query: WidgetQuery, viz: ChartConfig['viz']): ContentWidget<ChartConfig> => ({
     type: 'chart',
@@ -28,7 +31,7 @@ const stat = (title: string, sql: string, format?: StatOptions['format']): Conte
     chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
 const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
 const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
-const text = (markdown: string): ContentWidget => ({ type: 'markdown', config: { text: markdown } })
+const text = (markdown: string): SavedWidget => ({ type: 'markdown', config: { text: markdown } })
 
 const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
     id,
@@ -69,47 +72,50 @@ const AI_LATENCY = 'toFloat(properties.$ai_latency)'
 const GOOGLE_AD = `${PAGEVIEW} and notEmpty(properties.gclid)`
 const META_AD = `${PAGEVIEW} and notEmpty(properties.fbclid)`
 const AD_CLICK = `${PAGEVIEW} and (notEmpty(properties.gclid) or notEmpty(properties.fbclid))`
+// Revenue analytics views over project 2's Stripe source. `{filters}` only binds event-like tables, so these
+// read the range directly.
+const REVENUE_ITEM = 'stripe.prod.revenue_item_revenue_view'
+const REVENUE_PRODUCT = 'stripe.prod.product_revenue_view'
+const IN_RANGE = 'timestamp >= {filters.dateRange.from} and timestamp < {filters.dateRange.to}'
 
 const SQL = {
-    visitors: total('uniq(person_id) as visitors', PAGEVIEW),
+    visitors: total('uniqExact(person_id) as visitors', PAGEVIEW),
     pageviews: total('count() as pageviews', PAGEVIEW),
-    sessions: total('uniq($session_id) as sessions', PAGEVIEW),
+    sessions: total('uniqExact($session_id) as sessions', PAGEVIEW),
     signups: total('count() as signups', SIGNUP),
-    // Billing reports each organization's total many times, so only its latest report in the range counts.
-    revenue:
-        "select sum(total) as revenue from (select argMax(toFloat(properties.total_usd), timestamp) as total from events where event = 'billing subscription paid' and {filters} group by properties.organization_id)",
+    revenue: `select sum(amount) as revenue from ${REVENUE_ITEM} where ${IN_RANGE}`,
     errors: total('count() as errors', EXCEPTION),
     sessionErrorRate: total(
-        "uniqIf($session_id, event = '$exception') / uniq($session_id) as error_rate",
+        "uniqExactIf($session_id, event = '$exception') / uniqExact($session_id) as error_rate",
         "event in ('$pageview', '$exception')"
     ),
     sessionDuration: 'select avg($session_duration) as session_duration from sessions where {filters}',
     bounceRate: 'select avg($is_bounce) as bounce_rate from sessions where {filters}',
     conversionRate: total(
-        "countIf(event = 'user signed up') / uniqIf(person_id, event = '$pageview') as conversion_rate",
+        "countIf(event = 'user signed up') / uniqExactIf(person_id, event = '$pageview') as conversion_rate",
         "event in ('$pageview', 'user signed up')"
     ),
     signupsOverTime: daily('count() as signups', SIGNUP),
-    activation: daily('uniq(person_id) as activated', "event = 'insight created'"),
+    activation: daily('uniqExact(person_id) as activated', "event = 'insight created'"),
     errorsOverTime: daily('count() as errors', EXCEPTION),
     pageviewsOverTime: daily('count() as pageviews', PAGEVIEW),
-    visitorsOverTime: daily('uniq(person_id) as visitors', PAGEVIEW),
+    visitorsOverTime: daily('uniqExact(person_id) as visitors', PAGEVIEW),
     signupsByCountry: dailyBy('country', 'properties.$geoip_country_code', 'count() as signups', SIGNUP),
-    plans: dailyBy(
-        'plan',
-        'properties.plans.product_analytics',
-        'uniq(properties.organization_id) as organizations',
-        "event = 'billing subscription paid'"
-    ),
+    revenueByProduct:
+        `select toStartOfDay(item.timestamp) as day, coalesce(product.name, item.product_id) as product, sum(item.amount) as revenue ` +
+        `from ${REVENUE_ITEM} as item left join ${REVENUE_PRODUCT} as product on product.id = item.product_id ` +
+        `where item.timestamp >= {filters.dateRange.from} and item.timestamp < {filters.dateRange.to} ` +
+        `and item.product_id in (select product_id from ${REVENUE_ITEM} where ${IN_RANGE} group by product_id order by sum(amount) desc limit 5) ` +
+        `group by day, product order by day`,
     eventsByType: daily('event, count() as events', "event in ('$pageview', '$autocapture', '$pageleave')", 'day, event'),
     paths: dailyBy('path', 'properties.$pathname', 'count() as pageviews', PAGEVIEW),
     sources: dailyBy('source', 'properties.$referring_domain', 'count() as pageviews', PAGEVIEW),
     devices: dailyBy('device', 'properties.$device_type', 'count() as pageviews', PAGEVIEW),
     countries: dailyBy('country', 'properties.$geoip_country_code', 'count() as pageviews', PAGEVIEW),
     // Many SDKs never send the `$ai_trace` root event, so a trace is any trace ID seen on an AI event.
-    traces: total('uniq(properties.$ai_trace_id) as traces', `${AI_EVENT} and notEmpty(properties.$ai_trace_id)`),
+    traces: total('uniqExact(properties.$ai_trace_id) as traces', `${AI_EVENT} and notEmpty(properties.$ai_trace_id)`),
     generations: total('count() as generations', GENERATION),
-    aiUsers: total('uniq(distinct_id) as users', GENERATION),
+    aiUsers: total('uniqExact(distinct_id) as users', GENERATION),
     aiCost: total(`sum(${AI_COST}) as cost`, GENERATION),
     aiErrorRate: total(`countIf(${AI_ERROR}) / count() as error_rate`, GENERATION),
     costByModel: dailyBy('model', 'properties.$ai_model', `sum(${AI_COST}) as cost`, GENERATION),
@@ -121,7 +127,7 @@ const SQL = {
         GENERATION
     ),
     generationsOverTime: daily('count() as generations', GENERATION),
-    costPerUser: daily(`sum(${AI_COST}) / uniq(distinct_id) as cost_per_user`, GENERATION),
+    costPerUser: daily(`sum(${AI_COST}) / uniqExact(distinct_id) as cost_per_user`, GENERATION),
     aiErrorsOverTime: daily(`countIf(${AI_ERROR}) as errors`, GENERATION),
     requests: total('count() as requests', GENERATION),
     // Divides by the selected range, not the span between the first and last generation, so idle time counts.
@@ -132,20 +138,20 @@ const SQL = {
     requestErrors: total(`countIf(${AI_ERROR}) as errors`, GENERATION),
     p95: total(`quantile(0.95)(${AI_LATENCY}) as p95_latency`, GENERATION),
     adClicks: total('count() as clicks', AD_CLICK),
-    adVisitors: total('uniq(person_id) as visitors', AD_CLICK),
-    campaigns: total('uniq(properties.utm_campaign) as campaigns', AD_CLICK),
+    adVisitors: total('uniqExact(person_id) as visitors', AD_CLICK),
+    campaigns: total('uniqExact(properties.utm_campaign) as campaigns', AD_CLICK),
     adSignups: total('count() as signups', `${SIGNUP} and notEmpty(person.properties.$initial_utm_source)`),
-    clicksPerVisitor: total('count() / uniq(person_id) as clicks_per_visitor', AD_CLICK),
+    clicksPerVisitor: total('count() / uniqExact(person_id) as clicks_per_visitor', AD_CLICK),
     clicksAndSignups: daily(
         "if(event = 'user signed up', 'Signups', 'Ad clicks') as series, count() as events",
         `${AD_CLICK} or ${SIGNUP}`,
         'day, series'
     ),
     googleClicks: total('count() as clicks', GOOGLE_AD),
-    googleVisitors: total('uniq(person_id) as visitors', GOOGLE_AD),
+    googleVisitors: total('uniqExact(person_id) as visitors', GOOGLE_AD),
     googleCampaigns: dailyBy('campaign', 'properties.utm_campaign', 'count() as clicks', GOOGLE_AD),
     metaClicks: total('count() as clicks', META_AD),
-    metaVisitors: total('uniq(person_id) as visitors', META_AD),
+    metaVisitors: total('uniqExact(person_id) as visitors', META_AD),
     metaCampaigns: dailyBy('campaign', 'properties.utm_campaign', 'count() as clicks', META_AD),
     insightsOverTime: daily('count() as insights', "event = 'insight created'"),
     createdByType: daily('event, count() as created', "event in ('insight created', 'dashboard created')", 'day, event'),
@@ -160,6 +166,8 @@ export const kitchenSinkDashboard: Dashboard = {
     title: 'Dashboards v2',
     description: 'Every widget, section and chart option on one dashboard.',
     time: { from: 'now-14d', to: 'now' },
+    allowFilters: true,
+    filters: [{ id: 'browser', type: 'property', label: 'Browser', config: { key: '$browser', source: 'event' } }],
     tabs: [
         {
             id: 'kitchen-sink',
@@ -187,14 +195,14 @@ export const kitchenSinkDashboard: Dashboard = {
                         tile('ks-i-line', 0, 0, 12, 12, line('Errors over time', SQL.errorsOverTime)),
                     ]),
                 ]),
-                section('ks-left', 0, 66, 12, 'Half width', [tile('ks-l-bar', 0, 0, 12, 12, bar('Plans', SQL.plans))]),
+                section('ks-left', 0, 66, 12, 'Half width', [tile('ks-l-bar', 0, 0, 12, 12, bar('Revenue by product', SQL.revenueByProduct))]),
                 section('ks-right', 12, 66, 12, 'Half width, empty', []),
                 section('ks-closed', 0, 86, 24, 'Closed section', [tile('ks-c-line', 0, 0, 24, 12, line('Hidden', SQL.pageviewsOverTime))], true),
                 tile('ks-headless', 0, 90, 8, 8, text('A tile without a title is dragged by its body.')),
                 section('ks-queries', 0, 98, 24, 'Every query language and chart option', [
                     tile('ks-q-hogql', 0, 0, 8, 14, line('HogQL query', SQL.pageviewsOverTime)),
                     tile('ks-q-metrics', 8, 0, 8, 14, metrics('Metrics query', 'sum(rate(http_requests_total[5m]))', { type: 'line' })),
-                    tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'checkout', { type: 'bar' })),
+                    tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'posthog-web-django', { type: 'bar' })),
                     tile('ks-q-stacked', 0, 14, 12, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
                     tile('ks-q-currency', 12, 14, 6, STAT_ROWS, stat('Revenue', SQL.revenue, 'currency')),
                     tile('ks-q-number', 18, 14, 6, STAT_ROWS, stat('Signups', SQL.signups, 'number')),
@@ -309,8 +317,8 @@ export const kitchenSinkDashboard: Dashboard = {
                 tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status) (rate(http_server_requests_total[5m]))', { type: 'line' })),
                 tile('apm-latency', 12, 8, 12, 16, metrics('Latency', 'histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))', { type: 'line' })),
                 section('apm-endpoints', 0, 24, 24, 'Endpoints', [
-                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'checkout', { type: 'bar' })),
-                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'checkout', { type: 'bar', options: { stack: true } })),
+                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'posthog-web-django', { type: 'bar' })),
+                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'posthog-web-django', { type: 'bar', options: { stack: true } })),
                 ]),
             ],
         },

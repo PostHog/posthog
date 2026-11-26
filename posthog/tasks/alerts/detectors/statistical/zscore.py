@@ -5,25 +5,18 @@ import numpy as np
 from posthog.schema import DetectorType
 
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
+from posthog.tasks.alerts.detectors.normalizers import MINMAX_STEP, FitError
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
-def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
-    """Normalize a z-score to a [0, 1] anomaly probability.
+def _window_zscores(window_data: np.ndarray, mean: float, std: float) -> np.ndarray:
+    """The absolute z-scores of the training window, the raw scores that the normalizer fits on.
 
-    Uses min-max normalization against the training window z-scores,
-    consistent with PyOD's default ``linear`` method. The score represents
-    where the current z-score falls relative to the range observed in the
-    training window: 0 means at or below the minimum, 1 means at or above
-    the maximum.
+    A constant window has no z-scores. Its points all tie, so they count as zeros toward the training size.
     """
-    return _normalize_zscore(z_score, float(window_zscores.min()), float(window_zscores.max()))
-
-
-def _normalize_zscore(z_score: float, min_z: float, max_z: float) -> float:
-    if max_z == min_z:
-        return 1.0 if z_score > max_z else 0.0
-    return float(np.clip((z_score - min_z) / (max_z - min_z), 0.0, 1.0))
+    if std == 0:
+        return np.zeros(len(window_data))
+    return np.abs((window_data - mean) / std)
 
 
 @register_detector(DetectorType.ZSCORE)
@@ -34,14 +27,15 @@ class ZScoreDetector(BaseDetector):
     Detects anomalies by calculating how many standard deviations
     a value is from the rolling mean.
 
-    Scores are normalized to [0, 1] using min-max normalization against
-    the training window z-scores (consistent with PyOD's default ``linear``
-    method).
+    The raw score is the absolute z-score. The normalizer maps it to [0, 1]
+    against the z-scores of the training window, with min-max by default.
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
         window: int - Rolling window size (default: 30)
     """
+
+    DEFAULT_NORMALIZER = MINMAX_STEP
 
     def detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the most recent point is an anomaly based on z-score."""
@@ -73,6 +67,11 @@ class ZScoreDetector(BaseDetector):
 
         current_value = values[-1]
 
+        try:
+            fitted = self._fit_normalizer(_window_zscores(window_data, mean, std))
+        except FitError:
+            return DetectionResult(is_anomaly=False)
+
         if std == 0:
             is_anomaly = abs(current_value - mean) > 0
             return DetectionResult(
@@ -80,12 +79,17 @@ class ZScoreDetector(BaseDetector):
                 score=1.0 if is_anomaly else 0.0,
                 triggered_indices=[original_length - 1] if is_anomaly else [],
                 all_scores=[1.0 if is_anomaly else 0.0],
-                metadata={"mean": float(mean), "std": 0.0, "value": float(current_value), "raw_zscore": None},
+                metadata={
+                    "mean": float(mean),
+                    "std": 0.0,
+                    "value": float(current_value),
+                    "raw_zscore": None,
+                    "normalizer": fitted["method"],
+                },
             )
 
         z_score = abs((current_value - mean) / std)
-        window_zscores = np.abs((window_data - mean) / std)
-        prob = _zscore_to_probability(z_score, window_zscores)
+        prob = self._normalize(fitted, z_score)
 
         return DetectionResult(
             is_anomaly=prob > threshold,
@@ -97,6 +101,7 @@ class ZScoreDetector(BaseDetector):
                 "std": float(std),
                 "value": float(current_value),
                 "raw_zscore": float(z_score),
+                "normalizer": fitted["method"],
             },
         )
 
@@ -129,6 +134,12 @@ class ZScoreDetector(BaseDetector):
 
             current_val = values[i]
 
+            try:
+                fitted = self._fit_normalizer(_window_zscores(window_data, mean, std))
+            except FitError:
+                scores.append(None)
+                continue
+
             if std == 0:
                 if abs(current_val - mean) > 0:
                     scores.append(1.0)
@@ -138,8 +149,7 @@ class ZScoreDetector(BaseDetector):
                 continue
 
             z_score = abs((current_val - mean) / std)
-            window_zscores = np.abs((window_data - mean) / std)
-            prob = _zscore_to_probability(z_score, window_zscores)
+            prob = self._normalize(fitted, z_score)
             scores.append(prob)
 
             if prob > threshold:
@@ -161,27 +171,46 @@ class ZScoreDetector(BaseDetector):
         window_data = values[diffs_n:][-window:]
         mean = np.mean(window_data)
         std = np.std(window_data)
-        params: dict[str, Any] = {"mean": float(mean), "std": float(std)}
-        if std != 0:
-            window_zscores = np.abs((window_data - mean) / std)
-            params.update(min_z=float(window_zscores.min()), max_z=float(window_zscores.max()))
-        return self._artifact(params)
+        return self._artifact(
+            {
+                "mean": float(mean),
+                "std": float(std),
+                "normalizer": self._fit_normalizer(_window_zscores(window_data, mean, std)),
+            }
+        )
 
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
         mean = artifact.params["mean"]
         std = artifact.params["std"]
+        fitted = artifact.params["normalizer"]
         scores: list[float | None] = []
         metadata: list[dict[str, Any]] = []
         for value in rows if rows.ndim == 1 else rows[:, 0]:
             if std == 0:
                 scores.append(1.0 if abs(value - mean) > 0 else 0.0)
-                metadata.append({"mean": mean, "std": 0.0, "value": float(value), "raw_zscore": None})
+                metadata.append(
+                    {
+                        "mean": mean,
+                        "std": 0.0,
+                        "value": float(value),
+                        "raw_zscore": None,
+                        "normalizer": fitted["method"],
+                    }
+                )
                 continue
             z_score = abs((value - mean) / std)
-            scores.append(_normalize_zscore(z_score, artifact.params["min_z"], artifact.params["max_z"]))
-            metadata.append({"mean": mean, "std": std, "value": float(value), "raw_zscore": float(z_score)})
+            scores.append(self._normalize(fitted, z_score))
+            metadata.append(
+                {
+                    "mean": mean,
+                    "std": std,
+                    "value": float(value),
+                    "raw_zscore": float(z_score),
+                    "normalizer": fitted["method"],
+                }
+            )
         return scores, metadata
 
     @classmethod

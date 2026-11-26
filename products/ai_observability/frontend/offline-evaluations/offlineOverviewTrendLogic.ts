@@ -202,6 +202,9 @@ export const offlineOverviewTrendLogic: LogicWrapper<offlineOverviewTrendLogicTy
                 (points: OfflineHistoryPointApi[]): OfflineScoreHistorySummary[] => {
                     const byVersion = new Map<string, OfflineHistoryPointApi[]>()
                     for (const point of points) {
+                        if (!point.summary) {
+                            continue
+                        }
                         const versionPoints = byVersion.get(point.summary.scorer.id) || []
                         versionPoints.push(point)
                         byVersion.set(point.summary.scorer.id, versionPoints)

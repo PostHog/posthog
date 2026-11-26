@@ -1534,7 +1534,9 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
+        chosen_body = swap_flag_calls(
+            body, self.context, resolve, scope=FlagCallScope.view(view_name), enclosing_ctes=self.ctes
+        ).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 

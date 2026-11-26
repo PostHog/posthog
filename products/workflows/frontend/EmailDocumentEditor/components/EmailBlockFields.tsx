@@ -3,13 +3,14 @@ import type { Editor } from '@tiptap/core'
 import { IconImage } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-import { enclosingColumns, selectedBlock, setBlockAttribute, setBlockStyle } from '../emailCommands'
+import { enclosingColumns, enclosingSection, selectedBlock, setBlockAttribute, setBlockStyle } from '../emailCommands'
 import { EmailBlockStyle, EmailSides, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
 import { htmlSentAsWritten, safeEmailLink } from '../renderEmailHtml'
 import { EmailBoxFields } from './EmailBoxFields'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailHtmlCodeField } from './EmailHtmlCodeField'
+import { EmailSectionFields } from './EmailSectionFields'
 import { EmailTextFields } from './EmailTextFields'
 import { EmailVisibilityFields } from './EmailVisibilityFields'
 import { EmailAlignField } from './fields/EmailAlignField'
@@ -49,6 +50,9 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
     const set = (patch: Partial<EmailBlockStyle>): void => setBlockStyle(editor, pos, patch)
     const page = resolvePageStyle(editor.state.doc.attrs.page)
     const columns = enclosingColumns(editor)
+    const section = enclosingSection(editor)
+    // Columns and sections show their settings below those of the block in them.
+    const ownFields = type !== 'emailColumns' && type !== 'emailSection'
     const sentAsWritten = type === 'emailHtml' && htmlSentAsWritten(editor.getJSON()) !== null
 
     let fields: JSX.Element | null = null
@@ -363,16 +367,18 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
     return (
         // Keyed by block, so one block's unfinished number never shows in another's field.
         <div key={`${type}-${pos}`} className="flex flex-col gap-1">
-            {type !== 'emailColumns' ? (
-                <h3 className="text-sm font-semibold m-0">{BLOCK_LABELS[type] ?? type}</h3>
+            {ownFields ? (
+                <>
+                    <h3 className="text-sm font-semibold m-0">{BLOCK_LABELS[type] ?? type}</h3>
+                    {fields}
+                </>
             ) : null}
-            {type !== 'emailColumns' ? fields : null}
-            {type !== 'emailColumns' && !(sentAsWritten && !node.attrs.emailVisibility) ? (
+            {ownFields && !(sentAsWritten && !node.attrs.emailVisibility) ? (
                 <EmailVisibilityFields editor={editor} pos={pos} />
             ) : null}
             {columns ? (
                 <>
-                    {type !== 'emailColumns' ? <LemonDivider className="my-1" /> : null}
+                    {ownFields ? <LemonDivider className="my-1" /> : null}
                     <EmailColumnsFields
                         key={columns.columnIndex}
                         editor={editor}
@@ -380,6 +386,13 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         columnIndex={columns.columnIndex}
                     />
                     <EmailVisibilityFields editor={editor} pos={columns.pos} />
+                </>
+            ) : null}
+            {section ? (
+                <>
+                    {type !== 'emailSection' ? <LemonDivider className="my-1" /> : null}
+                    <EmailSectionFields editor={editor} pos={section.pos} />
+                    <EmailVisibilityFields editor={editor} pos={section.pos} />
                 </>
             ) : null}
         </div>

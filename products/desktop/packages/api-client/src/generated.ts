@@ -4293,6 +4293,11 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
+    export type ExperimentWarehouseNativeRowsLeftOut = Partial<{
+        empty_id: number | null;
+        exposed_without_rows: Record<string, number> | null;
+        unknown_variants: Record<string, number> | null;
+    }>;
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
@@ -4300,6 +4305,7 @@ export namespace Schemas {
         hogql: string | null;
         is_precomputed: boolean | null;
         kind: string;
+        rows_left_out: ExperimentWarehouseNativeRowsLeftOut | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
@@ -6006,6 +6012,7 @@ export namespace Schemas {
      * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
      * * `members_over_limit` - Members over limit
      * * `test_account_filter` - Test account filter
+     * * `unsupported_time_range` - Unsupported time range
      */
     export type CohortRealtimeUnavailableReasonEnum =
         | "history_over_limit"
@@ -6014,10 +6021,11 @@ export namespace Schemas {
         | "action_criteria"
         | "includes_non_realtime_cohort"
         | "members_over_limit"
-        | "test_account_filter";
+        | "test_account_filter"
+        | "unsupported_time_range";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
@@ -6038,7 +6046,7 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
+         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
@@ -6047,6 +6055,7 @@ export namespace Schemas {
          * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
          * * `members_over_limit` - Members over limit
          * * `test_account_filter` - Test account filter
+         * * `unsupported_time_range` - Unsupported time range
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
@@ -7586,7 +7595,17 @@ export namespace Schemas {
         | "resolved"
         | "pending_release"
         | "suppressed";
+    export type ErrorTrackingIssueTagColor =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTag = {
+        color?: (ErrorTrackingIssueTagColor | null) | undefined;
         /**
          * What the tag means, for a tooltip.
          */
@@ -9483,6 +9502,25 @@ export namespace Schemas {
         | "medium"
         | "high"
         | "critical";
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTagRead = {
         /**
          * Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not.
@@ -9496,6 +9534,19 @@ export namespace Schemas {
          * What the tag means, for a tooltip.
          */
         description: string;
+        /**
+         * Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+         *
+         * * `blue` - Blue
+         * * `teal` - Teal
+         * * `green` - Green
+         * * `yellow` - Yellow
+         * * `orange` - Orange
+         * * `red` - Red
+         * * `pink` - Pink
+         * * `purple` - Purple
+         */
+        color: IssueTagColorEnum | NullEnum;
         /**
          * The tagger that applied the tag: `jev` for AI, `manual` for a person.
          */
@@ -10224,6 +10275,7 @@ export namespace Schemas {
         rollout_percentage: number;
         variant: string | null;
         aggregation_group_type_index: number | null;
+        description: string | null;
     }>;
     /**
      * A holdout group — a stable slice of users excluded from experiment exposure.
@@ -10465,6 +10517,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10484,6 +10537,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
      */
@@ -10496,6 +10550,7 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10515,6 +10570,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "early_significance"
         | "metrics_not_matured"
+        | "result_ready"
         | "flag_shared"
         | "stale_experiment";
     /**
@@ -10563,6 +10619,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10570,6 +10627,7 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10592,6 +10650,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10599,6 +10658,7 @@ export namespace Schemas {
         | "exposure_filters"
         | "early_significance"
         | "metrics_not_matured"
+        | "result_ready"
         | "stale_experiment"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
@@ -10620,6 +10680,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -10639,6 +10700,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `flag_shared` - Flag Shared
          * * `stale_experiment` - Stale Experiment
          */
@@ -10693,6 +10755,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -10700,6 +10763,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10765,6 +10829,7 @@ export namespace Schemas {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -10836,6 +10901,7 @@ export namespace Schemas {
         | "difference_percentage"
         | "detectable_difference_percentage"
         | "significant"
+        | "significant_since_at"
         | "forced_condition_count"
         | "matched_count"
         | "variant_matched_count"
@@ -10918,6 +10984,7 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -10998,6 +11065,7 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -11065,6 +11133,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -11072,6 +11141,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -11617,7 +11687,7 @@ export namespace Schemas {
          */
         can_freeze_exposure: boolean;
         /**
-         * The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
+         * The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
          */
         resolved_exposure_event: string;
         /**
@@ -11798,6 +11868,9 @@ export namespace Schemas {
             | (Array<ExperimentExposureHealthFinding> | null)
             | undefined;
         kind?: string | undefined;
+        rows_left_out?:
+            | (ExperimentWarehouseNativeRowsLeftOut | null)
+            | undefined;
         sample_ratio_mismatch?: (SampleRatioMismatch | null) | undefined;
         timeseries: Array<ExperimentExposureTimeSeries>;
         total_exposures: Record<string, number>;
@@ -12021,7 +12094,7 @@ export namespace Schemas {
          */
         can_freeze_exposure: boolean;
         /**
-         * The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
+         * The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
          */
         resolved_exposure_event: string;
         /**
@@ -17645,6 +17718,8 @@ export namespace Schemas {
         require_tags: boolean;
         blocked_hosts: Array<string>;
         blocked_ips: Array<string>;
+        allowed_hosts: Array<string>;
+        allowed_ips: Array<string>;
     }>;
     /**
      * A project and its settings, including the settings that live on its passthrough Team.

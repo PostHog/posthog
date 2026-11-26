@@ -2,7 +2,7 @@ import { Sparkline } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 
-import { timeSeriesFromFrames } from '../../timeSeriesFrames'
+import { timeSeriesFromFrames } from '../../data/timeSeriesFrames'
 import type { DataFrame } from '../../vizTypes'
 import type { StatOptions } from './statSpec'
 

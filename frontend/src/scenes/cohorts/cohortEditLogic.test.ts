@@ -341,6 +341,19 @@ describe('cohortEditLogic', () => {
             }
         )
 
+        it.each(['unsupported_time_range', 'history_over_limit'] as const)(
+            'offers no turn-on for a cohort that is off with the reason %s',
+            async (reason) => {
+                await initCohortLogic({ id: 1 })
+                await expectLogic(logic, () => {
+                    logic.actions.setCohort({
+                        ...mockCohort,
+                        realtime: { ...readyRealtime, state: 'off', ready_at: null, reason },
+                    })
+                }).toMatchValues({ realtimeSwitchAction: null })
+            }
+        )
+
         it('reloads the team after a refused turn-on', async () => {
             useMocks({
                 post: {

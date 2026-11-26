@@ -18,6 +18,7 @@ import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
+import { EdgeProcess, startEdgeProcess } from '../provider-edge/process'
 import { Truth } from '../provider-edge/truth'
 import { ValveContext, createValves } from './valves'
 
@@ -347,36 +348,66 @@ describe('valves', () => {
         expect(run.cloud.promotions).toEqual([])
     })
 
-    it('kills the role an entry names once its offset passes, and records every step', async () => {
+    it.each<[string, string, number | undefined]>([
+        ['from the moment the valves start', '20ms', undefined],
+        ['from the drive start, which passed before the valves started', '1m', -60_000],
+    ])(
+        'kills the role an entry names once its offset, counted %s, passes, and records every step',
+        async (_story, at, startedIn) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = stackOf()
+
+            await valves.start(
+                [kill({ at })],
+                startedIn === undefined ? stack.context : { ...stack.context, startedAt: Date.now() + startedIn }
+            )
+            expect(stack.gone()).toEqual([])
+            await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect(stack.gone()).toEqual([1])
+            expect(valves.timeline()).toEqual([
+                {
+                    valve: 'role.kill',
+                    target: EMAIL_WORKER,
+                    requestedAt: expect.any(String),
+                    intentAt: expect.any(String),
+                    appliedAt: expect.any(String),
+                    observedAt: expect.any(String),
+                    releasedAt: expect.any(String),
+                },
+            ])
+        }
+    )
+
+    it('never kills when its offset comes due only after the drive was due to end, though no release ran', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
 
-        await valves.start([kill({ at: '20ms' })], stack.context)
-        expect(stack.gone()).toEqual([])
-        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
-        await valves.releaseAll()
+        await valves.start([kill({ at: '1m' })], {
+            ...stack.context,
+            startedAt: Date.now() - 60_000,
+            endsAt: Date.now() - 1,
+        })
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
 
-        expect(stack.gone()).toEqual([1])
+        expect(stack.gone()).toEqual([])
         expect(valves.timeline()).toEqual([
-            {
-                valve: 'role.kill',
-                target: EMAIL_WORKER,
-                requestedAt: expect.any(String),
-                intentAt: expect.any(String),
-                appliedAt: expect.any(String),
-                observedAt: expect.any(String),
-                releasedAt: expect.any(String),
-            },
+            expect.objectContaining({ error: 'never applied: released before its offset' }),
         ])
+        await valves.releaseAll()
     })
 
-    it('waits until enough jobs of its teams run on the queue before it kills', async () => {
+    it.each<[string, string | undefined]>([
+        ['', undefined],
+        [', once armed', '20ms'],
+    ])('waits until enough jobs of its teams run on the queue before it kills%s', async (_story, at) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
         stack.run(1)
         stack.run(3, 'hogflow')
 
-        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+        await valves.start([kill({ at, when: RUNNING_ON_EMAIL })], stack.context)
         await stack.nextRead()
         await stack.nextRead()
         expect(stack.gone()).toEqual([])
@@ -386,6 +417,20 @@ describe('valves', () => {
         await valves.releaseAll()
 
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
+    })
+
+    it('kills only once its arming delay passed, though enough jobs ran from the start', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf({ runningJobs: 2 })
+
+        await valves.start([kill({ at: '1s', when: RUNNING_ON_EMAIL })], stack.context)
+        // Without the delay the kill needs no timer, so it lands before this snapshot.
+        // The 1s delay keeps a correct kill out of it, even on a slow runner.
+        const goneBeforeArming = await sleep(50).then(() => stack.gone())
+        await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
+        await valves.releaseAll()
+
+        expect(goneBeforeArming).toEqual([])
     })
 
     const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }
@@ -578,12 +623,12 @@ describe('valves', () => {
             }
         }
 
-        const send = (abortSignal?: AbortSignal): Promise<string> =>
+        const send = (abortSignal?: AbortSignal, to = 'run-1-1@www.example.com'): Promise<string> =>
             ses
                 .send(
                     new SendEmailCommand({
                         FromEmailAddress: 'flows@www.example.com',
-                        Destination: { ToAddresses: ['run-1-1@www.example.com'] },
+                        Destination: { ToAddresses: [to] },
                         Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello' } } } },
                     }),
                     { abortSignal }
@@ -608,6 +653,183 @@ describe('valves', () => {
             expect(valves.timeline()[0].error).toBeUndefined()
         })
 
+        it('picks the units a share dose hits from the card seed, whatever order they arrive in, and lists them', async () => {
+            const ordinals = Array.from({ length: 20 }, (_, index) => index + 1)
+            const firedIn = async (seed: number, arriving: number[]) => {
+                const runId = randomUUID()
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 0.5 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    { ...onEdge(), seed }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                const outcomes = new Map<number, string[]>()
+                for (const ordinal of [...arriving, ...arriving]) {
+                    const outcome = await send(undefined, `${runId}-${ordinal}@www.example.com`)
+                    outcomes.set(ordinal, [...(outcomes.get(ordinal) ?? []), outcome])
+                }
+                await valves.releaseAll()
+                const [fired] = valves.fired()
+                return {
+                    fired,
+                    outcomes: ordinals.map((ordinal) => outcomes.get(ordinal)!),
+                    rejected: ordinals.filter((ordinal) => outcomes.get(ordinal)!.includes('MessageRejected')),
+                    hit: fired.unitIds?.map((unitId) => Number(unitId.slice(runId.length + 1))).sort((a, b) => a - b),
+                }
+            }
+
+            const first = await firedIn(6, ordinals)
+            const reordered = await firedIn(6, [...ordinals].reverse())
+            const otherSeed = await firedIn(7, ordinals)
+
+            expect(first.fired).toEqual({
+                valve: 'ses.reject',
+                target: 'ses',
+                dose: { type: 'rejected', share: 0.5 },
+                requestedAt: expect.any(String),
+                intentAt: expect.any(String),
+                appliedAt: expect.any(String),
+                observedAt: expect.any(String),
+                releasedAt: expect.any(String),
+                unitIds: expect.any(Array),
+            })
+            expect(first.hit).toEqual(first.rejected)
+            expect(first.rejected.length).toBeGreaterThan(0)
+            expect(first.rejected.length).toBeLessThan(ordinals.length)
+            expect(first.outcomes.some(([once, again]) => once !== again)).toBe(true)
+            expect(reordered.outcomes).toEqual(first.outcomes)
+            expect(otherSeed.outcomes).not.toEqual(first.outcomes)
+        })
+
+        it('lists a unit the fault hits while the valve releases it', async () => {
+            let late: string | undefined
+            const valves = createValves({ pollMs: 5 })
+            await valves.start(
+                [{ valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 1 }, at: '0ms', for: '1m' }],
+                {
+                    ...onEdge(),
+                    seed: 1,
+                    environment: {
+                        actuate: async (action) => {
+                            const hold = await onEdge().environment.actuate(action)
+                            return {
+                                ...hold,
+                                release: async () => {
+                                    late = await send(undefined, 'run-1-2@www.example.com')
+                                    await hold.release()
+                                },
+                            }
+                        },
+                    },
+                }
+            )
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            const first = await send()
+            await valves.releaseAll()
+
+            expect({ first, late, unitIds: valves.fired()[0].unitIds }).toEqual({
+                first: 'MessageRejected',
+                late: 'MessageRejected',
+                unitIds: ['run-1-1', 'run-1-2'],
+            })
+        })
+
+        describe('through an edge process', () => {
+            let edgeProcess: EdgeProcess
+            const onEdgeProcess = (): ValveContext => ({
+                ...onEdge(),
+                environment: {
+                    actuate: (action) =>
+                        action.kind === 'edge.fault'
+                            ? edgeProcess.hold(action.rule)
+                            : Promise.reject(new Error(`no ${action.kind} here`)),
+                },
+            })
+
+            beforeEach(async () => {
+                edgeProcess = await startEdgeProcess({ port: 0 })
+            })
+
+            afterEach(async () => {
+                await edgeProcess.close()
+            })
+
+            it('records why a fault lists no units when its edge process is gone after release', async () => {
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 1 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    {
+                        ...onEdgeProcess(),
+                        environment: {
+                            actuate: async (action) => {
+                                const hold = await onEdgeProcess().environment.actuate(action)
+                                return {
+                                    ...hold,
+                                    release: async () => {
+                                        await hold.release()
+                                        await edgeProcess.close()
+                                    },
+                                }
+                            },
+                        },
+                    }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                await valves.releaseAll()
+
+                expect(valves.fired()).toEqual([
+                    expect.objectContaining({
+                        error: expect.stringContaining('unit ids unreadable: the provider edge process exited'),
+                        releasedAt: expect.any(String),
+                    }),
+                ])
+                expect(valves.fired()[0].unitIds).toBeUndefined()
+            })
+
+            it('lists a fault whose edge process was gone before it applied, with its error', async () => {
+                await edgeProcess.close()
+                const valves = createValves({ pollMs: 5 })
+                await valves.start(
+                    [
+                        {
+                            valve: 'ses.reject',
+                            target: 'ses',
+                            dose: { type: 'rejected', share: 1 },
+                            at: '0ms',
+                            for: '1m',
+                        },
+                    ],
+                    onEdgeProcess()
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+                await valves.releaseAll()
+
+                expect(valves.fired()).toEqual([
+                    expect.objectContaining({
+                        valve: 'ses.reject',
+                        intentAt: expect.any(String),
+                        error: expect.any(String),
+                    }),
+                ])
+            })
+        })
+
         it.each([
             ['rejected', 'MessageRejected'],
             ['bounce', 'sent'],
@@ -623,9 +845,11 @@ describe('valves', () => {
             expect({
                 outcomes,
                 faults: truth.records.filter(({ kind }) => kind === 'ses.send').map(({ fault }) => fault),
+                dose: valves.fired()[0].dose,
             }).toEqual({
                 outcomes: [outcome, outcome],
                 faults: ['ses.reject', 'ses.reject'],
+                dose: { type, share: 1 },
             })
         })
 
@@ -723,6 +947,21 @@ describe('valves', () => {
                 observed: valves.timeline()[0].observedAt !== undefined,
                 next: await send(),
             }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
+        })
+
+        it('holds no send and kills nothing before its arming delay passes', async () => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = withWorker(true)
+
+            await valves.start([{ ...killAfterAccept, at: '1m' }], stack.context)
+            const answered = await send(stack.worker)
+            await valves.releaseAll()
+
+            expect({
+                answered,
+                sentWhenKilled: stack.sentWhenKilled,
+                error: valves.timeline()[0].error,
+            }).toEqual({ answered: 'sent', sentWhenKilled: [], error: 'never applied: released before its offset' })
         })
 
         it.each<[string, boolean, string]>([

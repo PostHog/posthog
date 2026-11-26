@@ -10,7 +10,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { CohortHistoryBuildPhaseEnumApi, CohortRealtimeReadinessApi } from '../generated/api.schemas'
 import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
 import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
-import { dailyReasonSentence } from './realtimeReadiness'
+import { dailyReasonSentence, unpreparableExplanation } from './realtimeReadiness'
 
 // Partial, so the fallback below stays reachable for a phase this bundle predates.
 const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
@@ -95,7 +95,14 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     </div>
                 ),
             }
-        case 'needs_attention':
+        case 'needs_attention': {
+            const unpreparable = unpreparableExplanation(realtime)
+            if (unpreparable) {
+                return {
+                    label: <span className="text-secondary">Unavailable</span>,
+                    tooltip: <div>{unpreparable}</div>,
+                }
+            }
             return {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
@@ -106,6 +113,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     </div>
                 ),
             }
+        }
         case 'off':
             if (realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null) {
                 return {
@@ -120,6 +128,12 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                             {`Realtime is off for this cohort, so feature flags can't target it. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`}
                         </div>
                     ),
+                }
+            }
+            if (realtime.reason) {
+                return {
+                    label: <span className="text-secondary">Off</span>,
+                    tooltip: <div>{unpreparableExplanation(realtime)}</div>,
                 }
             }
             return {
