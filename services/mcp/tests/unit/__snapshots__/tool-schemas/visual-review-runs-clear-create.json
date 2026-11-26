@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_seq": {
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that."
+        },
+        "id": {
+            "description": "The UUID of a run of the pull request, not a snapshot `id`.",
+            "type": "string"
+        },
+        "identifiers": {
+            "description": "Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.",
+            "items": {
+                "maxLength": 512,
+                "type": "string"
+            },
+            "maxItems": 500,
+            "type": "array"
+        }
+    },
+    "required": ["id", "identifiers"],
+    "type": "object"
+}
