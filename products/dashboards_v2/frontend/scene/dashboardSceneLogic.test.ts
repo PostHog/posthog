@@ -134,4 +134,47 @@ describe('dashboardSceneLogic', () => {
         expect(logic.values.saveState).toBe('saved')
         expect(logic.values.canUndo).toBe(false)
     })
+
+    it('keeps an edit that failed to save, and saves it on retry', async () => {
+        let fail = true
+        useBoard((save) => (fail ? [500, {}] : [200, { ...board(2, save.spec.title), spec: save.spec }]))
+        await expectLogic(logic).toFinishAllListeners()
+
+        retitle('Mine, edited')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.saveState).toBe('failed')
+
+        fail = false
+        logic.actions.saveBoard()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(saves.map((save) => [save.base_version, save.spec.title])).toEqual([
+            [1, 'Mine, edited'],
+            [1, 'Mine, edited'],
+        ])
+        expect(logic.values.saveState).toBe('saved')
+    })
+
+    it('makes a board managed outside PostHog read-only', async () => {
+        useMocks({ get: { [BOARD_URL]: () => ({ ...board(1, 'Mine'), managed_by: 'iac' }) } })
+        logic = dashboardSceneLogic({ uid: 'b1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.disabledReasonFor('moveTile')).toContain('managed outside PostHog')
+    })
+
+    it.each([
+        [404, 'notFound'],
+        [403, 'noAccess'],
+        [500, 'error'],
+    ])('shows the %s load failure as %s', async (status, reason) => {
+        useMocks({ get: { [BOARD_URL]: () => [status, {}] } })
+        logic = dashboardSceneLogic({ uid: 'b1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.unavailable).toBe(reason)
+        expect(logic.values.dashboard).toBeNull()
+    })
 })

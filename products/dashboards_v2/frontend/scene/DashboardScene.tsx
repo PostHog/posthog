@@ -42,8 +42,7 @@ export function DashboardScene(): JSX.Element {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo, unavailable, board } =
-        useValues(dashboardSceneLogic)
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo, unavailable } = useValues(dashboardSceneLogic)
     const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId, timezone } = useValues(teamLogic)
@@ -115,7 +114,7 @@ function DashboardV2(): JSX.Element {
                             )}
                         </div>
                         <div className="flex items-center gap-2">
-                            {board && <BoardSaveStatus />}
+                            <BoardSaveStatus />
                             <DashboardActions />
                         </div>
                     </header>

@@ -40,7 +40,6 @@ export type SaveState = 'saved' | 'unsaved' | 'saving' | 'failed' | 'conflict'
 /** Someone else saved the board after this person's last save. Nothing of theirs is saved until they pick a side. */
 export type BoardConflict = {
     theirs: Board
-    theirDashboard: Dashboard
     /** The dashboard both sides started from: the one this person last loaded or saved. */
     base: Dashboard
 }
@@ -73,10 +72,9 @@ export interface dashboardSceneLogicValues {
     dashboard: Dashboard | null
     disabledReasonFor: (action: DashboardAction) => string | null
     history: DashboardHistory | null
-    lastSaveFailed: boolean
-    saveState: SaveState
+    saveState: SaveState | null
+    saveStatus: 'failed' | 'idle' | 'saving'
     savedDashboard: Dashboard | null
-    saving: boolean
     unavailable: UnavailableReason | null
 }
 
@@ -123,20 +121,14 @@ export interface dashboardSceneLogicActions {
         board: Board | null
         payload?: any
     }
-    rebaseOnBoard: (
-        board: Board,
-        dashboard: Dashboard
-    ) => {
+    rebaseOnBoard: (board: Board) => {
         board: Board
         dashboard: Dashboard
     }
     redo: () => {
         value: true
     }
-    resetToBoard: (
-        board: Board,
-        dashboard: Dashboard
-    ) => {
+    resetToBoard: (board: Board) => {
         board: Board
         dashboard: Dashboard
     }
@@ -171,12 +163,12 @@ export interface dashboardSceneLogicMeta {
         canUndo: (history: DashboardHistory | null) => boolean
         canRedo: (history: DashboardHistory | null) => boolean
         saveState: (
+            board: Board | null,
             dashboard: Dashboard | null,
             savedDashboard: Dashboard | null,
-            saving: boolean,
-            lastSaveFailed: boolean,
+            saveStatus: any,
             conflict: BoardConflict | null
-        ) => SaveState
+        ) => SaveState | null
         conflictChanges: (
             conflict: BoardConflict | null,
             dashboard: Dashboard | null
@@ -221,9 +213,9 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
         keepTheirVersion: true,
         keepMyVersion: true,
         /** Starts over from a board as stored, with no undo steps. */
-        resetToBoard: (board: Board, dashboard: Dashboard) => ({ board, dashboard }),
+        resetToBoard: (board: Board) => ({ board, dashboard: dashboardOf(board) }),
         /** Keeps the dashboard on screen, but saves it over `board`, the version someone else saved. */
-        rebaseOnBoard: (board: Board, dashboard: Dashboard) => ({ board, dashboard }),
+        rebaseOnBoard: (board: Board) => ({ board, dashboard: dashboardOf(board) }),
     }),
     loaders(({ props }) => ({
         board: [
@@ -265,20 +257,13 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
                 loadBoardFailure: (_, { errorObject }) => unavailableReason(errorObject),
             },
         ],
-        saving: [
-            false,
+        saveStatus: [
+            'idle' as 'idle' | 'saving' | 'failed',
             {
-                saveStarted: () => true,
-                boardSaved: () => false,
-                saveFailed: () => false,
-                boardConflicted: () => false,
-            },
-        ],
-        lastSaveFailed: [
-            false,
-            {
-                saveStarted: () => false,
-                saveFailed: () => true,
+                saveStarted: () => 'saving',
+                boardSaved: () => 'idle',
+                saveFailed: () => 'failed',
+                boardConflicted: () => 'idle',
             },
         ],
         conflict: [
@@ -299,27 +284,26 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
         canUndo: [(s) => [s.history], (history: DashboardHistory | null): boolean => !!history?.past.length],
         canRedo: [(s) => [s.history], (history: DashboardHistory | null): boolean => !!history?.future.length],
         saveState: [
-            (s) => [s.dashboard, s.savedDashboard, s.saving, s.lastSaveFailed, s.conflict],
+            (s) => [s.board, s.dashboard, s.savedDashboard, s.saveStatus, s.conflict],
             (
+                board: Board | null,
                 dashboard: Dashboard | null,
                 savedDashboard: Dashboard | null,
-                saving: boolean,
-                failed: boolean,
+                saveStatus: 'idle' | 'saving' | 'failed',
                 conflict: BoardConflict | null
-            ): SaveState => {
+            ): SaveState | null => {
+                if (!board) {
+                    return null
+                }
                 if (conflict) {
                     return 'conflict'
                 }
-                if (saving) {
-                    return 'saving'
-                }
-                if (failed) {
-                    return 'failed'
+                if (saveStatus !== 'idle') {
+                    return saveStatus
                 }
                 return dashboard === savedDashboard ? 'saved' : 'unsaved'
             },
         ],
-        /** What each side changed since the dashboard both started from. */
         conflictChanges: [
             (s) => [s.conflict, s.dashboard],
             (
@@ -328,7 +312,7 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
             ): { theirs: string[]; yours: string[] } | null =>
                 conflict && dashboard
                     ? {
-                          theirs: describeChanges(conflict.base, conflict.theirDashboard),
+                          theirs: describeChanges(conflict.base, dashboardOf(conflict.theirs)),
                           yours: describeChanges(conflict.base, dashboard),
                       }
                     : null,
@@ -394,7 +378,7 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
         },
         loadBoardSuccess: ({ board }) => {
             if (board) {
-                actions.resetToBoard(board, dashboardOf(board))
+                actions.resetToBoard(board)
             }
         },
         commitDashboard: () => actions.scheduleSave(),
@@ -404,11 +388,8 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
             actions.saveBoard()
         },
         saveBoard: async () => {
-            const { board, dashboard } = values
-            if (!props.uid || !board || !dashboard || values.saving || values.conflict) {
-                return
-            }
-            if (dashboard === values.savedDashboard) {
+            const { board, dashboard, saveState } = values
+            if (!props.uid || !board || !dashboard || (saveState !== 'unsaved' && saveState !== 'failed')) {
                 return
             }
             actions.saveStarted()
@@ -421,11 +402,7 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
                 }
                 try {
                     const theirs = await getBoard(props.uid)
-                    actions.boardConflicted({
-                        theirs,
-                        theirDashboard: dashboardOf(theirs),
-                        base: values.savedDashboard ?? dashboard,
-                    })
+                    actions.boardConflicted({ theirs, base: values.savedDashboard ?? dashboard })
                 } catch {
                     actions.saveFailed()
                 }
@@ -439,13 +416,13 @@ export const dashboardSceneLogic = kea<dashboardSceneLogicType>([
         keepTheirVersion: () => {
             const { conflict } = values
             if (conflict) {
-                actions.resetToBoard(conflict.theirs, conflict.theirDashboard)
+                actions.resetToBoard(conflict.theirs)
             }
         },
         keepMyVersion: () => {
             const { conflict } = values
             if (conflict) {
-                actions.rebaseOnBoard(conflict.theirs, conflict.theirDashboard)
+                actions.rebaseOnBoard(conflict.theirs)
                 actions.saveBoard()
             }
         },

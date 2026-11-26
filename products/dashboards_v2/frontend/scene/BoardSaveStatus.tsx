@@ -13,7 +13,8 @@ const LABELS = {
 export function BoardSaveStatus(): JSX.Element | null {
     const { saveState } = useValues(dashboardSceneLogic)
     const { saveBoard } = useActions(dashboardSceneLogic)
-    if (saveState === 'conflict') {
+    // Without a board there is nothing to save, such as the fixture shown at `/dashboard-v2`.
+    if (!saveState || saveState === 'conflict') {
         return null
     }
     if (saveState === 'failed') {

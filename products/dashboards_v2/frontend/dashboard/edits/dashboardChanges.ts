@@ -62,11 +62,6 @@ export function describeChanges(before: Dashboard, after: Dashboard): string[] {
             changes.push(`Removed the "${tab.title}" tab`)
         }
     }
-    const keptOrder = (tabs: Dashboard['tabs'], other: Map<string, unknown>): string[] =>
-        tabs.filter((tab) => other.has(tab.id)).map((tab) => tab.id)
-    if (!objectsEqual(keptOrder(before.tabs, tabsAfter), keptOrder(after.tabs, tabsBefore))) {
-        changes.push('Reordered the tabs')
-    }
 
     const tilesBefore = tilesOf(before)
     const tilesAfter = tilesOf(after)
@@ -96,9 +91,6 @@ export function describeChanges(before: Dashboard, after: Dashboard): string[] {
     }
     if (!objectsEqual(before.time, after.time)) {
         changes.push('Changed the default time range')
-    }
-    if (changes.length === 0 && !objectsEqual(before, after)) {
-        changes.push('Changed other dashboard settings')
     }
     return changes
 }
