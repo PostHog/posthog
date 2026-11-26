@@ -192,6 +192,15 @@ def _pull_request_runs(run: Run) -> Q:
     )
 
 
+def has_decisions() -> Q:
+    """Matches the rows that hold a decision, for queries over `RunSnapshot`.
+
+    An approved row without a history holds an accept from before rows kept one (see `_read_decisions`).
+    The reader and retention both use this, so retention keeps every row whose decision can count.
+    """
+    return Q(metadata__has_key=METADATA_KEY) | Q(review_state=ReviewState.APPROVED)
+
+
 def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decision]:
     """The decision entries on the rows of these runs.
 
@@ -201,7 +210,7 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
     rows = (
         RunSnapshot.objects.using(WRITER_DB)
         .filter(team_id=team_id, run_id__in=list(commits_by_run))
-        .filter(Q(metadata__has_key=METADATA_KEY) | Q(review_state=ReviewState.APPROVED))
+        .filter(has_decisions())
         .values_list(
             "run_id",
             "identifier",
@@ -478,11 +487,6 @@ def append_decisions(decided: list[tuple[RunSnapshot, Decision]]) -> None:
         row.metadata = metadata
         row.updated_at = at
     RunSnapshot.objects.using(WRITER_DB).bulk_update(list(rows.values()), ["metadata", "updated_at"])
-
-
-def has_decisions() -> Q:
-    """Matches the rows that hold a decision history, for queries over `RunSnapshot`."""
-    return Q(metadata__has_key=METADATA_KEY)
 
 
 @frozen

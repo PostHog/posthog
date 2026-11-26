@@ -10,6 +10,7 @@ from django.utils import timezone
 from products.visual_review.backend.facade.enums import (
     BaselineApprovalState,
     BaselineEntrySource,
+    ReviewState,
     RunStatus,
     RunType,
     ToleratedReason,
@@ -160,23 +161,30 @@ class TestRetentionSweep:
         assert Run.objects.filter(id=superseded.id).exists() is survives
 
     @pytest.mark.parametrize(
+        "decision_row",
+        [
+            {"metadata": {"review_decisions": [{"action": "accept", "seq": 1}]}},
+            # An accept from before rows kept a history, which the reader still counts.
+            {"review_state": ReviewState.APPROVED},
+        ],
+        ids=["history_entry", "accept_without_history"],
+    )
+    @pytest.mark.parametrize(
         ("successor_age_days", "decision_age_days", "survive"),
         [(4, 40, True), (31, 40, False), (31, 2, True)],
         ids=["branch_active", "branch_and_decisions_quiet", "decided_recently"],
     )
     def test_superseded_runs_with_a_decision_wait_for_the_pull_request_to_go_quiet(
-        self, successor_age_days, decision_age_days, survive, repo, now
+        self, successor_age_days, decision_age_days, survive, decision_row, repo, now
     ):
         latest = self._run(repo, now, age_days=successor_age_days)
         decided = [self._run(repo, now, age_days=age, superseded_by=latest) for age in (40, 35)]
         undecided = self._run(repo, now, age_days=33, superseded_by=latest)
+        RunSnapshot.objects.create(
+            run=undecided, team_id=repo.team_id, identifier="Button", review_state=ReviewState.PENDING
+        )
         for run in decided:
-            snapshot = RunSnapshot.objects.create(
-                run=run,
-                team_id=repo.team_id,
-                identifier="Button",
-                metadata={"review_decisions": [{"action": "accept", "seq": 1}]},
-            )
+            snapshot = RunSnapshot.objects.create(run=run, team_id=repo.team_id, identifier="Button", **decision_row)
             RunSnapshot.objects.filter(id=snapshot.id).update(updated_at=now - timedelta(days=decision_age_days))
 
         retention.sweep_repo_runs(repo, now=now)
