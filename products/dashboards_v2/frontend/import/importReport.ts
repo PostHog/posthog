@@ -6,7 +6,7 @@ import { lineSpec } from '../panels/chart/viz/line/lineSpec'
 import { statSpec } from '../panels/chart/viz/stat/statSpec'
 import { markdownSpec } from '../panels/markdown/markdownSpec'
 
-export type ImportSource = 'grafana' | 'grafana-v2'
+export type ImportSource = 'grafana' | 'grafana-v2' | 'newrelic'
 
 /**
  * - `mapped`: the tile shows what it showed before.

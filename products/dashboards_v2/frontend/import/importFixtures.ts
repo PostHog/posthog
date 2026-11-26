@@ -199,3 +199,95 @@ export const grafanaV2 = {
         },
     },
 }
+
+const nrWidget = (
+    title: string,
+    viz: string,
+    layout: [number, number, number, number],
+    queries: string[],
+    extra: object = {}
+): object => ({
+    title,
+    layout: { column: layout[0], row: layout[1], width: layout[2], height: layout[3] },
+    visualization: { id: viz },
+    rawConfiguration: { nrqlQueries: queries.map((query) => ({ accountIds: [1234567], query })), ...extra },
+})
+
+export const newRelic = {
+    name: 'Shop analytics',
+    description: 'Orders and refunds',
+    permissions: 'PUBLIC_READ_WRITE',
+    pages: [
+        {
+            name: 'Orders',
+            widgets: [
+                nrWidget(
+                    'Orders',
+                    'viz.billboard',
+                    [1, 1, 3, 3],
+                    ['SELECT count(*) FROM OrderPlaced SINCE 1 week ago']
+                ),
+                nrWidget(
+                    'Buyers',
+                    'viz.line',
+                    [4, 1, 9, 3],
+                    ['SELECT uniqueCount(userId) FROM OrderPlaced TIMESERIES 1 day SINCE 1 week ago']
+                ),
+                nrWidget(
+                    'Orders by plan',
+                    'viz.stacked-bar',
+                    [1, 4, 6, 3],
+                    ['SELECT count(*) FROM OrderPlaced FACET plan TIMESERIES 1 day SINCE 1 week ago']
+                ),
+                nrWidget(
+                    'Plan mix',
+                    'viz.pie',
+                    [7, 4, 6, 3],
+                    ['SELECT count(*) FROM OrderPlaced FACET plan SINCE 1 week ago']
+                ),
+                nrWidget(
+                    'Last half hour',
+                    'viz.billboard',
+                    [1, 7, 4, 3],
+                    ['SELECT count(*) FROM OrderPlaced SINCE 30 minutes ago'],
+                    {
+                        platformOptions: { ignoreTimeRange: true },
+                    }
+                ),
+            ],
+        },
+        {
+            name: 'Refunds',
+            widgets: [
+                {
+                    title: '',
+                    layout: { column: 1, row: 1, width: 4, height: 2 },
+                    visualization: { id: 'viz.markdown' },
+                    rawConfiguration: { text: '# Refunds' },
+                },
+                nrWidget(
+                    'Refund rate',
+                    'viz.line',
+                    [5, 1, 8, 3],
+                    [
+                        'SELECT percentage(count(*), WHERE refunded IS TRUE) FROM OrderPlaced TIMESERIES 1 day SINCE 1 week ago',
+                        'SELECT count(*) FROM OrderPlaced WHERE userId IN (SELECT uniques(userId) FROM Signup) TIMESERIES 1 day SINCE 1 week ago',
+                    ]
+                ),
+                nrWidget(
+                    'Host CPU',
+                    'viz.area',
+                    [1, 4, 6, 3],
+                    ['SELECT average(cpuPercent) FROM Metric TIMESERIES SINCE 1 week ago']
+                ),
+                nrWidget(
+                    'Checkout funnel',
+                    'viz.funnel',
+                    [7, 4, 6, 3],
+                    ["SELECT funnel(userId, WHERE step = 'cart', WHERE step = 'paid') FROM OrderPlaced"]
+                ),
+            ],
+        },
+    ],
+    variables: [],
+}

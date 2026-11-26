@@ -2,7 +2,7 @@ import type { Tile } from '../dashboard/dashboardTypes'
 import { validateDashboard } from '../dashboard/validateDashboard'
 import { DEFAULT_PANELS } from '../panels/defaultPanels'
 import { type ImportResult, importDashboard } from './importDashboard'
-import { grafanaClassic, grafanaV2 } from './importFixtures'
+import { grafanaClassic, grafanaV2, newRelic } from './importFixtures'
 
 function imported(input: unknown, prefix = ''): ImportResult {
     const result = importDashboard(prefix + JSON.stringify(input))
@@ -31,6 +31,7 @@ describe('importDashboard', () => {
     test.each([
         ['Grafana', grafanaClassic, 'grafana'],
         ['Grafana 12', grafanaV2, 'grafana-v2'],
+        ['New Relic', newRelic, 'newrelic'],
     ])('turns a %s export into a valid board', (_name, input, source) => {
         const result = imported(input, 'Exported dashboard ')
         expect(result.report.source).toBe(source)
@@ -132,5 +133,43 @@ describe('importDashboard', () => {
         })
         expect(statuses(result)['Worker logs']).toBe('unsupported')
         expect(result.dashboard.time).toEqual({ from: 'now-6h', to: 'now' })
+    })
+
+    it('maps a New Relic board: pages, layout, NRQL, time ranges and fallbacks', () => {
+        const result = imported(newRelic)
+        const tiles = byTitle(result)
+
+        expect(result.dashboard.tabs.map((tab) => tab.title)).toEqual(['Orders', 'Refunds'])
+        expect(result.dashboard.time).toEqual({ from: 'now-1w', to: 'now' })
+        expect(tiles['Buyers'].place).toEqual({ x: 6, y: 0, w: 18, h: 15 })
+        expect(tiles['Orders'].panel.config).toEqual({
+            query: {
+                language: 'hogql',
+                query: "select count() as count from events where event = 'OrderPlaced' and {filters}",
+            },
+            viz: { type: 'stat' },
+        })
+        expect(tiles['Orders by plan'].panel.config.viz).toEqual({ type: 'bar', options: { stack: true } })
+        expect(tiles['Last half hour'].panel.config.time).toEqual({ from: 'now-30m', to: 'now' })
+        expect(tiles['Orders'].panel.config.time).toBeUndefined()
+        expect(tiles['Host CPU'].panel.config.text).toContain('FROM Metric')
+
+        expect(statuses(result)).toEqual({
+            Orders: 'mapped',
+            Buyers: 'mapped',
+            'Orders by plan': 'mapped',
+            'Plan mix': 'partial',
+            'Last half hour': 'mapped',
+            '': 'mapped',
+            'Refund rate': 'partial',
+            'Host CPU': 'unsupported',
+            'Checkout funnel': 'unsupported',
+        })
+        expect(result.report.queries).toEqual({ total: 9, translated: 6 })
+        expect(result.report.requires).toMatchObject({
+            events: ['OrderPlaced'],
+            properties: ['plan', 'refunded', 'userId'],
+        })
+        expect(JSON.stringify(result.dashboard)).not.toContain('1234567')
     })
 })
