@@ -772,7 +772,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             campaign_ids=ast.Constant(value=[row[0] for row in rows]),
         )
         # The two tables sync apart, so days the search terms have not synced yet would look hidden.
-        if not last_campaign_day or max(row[2] for row in rows) < last_campaign_day[0][0]:
+        if (
+            not last_campaign_day
+            or not last_campaign_day[0][0]
+            or max(row[2] for row in rows) < last_campaign_day[0][0]
+        ):
             return None
         return {row[0]: float(row[1] or 0) for row in rows}
 

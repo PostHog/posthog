@@ -614,7 +614,29 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert wasted[0].cpa.benchmarkSource == benchmark_source
         assert [gap.kind for gap in response.dataGaps or []] == gaps
 
-    def test_search_terms_without_readable_campaign_stats_do_not_fail_the_response(self) -> None:
+    @parameterized.expand(
+        [
+            ("stats_table_missing", None),
+            ("stats_only_for_campaigns_without_search_terms", "2,2026-01-15,1000000,0\n"),
+        ]
+    )
+    def test_search_terms_without_campaign_stats_do_not_fail_the_response(
+        self, _name: str, stats_rows: str | None
+    ) -> None:
+        stats = (
+            self._table(
+                "campaign_stats",
+                {
+                    "campaign_id": "Int64",
+                    "segments_date": "Nullable(Date)",
+                    "metrics_cost_micros": "Int64",
+                    "metrics_conversions": "Float64",
+                },
+                "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n" + stats_rows,
+            )
+            if stats_rows
+            else "missing_stats"
+        )
         term_columns = {
             "search_term_view_search_term": "String",
             "campaign_id": "Int64",
@@ -633,7 +655,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         source = MarketingAnalyticsRecommendationsSource(
             sourceType="GoogleAds",
             campaignTable="missing_campaign",
-            campaignStatsTable="missing_stats",
+            campaignStatsTable=stats,
             searchTermTable=terms,
         )
 
