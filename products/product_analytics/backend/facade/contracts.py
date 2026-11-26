@@ -78,6 +78,7 @@ class SeriesValuesBlocker(StrEnum):
 
     NO_COUNT_QUERY = "no_count_query"
     MULTIPLE_SERIES = "multiple_series"
+    ALL_TIME_RANGE = "all_time_range"
     BREAKDOWN = "breakdown"
     OTHER_AGGREGATE = "other_aggregate"
     OTHER_INTERVAL = "other_interval"

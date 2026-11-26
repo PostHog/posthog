@@ -3,11 +3,11 @@ from pydantic import Field
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    EventsRetentionTable,
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
-    Table,
 )
 from posthog.hogql.errors import QueryError
 
@@ -16,7 +16,7 @@ from posthog.clickhouse.preaggregation.series_values_preaggregated_sql import (
 )
 
 
-class SeriesValuesPreaggregatedTable(Table):
+class SeriesValuesPreaggregatedTable(EventsRetentionTable):
     description: str = (
         "Pre-aggregated insight series values, one finished value per series and time window, "
         "computed per precompute job and used internally by insight queries."
@@ -24,6 +24,8 @@ class SeriesValuesPreaggregatedTable(Table):
     top_level_settings: HogQLQuerySettings | None = Field(
         default_factory=lambda: HogQLQuerySettings(load_balancing="in_order", optimize_skip_unused_shards=True)
     )
+
+    events_retention_field: str = "time_window_start"
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),

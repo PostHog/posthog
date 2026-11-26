@@ -545,11 +545,15 @@ def precomputed_series_values(
     # caller can say which series it wants.
     if len(runner.query.series) > 1:
         return SeriesValuesUnavailable(reason=Blocker.MULTIPLE_SERIES)
+    # An all-time range starts at the first event, which the runner has to look up, and it is longer than
+    # the range limit for any project older than a year.
+    if runner.query.dateRange and runner.query.dateRange.date_from == "all":
+        return SeriesValuesUnavailable(reason=Blocker.ALL_TIME_RANGE)
     with rewriting_series_values("stored_only", wait_timeout_seconds=wait_timeout_seconds) as request:
-        finished = _finished_buckets(runner, request.today_start)
-        if not finished:
-            return SeriesValuesUnavailable(reason=Blocker.NO_FINISHED_BUCKET)
         try:
+            finished = _finished_buckets(runner, request.today_start)
+            if not finished:
+                return SeriesValuesUnavailable(reason=Blocker.NO_FINISHED_BUCKET)
             results = runner.calculate().results
         except _Declined as declined:
             return SeriesValuesUnavailable(reason=declined.blocker)

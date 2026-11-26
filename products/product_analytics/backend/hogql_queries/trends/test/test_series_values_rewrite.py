@@ -271,6 +271,7 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
                 },
                 "UTC",
             ),
+            (Blocker.ALL_TIME_RANGE, {"dateRange": DateRange(date_from="all")}, "UTC"),
             (Blocker.NO_FINISHED_BUCKET, {"dateRange": DateRange(date_from="dStart")}, "UTC"),
             (
                 Blocker.DATE_RANGE_TOO_LONG,
@@ -386,6 +387,20 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
         after, _ = self._served(query)
 
         assert after == before
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_stored_values_older_than_the_event_retention_are_not_read(self) -> None:
+        self._seed()
+        query = _query(interval=IntervalType.HOUR, dateRange=DateRange(date_from="2023-11-04", date_to="2023-11-06"))
+        before, _ = self._served(query)
+
+        with patch("posthog.models.team.event_retention.events_retention_months_for_team", return_value=1):
+            live = self._live(query)
+            served, request = self._served(query)
+
+        assert sum(before[0]["data"]) == 3
+        assert json.dumps(served, default=str) == json.dumps(live, default=str)
+        assert (sum(served[0]["data"]), request.built) == (0, [False])
 
     def test_a_day_built_before_late_events_settle_is_rebuilt(self) -> None:
         self._seed()
