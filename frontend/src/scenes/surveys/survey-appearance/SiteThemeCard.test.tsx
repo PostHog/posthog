@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -95,5 +96,16 @@ describe('SiteThemeCard', () => {
 
         expect(screen.getByText('Finding a recent visit')).toBeInTheDocument()
         expect(screen.getByText('1s')).toBeInTheDocument()
+    })
+
+    it('reports a click on the session replay link when replay is off', () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, session_recording_opt_in: false })
+        render(<Card url="pricing" />)
+
+        fireEvent.click(screen.getByText('Turn on session replay'))
+
+        expect(capture).toHaveBeenCalledWith('survey site theme replay link clicked', { survey_id: 'survey-id' })
+        capture.mockRestore()
     })
 })
