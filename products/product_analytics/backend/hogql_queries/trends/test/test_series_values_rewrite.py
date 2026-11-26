@@ -30,6 +30,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 
@@ -370,14 +371,17 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         query = _query(properties=[_PRO])
 
-        first, _ = self._served(query)
-        jobs = PreaggregationJob.objects.filter(team_id=self.team.pk).count()
-        second, request = self._served(query)
+        with patch.object(Database, "create_for", wraps=Database.create_for) as full_database:
+            first, _ = self._served(query)
+            jobs = PreaggregationJob.objects.filter(team_id=self.team.pk).count()
+            full_databases_with_builds = full_database.call_count
+            second, request = self._served(query)
 
         assert first == second
-        assert jobs > 0
+        assert jobs > 1
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == jobs
         assert request.built == [False]
+        assert full_database.call_count == 2 * full_databases_with_builds
         rows = sync_execute(
             """
             SELECT toString(time_window_start), toString(time_window_end), series_key, value

@@ -26,6 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import hogql_select_rewrite
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -479,6 +480,9 @@ class _Rewriter(CloningVisitor):
                 wait_timeout_seconds=seconds_left,
                 read_after_write=True,
                 cache_key_context={"engine": "series_values_v1"},
+                # The INSERT reads only `events`. One database of the built-in tables serves every window
+                # of the build, without the Postgres reads the full database costs for each job.
+                database=Database.create_for_posthog_tables(team, timings=self.context.timings),
                 # The wait only stops the next INSERT from starting. Without a limit of its own, an INSERT
                 # that starts late runs on while the query waits to compile.
                 insert_settings=None
