@@ -5,14 +5,14 @@ import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from '../cache/RedisCache'
 import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
-import { fetchInboxOnboarding, isSelfDrivingSetupNotStarted } from './self-driving-activation'
+import { fetchSelfDrivingSetupNotStarted } from './self-driving-activation'
 
 const STATUS_TOOL = 'self-driving-status-get'
 const STATUS_TTL_SECONDS = 60
 const LOOKUP_BUDGET_MS = 1000
 
 function statusNote(subject: string): string {
-    return `Self-driving can hold automatic investigation reports from agents on ${subject}. Call \`${STATUS_TOOL}\` once; when it is not active, tell the user and give them the activation link from that result.`
+    return `Self-driving can hold automatic investigation reports from agents on ${subject}. Call \`${STATUS_TOOL}\` once; when it is not active, tell the user and link them to the activation page.`
 }
 
 const STATUS_NOTES: ReadonlyMap<string, string> = new Map([
@@ -40,15 +40,14 @@ async function lookupNotStarted(redis: RedisLike, context: Context, signal: Abor
         const projectId = String(await context.stateManager.getProjectId())
         const key = statusKey(context, projectId)
         const cached = await redis.get(key)
-        if (cached === 'not_started' || cached === 'started') {
+        if (cached === 'not_started' || cached === 'other') {
             return cached === 'not_started'
         }
-        const onboarding = await fetchInboxOnboarding(context, projectId, signal)
-        if (!onboarding) {
+        const notStarted = await fetchSelfDrivingSetupNotStarted(context, projectId, signal)
+        if (notStarted === undefined) {
             return undefined
         }
-        const notStarted = isSelfDrivingSetupNotStarted(onboarding)
-        await redis.set(key, notStarted ? 'not_started' : 'started', 'EX', STATUS_TTL_SECONDS)
+        await redis.set(key, notStarted ? 'not_started' : 'other', 'EX', STATUS_TTL_SECONDS)
         return notStarted
     } catch {
         return undefined

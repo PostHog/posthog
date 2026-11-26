@@ -209,6 +209,7 @@ import * as toolDefinitions from '@/tools/toolDefinitions'
 import type { Env } from '@/tools/types'
 
 import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
+import { inboxStatusReads, stubSelfDrivingRequests } from './helpers/self-driving-api-stubs'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
     return {
@@ -910,7 +911,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         vi.mocked(resolveFeatureFlagOverrides)
             .mockReturnValueOnce({ [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true })
             .mockReturnValueOnce({ [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true })
-        mockContextApi.request.mockReset().mockResolvedValue({ completed_at: null, draft: null })
+        mockContextApi.request.mockReset().mockImplementation(stubSelfDrivingRequests())
         const tools = ['query-error-tracking-issue', 'self-driving-status-get'].map((name) => ({
             name,
             description: `Synthetic ${name}`,
@@ -927,6 +928,7 @@ describe('RequestStateResolver MCP client contexts', () => {
             'Synthetic self-driving-status-get',
         ])
         expect(mockContextApi.request).toHaveBeenCalledTimes(1)
+        expect(inboxStatusReads(mockContextApi.request)).toBe(1)
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {

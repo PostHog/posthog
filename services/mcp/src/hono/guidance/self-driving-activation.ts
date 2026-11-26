@@ -28,20 +28,35 @@ const REQUIRED_TOOLS = [
     'inbox-reports-retrieve',
     'inbox-report-artefacts-list',
 ]
-const onboardingSchema = z.object({
-    completed_at: z.string().nullable(),
-    draft: z.record(z.string(), z.unknown()).nullable(),
-    github_optional_available: z.boolean().optional().default(false),
-})
+const SETUP_NOT_STARTED: Schemas.InboxSetupStateEnum = 'not_started'
+const inboxStatusSchema = z.object({ setup_state: z.string() })
+const onboardingSchema = z.object({ github_optional_available: z.boolean().optional().default(false) })
 
-type InboxOnboarding = z.infer<typeof onboardingSchema>
-
-/** Undefined when the response does not parse. A failed request throws. */
-export async function fetchInboxOnboarding(
+/**
+ * Reads the inbox status rather than onboarding progress, because a project can watch through an enabled source, a scout or a replay scanner without ever completing onboarding.
+ * Undefined when the response does not parse. A failed request throws.
+ */
+export async function fetchSelfDrivingSetupNotStarted(
     context: Context,
     projectId: string,
     signal: AbortSignal
-): Promise<InboxOnboarding | undefined> {
+): Promise<boolean | undefined> {
+    const status = inboxStatusSchema.safeParse(
+        await context.api.request<Schemas.InboxStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(projectId)}/signals/inbox_status/`,
+            signal,
+        })
+    )
+    return status.success ? status.data.setup_state === SETUP_NOT_STARTED : undefined
+}
+
+/** Undefined when the response does not parse. A failed request throws. */
+async function fetchGithubOptionalAvailable(
+    context: Context,
+    projectId: string,
+    signal: AbortSignal
+): Promise<boolean | undefined> {
     const onboarding = onboardingSchema.safeParse(
         await context.api.request<Schemas.InboxOnboardingState>({
             method: 'GET',
@@ -49,12 +64,15 @@ export async function fetchInboxOnboarding(
             signal,
         })
     )
-    return onboarding.success ? onboarding.data : undefined
+    return onboarding.success ? onboarding.data.github_optional_available : undefined
 }
 
-// A draft means the user is part-way through setup, so they already know about Self-driving.
-export function isSelfDrivingSetupNotStarted(onboarding: InboxOnboarding): boolean {
-    return onboarding.completed_at === null && onboarding.draft === null
+// Rethrows so that a failed request reaches the product-state budget, which records it as a lookup error.
+function settledValue<T>(result: PromiseSettledResult<T>): T {
+    if (result.status === 'rejected') {
+        throw result.reason
+    }
+    return result.value
 }
 
 // Mirrors EVAL_INTERACTION_ORIGIN in products/tasks/backend/constants.py. The eval harness runs the agent as a
@@ -149,12 +167,21 @@ async function lookupActivationGuidance(
     if (ineligible || !productState.hasBudgetLeft()) {
         return undefined
     }
-    const onboarding = await fetchInboxOnboarding(state.context, String(projectId), AbortSignal.timeout(1000))
-    if (!onboarding || !productState.hasBudgetLeft()) {
+    const signal = AbortSignal.timeout(1000)
+    const [status, onboarding] = await Promise.allSettled([
+        fetchSelfDrivingSetupNotStarted(state.context, String(projectId), signal),
+        fetchGithubOptionalAvailable(state.context, String(projectId), signal),
+    ])
+    const notStarted = settledValue(status)
+    if (notStarted === undefined || !productState.hasBudgetLeft()) {
         return undefined
     }
-    if (!isSelfDrivingSetupNotStarted(onboarding)) {
+    if (!notStarted) {
         await redis.set(negativeKey, '1', 'EX', INELIGIBLE_TTL_SECONDS)
+        return undefined
+    }
+    const githubOptional = settledValue(onboarding)
+    if (githubOptional === undefined) {
         return undefined
     }
 
@@ -191,7 +218,7 @@ async function lookupActivationGuidance(
         const notice: GuidanceNotice = {
             ruleId: RULE_ID,
             outcome,
-            ...(outcome === 'shown' ? { text: activationText(projectUrl, onboarding.github_optional_available) } : {}),
+            ...(outcome === 'shown' ? { text: activationText(projectUrl, githubOptional) } : {}),
         }
         keepReservation = true
         return notice
