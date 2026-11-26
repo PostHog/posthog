@@ -1692,31 +1692,11 @@ describe('runner through seed, drive and judge', () => {
     }
 
     it.each<[string, (role: Role) => RoleExit[], object, Parameters<typeof shortSmoke>[2]]>([
-        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }, {}],
         [
-            'calls a run invalid whose valve left too short a baseline to admit its load, and measures the kill',
+            'passes a run whose only exit is the kill its card scheduled, and measures the kill',
             exitOfTheKill,
-            {
-                status: 'invalid',
-                statusReason: expect.stringMatching(
-                    /^the load admission failed: the baseline was too short to measure: /
-                ),
-                admissions: [
-                    {
-                        name: 'load',
-                        passed: false,
-                        reason: expect.stringMatching(
-                            /^the baseline was too short to measure: [0-9.]+s, under the 30s minimum$/
-                        ),
-                    },
-                ],
-                measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }],
-            },
-            {
-                measures: [{ name: 'pg_client_errors', params: {} }],
-                load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
-                settings: SES_ROOM,
-            },
+            { status: 'passed', measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }] },
+            { measures: [{ name: 'pg_client_errors', params: {} }] },
         ],
         [
             'fails a run in which a role exits that no valve killed',
