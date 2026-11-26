@@ -15292,6 +15292,17 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
                     "items": {
@@ -40881,6 +40892,28 @@
             "required": ["text"],
             "type": "object"
         },
+        "MarketingAnalyticsRecommendationsConversionSource": {
+            "additionalProperties": false,
+            "properties": {
+                "goalNames": {
+                    "description": "Names of the conversion goals CPAs count. Empty for `google_ads`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSourceKind"
+                }
+            },
+            "required": ["kind", "goalNames"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsConversionSourceKind": {
+            "description": "`posthog` counts the conversion goals marked for recommendations. `google_ads` counts the conversions Google Ads reports.",
+            "enum": ["posthog", "google_ads"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationsDataGap": {
             "additionalProperties": false,
             "properties": {
@@ -40959,6 +40992,17 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
                     "items": {
@@ -50743,6 +50787,17 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "conversionSource": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                        },
                         "dataGaps": {
                             "description": "Data the rules needed but could not read, so some figures use a fallback.",
                             "items": {
