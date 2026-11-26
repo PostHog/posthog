@@ -29,6 +29,7 @@ class OctopusDeployEndpointConfig:
     # Stable, immutable field to partition by. Never a last-modified style field (it mutates).
     partition_key: Optional[str] = None
     page_size: int = 100
+    extra_params: dict[str, str] = field(default_factory=dict)
 
 
 OCTOPUS_DEPLOY_ENDPOINTS: dict[str, OctopusDeployEndpointConfig] = {
@@ -69,6 +70,25 @@ OCTOPUS_DEPLOY_ENDPOINTS: dict[str, OctopusDeployEndpointConfig] = {
         name="users",
         path="/api/users",
         space_scoped=False,
+    ),
+    # Teams live at the instance level, not under a space: built-in system teams have no SpaceId,
+    # so a per-space fan-out would repeat them. Without `spaces`, the server reads only the default
+    # space; `spaces=all` with `includeSystem=true` is what Octopus.Client sends for every team.
+    "teams": OctopusDeployEndpointConfig(
+        name="teams",
+        path="/api/teams",
+        space_scoped=False,
+        extra_params={"spaces": "all", "includeSystem": "true"},
+    ),
+    "runbooks": OctopusDeployEndpointConfig(
+        name="runbooks",
+        path="/runbooks",
+    ),
+    # Runbook runs have no server-side date filter, so full refresh only, like deployments.
+    "runbook_runs": OctopusDeployEndpointConfig(
+        name="runbook_runs",
+        path="/runbookRuns",
+        partition_key="Created",
     ),
     # Interruptions have no server-side date filter, and IsPending / ResponsibleUserId change as
     # they are handled, so full refresh only. Created is set once.

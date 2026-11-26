@@ -11,10 +11,9 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import {
-    CohortCalculationHistoryRecord,
-    cohortCalculationHistorySceneLogic,
-} from './cohortCalculationHistorySceneLogic'
+import type { CohortCalculationHistoryApi } from 'products/cohorts/frontend/generated/api.schemas'
+
+import { cohortCalculationHistorySceneLogic } from './cohortCalculationHistorySceneLogic'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -44,7 +43,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
         return <NotFound object="cohort" />
     }
 
-    const columns: LemonTableColumns<CohortCalculationHistoryRecord> = [
+    const columns: LemonTableColumns<CohortCalculationHistoryApi> = [
         {
             title: 'Started',
             dataIndex: 'started_at',
@@ -54,7 +53,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
         {
             title: 'Count',
             dataIndex: 'count',
-            render: (count) => (count !== null ? count.toLocaleString() : '-'),
+            render: (_, record) => (record.count !== null ? record.count.toLocaleString() : '-'),
         },
         {
             title: 'Queries',
@@ -194,14 +193,14 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                     </div>
                                 )}
 
-                                {record.filters && (
+                                {record.filters ? (
                                     <div className="mt-4">
                                         <h4>Filters Used</h4>
                                         <pre className="text-xs bg-bg-3000 p-2 rounded overflow-auto">
                                             {JSON.stringify(record.filters, null, 2)}
                                         </pre>
                                     </div>
-                                )}
+                                ) : null}
                             </div>
                         ),
                         rowExpandable: (record) =>

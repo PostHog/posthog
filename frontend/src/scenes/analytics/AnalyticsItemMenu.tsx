@@ -13,6 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { TagIcon } from 'lib/components/TagIcon'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
@@ -26,7 +27,6 @@ import { AnalyticsPinHint } from './AnalyticsPinHint'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { analyticsShareLogic, shareTargetKey } from './analyticsShareLogic'
-import { AnalyticsTagIcon } from './AnalyticsTagIcon'
 import { analyticsTagsLogic } from './analyticsTagsLogic'
 import { AnalyticsItem, analyticsItemTarget, analyticsOpenHref } from './analyticsUtils'
 
@@ -98,7 +98,7 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
                             onClick={() => openTagEditor({ ...target, type })}
                             data-attr="analytics-list-row-manage-tags"
                         >
-                            <AnalyticsTagIcon className="size-3.5" />
+                            <TagIcon className="size-3.5" />
                             Manage tags
                         </DropdownMenuItem>
                     )}
