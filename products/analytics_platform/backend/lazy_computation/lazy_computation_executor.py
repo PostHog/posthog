@@ -1866,6 +1866,7 @@ def ensure_precomputed(
     read_after_write: bool = True,
     database: "Database | None" = None,
     insert_settings: Mapping[str, int | str] | None = None,
+    requester_query_id: str | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1953,6 +1954,12 @@ def ensure_precomputed(
         insert_settings: ClickHouse settings applied last to every INSERT, over the defaults
                       and `spill_to_disk`. For a precompute kind whose INSERT needs more
                       memory or time than the defaults allow.
+        requester_query_id: The client query id of the query that asked for this build. Every
+                      INSERT then carries it in its query id, after the job id, so
+                      `cancel_queries_started_for` can stop the INSERT when that query is
+                      cancelled. The job id stays first, because the liveness check finds a
+                      running INSERT by it. A cancelled INSERT fails its job for every caller
+                      that waits on it, so pass it only where that is acceptable.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -2033,7 +2040,7 @@ def ensure_precomputed(
         print_end = time.monotonic()
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
-            "client_query_id": str(job.id),
+            "client_query_id": str(job.id) if requester_query_id is None else f"{job.id}_{requester_query_id}",
             "team_id": t.id,
             "precompute_window_start": str(job.time_range_start),
             "precompute_window_end": str(job.time_range_end),

@@ -21,9 +21,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.models.event.new_events_schema import events_read_settings, new_events_schema_for_request
 from posthog.models.instance_setting import override_instance_config
 from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.tasks.poll_query_performance import query_manager_from_initial_query_id
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -3741,6 +3743,32 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         assert insert_calls[0].kwargs["settings"].items() >= expected_overrides.items()
         # The coverage landed in this call, so quorum-skipping callers must not read it yet.
         assert result.freshly_built is True
+
+    def test_an_insert_carries_the_requester_query_id_after_the_job_id(self):
+        insert_query_ids: list[str | None] = []
+
+        def record_insert_query_id(query, *args, **kwargs):
+            if query.lstrip().startswith("INSERT"):
+                insert_query_ids.append(get_query_tag_value("client_query_id"))
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            side_effect=record_insert_query_id,
+        ):
+            ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                requester_query_id="alert-check:7",
+            )
+
+        job = PreaggregationJob.objects.get(team=self.team)
+        assert insert_query_ids == [f"{job.id}_alert-check:7"]
+        # The liveness check finds a running INSERT by the job id at the start of its query id.
+        liveness = query_manager_from_initial_query_id(f"{self.team.pk}_{insert_query_ids[0]}_random")
+        assert liveness is not None
+        assert liveness.query_id == str(job.id)
 
     @parameterized.expand(
         [
