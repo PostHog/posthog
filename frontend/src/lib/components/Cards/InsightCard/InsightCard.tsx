@@ -92,6 +92,17 @@ const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 
+const DashboardResultFilterStatus = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/DashboardResultFilterStatus').then(
+        ({ DashboardResultFilterStatus }) => ({ default: DashboardResultFilterStatus })
+    )
+)
+const DashboardResultInsight = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/DashboardResultInsight').then(({ DashboardResultInsight }) => ({
+        default: DashboardResultInsight,
+    }))
+)
+
 type AlertModalState = {
     alertId?: AlertType['id']
     defaultToAnomalyDetection?: boolean
@@ -429,7 +440,7 @@ function InsightCardInternal(
                 />
             )
         }
-        return (
+        const defaultInsight = (
             <Query
                 query={insight.query}
                 cachedResults={insight}
@@ -449,6 +460,24 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
+        if (resultMenuEnabled && dashboardId && tile) {
+            return (
+                <React.Suspense fallback={<SpinnerOverlay />}>
+                    <DashboardResultInsight
+                        dashboardId={dashboardId}
+                        tileId={tile.id}
+                        insight={insight}
+                        insightProps={insightLogicProps}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                        loadPriority={loadPriority}
+                        fallback={defaultInsight}
+                        onDateRangeZoom={onDateRangeZoom}
+                    />
+                </React.Suspense>
+            )
+        }
+        return defaultInsight
     }, [
         BlockingEmptyState,
         insight,
@@ -458,6 +487,8 @@ function InsightCardInternal(
         renderVizWhenMounted,
         resultMenuEnabled,
         biDashboardTileId,
+        tile,
+        filtersOverride,
         dashboardId,
         loadPriority,
         onDateRangeZoom,
@@ -467,7 +498,9 @@ function InsightCardInternal(
         <div className="InsightCard__viz">
             <div className="InsightCard__vizInner">
                 {resultMenuEnabled && (!isBIVisualizationNode(insight.query) || insight.query.config.querySnapshot) ? (
-                    <DashboardInsightResultMenu insight={insight}>{vizInner}</DashboardInsightResultMenu>
+                    <DashboardInsightResultMenu insight={insight} dashboardId={dashboardId} tileId={tile?.id}>
+                        {vizInner}
+                    </DashboardInsightResultMenu>
                 ) : (
                     vizInner
                 )}
@@ -499,7 +532,15 @@ function InsightCardInternal(
                     <InsightMeta
                         headerStatus={
                             biDashboardTileId !== undefined && dashboardId ? (
-                                <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                <>
+                                    <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                    <React.Suspense fallback={null}>
+                                        <DashboardResultFilterStatus
+                                            dashboardId={dashboardId}
+                                            tileId={biDashboardTileId}
+                                        />
+                                    </React.Suspense>
+                                </>
                             ) : undefined
                         }
                         tile={tile}

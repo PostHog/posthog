@@ -1,5 +1,10 @@
 [
   {
+    "temporal_workflow_type": "MonitorPRWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "MonitoringAssessmentWorkflow",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
@@ -315,11 +320,6 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "copy-recordings",
-    "product": "temporal/session_replay",
-    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "count-all-playlists",
     "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
@@ -505,6 +505,11 @@
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "delete-task-storage-after-uploads-expire",
+    "product": "temporal/delete_teams",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "delete-teams-data",
     "product": "temporal/delete_teams",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
@@ -631,6 +636,11 @@
   },
   {
     "temporal_workflow_type": "error-tracking-symbol-set-cleanup",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "error-tracking-tag-rule-sweep",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
@@ -937,6 +947,11 @@
   {
     "temporal_workflow_type": "mcpa-intent-clustering-coordinator",
     "product": "temporal/mcp_analytics",
+    "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "mcpa-wrapped-coordinator",
+    "product": "mcp_analytics",
     "task_queues": "MCPA_TASK_QUEUE"
   },
   {

@@ -15,8 +15,8 @@ from django.utils import timezone
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
-from products.aeo.backend import runner
-from products.aeo.backend.engines import CitationCheck, build_check_fields
+from products.aeo.backend import prompt_limit, runner
+from products.aeo.backend.engines import AICreditsExhausted, CitationCheck, build_check_fields
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CheckMode
 from products.aeo.backend.models import AEOBrand, AEOCheckCitation, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks, select_prompts
@@ -162,6 +162,17 @@ def test_a_team_without_an_own_brand_is_skipped_before_any_engine_call(
     assert not AEOCitationCheck.objects.for_team(other.id).exists()
 
 
+@pytest.mark.parametrize("requested", [None, 3], ids=["scheduled_run", "explicit_limit"])
+def test_a_run_checks_no_more_prompts_than_the_project_may_track(team: Team, requested: int | None) -> None:
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic=f"t{i % 2}") for i in range(4)])
+    prompt_limit.set_max_active_prompts(team.id, 2)
+
+    summary, _ = run_citation_checks(team, engines=[_StubEngine()], limit=requested)
+
+    assert summary.prompts == 2
+    assert AEOCitationCheck.objects.for_team(team.id).count() == 2
+
+
 class _CrashingEngine(_StubEngine):
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         if prompt == "q1?":
@@ -243,6 +254,29 @@ def test_a_stopped_run_records_what_it_paid_for_and_reports_the_stop(
     expected_rows = 0 if isinstance(engine, _DownEngine) else engine.calls
     assert summary.rows_written == expected_rows
     assert AEOCitationCheck.objects.for_team(team.id).count() == expected_rows
+
+
+class _OutOfCreditsAfterFirstEngine(_StubEngine):
+    name = "credits-engine"
+
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        if prompt != "q0?":
+            raise AICreditsExhausted("credit_bucket_exhausted:ai_credits")
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
+def test_running_out_of_credits_stops_the_run_and_keeps_the_answers_already_paid_for(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 1
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(4)])
+    answering = _StubEngine()
+
+    summary, _ = run_citation_checks(team, engines=[answering, _OutOfCreditsAfterFirstEngine()])
+
+    assert summary.error == "stopped: the organization is out of AI credits"
+    checks = AEOCitationCheck.objects.for_team(team.id)
+    assert not checks.filter(check_failed=True).exists()
+    assert checks.filter(engine="credits-engine").count() == 1
+    assert checks.filter(engine="stub-engine").count() == answering.calls
 
 
 def test_a_stopped_run_keeps_the_results_of_the_checks_already_running(team: Team, settings) -> None:

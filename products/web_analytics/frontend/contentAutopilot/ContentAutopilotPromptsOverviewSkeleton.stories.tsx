@@ -13,7 +13,7 @@ const meta: Meta<typeof ContentAutopilotPromptsOverviewSkeleton> = {
 export default meta
 
 export const Loading: StoryFn<typeof ContentAutopilotPromptsOverviewSkeleton> = () => (
-    <div className="p-6">
+    <div className="p-6" data-quill>
         <ContentAutopilotPromptsOverviewSkeleton />
     </div>
 )

@@ -14,6 +14,7 @@ from celery import shared_task
 
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.storage.cache_expiry_manager import delete_entry_keeping_failed_delete_tracked
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,
@@ -107,8 +108,7 @@ def clear_team_metadata_cache_for_token_task(api_token: str) -> None:
     # The task would then skip the delete and never retry it.
     if Team.objects.using(DEFAULT_DB_ALIAS).filter(api_token=api_token).exists():
         return
-    # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
-    team_metadata_hypercache.delete_cache_entry(api_token, strict_mirror=True)
+    delete_entry_keeping_failed_delete_tracked(team_metadata_hypercache, api_token)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

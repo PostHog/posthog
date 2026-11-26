@@ -15,6 +15,8 @@ from posthog.hogql.database.database import unentitled_system_tables
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 from ..facade.enums import CheckRunStatus, SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from . import posthog_tables
+from .access import can_access
 from .checks import checks_for_subject
 from .subject_access import (
     NoticeReferences,
@@ -109,7 +112,9 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         if not self._access_controls_supported(user_ids):
             return user_ids
 
-        return [user.id for user in User.objects.filter(id__in=user_ids) if self._may_receive(user)]
+        # One session for every member, so each member's user is loaded once for all their checks.
+        with authorization.authorization_session():
+            return [user.id for user in User.objects.filter(id__in=user_ids) if self._may_receive(user)]
 
     def _object_gate_applies(self) -> bool:
         return SubjectType(self._subject_type) in _OBJECT_GATED_SUBJECT_TYPES
@@ -121,14 +126,12 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
     def _may_receive(self, user: User) -> bool:
         access = self._access_of(user)
-        if not access.check_access_level_for_resource("query", "viewer"):
+        if not can_access(access, ResourceType.QUERY, Action.VIEW):
             return False
-        if self._subject_type == SubjectType.METRIC and not access.check_access_level_for_resource(
-            "data_catalog", "viewer"
-        ):
+        if self._subject_type == SubjectType.METRIC and not can_access(access, ResourceType.DATA_CATALOG, Action.VIEW):
             return False
-        if self._subject_type == SubjectType.POSTHOG_TABLE and not access.check_access_level_for_resource(
-            posthog_tables.RESOURCE, "viewer"
+        if self._subject_type == SubjectType.POSTHOG_TABLE and not can_access(
+            access, ResourceType(posthog_tables.RESOURCE), Action.VIEW
         ):
             return False
         if self._object_gate_applies() and not self._has_object_access(access):

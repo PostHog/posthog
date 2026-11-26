@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     IntegerDatabaseField,
     SavedQuery,
@@ -140,6 +141,20 @@ def test_star_projection_preserves_logical_name_for_physical_column_alias(expose
         "trino",
     )
     assert 'PARTITION BY "subscriptions"."customer" ORDER BY "subscriptions"."customer" ASC' in window_sql
+
+    where_sql, _ = prepare_and_print_ast(
+        parse_select("SELECT customer_id AS c FROM subscriptions WHERE c != ''"),
+        context,
+        "trino",
+    )
+    assert 'WHERE ("subscriptions"."customer" != ' in where_sql
+
+    order_sql, _ = prepare_and_print_ast(
+        parse_select("SELECT customer_id AS c, 0 AS s FROM subscriptions AS s ORDER BY c"),
+        context,
+        "trino",
+    )
+    assert order_sql.endswith("ORDER BY 1 ASC")
 
     join_sql, _ = prepare_and_print_ast(
         parse_select(
@@ -394,7 +409,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("hasAny([1, 2], [2, 3])", "(cardinality(array_intersect(ARRAY[1, 2], ARRAY[2, 3])) > 0)"),
         (
             "range(2, 5)",
-            'filter(sequence(2, greatest((5) - 1, 2)), "__hogql_range_value" -> ("__hogql_range_value" < 5))',
+            "filter(element_at(transform(ARRAY[ROW(CAST(2 AS BIGINT), CAST(greatest((5) - 1, 2) AS BIGINT))]",
         ),
         ("tuple(1, 2).1", "(ROW(1, 2))[1]"),
         ("extract(user_id, 'id-(.*)')", 'regexp_extract("users"."user_id", \'id-(.*)\', 1)'),
@@ -463,7 +478,10 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("coalesce(properties.enabled, false)", "coalesce(CAST(json_extract_scalar("),
         ("positionCaseInsensitive(user_id, 'ab')", 'strpos(lower("users"."user_id"), lower('),
         ("lowerUTF8(user_id)", 'lower("users"."user_id")'),
-        ("arrayEnumerate([10, 20])", "sequence(1, cardinality(ARRAY[10, 20]))"),
+        ("arrayEnumerate([10, 20])", "ROW(CAST(1 AS BIGINT), CAST(cardinality(ARRAY[10, 20]) AS BIGINT))"),
+        ("range(1000)", "fail('Trino mode supports arrays of up to 1,000,000 entries"),
+        ("arrayEnumerateDense(range(10))", "fail('arrayEnumerateDense supports arrays of up to 10,000 entries"),
+        ("arrayEnumerateUniq(range(10))", "fail('arrayEnumerateUniq supports arrays of up to 10,000 entries"),
         ("arrayExists(x -> x > 1, [1, 2])", 'any_match(ARRAY[1, 2], "x" -> ("x" > 1))'),
         ("cutToFirstSignificantSubdomain(user_id)", "array_join(slice(filter(split(lower(trim(TRAILING '.' FROM"),
         ("mapFromArrays([user_id], [1])", "map(__hogql_args[1], __hogql_args[2])"),
@@ -487,7 +505,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("arrayPopBack([1, 2])", "slice(ARRAY[1, 2], 1, greatest(cardinality(ARRAY[1, 2]) - 1, 0))"),
         ("arrayPushFront([1], 2)", "concat(ARRAY[2], ARRAY[1])"),
         ("arrayPushBack([1], 2)", "concat(ARRAY[1], ARRAY[2])"),
-        ("arrayDifference([1, 3])", "ARRAY[1, 3][__hogql_index] - ARRAY[1, 3][__hogql_index - 1]"),
+        ("arrayDifference([1, 3])", "__hogql_bound_array[__hogql_index] - __hogql_bound_array[__hogql_index - 1]"),
         ("arrayUniq([1, 1, 2])", "cardinality(array_distinct(ARRAY[1, 1, 2]))"),
         ("arrayWithConstant(2, 7)", "repeat(7, CAST(2 AS BIGINT))"),
         ("base64Encode(user_id)", 'to_base64(to_utf8("users"."user_id"))'),
@@ -510,11 +528,11 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("arrayCompact([1, 1, 2])", "element_at(__hogql_result, -1) IS DISTINCT FROM __hogql_value"),
         (
             "arrayEnumerateDense([10, 20, 10])",
-            "array_position(transform(array_distinct(slice(ARRAY[10, 20, 10]",
+            "array_position(transform(array_distinct(slice(__hogql_bound_array",
         ),
         (
             "arrayEnumerateUniq([10, 20, 10], [1, 1, 1])",
-            "cardinality(filter(slice(zip(ARRAY[10, 20, 10], ARRAY[1, 1, 1])",
+            "transform(ARRAY[zip(ARRAY[10, 20, 10], ARRAY[1, 1, 1])], __hogql_bound_array",
         ),
         ("arrayFirstIndex(x -> x > 1, [1, 2])", 'coalesce(array_position(transform(ARRAY[1, 2], "x" ->'),
         (
@@ -532,9 +550,9 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("countSubstrings(user_id, 'a')", "__hogql_substrings -> IF(length(__hogql_substrings[2])"),
         ("splitByRegexp('-', user_id)", 'regexp_split("users"."user_id"'),
         ("mapContainsKeyLike(mapFromArrays(['a'], [1]), 'a%')", "cardinality(map_filter(map(ARRAY["),
-        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', 2)) <> 0"),
-        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', 1)) <> 0 AND"),
-        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(-8, 1)"),
+        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', CAST(2 AS INTEGER))) <> 0"),
+        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', CAST(1 AS INTEGER))) <> 0 AND"),
+        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(CAST(-8 AS BIGINT), CAST(1 AS INTEGER))"),
         ("bitHammingDistance(5, 1)", "bit_count(bitwise_xor(5, 1), 64)"),
         ("L2Distance([1, 2], [3, 4])", "euclidean_distance(ARRAY[1, 2], ARRAY[3, 4])"),
         ("port('https://example.com', 443)", "coalesce(url_extract_port("),
@@ -583,6 +601,49 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
         ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
         ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
+        ("now('UTC')", "SELECT at_timezone(now(), "),
+        (
+            "toDateTime64(id, 3, 'UTC')",
+            'SELECT CAST(at_timezone(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)), ',
+        ),
+        (
+            "toDateTime64(id, 6)",
+            'CAST(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)) AS TIMESTAMP(6))',
+        ),
+        (
+            "anyHeavy(id)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, CAST("users"."id" AS BIGINT), 10)), 1), BIGINT \'0\')',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))), 1), \'\')',
+        ),
+        (
+            "anyHeavy(user_id) FILTER (WHERE id > 1)",
+            'approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1) FILTER (WHERE id > 2)",
+            'FILTER (WHERE (("users"."id" > 1)) AND (("users"."id" > 2)))',
+        ),
+        (
+            "anyHeavy(toNullable(user_id))",
+            'SELECT element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10)), 1) FROM',
+        ),
+        (
+            "multiMatchAnyIndex(max(user_id), ['a', 'b'])",
+            'SELECT element_at(transform(ARRAY[max("users"."user_id")], __hogql_haystack -> '
+            "CASE WHEN __hogql_haystack IS NULL THEN NULL WHEN regexp_like(__hogql_haystack, ",
+        ),
+        (
+            "multiMatchAnyIndex(user_id, [user_id])",
+            'element_at(transform(ARRAY[ROW("users"."user_id", ARRAY["users"."user_id"])], __hogql_match -> IF(__hogql_match[1] IS NULL, NULL, array_position(',
+        ),
+        (
+            "JSONExtract(properties, user_id, 'Nullable(Float64)')",
+            'TRY(CAST(json_extract_scalar(json_extract("users"."properties", concat(\'$[\', json_format(CAST(CAST("users"."user_id" AS VARCHAR) AS JSON)), \']\')), \'$\') AS DOUBLE)), CAST(NULL AS DOUBLE))',
+        ),
+        ("JSONExtract(properties, 'a', 'Float64')", "AS DOUBLE)), CAST(0 AS DOUBLE))"),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -599,6 +660,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         (
             "WITH a AS (SELECT arraySort([3, 1, 2]) AS xs) SELECT intDiv(length(xs) + 1, 2) FROM a",
             '(CAST((cardinality("a"."xs") + 1) AS BIGINT) / CAST(2 AS BIGINT))',
+        ),
+        (
+            "SELECT intDiv(t % 7, 2) FROM (SELECT arrayJoin(range(0, 10)) AS t FROM users)",
+            "CAST(MOD(",
         ),
         (
             "SELECT d + 1 FROM (SELECT toDate('2024-01-01') AS d UNION ALL SELECT toDateTime('2024-01-01 00:00:00') AS d)",
@@ -735,6 +800,69 @@ def test_drops_clickhouse_global_distribution_modifiers() -> None:
     assert "LEFT JOIN" in join_sql
 
 
+def _context_with_decimal_ledger() -> HogQLContext:
+    database = Database(include_posthog_tables=False)
+    database.tables.add_child(
+        TableNode(
+            name="ledger",
+            table=DirectTrinoTable(
+                name="ledger",
+                fields={
+                    "id": IntegerDatabaseField(name="id", nullable=False),
+                    "amount": DecimalDatabaseField(name="amount", nullable=True, scale=2),
+                    "rate": DecimalDatabaseField(name="rate", nullable=True, scale=8),
+                },
+                external_data_source_id="source-id",
+                trino_catalog="ducklake",
+                trino_schema="finance",
+                trino_table_name="ledger",
+                has_complete_columns=True,
+            ),
+        )
+    )
+    return HogQLContext(
+        database=database,
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        limit_top_select=False,
+        restricted_properties=set(),
+    )
+
+
+def _shared_projection_chain(depth: int) -> str:
+    layers = ["c0 AS (SELECT amount AS x FROM ledger)"] + [
+        f"c{level} AS (SELECT coalesce(x, x) AS x FROM c{level - 1})" for level in range(1, depth + 1)
+    ]
+    return f"WITH {', '.join(layers)} SELECT multiplyDecimal(x, toDecimal(1, 2)) FROM c{depth}"
+
+
+@pytest.mark.parametrize(
+    ("query", "scale"),
+    [
+        ("SELECT multiplyDecimal(amount, rate) FROM ledger", 8),
+        ("SELECT multiplyDecimal(toDecimal(-1.0, 4), multiplyDecimal(amount, rate)) FROM ledger", 8),
+        ("SELECT multiplyDecimal(divideDecimal(amount, rate), amount) FROM ledger", 8),
+        (
+            "SELECT multiplyDecimal(v, 1) FROM (SELECT amount AS v FROM ledger UNION ALL SELECT rate AS v FROM ledger)",
+            8,
+        ),
+        (_shared_projection_chain(32), 2),
+        ("SELECT multiplyDecimal(coalesce(amount, toDecimal(1, 4)), amount) FROM ledger", 4),
+        ("SELECT multiplyDecimal(if(id > 0, amount, NULL), amount) FROM ledger", 2),
+        ("SELECT multiplyDecimal(a, b) FROM (SELECT amount AS a, rate AS b FROM ledger)", 8),
+        (
+            "WITH c AS (SELECT *, toDecimal(id / 100, 6) AS share FROM ledger) SELECT multiplyDecimal(amount, share) FROM c",
+            6,
+        ),
+        ("SELECT toDecimal(id, 5) AS share, multiplyDecimal(amount, share) FROM ledger", 5),
+    ],
+)
+def test_multiply_decimal_takes_the_largest_operand_scale(query: str, scale: int) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_decimal_ledger(), "trino")
+
+    assert f"AS DECIMAL(38, {scale}))" in sql
+
+
 def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: SnapshotAssertion) -> None:
     supported = {
         *TRINO_FUNCTION_HANDLERS_LOWER,
@@ -771,6 +899,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("medianExact(DISTINCT id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("avgWeighted(id, user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("toNullableString(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("anyHeavy(DISTINCT user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("groupUniqArrayArray(0)([1, 2])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("to_timestamp(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("lagInFrame(id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
@@ -780,6 +909,8 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("intDiv(1.5, 2)", "TRINO_INT_DIV_TYPE_UNSUPPORTED"),
         ("roundBankers(1, length(user_id))", "TRINO_ROUND_BANKERS_PRECISION_UNSUPPORTED"),
         ("roundBankers(1, 19)", "TRINO_ROUND_BANKERS_PRECISION_UNSUPPORTED"),
+        ("toDecimal(1, 19)", "TRINO_DECIMAL_SCALE_OUT_OF_RANGE"),
+        ("accurateCastOrNull(1, 'Decimal32(10)')", "TRINO_CAST_TARGET_UNSUPPORTED"),
         ("arrayZip([1], [2, 3])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("arrayZip([1], [2], [3], [4], [5], [6])", "TRINO_ARRAY_ZIP_DYNAMIC_UNSUPPORTED"),
         ("extractAllGroups(user_id, user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
@@ -867,6 +998,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "'(Z|[+-][0-9]{2}:?[0-9]{2})$'",
             "'(Z|[+-][0-9]{2}:[0-9]{2})$'",
         ),
+        # HogQL parses with the OrNull variant, so a value no branch can read, such as '', is NULL and not a failed cast.
+        (
+            "SELECT parseDateTimeBestEffort(user_id) FROM users",
+            'with_timezone(TRY_CAST("users"."user_id" AS TIMESTAMP)',
+            'with_timezone(CAST("users"."user_id" AS TIMESTAMP)',
+        ),
         # A direct Trino table declares its physical types, so a native UUID column keeps pushdown.
         (
             "SELECT 1 FROM users WHERE uuid = toUUID(user_id)",
@@ -944,8 +1081,8 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
         ),
         (
             "SELECT range(1, length(user_id) + 1, 3) FROM users",
-            "greatest(__hogql_range[2] - 1, __hogql_range[1]), 3)",
-            "greatest(__hogql_range[2] - 1, __hogql_range[1]))",
+            "__hogql_sequence_block * 30000)), 3)",
+            "__hogql_sequence_block * 30000)))",
         ),
         (
             "SELECT toFloat(tupleElement(kv, 2)) FROM users ARRAY JOIN JSONExtractKeysAndValuesRaw(user_id) AS kv",
@@ -958,7 +1095,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "= truncate(TRY_CAST(__hogql_accurate_cast_value AS DECIMAL(38, 18)))",
             "TRY_CAST(truncate(",
         ),
-        ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+        ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(element_at(", "TRY_CAST(truncate(CAST("),
+        (
+            "SELECT toDecimal(1 / 0, 8)",
+            "BETWEEN DECIMAL '-92233720368.54775808' AND DECIMAL '92233720368.54775807'",
+            "CAST((CAST(1 AS DOUBLE) / CAST(0 AS DOUBLE)) AS DECIMAL(38, 8))",
+        ),
         # Trino rejects SELECT DISTINCT ordered by an unselected expression, so each distinct row keeps its first match.
         (
             "SELECT DISTINCT user_id FROM users ORDER BY created_at DESC",
@@ -994,6 +1136,11 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "SELECT id FROM (SELECT a.id, b.user_id AS id FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
             '"a"."id" AS "__hogql_duplicate_id_1"',
             '"b"."user_id" AS "__hogql_duplicate_id_',
+        ),
+        (
+            "WITH cm AS (SELECT id, user_id AS x FROM users) SELECT cm.*, cm.x FROM cm",
+            'SELECT "cm"."id", "cm"."x", "cm"."x" AS "x" FROM "cm"',
+            '"cm"."x" AS "x", "cm"."x" AS "x"',
         ),
         # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
         (
@@ -1278,17 +1425,29 @@ def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> No
         database=Database(include_posthog_tables=True),
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
-        trino_table_locators={"events": ("tenant", "posthog", "events")},
+        trino_table_locators={
+            "events": ("tenant", "posthog", "events"),
+            "raw_groups": ("tenant", "posthog", "groups"),
+        },
     )
 
     sql, _ = prepare_and_print_ast(
-        parse_select("SELECT events.`$session_id`, events.`$window_id`, events.`$group_0` FROM events"),
+        parse_select(
+            "SELECT events.`$session_id`, events.`$window_id`, events.`$group_0`, cityHash64(`$group_2`), group_1.key"
+            " FROM events"
+        ),
         context,
         "trino",
     )
 
     for key in ("$session_id", "$window_id", "$group_0"):
         assert f'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["{key}"]\')' in sql
+    assert 'ch_cityhash64(json_extract_scalar("tenant"."posthog"."events"."properties", \'$["$group_2"]\'))' in sql
+    assert (
+        'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["$group_1"]\') = "events__group_1"."key"'
+        in sql
+    )
+    assert 'WHERE ("tenant"."posthog"."groups"."group_type_index" = 1)' in sql
     assert context.values == {}
 
 
@@ -1675,9 +1834,9 @@ def test_rejects_currency_conversion_without_an_exchange_rate_locator() -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        ("numbers(3)", "sequence(0, greatest((3) - 1, 0))"),
-        ("numbers(4, 2)", "sequence(4, greatest((6) - 1, 4))"),
-        ("numbers(0)", "sequence(0, greatest((0) - 1, 0))"),
+        ("numbers(3)", "ROW(CAST(0 AS BIGINT), CAST(greatest((3) - 1, 0) AS BIGINT))"),
+        ("numbers(4, 2)", "ROW(CAST(4 AS BIGINT), CAST(greatest((6) - 1, 4) AS BIGINT))"),
+        ("numbers(0)", "ROW(CAST(0 AS BIGINT), CAST(greatest((0) - 1, 0) AS BIGINT))"),
     ],
 )
 def test_lowers_numbers_to_bounded_unnest(source: str, expected: str) -> None:
@@ -1691,7 +1850,7 @@ def test_lowers_numbers_to_bounded_unnest(source: str, expected: str) -> None:
 
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT number FROM {source}"), context, "trino")
 
-    assert f"FROM UNNEST(filter({expected}" in sql
+    assert f"FROM UNNEST(filter(element_at(transform(ARRAY[{expected}" in sql
     assert 'AS "numbers" ("number")' in sql
 
 
@@ -2284,6 +2443,31 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
             "SELECT (id AS y) + 1 AS x, x * 2 AS z, sum(y) OVER () AS total FROM rows WHERE x > 2",
             [(3, 6, 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT id, length(name AS label) AS size FROM rows ORDER BY size, id LIMIT 1 BY size",
+            [(1, 1), (2, 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT DISTINCT length(name AS label) AS size FROM rows ORDER BY id DESC",
+            [(1,), (2,)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id, name FROM rows ORDER BY length(name AS label) DESC, id LIMIT 1 BY label",
+            [(2, "bb"), (1, "a")],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id FROM rows ORDER BY id LIMIT 1 BY length(name AS label), label",
+            [(1,), (2,)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id, length(name) AS size FROM rows ORDER BY length(name AS label), id LIMIT 1 BY label",
+            [(1, 1), (2, 2)],
         ),
     ],
 )
@@ -2966,7 +3150,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("JSONExtractString(properties)", 'json_extract_scalar("users"."properties",'),
         ("created_at + 2", "date_add('second', CAST(2 AS BIGINT)"),
         ("['a'][3]", "element_at(ARRAY['a'], 3)"),
-        ("divideDecimal(toDecimal(1, 10), toDecimal(100, 10))", "(CAST(1 AS DECIMAL(38, 10)) /"),
+        ("divideDecimal(toDecimal(1, 10), toDecimal(100, 10))", "1) / element_at(transform(ARRAY[100],"),
         (
             "divideDecimal(toDecimal(1, 10), toDecimal(100, 10), 4)",
             "AS DECIMAL(38, 4))",
@@ -3344,6 +3528,29 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
     assert expected in sql
     assert not [column for column in unread_columns if column in sql]
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
+
+
+def test_column_restricted_table_reads_only_its_allowed_columns() -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="people",
+            table=DirectTrinoTable(
+                name="people",
+                fields={"user_id": StringDatabaseField(name="user_id", nullable=False)},
+                external_data_source_id="source-id",
+                trino_catalog="lake",
+                trino_schema="analytics",
+                trino_table_name="people",
+                column_restricted=True,
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT user_id FROM people"), context, "trino")
+
+    assert '(SELECT "user_id" FROM "lake"."analytics"."people")' in sql
 
 
 @pytest.mark.parametrize(
@@ -3812,6 +4019,23 @@ def test_grouping_does_not_replace_different_or_nested_expressions(query: str, s
         (
             "WITH items AS (SELECT JSONExtractArrayRaw(properties, 'items') AS xs FROM users) SELECT empty(xs) FROM items",
             'cardinality("items"."xs")',
+        ),
+        (
+            "WITH items AS (SELECT [1, 2] AS xs) SELECT arrayFirst(x -> x > 1, xs) FROM items",
+            'coalesce(element_at(filter("items"."xs", "x" -> ("x" > 1)), 1), 0)',
+        ),
+        (
+            "WITH items AS (SELECT [1, 2] AS xs) SELECT arrayMap(x -> intDiv(x, 2), xs) FROM items",
+            'transform("items"."xs", "x" -> (CAST("x" AS BIGINT) / CAST(2 AS BIGINT)))',
+        ),
+        (
+            "WITH items AS (SELECT tuple(1, 'a') AS pair) SELECT intDiv(pair.1, 2) FROM items",
+            '(CAST(("items"."pair")[1] AS BIGINT) / CAST(2 AS BIGINT))',
+        ),
+        (
+            "WITH items(xs, flag) AS (SELECT [1] AS flag, true AS xs UNION ALL SELECT [2], false)"
+            " SELECT arrayFirst(x -> x > 0, xs) FROM items",
+            'filter("items"."xs", "x" -> ("x" > 0))',
         ),
     ],
 )

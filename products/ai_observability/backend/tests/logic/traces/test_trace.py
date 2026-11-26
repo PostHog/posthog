@@ -1,11 +1,12 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.traces.trace import Trace
+from products.ai_observability.backend.logic.traces.trace import Trace, TraceCompleteness, read_completeness
 from products.ai_observability.backend.logic.traces.trace_queries import PersonRow
 
 from .rows import T0, make_row
@@ -17,45 +18,28 @@ def trace(*rows: dict[str, Any], person: PersonRow | None = None) -> Trace:
     return Trace("trace-1", [make_row(**{"uuid": f"e{index}", **row}) for index, row in enumerate(rows)], person)
 
 
-@parameterized.expand(
-    [
-        (
-            "the root trace event reports the wall clock",
-            [{"event": "$ai_trace", "latency": 9.0}, {"event": "$ai_generation", "latency": 2.0}],
-            9.0,
-        ),
-        (
-            "only generations report latency, so they are summed",
-            [
-                {"event": "$ai_generation", "latency": 1.25},
-                {"event": "$ai_generation", "latency": 2.5, "parent_id": "span"},
-                {"event": "$ai_span", "span_id": "span"},
-            ],
-            3.75,
-        ),
-        (
-            "otherwise the direct children of the trace are summed",
-            [
-                {"event": "$ai_span", "span_id": "a", "latency": 4.0},
-                {"event": "$ai_generation", "parent_id": "a", "latency": 3.0},
-                {"event": "$ai_span", "latency": 1.0},
-            ],
-            5.0,
-        ),
-    ]
-)
-def test_total_latency(_name: str, rows: list[dict[str, Any]], expected: float) -> None:
-    assert trace(*rows).totals.latency_s == expected
+def test_total_latency_and_cost_read_the_values_the_query_computed() -> None:
+    totals = trace(
+        {
+            "event": "$ai_generation",
+            "latency": 1.0,
+            "total_cost_usd": 0.1,
+            "trace_latency_s": 9.5,
+            "trace_cost_usd": 2.5,
+        }
+    ).totals
+
+    assert (totals.latency_s, totals.cost_usd) == (9.5, 2.5)
 
 
-def test_totals_count_generations_and_embeddings_only_and_keep_unknown_cost_unknown() -> None:
+def test_total_tokens_count_generations_and_embeddings_only() -> None:
     totals = trace(
         {"event": "$ai_generation", "input_tokens": 3, "cache_read_input_tokens": 2},
         {"event": "$ai_embedding", "input_tokens": 4},
-        {"event": "$ai_span", "input_tokens": 100, "total_cost_usd": 5.0},
+        {"event": "$ai_span", "input_tokens": 100},
     ).totals
 
-    assert (totals.input_tokens, totals.output_tokens, totals.cost_usd, totals.cache_read_tokens) == (7, None, None, 2)
+    assert (totals.input_tokens, totals.output_tokens, totals.cache_read_tokens) == (7, None, 2)
 
 
 def test_name_prefers_the_earliest_named_trace_event_over_other_events() -> None:
@@ -234,3 +218,26 @@ def test_a_trace_builds_no_tree_until_asked() -> None:
         _ = (lazy.name, lazy.totals, lazy.error_count, lazy.default_node_id)
 
     build_tree.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("from ai_events", False, None, (False, False)),
+        ("from ai_events, cut by the row cap", True, None, (True, False)),
+        ("from the shared table, starting a buffer after the bound", False, T0 - timedelta(minutes=10), (False, False)),
+        ("from the shared table, starting inside the buffer", False, T0 - timedelta(minutes=9), (True, True)),
+        ("from the shared table, cut by the row cap", True, T0 - timedelta(hours=1), (True, False)),
+        (
+            "from the shared table, with the bound in another zone",
+            False,
+            (T0 - timedelta(minutes=9)).astimezone(ZoneInfo("America/Los_Angeles")),
+            (True, True),
+        ),
+    ]
+)
+def test_read_completeness(
+    _name: str, truncated: bool, read_start: datetime | None, expected: tuple[bool, bool]
+) -> None:
+    assert read_completeness(truncated=truncated, first_timestamp=T0, read_start=read_start) == TraceCompleteness(
+        partial=expected[0], cost_and_latency_partial=expected[1]
+    )

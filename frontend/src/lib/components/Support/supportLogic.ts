@@ -240,6 +240,7 @@ export type SupportFormFields = {
     // ticket can be attributed back to the conversation regardless of which submit path files it.
     ai_conversation_id?: string | null
     ai_trace_id?: string | null
+    ai_context_url?: string | null
     ai_feedback_rating?: string | null
 }
 
@@ -510,6 +511,7 @@ export const supportLogic = kea<supportLogicType>([
             target,
             ai_conversation_id,
             ai_trace_id,
+            ai_context_url,
             ai_feedback_rating,
         }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             kind = kind ?? 'support'
@@ -525,6 +527,7 @@ export const supportLogic = kea<supportLogicType>([
                 // Carried through so a PostHog AI handover still attributes the ticket it files.
                 ai_conversation_id,
                 ai_trace_id,
+                ai_context_url,
                 ai_feedback_rating,
             })
 
@@ -548,7 +551,7 @@ export const supportLogic = kea<supportLogicType>([
             // Trimmed before validating and sending: restore-by-email matches the stored trait
             // exactly, so stray whitespace would make the ticket unrecoverable
             const email = formValues.email.trim()
-            const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
+            const { ai_conversation_id, ai_trace_id, ai_context_url, ai_feedback_rating } = formValues
 
             // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id
             // only exists once the send resolves — capturing from here means it fires no matter which
@@ -562,6 +565,7 @@ export const supportLogic = kea<supportLogicType>([
                     $ai_conversation_id: ai_conversation_id,
                     $ai_session_id: ai_conversation_id,
                     $ai_trace_id: ai_trace_id ?? null,
+                    ...(ai_context_url ? { ai_context_url } : {}),
                     $ai_support_ticket_id: String(ticketId),
                     ...(ai_feedback_rating ? { $ai_feedback_rating: ai_feedback_rating } : {}),
                 })

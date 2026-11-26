@@ -8,16 +8,17 @@ import type { TraceClusterApi, TracePersonApi } from '../../../generated/api.sch
 import type { TraceOverview } from '../types'
 import { EvalsChip, EvalsChipProps } from './EvalsChip'
 import { FeedbackChip, FeedbackChipProps } from './FeedbackChip'
+import { partialStatKinds } from './formatStats'
 import { GitBranchChip, GitBranchChipProps } from './GitBranchChip'
+import { IdChip } from './IdChip'
 import { LabeledChipValue } from './LabeledChipValue'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
 import { ReviewChip, ReviewChipProps } from './ReviewChip'
 import { TraceClustersChip } from './TraceClustersChip'
-import { TraceIdChip } from './TraceIdChip'
 
 export interface TraceSummaryBarProps {
-    overview: Pick<TraceOverview, 'id' | 'createdAt' | 'totals' | 'totalsPartial'>
+    overview: Pick<TraceOverview, 'id' | 'createdAt' | 'totals' | 'totalsPartial' | 'costAndLatencyPartial'>
     person?: TracePersonApi | null
     clusters?: TraceClusterApi[] | null
     evals?: EvalsChipProps | null
@@ -40,7 +41,7 @@ export function TraceSummaryBar({
             {/* The chips cap at a full line and the empty spacer stays on their line, so stats that fit beside the chips
                 are pushed right, and stats that wrap start their own line on the left. */}
             <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1.5 pr-3">
-                <TraceIdChip traceId={overview.id} />
+                <IdChip id={overview.id} description="trace ID" />
                 <LemonTag weight="normal">
                     <LabeledChipValue label="Time" icon={<IconClock />}>
                         <TZLabel
@@ -70,7 +71,7 @@ export function TraceSummaryBar({
             <span aria-hidden className="grow" />
             <NodeStatsLine
                 stats={overview.totals}
-                partial={overview.totalsPartial}
+                partialKinds={partialStatKinds(overview)}
                 wrap
                 className="leading-[1.375rem]"
             />

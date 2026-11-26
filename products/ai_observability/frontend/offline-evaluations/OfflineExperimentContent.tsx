@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,11 +13,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { OfflineScorerSummaryApi } from '../generated/api.schemas'
 import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
+import { ExperimentScoreResult } from './ExperimentScoreResult'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
 import { OfflineItemInspector } from './OfflineItemInspector'
 import { OfflineItemMatrix } from './OfflineItemMatrix'
 import { offlineRunSourceLabel } from './offlineOverviewState'
+import { OfflineRunDetails } from './OfflineRunDetails'
 import { offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
 import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
 import { offlineUnscoredLabel } from './offlineUnscoredLabel'
@@ -96,17 +98,6 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                 </AccessControlAction>
                             )}
                         </div>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-                            <span>{`${experiment.accepted_item_count} items${experiment.expected_item_count === null ? '' : ` / ${experiment.expected_item_count} expected`}`}</span>
-                            <span>
-                                {experiment.visible_result_count === null
-                                    ? 'Score counts unavailable'
-                                    : `${experiment.visible_result_count} visible results`}
-                            </span>
-                            {experiment.expected_result_count !== null && (
-                                <span>{`${experiment.expected_result_count} expected results across all scorers`}</span>
-                            )}
-                        </div>
                         {experiment.status === 'uploading' && (
                             <LemonBanner type="info">
                                 This experiment is still receiving uploads. Refresh to see newly accepted items and
@@ -116,69 +107,37 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                         {completionError && !completionOpen && (
                             <LemonBanner type="error">{completionError}</LemonBanner>
                         )}
-                        <details className="rounded border p-3">
-                            <summary className="cursor-pointer font-medium">Run details</summary>
-                            <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                                <dt>Experiment ID</dt>
-                                <dd className="m-0 font-mono break-all" translate="no">
-                                    {experiment.id}
-                                </dd>
-                                {(
-                                    [
-                                        'suite_key',
-                                        'dataset_source',
-                                        'dataset_identifier',
-                                        'dataset_revision_identifier',
-                                        'application_version',
-                                        'model_version',
-                                        'prompt_version',
-                                    ] as const
-                                )
-                                    .filter((field) => experiment[field] !== null)
-                                    .map((field) => (
-                                        <div className="contents" key={field}>
-                                            <dt>{field.replaceAll('_', ' ')}</dt>
-                                            <dd className="m-0 break-all" translate="no">
-                                                {experiment[field]}
-                                            </dd>
-                                        </div>
-                                    ))}
-                                <dt>Received</dt>
-                                <dd className="m-0">
-                                    <TZLabel time={experiment.created_at} />
-                                </dd>
-                                {experiment.finished_at && (
-                                    <>
-                                        <dt>Closed</dt>
-                                        <dd className="m-0">
-                                            <TZLabel time={experiment.finished_at} />
-                                        </dd>
-                                    </>
-                                )}
-                                {experiment.updated_at && (
-                                    <>
-                                        <dt>Last edited</dt>
-                                        <dd className="m-0">
-                                            <TZLabel time={experiment.updated_at} />
-                                        </dd>
-                                    </>
-                                )}
-                            </dl>
-                        </details>
                     </>
                 )
             )}
-            <section>
+            <section aria-label="Scores" className="min-w-0 rounded-lg border bg-surface-primary">
+                {experiment?.experiment_score && (
+                    <ExperimentScoreResult
+                        score={experiment.experiment_score}
+                        itemSummaries={summaries}
+                        historyUrl={offlineScorerHistoryUrl(
+                            {
+                                id: experiment.experiment_score.scorer_version_id,
+                                definition_id: experiment.experiment_score.definition_id,
+                            },
+                            experiment,
+                            timezone
+                        )}
+                    />
+                )}
                 {/* Refresh empties the summaries but keeps the last total, so the open prop does not change and React keeps the state the user chose. */}
-                <details open={(summaryCount ?? summaries.length) <= 10} className="rounded border p-3">
-                    <summary className="cursor-pointer font-medium">{`Scorer summaries${summaries.length ? ` (${summaries.length})` : ''}${summaryCountLoading ? ' · Loading all scorers…' : ''}`}</summary>
+                <details open={(summaryCount ?? summaries.length) <= 10} className="px-4 py-3">
+                    <summary
+                        className="cursor-pointer font-medium"
+                        data-attr="offline-experiment-item-scores"
+                    >{`Item scores${summaries.length ? ` (${summaries.length})` : ''}${summaryCountLoading ? ' · Loading all scorers…' : ''}`}</summary>
                     {summariesError && (
                         <LemonBanner type="error" action={{ children: 'Try again', onClick: refresh }}>
                             {summariesError}
                         </LemonBanner>
                     )}
                     <LemonTable
-                        className="mt-3"
+                        className="mt-3 [&_tbody_td]:align-top"
                         tableLayout="fixed"
                         dataSource={summaries}
                         loading={summaryCountLoading && !summaries.length}
@@ -193,13 +152,13 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                             {
                                 title: 'Scorer',
                                 render: (_, summary: OfflineScorerSummaryApi) => (
-                                    <Link
-                                        className="break-words"
-                                        to={offlineScorerHistoryUrl(summary.scorer, experiment, timezone)}
-                                        data-attr="offline-experiment-scorer-history"
-                                    >
-                                        <ScorerLabel scorer={summary.scorer} />
-                                    </Link>
+                                    <ScorerLabel
+                                        scorer={summary.scorer}
+                                        historyLink={{
+                                            to: offlineScorerHistoryUrl(summary.scorer, experiment, timezone),
+                                            'data-attr': 'offline-experiment-scorer-history',
+                                        }}
+                                    />
                                 ),
                             },
                             {
@@ -212,7 +171,10 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                 title: 'Coverage',
                                 render: (_, summary: OfflineScorerSummaryApi) => (
                                     <details>
-                                        <summary className="cursor-pointer text-xs">{`${summary.status_counts.ok} scored · ${summary.status_counts.error} errors · ${offlineUnscoredLabel(summary)}`}</summary>
+                                        <summary
+                                            className="cursor-pointer text-xs"
+                                            data-attr="offline-experiment-scorer-coverage"
+                                        >{`${summary.status_counts.ok} scored · ${summary.status_counts.error} errors · ${offlineUnscoredLabel(summary)}`}</summary>
                                         <p className="text-xs mb-0">{`${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.distinct_case_count} distinct cases · ${summary.trial_item_count} trial items · ${summary.distinct_trial_count} distinct trials · ${summary.items_without_case_key_count} items without a case key`}</p>
                                         {summary.scorer.kind === 'boolean' && (
                                             <p className="text-xs mb-0">{`${summary.true_count} true · ${summary.false_count} false`}</p>
@@ -223,7 +185,33 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                         ]}
                     />
                 </details>
+                {experiment && !experiment.experiment_score && (
+                    <div className="flex border-t px-4 py-2">
+                        {experiment.suite_has_score ? (
+                            <span className="py-1 text-sm text-muted">
+                                Future runs of {experiment.suite_key} have an experiment score.
+                            </span>
+                        ) : (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    type="tertiary"
+                                    data-attr="aio-set-up-experiment-score"
+                                    tooltipPlacement="top-start"
+                                    tooltip="Preview a formula using this run’s item scores, then save it for future runs."
+                                    to={`${urls.aiObservabilityScorer('new')}?${new URLSearchParams({ experiment: experiment.id, ...(experiment.suite_key ? { suite: experiment.suite_key } : {}) })}`}
+                                >
+                                    {experiment.suite_key ? 'Set up experiment score' : 'Create experiment scorer'}
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
+                    </div>
+                )}
             </section>
+            {experiment && <OfflineRunDetails experiment={experiment} />}
             <OfflineItemMatrix {...props} />
             <TraceDrawerHost listId="offline-experiment" />
             {inspector && (

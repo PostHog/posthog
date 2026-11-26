@@ -25,7 +25,6 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolu
 
 use async_trait::async_trait;
 use mockall::mock;
-use rdkafka::message::ToBytes;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -63,34 +62,34 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     s3_client: Arc<MockS3Client>,
     configure: impl FnOnce(&mut ProcessingConfig),
 ) -> (StatusCode, T) {
+    let (status, body_string) =
+        get_raw_response_with_config(db, storage_bucket, request_factory, s3_client, configure)
+            .await;
+    let body: T = serde_json::from_str(&body_string)
+        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
+    (status, body)
+}
+
+#[allow(dead_code)]
+pub(crate) async fn build_context(
+    db: PgPool,
+    storage_bucket: String,
+    s3_client: Arc<MockS3Client>,
+    configure: impl FnOnce(&mut ProcessingConfig),
+) -> Arc<AppContext> {
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
-    config.resolver.object_storage_bucket = storage_bucket.clone();
+    config.resolver.object_storage_bucket = storage_bucket;
     configure(&mut config);
 
     ensure_remote_resolution(&mut config, s3_client, db.clone()).await;
 
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
-    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
-        .await
-        .unwrap();
-
-    let ctx = Arc::new(app_ctx);
-
-    let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
-
-    let status = res.status();
-
-    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
-        .await
-        .unwrap();
-
-    let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
-
-    // Deserialize the JSON into your struct
-    let body: T = serde_json::from_slice(body_bytes.to_bytes())
-        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
-    (status, body)
+    Arc::new(
+        AppContext::new(&config, db, issue_buckets_redis_client)
+            .await
+            .unwrap(),
+    )
 }
 
 async fn ensure_remote_resolution(
@@ -149,18 +148,18 @@ pub(crate) async fn get_raw_response(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, String) {
-    let mut config = ProcessingConfig::init_with_defaults().unwrap();
-    config.resolver.object_storage_bucket = storage_bucket.clone();
+    get_raw_response_with_config(db, storage_bucket, request_factory, s3_client, |_| {}).await
+}
 
-    ensure_remote_resolution(&mut config, s3_client, db.clone()).await;
-
-    let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
-
-    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
-        .await
-        .unwrap();
-
-    let ctx = Arc::new(app_ctx);
+#[allow(dead_code)]
+pub(crate) async fn get_raw_response_with_config(
+    db: PgPool,
+    storage_bucket: String,
+    request_factory: impl Fn() -> Request<Body>,
+    s3_client: Arc<MockS3Client>,
+    configure: impl FnOnce(&mut ProcessingConfig),
+) -> (StatusCode, String) {
+    let ctx = build_context(db, storage_bucket, s3_client, configure).await;
 
     let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
 

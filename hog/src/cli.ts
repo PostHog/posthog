@@ -32,13 +32,16 @@ import {
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
 import { parseJsonOrUndefined } from '@/core/json'
 import { Output } from '@/core/output'
-import type { Runtime } from '@/core/runtime'
+import { keptPath, type Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
 import { joinList, kebabCase } from '@/core/text'
+import { checkWorker } from '@/error-tracking/worker'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { UpdateCheck, updateChecksOff } from '@/updates/check'
+import { Notices } from '@/updates/notices'
+import { shippedBinaries, targetFor } from '@/updates/targets'
 import { VERSION } from '@/version'
 
 const CODE_WIDTH = Math.max(...EXIT_CODES.map(({ code }) => String(code).length))
@@ -286,6 +289,8 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 result = await node.run({ args, options, ctx })
             } catch (error) {
                 throw await withScopeHint(error, node.scopes, ctx)
+            } finally {
+                await ctx.close()
             }
 
             const render = mode.format === 'json' ? node.agent : node.human
@@ -551,10 +556,13 @@ function tlsOff(tokens: Token[], runtime: Runtime): boolean {
     )
 }
 
-// Windows can't replace a running hog.exe, so `hog upgrade` renamed it. It isn't running any more.
+// Windows can't replace a running exe, so `hog upgrade` renamed the ones it replaced. They aren't
+// running any more.
 async function removeReplacedBinary(runtime: Runtime): Promise<void> {
-    if (runtime.platform === 'win32' && !runtime.isDevelopment) {
-        await runtime.removeFile(win32.join(win32.dirname(runtime.execPath), 'hog.old.exe')).catch(() => {})
+    const target = runtime.platform === 'win32' && !runtime.isDevelopment && targetFor('win32', runtime.arch, false)
+    for (const name of target ? shippedBinaries(target) : []) {
+        const replaced = keptPath(win32.join(win32.dirname(runtime.execPath), name), '', 'win32')
+        await runtime.removeFile(replaced).catch(() => {})
     }
 }
 
@@ -609,7 +617,9 @@ function captureFailure(telemetry: Telemetry, command: string | undefined, error
     })
 }
 
-export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
+export async function run(argv: readonly string[], baseRuntime: Runtime): Promise<number> {
+    const notices = new Notices(baseRuntime)
+    const runtime: Runtime = { ...baseRuntime, fetch: notices.watch(baseRuntime.fetch) }
     const { format, debug, noFail, noTelemetry, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
     const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
@@ -641,6 +651,14 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         commandIndex === undefined &&
         tokens.some((token) => token.kind === 'option' && ['version', 'V'].includes(token.name))
     ) {
+        // The installers and the release workflow set this, to check what ships next to hog before they keep it.
+        if (runtime.env.HOG_CHECK_INSTALL) {
+            const failure = await checkWorker(runtime).catch((error: unknown) => error)
+            if (failure) {
+                runtime.writeStderr(`${failure instanceof HogError ? `${failure.message} ${failure.hint}` : failure}\n`)
+                return EXIT_FAILURE
+            }
+        }
         runtime.writeStdout(`${VERSION}\n`)
         return EXIT_SUCCESS
     }
@@ -681,7 +699,8 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
 
     // A `hog_outdated` failure already says to update, and a JSON failure is one object on stderr.
     if (failure?.code !== 'hog_outdated' && !(failure && mode.format === 'json')) {
-        await updates?.finish({ mode, command: state.command })
+        await updates?.finish({ mode, command: state.command, notices })
+        await notices.show({ mode, telemetry })
     }
 
     // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.

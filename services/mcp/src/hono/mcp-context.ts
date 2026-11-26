@@ -29,6 +29,7 @@ export interface MCPRequestContext
             | 'mcpSessionId'
             | 'mcpConversationId'
             | 'region'
+            | 'bundledSkills'
             | 'features'
             | 'tools'
             | 'excludeTools'
@@ -62,6 +63,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mcpConsumer: props.mcpConsumer,
         mode: props.mode,
         region: props.region,
+        bundledSkills: props.bundledSkills,
         features: props.features,
         tools: props.tools,
         excludeTools: props.excludeTools,

@@ -24,7 +24,7 @@ import {
 } from '../monitoring/hog-invocation-results.service'
 import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager, IDEMPOTENCY_KEY_TTL_MS } from './manager'
+import { CyclotronV2Manager } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -128,6 +128,7 @@ interface RawJobRow {
     action_id: string | null
     cancel_requested_at: string | Date | null
     dequeue_seq: string | null
+    pending_wake: Record<string, unknown> | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -1661,7 +1662,7 @@ describe('Cyclotron V2', () => {
                 expect(row.dequeue_seq).toEqual(before.dequeue_seq)
             })
 
-            it('keeps a keyed job claimed for a day past the latest time it was rescheduled to', async () => {
+            it('keeps a keyed email claimed for 7 days past the latest time it was rescheduled to', async () => {
                 const id = uuidv7()
                 await manager.createJobsIdempotently([
                     {
@@ -1683,7 +1684,7 @@ describe('Cyclotron V2', () => {
                 const extended = await claimExpiry()
                 await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
 
-                expect(extended).toEqual(new Date(inTwentyDays.getTime() + IDEMPOTENCY_KEY_TTL_MS))
+                expect(extended).toEqual(new Date(inTwentyDays.getTime() + 7 * 24 * 60 * 60 * 1000))
                 expect(await claimExpiry()).toEqual(extended)
             })
 
@@ -1873,6 +1874,28 @@ describe('Cyclotron V2', () => {
                 expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(expected)
                 expect(await totalJobCount()).toBe(1)
             })
+
+            it.each([
+                ['an email with the same request', 'email', 'a', 'replayed', 0],
+                ['an email with a different request', 'email', 'b', 'mismatch', 0],
+                ['any other queue', QUEUE, 'a', 'created', 1],
+            ])(
+                'answers a retry of %s, an hour before its 7 days run out and once its job is gone',
+                async (_name, queueName, fingerprint, outcome, jobs) => {
+                    const id = uuidv7()
+                    await manager.createJobsIdempotently([keyed(id, 'a', { queueName })])
+                    await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                    await assertPool.query(
+                        `UPDATE cyclotron_idempotency_keys SET expires_at = expires_at - interval '6 days 23 hours' WHERE id = $1`,
+                        [id]
+                    )
+
+                    expect(await manager.createJobsIdempotently([keyed(id, fingerprint, { queueName })])).toEqual([
+                        outcome,
+                    ])
+                    expect(await totalJobCount()).toBe(jobs)
+                }
+            )
 
             it('reads claims in bulk by any spelling of their id, in the order asked', async () => {
                 const first = uuidv7()
@@ -2900,6 +2923,60 @@ describe('Cyclotron V2', () => {
 
             expect((await queryJob(id)).janitor_touch_count).toBe(0)
         })
+
+        it.each([
+            {
+                written: 'during the hold, for the step it parks on',
+                key: 'wait-a',
+                at: 'clock_timestamp()',
+                opts: true,
+                due: true,
+                kept: true,
+            },
+            {
+                written: 'before the hold',
+                key: 'wait-a',
+                at: "last_transition - interval '1 second'",
+                opts: true,
+                due: false,
+                kept: false,
+            },
+            {
+                written: 'during the hold, for another step',
+                key: 'wait-b',
+                at: 'clock_timestamp()',
+                opts: true,
+                due: false,
+                kept: false,
+            },
+            {
+                written: 'during the hold, by a park that keeps its backoff',
+                key: 'wait-a',
+                at: 'clock_timestamp()',
+                opts: false,
+                due: false,
+                kept: true,
+            },
+        ])(
+            'reschedule() onto a wait with a wake recorded $written wakes it: $due',
+            async ({ key, at, opts, due, kept }) => {
+                const { id, job } = await seedAndDequeue({ actionId: 'wait-a' })
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET pending_wake = jsonb_build_object($2::text, jsonb_build_object('kind', 'match', 'at', ${at})) WHERE id = $1`,
+                    [id, key]
+                )
+
+                await job.reschedule({
+                    actionId: 'wait-a',
+                    scheduledAt: new Date(Date.now() + 3600_000),
+                    wakeOnPendingWake: opts,
+                })
+
+                expect(await jobIsDue(id)).toBe(due)
+                const row = await queryJob(id)
+                expect(Object.keys(row.pending_wake ?? {})).toEqual(kept ? ['wait-a'] : [])
+            }
+        )
 
         it('reschedule() returns job to available', async () => {
             const { id, job } = await seedAndDequeue()

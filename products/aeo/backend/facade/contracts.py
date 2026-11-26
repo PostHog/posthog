@@ -74,11 +74,22 @@ class CheckFrequency(LabeledStrEnum):
 
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
+AI_VISIBILITY_ACCESS_FLAG = "web-analytics-content-autopilot"
+DEFAULT_MAX_ACTIVE_PROMPTS = 100
+PROMPT_LIMIT_ERROR_CODE = "prompt_limit_reached"
+
+OUT_OF_AI_CREDITS_MESSAGE = (
+    "Your organization reached its AI credit usage limit. "
+    "Increase the limits in Billing settings, or ask an org admin to do so."
+)
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
 MAX_RANKED_PAGES = 20
+MAX_MOVERS = 5
+# One answer in a window would read as a rate of 0 or 100%, so a mover needs a few answers in each.
+MIN_MOVER_ANSWERS = 3
 
 
 class BrandedSegment(LabeledStrEnum):
@@ -294,6 +305,20 @@ class PromptSetTopicCounts(PromptSetCounts):
 
 
 @frozen
+class PromptSetEngineTopicCounts:
+    """Answered checks of one engine that ran with one topic in the window. A pair with no answer has no row."""
+
+    engine: str
+    topic: str
+    answers: int
+    mentioned: int
+
+    @property
+    def mention_rate(self) -> float:
+        return self.mentioned / self.answers
+
+
+@frozen
 class PromptSetDomain:
     """How many answers across the set cited a domain in the window."""
 
@@ -345,6 +370,7 @@ class PromptSetOverview:
     engines: tuple[PromptSetEngineCounts, ...]
     daily: tuple[PromptDailyEngineStats, ...]
     topics: tuple[PromptSetTopicCounts, ...]
+    engine_topics: tuple[PromptSetEngineTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]
 
@@ -401,6 +427,31 @@ class PromptNotFoundError(Exception):
     pass
 
 
+@frozen
+class PromptLimit:
+    max_active_prompts: int
+    active_prompts: int
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.max_active_prompts - self.active_prompts)
+
+
+class PromptLimitError(Exception):
+    def __init__(self, limit: PromptLimit, adding: int) -> None:
+        if limit.remaining == 0:
+            message = (
+                f"You're tracking {limit.active_prompts} prompts, and this project can track up to "
+                f"{limit.max_active_prompts}. Turn off some prompts first."
+            )
+        else:
+            message = (
+                f"This would turn on {adding} prompts, but only {limit.remaining} more fit in this project's limit "
+                f"of {limit.max_active_prompts} tracked prompts. Turn off some prompts first."
+            )
+        super().__init__(message)
+
+
 BRAND_NAME_MAX_LENGTH = 200
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
@@ -424,6 +475,19 @@ class BrandStatus(LabeledStrEnum):
 class BrandSource(LabeledStrEnum):
     CITATIONS = "citations", "Citations"
     MANUAL = "manual", "Manual"
+
+
+class MentionKind(LabeledStrEnum):
+    """Which identifier of a brand an answer used. The first four are found in the answer text."""
+
+    NAME = "name", "Name"
+    ALIAS = "alias", "Alias"
+    DOMAIN_LABEL = "domain_label", "Domain label"
+    DOMAIN = "domain", "Domain"
+    URL = "url", "URL"
+    # Not in the text: the answer cites, or the engine retrieved, a page on the brand's domain.
+    CITATION = "citation", "Citation"
+    RETRIEVAL = "retrieval", "Retrieval"
 
 
 @frozen
@@ -531,6 +595,10 @@ class PromptUpdateError(Exception):
 
 class PromptTextConflictError(Exception):
     """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class OutOfAICreditsError(Exception):
+    pass
 
 
 class PromptSuggestionError(Exception):
@@ -656,6 +724,54 @@ class PromptSetRankings:
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
     top_pages: tuple[RankedPage, ...]
+
+
+@frozen
+class PromptMover:
+    """A prompt whose mention rate changed between the current window and the window before."""
+
+    prompt_id: str
+    prompt: str
+    topic: str
+    answers: int
+    mentioned: int
+    mention_rate: float
+    previous_answers: int
+    previous_mentioned: int
+    previous_mention_rate: float
+    change: float
+
+
+@frozen
+class PageMover:
+    """A page on an own domain whose citation rate changed between the current window and the window before."""
+
+    url: str
+    answers_citing: int
+    citation_rate: float
+    previous_answers_citing: int
+    previous_citation_rate: float
+    change: float
+
+
+@frozen
+class PromptSetMovers:
+    """The prompts and own pages that gained and lost the most between `window_from` to `window_to` and
+    the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    branded: BrandedSegment
+    engine: str | None
+    topic: str | None
+    answers: int
+    previous_answers: int
+    min_answers: int
+    prompt_gainers: tuple[PromptMover, ...]
+    prompt_losers: tuple[PromptMover, ...]
+    page_gainers: tuple[PageMover, ...]
+    page_losers: tuple[PageMover, ...]
 
 
 MAX_KEYWORD_MODIFIERS = 50
@@ -833,6 +949,7 @@ class SetupContext:
     websites: tuple[WebsiteCandidate, ...]
     own_domains: tuple[str, ...]
     active_prompts: int
+    max_active_prompts: int
     # Unarchived prompts that are turned off, which no run checks.
     paused_prompts: int
     keywords: int

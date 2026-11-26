@@ -3709,9 +3709,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
                     ...(metricsChildren.length > 0 ? [createTopLevelFolderNode('metrics', metricsChildren)] : []),
-                    ...(featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
-                        ? []
-                        : [createTopLevelFolderNode('managed-views', managedViewsChildren)]),
+                    ...(managedViewsChildren.length > 0 && !featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
+                        ? [createTopLevelFolderNode('managed-views', managedViewsChildren)]
+                        : []),
                 ]
             },
         ],

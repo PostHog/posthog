@@ -128,8 +128,6 @@
 # name: test_tracks_every_registered_function_without_a_trino_mapping
   dict({
     'aggregate': list([
-      'anyHeavy',
-      'anyHeavyIf',
       'anyLastIf',
       'argMaxMerge',
       'argMaxState',
@@ -314,6 +312,7 @@
       'lookupPaidMediumType',
       'lookupPaidSourceType',
       'matchesAction',
+      'matchesInsight',
       'recordingButton',
       'sparkline',
       'uniqueSurveySubmissionsFilter',
@@ -379,6 +378,8 @@
       'geohashDecode',
       'geohashEncode',
       'geohashesInBox',
+      'globalIn',
+      'globalNotIn',
       'greatCircleAngle',
       'greatCircleDistance',
       'h3CellAreaM2',
@@ -435,7 +436,6 @@
       'multiFuzzyMatchAnyIndex',
       'multiMatchAllIndices',
       'multiMatchAny',
-      'multiMatchAnyIndex',
       'ngramDistanceCaseInsensitiveUTF8',
       'ngramSearchCaseInsensitiveUTF8',
       'nowInBlock',

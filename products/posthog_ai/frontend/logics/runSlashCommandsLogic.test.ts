@@ -19,13 +19,17 @@ jest.mock('./runStreamLogic', () => {
             path(['test', 'runStreamLogicStub']),
             props({}),
             key((p: { streamKey: string }) => p.streamKey),
-            actions({ setStubCommands: (commands: unknown[]) => ({ commands }) }),
+            actions({
+                setStubCommands: (commands: unknown[]) => ({ commands }),
+                setStubRequestTraceId: (traceId: string | null) => ({ traceId }),
+            }),
             reducers({
                 availableCommands: [[], { setStubCommands: (_: unknown, { commands }: any) => commands }],
                 bootstrappedRunId: ['run-1', {}],
                 bootstrappedTaskId: ['task-1', {}],
                 contextUsage: [null, {}],
-                traceId: ['trace-1', {}],
+                traceId: ['request-trace-1', { setStubRequestTraceId: (_: unknown, { traceId }: any) => traceId }],
+                latestTurnTraceId: ['answer-trace-1', {}],
             }),
         ]),
     }
@@ -128,10 +132,25 @@ describe('runSlashCommandsLogic', () => {
         expect(interaction.values.composerForm.draft).toEqual('')
         expect(captureCommandFeedback).toHaveBeenCalledWith(
             'task-1',
-            'trace-1',
+            'answer-trace-1',
             'good',
             { taskId: 'task-1', runId: 'run-1' },
             'nice work'
+        )
+    })
+
+    it('links command feedback to the answer trace after a reload clears the request trace', async () => {
+        ;(runStreamLogic({ streamKey: 'run-1' }).actions as any).setStubRequestTraceId(null)
+        setDraft('/bad')
+
+        await expectLogic(logic, () => logic.actions.submitComposer()).toFinishAllListeners()
+
+        expect(captureCommandFeedback).toHaveBeenCalledWith(
+            'task-1',
+            'answer-trace-1',
+            'bad',
+            { taskId: 'task-1', runId: 'run-1' },
+            ''
         )
     })
 
@@ -211,7 +230,8 @@ describe('runSlashCommandsLogic', () => {
             (action: any) =>
                 action.type === supportLogic.actionTypes.openSupportForm &&
                 action.payload.ai_conversation_id === 'task-1' &&
-                action.payload.ai_trace_id === 'trace-1',
+                action.payload.ai_trace_id === 'answer-trace-1' &&
+                action.payload.ai_context_url === 'http://localhost/project/997/ai-observability/traces/answer-trace-1',
         ])
     })
 

@@ -78,6 +78,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/agent-transcript': ['AgentTranscript', 'agentTranscript'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
@@ -95,8 +96,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
     '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
-    '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
-    '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
     '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
     '/ai-evals/evaluations/offline/experiments': [
         'AIObservabilityOfflineExperiments',
@@ -284,6 +283,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
     '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
     '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
+    '/mcp-analytics/users': ['MCPAnalytics', 'mcpAnalyticsUsers'],
+    '/mcp-analytics/users/:distinctId': ['MCPAnalyticsUser', 'mcpAnalyticsUser'],
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
@@ -453,10 +454,18 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
     '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
+    '/ai-evals/taggers': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/ai-evals/taggers/:id': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
     '/ai-evals/tags': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
-    '/ai-evals/tags/:id': (params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/ai-evals/tags/:id': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/llm-analytics/tags': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/llm-analytics/tags/:id': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
     '/prompt-management': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
     '/llm-analytics': (_params, searchParams, hashParams) =>
@@ -511,10 +520,6 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
     '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
-    '/llm-analytics/tags': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
-    '/llm-analytics/tags/:id': (params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
     '/llm-analytics/evaluations': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
     '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
@@ -644,6 +649,17 @@ export const productRedirects: Record<
     '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
         combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
     '/web/bots': () => urls.webAnalyticsContentAutopilot(),
+    '/messaging': () => urls.workflows(),
+    '/messaging/:tab': ({ tab }) => {
+        if (tab === 'broadcasts') {
+            return urls.broadcasts()
+        }
+        if (tab === 'library' || tab === 'channels' || tab === 'opt-outs') {
+            return urls.workflows(tab)
+        }
+        return urls.workflows()
+    },
+    '/messaging/broadcasts/:id': ({ id }) => urls.broadcast(id ?? ''),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -658,6 +674,11 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    AgentTranscript: {
+        name: 'Share your agent transcript',
+        organizationBased: true,
+        description: 'Upload the transcript of the conversation where an AI agent set up PostHog.',
+    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -734,22 +755,6 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'AIObservability',
         layout: 'app-container',
         iconType: 'llm_evaluations',
-    },
-    AIObservabilityTags: {
-        projectBased: true,
-        name: 'Taggers',
-        description: 'Add custom tags to your AI generations automatically.',
-        activityScope: 'AIObservability',
-        layout: 'app-container',
-        iconType: 'llm_tags',
-        docsHref: 'https://posthog.com/docs/ai-evals/taggers',
-    },
-    AIObservabilityTag: {
-        projectBased: true,
-        name: 'Tagger',
-        activityScope: 'AIObservability',
-        layout: 'app-container',
-        iconType: 'llm_tags',
     },
     AIObservabilityPrompts: {
         projectBased: true,
@@ -1154,6 +1159,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
+    MCPAnalyticsUser: { projectBased: true, name: 'MCP user', layout: 'app-container', iconType: 'mcp_analytics' },
     McpGateway: {
         projectBased: true,
         name: 'MCP servers',
@@ -1433,6 +1439,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    agentTranscript: (): string => '/agent-transcript',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
@@ -1481,9 +1488,12 @@ export const productUrls = {
             timestamp?: string
         }
     ): string => {
+        const segment = id.replace(/[^A-Za-z0-9\-_~.@()!'|:]/gu, (character) =>
+            character === ' ' ? '%20' : encodeURIComponent(encodeURIComponent(character))
+        )
         const queryParams = new URLSearchParams(params)
         const stringifiedParams = queryParams.toString()
-        return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        return `/ai-observability/sessions/${segment}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityPlayground: (): string => '/ai-observability/playground',
     aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
@@ -1493,8 +1503,6 @@ export const productUrls = {
             item?: string
         }
     ): string => combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
-    aiObservabilityTags: (): string => '/ai-evals/taggers',
-    aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
     aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
     aiObservabilityScorers: (): string => '/ai-evals/evaluations/scorers',
     aiObservabilityScorer: (
@@ -1908,6 +1916,8 @@ export const productUrls = {
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
+    mcpAnalyticsUsers: (): string => '/mcp-analytics/users',
+    mcpAnalyticsUser: (distinctId: string): string => `/mcp-analytics/users/${encodeURIComponent(distinctId)}`,
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
@@ -2561,7 +2571,6 @@ export type ProductTreePath =
     | 'SQL editor'
     | 'Support'
     | 'Surveys'
-    | 'Taggers'
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
@@ -2697,8 +2706,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
             'AIObservabilityClusters',
@@ -2988,8 +2995,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
             'AIObservabilityClusters',
@@ -3123,8 +3128,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
             'AIObservabilityClusters',
@@ -3169,6 +3172,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [
             { name: 'Activity', href: urls.mcpAnalyticsActivity() },
             { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
+            { name: 'Users', href: urls.mcpAnalyticsUsers() },
             { name: 'Tool quality', href: urls.mcpAnalyticsToolQuality() },
             { name: 'Missing capabilities', href: urls.mcpAnalyticsMissingCapabilities() },
             { name: 'Notifications', href: urls.mcpAnalyticsNotifications() },
@@ -3180,7 +3184,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
-        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
+        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail', 'MCPAnalyticsUser'],
     },
     {
         path: 'MCP servers',
@@ -3277,8 +3281,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
             'AIObservabilityClusters',
@@ -3355,8 +3357,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
             'AIObservabilityClusters',
@@ -3463,42 +3463,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'] as FileSystemIconColor,
         sceneKey: 'Surveys',
         sceneKeys: ['Survey', 'Surveys'],
-    },
-    {
-        path: 'Taggers',
-        intents: [ProductKey.AI_OBSERVABILITY],
-        category: ProductItemCategory.AI_ENGINEERING,
-        type: 'llm_tags',
-        iconType: 'llm_tags' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-tags-light)', 'var(--color-product-llm-tags-dark)'],
-        href: urls.aiObservabilityTags(),
-        searchKeywords: ['llm tags', 'auto-tagging'],
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
-        tags: ['alpha'],
-        sceneKey: 'AIObservabilityTags',
-        sceneKeys: [
-            'AIObservability',
-            'AIObservabilityTrace',
-            'AIObservabilitySession',
-            'AIObservabilityUsers',
-            'AIObservabilityPlayground',
-            'AIObservabilityDatasets',
-            'AIObservabilityDataset',
-            'AIObservabilityEvaluations',
-            'AIObservabilityScorers',
-            'AIObservabilityScorer',
-            'AIObservabilityOfflineExperiments',
-            'AIObservabilityOfflineExperiment',
-            'AIObservabilityOfflineScorerHistory',
-            'AIObservabilityEvaluation',
-            'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
-            'AIObservabilityPrompts',
-            'AIObservabilityPrompt',
-            'AIObservabilityClusters',
-            'AIObservabilityCluster',
-        ],
     },
     {
         path: 'Tasks',
@@ -3887,6 +3851,16 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         ],
         sceneKey: 'Sources',
         sceneKeys: ['Sources'],
+    },
+    {
+        path: 'Tags',
+        category: 'Schema',
+        iconType: 'tag',
+        href: urls.tagDefinitions(),
+        flag: FEATURE_FLAGS.TAG_MANAGEMENT,
+        requiresOrganizationAdmin: true,
+        searchKeywords: ['labels', 'merge', 'rename'],
+        sceneKeys: [],
     },
     {
         path: `Transformations`,

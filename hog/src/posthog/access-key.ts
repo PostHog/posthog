@@ -146,6 +146,7 @@ export class PersonalAPIKey implements AccessKey {
             method: 'GET',
             token: this.apiKey,
             timeoutMs: KEY_CHECK_TIMEOUT_MS,
+            posthog: true,
         })
         if (response.status === 401) {
             throw new HogError(

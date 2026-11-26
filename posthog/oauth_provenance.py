@@ -17,6 +17,10 @@ from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS, SANDBOX_OAU
 # through the consent flow. See INTERNAL_SCOPES in posthog/temporal/oauth.py.
 INTERNAL_RUN_SCOPE = "internal_run:read"
 SANDBOX_ORIGIN_HEADER = "X-PostHog-Sandbox-Origin"
+# A PostHog connection replays a request with the connection's own OAuth token, so the target cannot see that an
+# ID-JAG token started it. The forwarding server sets this header so that the target applies the ID-JAG limits.
+# A client that sets the header itself only limits its own request.
+ID_JAG_ORIGIN_HEADER = "X-PostHog-ID-JAG-Origin"
 
 
 def is_sandbox_oauth_request(request) -> bool:
@@ -34,6 +38,13 @@ def is_sandbox_oauth_request(request) -> bool:
 
 def is_sandbox_origin_request(request) -> bool:
     return request.headers.get(SANDBOX_ORIGIN_HEADER) == "1" or is_sandbox_oauth_request(request)
+
+
+def is_id_jag_origin_request(request) -> bool:
+    from posthog.auth import IDJagAccessTokenAuthentication  # noqa: PLC0415 — circular via posthog.event_usage
+
+    authenticator = getattr(request, "successful_authenticator", None)
+    return isinstance(authenticator, IDJagAccessTokenAuthentication) or request.headers.get(ID_JAG_ORIGIN_HEADER) == "1"
 
 
 def get_oauth_access_token(request) -> object | None:

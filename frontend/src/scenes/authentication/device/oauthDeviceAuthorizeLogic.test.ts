@@ -241,6 +241,20 @@ describe('oauthDeviceAuthorizeLogic', () => {
         await expectLogic(logic).toMatchValues({ decision: 'authorized' })
     })
 
+    it('keeps a typed code in the URL, so a sign-in prompt that leaves the page returns to it', async () => {
+        useGrantMocks(GRANT)
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        router.actions.push(urls.oauthDeviceAuthorize())
+
+        logic.actions.setUserCode('bcdf-ghjk')
+        logic.actions.submitCode()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toEqual({ code: 'BCDF-GHJK' })
+        expect(lookups).toEqual(['BCDF-GHJK'])
+    })
+
     it('without a session, sends the code through login instead of looking it up', async () => {
         useGrantMocks(GRANT)
         const priorAppContext = window.POSTHOG_APP_CONTEXT

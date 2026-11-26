@@ -617,6 +617,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             stamps[CohortBackfillKind.BEHAVIORAL.value] = self.last_backfill_events_at
         return stamps
 
+    def pending_backfill_kinds(self) -> set[str]:
+        return {kind for kind, stamp in self._required_backfill_stamps().items() if stamp is None}
+
     @property
     def is_flag_compatible(self) -> bool:
         """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.

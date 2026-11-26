@@ -93,7 +93,7 @@ async def test_invalid_hogql_returns_non_retryable_staging_error(hogql_query: st
     clickhouse = MockClickHouseClient()
 
     with patch(
-        "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+        "products.batch_exports.backend.temporal.clickhouse.get_client",
         return_value=clickhouse.mock_client_cm,
     ):
         if hogql_query is None:

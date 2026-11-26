@@ -39,6 +39,7 @@ import { InternalFetchService } from '~/common/services/internal-fetch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { FetchResponse } from '~/common/utils/request'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -1441,6 +1442,135 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('wakes a run whose wait event fired while a worker still held the run', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            let openGate!: () => void
+            const gate = new Promise<void>((resolve) => (openGate = resolve))
+            mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(async () => {
+                await gate
+                return []
+            })
+
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running'])
+            }, 5000)
+
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+            openGate()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        describe('pending wakes recorded on the job row', () => {
+            const match = { kind: 'match', eventName: 'wakeup_event', eventUuid: 'event-1' }
+
+            // Parks a wait, then moves it to a queue no worker reads, so the row shows only what the matcher wrote.
+            const parkOutOfReach = async (): Promise<string> => {
+                await createWaitUntilWorkflow({
+                    condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                    events: [eventNameFilter('wakeup_event')],
+                    max_wait_duration: '5m',
+                })
+                await triggerWorkflow(createGlobals())
+                await expectParked()
+                const [job] = await queryCyclotronJobs()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET queue_name = 'out_of_reach' WHERE id = $1`, [
+                    job.id,
+                ])
+                return job.id
+            }
+            const record = (id: string, wake: Record<string, string>): Promise<void> =>
+                (matcher as any).recordPendingWakes([{ id, wakes: { wait_condition: wake } }])
+            const rowOf = async (id: string): Promise<{ due: boolean; pending_wake: any }> =>
+                (
+                    await cyclotronPool.query(
+                        `SELECT scheduled <= now() AS due, pending_wake FROM cyclotron_jobs WHERE id = $1`,
+                        [id]
+                    )
+                ).rows[0]
+
+            it.each([
+                ['wakes a run that parked on its wait before the match landed', false, true],
+                ['keeps a wait that is retrying a failed cohort lookup on its backoff', true, false],
+            ])('%s', async (_name, cohortRetry, due) => {
+                const id = await parkOutOfReach()
+                if (cohortRetry) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET state = convert_to(jsonb_set(convert_from(state, 'UTF8')::jsonb,
+                             '{state,currentAction,cohortLookupAttempts}', '1')::text, 'UTF8') WHERE id = $1`,
+                        [id]
+                    )
+                }
+
+                await record(id, match)
+
+                const row = await rowOf(id)
+                expect(row.due).toBe(due)
+                expect(row.pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it.each([
+                ['__proto__', match],
+                ['constructor', { kind: 'recheck' }],
+            ])('records a wake for a step whose id is %s', async (stepId, wake) => {
+                const id = await parkOutOfReach()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET action_id = $2 WHERE id = $1`, [id, stepId])
+
+                await (matcher as any).recordPendingWakes([
+                    { id, wakes: parseJSON(`{"${stepId}": ${JSON.stringify(wake)}}`) },
+                ])
+
+                const row = await rowOf(id)
+                expect(row.due).toBe(true)
+                expect(Object.keys(row.pending_wake)).toEqual([stepId])
+                expect(row.pending_wake[stepId]).toMatchObject(wake)
+            })
+
+            it.each([
+                ['while the run is parked', false],
+                ['after the run parked again with the match still unapplied', true],
+            ])('keeps a recorded match when a re-check for the same step follows %s', async (_name, reparked) => {
+                const id = await parkOutOfReach()
+
+                await record(id, match)
+                if (reparked) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET last_transition = clock_timestamp() WHERE id = $1`,
+                        [id]
+                    )
+                }
+                await record(id, { kind: 'recheck' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it('records a match whose event name contains a NUL byte', async () => {
+                const id = await parkOutOfReach()
+
+                await record(id, { ...match, eventName: 'wakeup\u0000event' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition.eventName).toBe('wakeup\uFFFDevent')
+            })
+
+            it('does not rewrite the row when the same wake arrives again', async () => {
+                const id = await parkOutOfReach()
+                await record(id, match)
+                const first = (await rowOf(id)).pending_wake.wait_condition.at
+
+                await record(id, match)
+
+                expect((await rowOf(id)).pending_wake.wait_condition.at).toBe(first)
+            })
+        })
+
         it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
             await createWaitUntilWorkflow({
                 // Property condition never matches the trigger event, so the job parks.
@@ -1987,6 +2117,51 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('re-checks a wait whose distinct_id was merged while a slow step in the same batch held the run', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_slow: fetchAction('https://example.com/slow'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_slow', type: 'continue' },
+                    { from: 'function_slow', to: 'exit', type: 'continue' },
+                ],
+            })
+            let merged = false
+            mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(() =>
+                Promise.resolve([merged ? { ...survivorPersonRow(), distinct_id: 'distinct_id' } : anonPersonRow()])
+            )
+            let openGate!: () => void
+            const gate = new Promise<void>((resolve) => (openGate = resolve))
+            const okResponse = mockFetch.getMockImplementation()!
+            mockFetch.mockImplementation(async (...args: Parameters<typeof okResponse>) => {
+                if (args[0] === 'https://example.com/slow') {
+                    await gate
+                }
+                return okResponse(...args)
+            })
+
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/slow', expect.anything())
+            }, 5000)
+            expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running', 'running'])
+
+            merged = true
+            await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
+            openGate()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+            }, 10000)
+        })
+
         it('anchors and wakes a wait that parked before its distinct_id had a person', async () => {
             // Production shape: an event arrives for a distinct_id with no person yet, so the wait parks
             // with person_id NULL. Person wakes are keyed on person_id alone, so nothing can address that
@@ -2213,6 +2388,89 @@ describe('Workflows E2E (postgres-v2)', () => {
             await waitForExpect(() => {
                 expect(conversionCount()).toBe(1)
             }, 5000)
+        })
+
+        it('counts a conversion on the goal a run enrolled with after the flow changed goal, with lookups gated on every goal the flow has had', async () => {
+            const flow = await createWorkflowFlow(
+                {
+                    // The run finishes at once, so only its watcher can count the conversion.
+                    actions: { trigger: trigger(), exit: exitAction() },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: { filters: [], bytecode: [], events: [eventNameFilter('old_goal')] } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(async () => {
+                const rows = await cyclotronPool.query('SELECT 1 FROM conversion_watchers WHERE function_id = $1', [
+                    flow.id,
+                ])
+                expect(rows.rows).toHaveLength(1)
+                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['completed'])
+            }, 5000)
+            // What saving the new goal does in Django: the flow takes the new goal, which is recorded.
+            const newConversion = { filters: [], bytecode: [], events: [eventNameFilter('new_goal')] }
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET conversion = $1 WHERE id = $2`,
+                [JSON.stringify(newConversion), flow.id],
+                'editHogFlowGoal'
+            )
+            const recordGoal = (eventName: string, lastLiveAt: string): Promise<unknown> =>
+                hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_hogflowconversiongoal
+                         (id, team_id, hog_flow_id, goal_hash, goal, event_names, created_at, last_live_at)
+                     VALUES (gen_random_uuid(), $1, $2, md5($3::text), $3::jsonb, $4::jsonb, NOW(), NOW() - $5::interval)`,
+                    [
+                        flow.team_id,
+                        flow.id,
+                        JSON.stringify({ events: [eventNameBytecode(eventName)] }),
+                        JSON.stringify([eventName]),
+                        lastLiveAt,
+                    ],
+                    'recordHogFlowGoal'
+                )
+            await recordGoal('new_goal', '0 seconds')
+            const gated = new CdpHogflowSubscriptionMatcherConsumer(
+                { ...hub, CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' },
+                deps
+            )
+            await (gated as any).refreshWatcherState()
+            // The old goal arrives as the backfill writes it, after the matcher's first read, stamped with the
+            // workflow's last change. The next read has to pick it up.
+            await recordGoal('old_goal', '30 days')
+            await (gated as any).refreshWatcherState()
+            const conversionCount = (): number =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(
+                        (m: any) =>
+                            m.value.app_source === 'hog_flow' &&
+                            m.value.metric_name === 'conversion' &&
+                            m.value.app_source_id === flow.id
+                    )
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            try {
+                // The run is judged by the goal it enrolled with, not the flow's current one.
+                await gated.processBatch([createGlobals({ event: 'new_goal' }), createGlobals({ event: 'unrelated' })])
+                expect(conversionCount()).toBe(0)
+                await gated.processBatch([createGlobals({ event: 'old_goal' })])
+
+                await waitForExpect(() => {
+                    expect(conversionCount()).toBe(1)
+                }, 5000)
+                const watchers = await cyclotronPool.query(
+                    'SELECT count(*)::int AS n FROM conversion_watchers WHERE function_id = $1',
+                    [flow.id]
+                )
+                expect(watchers.rows[0].n).toBe(0)
+            } finally {
+                await gated.stop().catch(() => {})
+            }
         })
     })
 
@@ -4798,6 +5056,20 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         return await insertHogFlow(hub.postgres, flow)
     }
 
+    const batchRunBody = (maxAudienceSize: number): Record<string, unknown> => ({
+        filters: { filter_test_accounts: false },
+        max_audience_size: maxAudienceSize,
+        audience_snapshot: { wait_until: new Date(Date.now() + 3600 * 1000).toISOString() },
+    })
+
+    const readyAudienceSnapshot = (): FetchResponse => ({
+        status: 200,
+        headers: {},
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(JSON.stringify({ status: 'ready', audience_size: null, error: null })),
+        dump: () => Promise.resolve(),
+    })
+
     it('POST /batch_invocations with flag on creates a resolver cyclotron job with the right shape', async () => {
         const flow = await insertActiveBatchFlow()
         const parentRunId = new UUIDT().toString()
@@ -4898,7 +5170,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let personPageCalls = 0
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 personPageCalls += 1
                 const pages = [
                     { users_affected: personIds.slice(0, 2), cursor: 'c1', has_more: true },
@@ -4929,7 +5204,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         // Start the consumer — it'll pick up the resolver job and process pages
@@ -4996,7 +5271,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let personPageCalls = 0
 
         mockInternalFetch.mockImplementation(async (url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 personPageCalls += 1
                 if (personPageCalls === pagesBeforeLimit) {
                     await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
@@ -5038,7 +5316,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', pagesBeforeLimit === 0)
             await supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .send(batchRunBody(1000))
                 .expect(200)
 
             resolverWorker = buildResolverConsumer()
@@ -5075,7 +5353,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         })
 
         mockInternalFetch.mockImplementation(async (url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 audienceCalls += 1
                 expect(opts.timeoutMs).toBe(45_000)
                 await audiencePage.promise
@@ -5104,7 +5385,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         try {
             await supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .send(batchRunBody(1000))
                 .expect(200)
 
             resolverWorker = buildResolverConsumer()
@@ -5144,7 +5425,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const statusPuts: Array<{ status: string }> = []
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 return Promise.resolve({
                     status: 200,
                     headers: {},
@@ -5174,7 +5458,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const firstRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${firstRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         await waitForExpect(() => {
@@ -5192,7 +5476,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const secondRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${secondRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         await waitForExpect(() => {
@@ -5215,7 +5499,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const statusPuts: Array<{ status: string }> = []
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 return Promise.resolve({
                     status: 200,
                     headers: {},
@@ -5254,7 +5541,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const parentRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         // The first attempt claims the person's mask slot, then hits the injected commit
@@ -5316,7 +5603,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
                     dump: () => Promise.resolve(),
                 })
             }
-            // Audience fetch shouldn't be reached — the resolver bails on missing
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            // The audience page shouldn't be reached — the resolver bails on missing
             // hogflow before getting that far.
             return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
         })
@@ -5326,7 +5616,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         // and process the job before we delete the workflow).
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         // Sabotage: customer deletes the workflow between dispatch and processing.
@@ -5363,12 +5653,15 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const statusPuts: Array<{ status: string }> = []
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            const body = url.includes('/user_blast_radius_persons')
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            const body = url.endsWith('/audience_page')
                 ? JSON.stringify({ users_affected: personIds, cursor: null, has_more: false })
                 : '{}'
             if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
                 statusPuts.push(parseJSON(opts.body) as { status: string })
-            } else if (!url.includes('/user_blast_radius_persons')) {
+            } else if (!url.endsWith('/audience_page')) {
                 return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
             }
             return Promise.resolve({
@@ -5382,7 +5675,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         const replicaHidden = hideHogFlowsFromReplica(hub.postgres, [flow.id])
@@ -5412,7 +5705,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let putAttempts = 0
 
         mockInternalFetch.mockImplementation((url: string) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 return Promise.resolve({
                     status: 200,
                     headers: {},
@@ -5443,7 +5739,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         resolverWorker = buildResolverConsumer()
@@ -5474,7 +5770,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let fetchAttempts = 0
 
         mockInternalFetch.mockImplementation((url: string) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 fetchAttempts += 1
                 // Audience fetch always fails — resolver should keep retrying,
                 // never advance the cursor, never enqueue children.
@@ -5485,7 +5784,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .send(batchRunBody(1000))
             .expect(200)
 
         resolverWorker = buildResolverConsumer()
@@ -5590,7 +5889,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let fetchAttempts = 0
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 fetchAttempts += 1
                 return Promise.reject(new Error('ClickHouse permanently rejecting the audience query'))
             }
@@ -5613,6 +5915,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             hogFlowId: flow.id,
             filters: { properties: [], filter_test_accounts: false },
             variables: {},
+            audienceSnapshot: { waitUntil: new Date(Date.now() + 3600 * 1000).toISOString(), ready: true },
             maxAudienceSize: 1000,
             cursor: null,
             totalEnqueued: 0,
@@ -5720,7 +6023,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         let personPageCalls = 0
 
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
-            if (url.includes('/user_blast_radius_persons')) {
+            if (url.endsWith('/audience_snapshot')) {
+                return Promise.resolve(readyAudienceSnapshot())
+            }
+            if (url.endsWith('/audience_page')) {
                 personPageCalls += 1
                 const pages = [
                     { users_affected: personIds.slice(0, 3), cursor: 'c1', has_more: true },
@@ -5750,7 +6056,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false }, max_audience_size: 4 })
+            .send(batchRunBody(4))
             .expect(200)
 
         resolverWorker = buildResolverConsumer()

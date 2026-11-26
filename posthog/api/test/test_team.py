@@ -21,6 +21,7 @@ from rest_framework import serializers, status, test
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
 from posthog.api.team.conversations_settings import handle_conversations_token_on_update, merge_conversations_settings
 from posthog.api.team.live_events import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
+from posthog.api.team.session_recording_settings import merge_session_recording_masking_config
 from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -53,8 +54,9 @@ from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.testing import home_tab_config_exists
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -722,11 +724,11 @@ def team_api_test_factory():
             )
 
         def test_update_home_tab_dashboard(self):
-            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            self.assertFalse(home_tab_config_exists(team_id=self.team.id))
             response = self.client.get("/api/environments/@current/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertIsNone(response.json()["home_tab_dashboard"])
-            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            self.assertFalse(home_tab_config_exists(team_id=self.team.id))
 
             d = Dashboard.objects.create(name="Test", team=self.team)
 
@@ -735,7 +737,7 @@ def team_api_test_factory():
 
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             self.assertEqual(response_data["home_tab_dashboard"], d.id)
-            self.assertEqual(Team.objects.get(pk=self.team.pk).home_tab_dashboard.id, d.id)
+            self.assertEqual(dashboards_api.home_tab_dashboard_id(team_id=self.team.pk), d.id)
 
             changes = [
                 change
@@ -751,7 +753,7 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": None})
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             self.assertIsNone(response.json()["home_tab_dashboard"])
-            self.assertIsNone(Team.objects.get(pk=self.team.pk).home_tab_dashboard)
+            self.assertIsNone(dashboards_api.home_tab_dashboard_id(team_id=self.team.pk))
             changes = [
                 change
                 for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
@@ -1077,6 +1079,83 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             second_get_response = self.client.get("/api/environments/@current/")
             assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
+
+        def test_can_set_session_recording_masking_config_mobile_keys(self) -> None:
+            config = {"maskAllInputs": True, "mobile": {"maskAllText": True}}
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": config}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            get_response = self.client.get("/api/environments/@current/")
+            assert get_response.json()["session_recording_masking_config"] == config
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"session_recording_masking_config": {"mobile": {"maskAllImages": True}}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            get_response = self.client.get("/api/environments/@current/")
+            assert get_response.json()["session_recording_masking_config"] == {
+                "maskAllInputs": True,
+                "mobile": {"maskAllText": True, "maskAllImages": True},
+            }
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"session_recording_masking_config": {"mobile": {"maskAllText": False}}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            get_response = self.client.get("/api/environments/@current/")
+            assert get_response.json()["session_recording_masking_config"] == {
+                "maskAllInputs": True,
+                "mobile": {"maskAllText": False, "maskAllImages": True},
+            }
+
+        @parameterized.expand(
+            [
+                (
+                    "web_write_keeps_mobile",
+                    {"maskAllInputs": False, "maskTextSelector": "*", "mobile": {"maskAllText": True}},
+                    {"maskAllInputs": True},
+                    {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                ),
+                (
+                    "mobile_write_keeps_web_keys",
+                    {"maskAllInputs": True, "maskTextSelector": "*", "mobile": {"maskAllText": True}},
+                    {"mobile": {"maskAllImages": True}},
+                    {
+                        "maskAllInputs": True,
+                        "maskTextSelector": "*",
+                        "mobile": {"maskAllText": True, "maskAllImages": True},
+                    },
+                ),
+                (
+                    "none_clears_mobile",
+                    {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                    None,
+                    None,
+                ),
+            ]
+        )
+        def test_session_recording_masking_config_patch_merges_with_stored(
+            self,
+            _name: str,
+            stored: dict[str, Any],
+            patch_value: dict[str, Any] | None,
+            expected: dict[str, Any] | None,
+        ) -> None:
+            self.team.session_recording_masking_config = stored
+            self.team.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": patch_value}, format="json"
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            assert self.team.session_recording_masking_config == expected
 
         def test_can_set_and_unset_survey_settings(self):
             survey_appearance = {
@@ -3574,6 +3653,18 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
 
+    def test_settings_as_of_reads_the_current_home_tab_dashboard(self):
+        dashboard = Dashboard.objects.create(name="Home", team=self.team)
+        with time_machine.travel("2025-04-01T00:00:00Z", tick=False):
+            r = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": dashboard.id})
+            assert r.status_code == status.HTTP_200_OK, r.json()
+
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-04-02T00:00:00Z&scope=home_tab_dashboard"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"home_tab_dashboard": dashboard.id}
+
     @parameterized.expand(
         [
             (
@@ -4398,6 +4489,8 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
             for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
             for name, stored, submitted in (
                 ("ai_reply_modes_must_be_an_object", None, {"ai_reply_modes": ["not", "a", "dict"]}),
+                ("ai_rerun_mode_must_be_a_known_value", None, {"ai_rerun_mode": "every_reply"}),
+                ("ai_rerun_mode_must_be_a_string", None, {"ai_rerun_mode": ["until_team_reply"]}),
                 (
                     "changed_ai_reply_modes_must_be_an_object",
                     {"ai_reply_modes": ["old"]},
@@ -4652,6 +4745,91 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         self, _name: str, value: Any, expected_detail: str
     ) -> None:
         self._assert_field_error("session_recording_network_payload_capture_config", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unknown top-level key",
+                {"key": "something"},
+                "Must provide a dictionary with only known keys: maskAllInputs, maskTextSelector, blockSelector, mobile.",
+            ],
+            ["mobile none", {"mobile": None}, "mobile must be a dictionary."],
+            ["mobile list", {"mobile": []}, "mobile must be a dictionary."],
+            ["mobile string", {"mobile": "yes"}, "mobile must be a dictionary."],
+            [
+                "mobile unknown key",
+                {"mobile": {"key": True}},
+                "mobile must only contain known keys: maskAllText, maskAllImages.",
+            ],
+            ["mask all text string", {"mobile": {"maskAllText": "true"}}, "mobile.maskAllText must be a boolean."],
+            ["mask all text int", {"mobile": {"maskAllText": 1}}, "mobile.maskAllText must be a boolean."],
+            ["mask all images none", {"mobile": {"maskAllImages": None}}, "mobile.maskAllImages must be a boolean."],
+        ]
+    )
+    def test_invalid_session_recording_masking_config(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_recording_masking_config", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["none clears everything", None, {"maskAllInputs": True, "mobile": {"maskAllText": True}}, None],
+            [
+                "web write replaces web keys and keeps mobile",
+                {"maskAllInputs": True},
+                {"maskAllInputs": False, "maskTextSelector": "*", "mobile": {"maskAllText": True}},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+            ],
+            [
+                "mobile write merges per key and keeps web keys",
+                {"mobile": {"maskAllImages": True}},
+                {"maskAllInputs": True, "blockSelector": "img", "mobile": {"maskAllText": True}},
+                {"maskAllInputs": True, "blockSelector": "img", "mobile": {"maskAllText": True, "maskAllImages": True}},
+            ],
+            [
+                "web and mobile write replaces web keys and merges mobile",
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                {"maskTextSelector": "*", "mobile": {"maskAllImages": True}},
+                {"maskAllInputs": True, "mobile": {"maskAllImages": True, "maskAllText": True}},
+            ],
+            [
+                "empty write clears web keys and keeps mobile",
+                {},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                {"mobile": {"maskAllText": True}},
+            ],
+            [
+                "empty mobile changes nothing",
+                {"mobile": {}},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+            ],
+            ["empty mobile on an unset config stores no mobile", {"mobile": {}}, None, {}],
+            [
+                "off stores false",
+                {"mobile": {"maskAllText": False}},
+                {"mobile": {"maskAllText": True, "maskAllImages": True}},
+                {"mobile": {"maskAllText": False, "maskAllImages": True}},
+            ],
+            ["non-dict existing with web write", {"maskAllInputs": True}, "legacy", {"maskAllInputs": True}],
+            [
+                "non-dict existing with mobile write",
+                {"mobile": {"maskAllText": True}},
+                ["legacy"],
+                {"mobile": {"maskAllText": True}},
+            ],
+            [
+                "invalid stored mobile keys dropped",
+                {"mobile": {"maskAllText": True}},
+                {"mobile": {"maskAllImages": "yes", "unknown": True}},
+                {"mobile": {"maskAllText": True}},
+            ],
+        ]
+    )
+    def test_merge_session_recording_masking_config(
+        self, _name: str, requested: dict | None, existing: object, expected: dict | None
+    ) -> None:
+        assert merge_session_recording_masking_config(requested, existing) == expected
 
     @parameterized.expand(
         [

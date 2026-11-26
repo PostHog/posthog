@@ -10,7 +10,7 @@ Multiply credits by the monthly tool's `pricing.usd_per_credit`; do not assume c
 
 | Question                                                    | File                                               | Sections                                                                                                                 |
 | ----------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| What was spent, by day, source, or scout?                   | [queries-spend.md](queries-spend.md)               | First receipt, Spend by day, Spend by signal source, Spend by scout                                                      |
+| What was spent, by day, source, or scout?                   | [queries-spend.md](queries-spend.md)               | Earliest receipt, Spend by day, Spend by signal source, Spend by scout, Spend by scout and trigger                       |
 | Is a source or scout worth what it costs?                   | [queries-yield.md](queries-yield.md)               | Yield, Baselines, Yield by signal source, Yield by scout, Outcomes of reports too new to settle, What a quiet scout does |
 | Which part of a large source drives its spend?              | [queries-source-parts.md](queries-source-parts.md) | Breakdown inside a source                                                                                                |
 | Should a daily report limit or a priority threshold change? | [queries-controls.md](queries-controls.md)         | Reports shown per day, Pull requests linked and merged                                                                   |

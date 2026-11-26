@@ -44,6 +44,7 @@ export interface contentAutopilotKeywordsLogicValues {
     keywordsError: ContentAutopilotPromptsError | null
     keywordsLeft: number
     keywordsLoading: boolean
+    keywordsModalOpen: boolean
     modifierKeyword: string | null
     modifiers: AEOKeywordModifierReportApi | null
     modifiersError: ContentAutopilotPromptsError | null
@@ -97,6 +98,9 @@ export interface contentAutopilotKeywordsLogicActions {
     }
     addKeywordsSuccess: (result: AEOKeywordCreateResultApi) => {
         result: AEOKeywordCreateResultApi
+    }
+    closeKeywordsModal: () => {
+        value: true
     }
     loadKeywords: () => {
         value: true
@@ -161,6 +165,9 @@ export interface contentAutopilotKeywordsLogicActions {
             value: true
         }
     }
+    openKeywordsModal: () => {
+        value: true
+    }
     removeKeyword: (keyword: AEOKeywordApi) => {
         keyword: AEOKeywordApi
     }
@@ -215,6 +222,8 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
         removeKeywordSuccess: (keyword: AEOKeywordApi) => ({ keyword }),
         removeKeywordFailure: (keyword: AEOKeywordApi) => ({ keyword }),
         setModifierKeyword: (modifierKeyword: string | null) => ({ modifierKeyword }),
+        openKeywordsModal: true,
+        closeKeywordsModal: true,
     }),
     loaders(({ values }) => ({
         keywords: [
@@ -306,6 +315,13 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
                 setModifierKeyword: (_, { modifierKeyword }) => modifierKeyword,
             },
         ],
+        keywordsModalOpen: [
+            false,
+            {
+                openKeywordsModal: () => true,
+                closeKeywordsModal: () => false,
+            },
+        ],
         keywordsError: [
             null as ContentAutopilotPromptsError | null,
             {
@@ -387,6 +403,10 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
                 actions.loadReport()
                 if (values.modifierKeyword === keyword.keyword) {
                     actions.setModifierKeyword(null)
+                }
+                // The empty state unmounts the editor, so it would reopen on its own once a keyword is added back.
+                if (values.keywords?.length === 0) {
+                    actions.closeKeywordsModal()
                 }
             },
             setModifierKeyword: ({ modifierKeyword }) => {

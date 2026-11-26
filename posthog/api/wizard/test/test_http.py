@@ -917,7 +917,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     ):
         self._mock_oauth(mock_authentication)
         mock_post.return_value.status_code = 201
-        mock_post.return_value.json.return_value = self.MINTED
+        # An unpinned token is released only when the gateway echoes the decision cap it stored.
+        mock_post.return_value.json.return_value = {**self.MINTED, "decision_cap_usd": "0.000001"}
         self.flag_payloads[WIZARD_SYSTEM_PROMPT_FLAG] = payload
 
         response = self.client.post(

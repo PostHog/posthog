@@ -1,3 +1,4 @@
+import { projectKeyDisplayName } from '../components/ProjectKeyLabel'
 import type { TraceReview, TraceReviewScore } from './types'
 export {
     getBooleanConfig,
@@ -115,7 +116,7 @@ export function getTraceReviewerName(review: TraceReview): string | null {
     const reviewer = review.reviewed_by
 
     if (!reviewer) {
-        return null
+        return review.reviewed_by_project_key_id ? projectKeyDisplayName(review.reviewed_by_project_key_id) : null
     }
 
     if (reviewer.first_name) {

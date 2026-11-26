@@ -15484,12 +15484,25 @@ export const ErrorTrackingTagRulesCreateBody = () => zod.object({
     label: zod
         .string()
         .max(errorTrackingTagRulesCreateBodyLabelMax)
-        .describe('Display name of the tag the rule applies to each new issue whose first event matches the filters.'),
+        .describe('Display name of the tag the rule applies to matching issues.'),
     description: zod
         .string()
         .max(errorTrackingTagRulesCreateBodyDescriptionMax)
         .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
         .describe('What the tag means. Shown with the tag. Defaults to empty.'),
+    color: zod
+        .union([
+            zod
+                .enum(['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple'])
+                .describe(
+                    '\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+        ),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -15634,7 +15647,7 @@ export const ErrorTrackingTagRulesCreateBody = () => zod.object({
             ),
         })
         .describe(
-            'Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
+            'Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.'
         ),
     order_key: zod
         .number()
@@ -15673,6 +15686,19 @@ export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
         .max(errorTrackingTagRulesPartialUpdateBodyDescriptionMax)
         .optional()
         .describe('Replacement description. Omit to keep the existing description.'),
+    color: zod
+        .union([
+            zod
+                .enum(['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple'])
+                .describe(
+                    '\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+        ),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -15818,7 +15844,7 @@ export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
         })
         .optional()
         .describe(
-            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
         ),
 })
 

@@ -375,16 +375,11 @@ async def _awaiting_followup_confirmation(
 async def _collect_thread_messages(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> "list[SlackThreadMessage]":
-    # A forked run is the one case where the thread we read and the thread we
-    # answer in are different. `channel`/`thread_ts` stay the DM throughout —
-    # they own the task, the mapping, the reaction and every follow-up — while
-    # the context block is built from the channel thread the user forked.
-    # Unset for every other run, so both pairs coincide.
     return await _execute_posthog_code_activity(
         collect_posthog_code_thread_messages_activity,
         inputs,
-        inputs.fork_source_channel or channel,
-        inputs.fork_source_thread_ts or thread_ts,
+        channel,
+        thread_ts,
     )
 
 

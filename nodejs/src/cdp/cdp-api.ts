@@ -32,7 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
+import { IntakeProducer, intakeClusterOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -78,9 +78,24 @@ import {
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
 import {
+    BATCH_PUBLISH_DEADLINE_MS,
+    BatchCapacity,
+    BatchSlotRequestSchema,
+    CODE_SEND_BATCH_TOKEN_CLAIMS,
+    CodeSendBatchRequestSchema,
+    TEMPLATE_BATCH_TOKEN_CLAIMS,
+    TemplateBatchRequestSchema,
+    TransactionalEmailBatchRequest,
+    exceedsCopyLimits,
+    slotRequestOf,
+    transactionalEmailBatchRequestsTotal,
+} from './services/hogflows/transactional-email-batch'
+import {
+    KeyedTransactionalEmailRequest,
     ScheduledTransactionalSends,
     TransactionalSendResult,
     TransactionalSends,
+    transactionalEmailRunId,
 } from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { IdempotentJobQueue, JobQueue } from './services/job-queue/job-queue.interface'
@@ -295,7 +310,6 @@ type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: Groups
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
     idempotency_key_reused: 422,
-    idempotency_unavailable: 503,
     intake_unavailable: 503,
     invalid_request: 400,
     not_sendable: 400,
@@ -349,6 +363,11 @@ const invalidSendReplyOf = (error: z.ZodError, context: Record<string, unknown>)
     return { outcome: 'invalid_request', status: 400, body: { error: error.message } }
 }
 
+const invalidSlotReplyOf = (error: z.ZodError, context: Record<string, unknown>): SendReply => {
+    const reply = invalidSendReplyOf(error, context)
+    return reply.outcome === 'invalid_request' ? { ...reply, body: { error: 'invalid_recipient' } } : reply
+}
+
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
     const sendFields = acceptedSendEmailFields(invocation.state.send)
     return {
@@ -397,6 +416,7 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
+    private transactionalEmailBatchCapacity: BatchCapacity
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
@@ -498,6 +518,7 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
+        this.transactionalEmailBatchCapacity = new BatchCapacity(config.CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS)
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.emailAttachmentsValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
             maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
@@ -607,6 +628,14 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
             asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/transactional_email/batch',
+            asyncHandler(this.postTransactionalEmailBatch(TemplateBatchRequestSchema, TEMPLATE_BATCH_TOKEN_CLAIMS))
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/transactional_email/send/batch',
+            asyncHandler(this.postTransactionalEmailBatch(CodeSendBatchRequestSchema, CODE_SEND_BATCH_TOKEN_CLAIMS))
         )
         router.post(
             '/api/projects/:team_id/transactional_email/attachments/uploads',
@@ -1539,6 +1568,9 @@ export class CdpApi {
                 if (recalled) {
                     return answer(recalled)
                 }
+                if (send?.category?.archived) {
+                    return reply('category_not_found', 400, { error: 'category_not_found' })
+                }
                 const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
@@ -1561,7 +1593,7 @@ export class CdpApi {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
-                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
+                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow, send) : null
 
                 return answer(
                     await sends.accept(
@@ -1585,6 +1617,124 @@ export class CdpApi {
                 return reply('error', 500, { error: e instanceof Error ? e.message : String(e) })
             } finally {
                 stages.finish()
+            }
+        }
+
+    private postTransactionalEmailBatch =
+        (schema: z.ZodType<TransactionalEmailBatchRequest, unknown>, tokenClaims: Record<string, string>) =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            const publishBy = performance.now() + BATCH_PUBLISH_DEADLINE_MS
+            const stages = new TransactionalEmailStageTimer('batch')
+            const refuse = (outcome: string, status: number, body: Record<string, unknown>) => {
+                transactionalEmailBatchRequestsTotal.inc({ outcome })
+                return res.status(status).json(body)
+            }
+            if (!this.transactionalEmailJwt.enabled) {
+                return refuse('not_configured', 503, {
+                    error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
+                })
+            }
+            stages.start('auth')
+            let release: (() => void) | null = null
+            try {
+                if (
+                    !this.verifyScopedWorkflowJwt(
+                        this.transactionalEmailJwt,
+                        req,
+                        res,
+                        'transactional email batch',
+                        tokenClaims
+                    )
+                ) {
+                    transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
+                    return
+                }
+                release = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
+                if (!release) {
+                    return refuse('over_capacity', 503, { error: 'over_capacity' })
+                }
+                stages.start('validate')
+                const parsed = schema.safeParse(req.body)
+                if (!parsed.success) {
+                    logger.warn('⚠️', 'Transactional email batch failed validation', {
+                        team_id: req.params.team_id,
+                        hog_flow_id: req.params.id,
+                        issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+                    })
+                    return refuse('invalid_request', 400, { error: 'invalid_request' })
+                }
+                const batch = parsed.data
+                if (exceedsCopyLimits(batch)) {
+                    return refuse('too_large', 413, { error: 'too_large' })
+                }
+                if (batch.send?.category?.archived) {
+                    return refuse('category_not_found', 400, { error: 'category_not_found' })
+                }
+                const teamId = parseInt(req.params.team_id)
+
+                stages.start('load')
+                const [team, hogFlow, integration] = await Promise.all([
+                    this.deps.teamManager.getTeam(teamId),
+                    this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id),
+                    batch.send?.from
+                        ? this.deps.integrationManager.getCheckingPrimaryOnMiss(batch.send.from.integrationId)
+                        : Promise.resolve(null),
+                ])
+                if (!team) {
+                    return refuse('not_found', 404, { error: 'Team not found' })
+                }
+                // A single send answers 404 here, which Django retries. A batch refuses for good: the workflow is gone
+                // for every recipient.
+                if (!hogFlow || hogFlow.team_id !== team.id || hogFlow.trigger?.type !== 'api') {
+                    return refuse('not_sendable', 400, { error: 'not_sendable' })
+                }
+
+                stages.start('validate')
+                const keyed: KeyedTransactionalEmailRequest[] = []
+                const slots = batch.recipients.map((recipient): number | SendReply => {
+                    const request = BatchSlotRequestSchema.safeParse(slotRequestOf(batch, recipient))
+                    return request.success
+                        ? keyed.push(request.data) - 1
+                        : invalidSlotReplyOf(request.error, { team_id: teamId, hog_flow_id: hogFlow.id })
+                })
+                const sender = batch.send
+                    ? senderOfCodeSend(team.id, batch.send, integration)
+                    : { kind: 'own' as const }
+                const accepted = await this.transactionalSendsForRequest().acceptBatch(
+                    team,
+                    hogFlow,
+                    keyed,
+                    stages,
+                    sender,
+                    publishBy
+                )
+                if ('refused' in accepted) {
+                    const status =
+                        accepted.refused === 'deadline_exceeded'
+                            ? 503
+                            : TRANSACTIONAL_SEND_REFUSAL_STATUS[accepted.refused]
+                    return refuse(accepted.refused, status, { error: accepted.refused })
+                }
+                const results = batch.recipients.map((recipient, i) => {
+                    const slot = slots[i]
+                    const { outcome, status, body } =
+                        typeof slot === 'number' ? sendReplyOf(accepted.results[slot]) : slot
+                    transactionalEmailRequestsTotal.inc({ outcome, route: 'batch' })
+                    return {
+                        status,
+                        body: { invocation_id: transactionalEmailRunId(team.id, recipient.idempotency_key), ...body },
+                    }
+                })
+                transactionalEmailBatchRequestsTotal.inc({ outcome: 'answered' })
+                return res.status(200).json({ results })
+            } catch (e) {
+                logger.error('Error running a transactional email batch', {
+                    error: e instanceof Error ? e.message : String(e),
+                })
+                return refuse('error', 500, { error: 'internal_error' })
+            } finally {
+                stages.finish()
+                release?.()
             }
         }
 
@@ -1714,25 +1864,22 @@ export class CdpApi {
         return res.status(status).json(body)
     }
 
+    private refusalDeadline?: () => Promise<void>
+
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
+            refusalDeadline: this.refusalDeadline,
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
             encryptedFields: this.fingerprintSigner,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
-                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
-                intake: {
-                    modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(
-                        this.outputs,
-                        undefined,
-                        createInvocationSanitizer(this.config).seal,
-                        intakeClusterOf(this.config)
-                    ),
-                    sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
-                },
+                producer: new IntakeProducer(
+                    this.outputs,
+                    undefined,
+                    createInvocationSanitizer(this.config).seal,
+                    intakeClusterOf(this.config)
+                ),
             }),
-            invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
             emailSuppression: this.emailSuppressionService,

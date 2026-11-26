@@ -336,6 +336,7 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
                             }
                         }
                         const definitions = await api.llmAnalyticsScoreDefinitionsList(String(props.teamId), {
+                            scope: 'item',
                             archived: false,
                             limit: 3,
                             order_by: 'name',

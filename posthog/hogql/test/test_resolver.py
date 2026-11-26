@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
@@ -33,7 +34,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
+from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError, TransientQueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -144,7 +145,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
                 return node
 
-            with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+            with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                 prepare_and_print_ast(parse_select("select 1"), context, "hogql", prepared_ast_transform=advance_clock)
             sql, _ = prepare_and_print_ast(parse_select("select 1"), context, "hogql")
             self.assertIn("SELECT 1", sql)
@@ -159,7 +160,7 @@ class TestSavedViewBounds(SimpleTestCase):
                 return parsed
 
             with patch("posthog.hogql.resolver.parse_select", side_effect=parse_slow_view):
-                with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                with self.assertRaisesRegex(TransientQueryError, "compilation exceeded its time limit"):
                     resolve_types(parse_select("select * from leaf"), context, "hogql")
 
 
@@ -182,10 +183,85 @@ class TestInheritedCtes(SimpleTestCase):
             with self.assertRaises(QueryError):
                 resolve_types(query, context, "clickhouse", scopes=[parent.type])
 
+    @parameterized.expand(
+        [
+            ("SELECT team_id, event FROM events", ["team_id", "event"]),
+            ("SELECT team_id, id FROM system.batch_exports", ["team_id", "id"]),
+        ]
+    )
+    def test_asterisk_over_cte_keeps_every_selected_column(self, cte_body: str, expected: list[str]) -> None:
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        query = resolve_types(parse_select(f"WITH c AS ({cte_body}) SELECT * FROM c"), context, "clickhouse")
+
+        assert isinstance(query.type, ast.SelectQueryType)
+        assert list(query.type.columns) == expected
+
 
 class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any
+
+    @parameterized.expand(
+        [
+            ("invalid_json", "not JSON", "Invalid insight actor query"),
+            (
+                "sql_source",
+                json.dumps(
+                    {"kind": "ActorsQuery", "source": {"kind": "HogQLQuery", "query": "SELECT id FROM persons"}}
+                ),
+                "product analytics datapoint",
+            ),
+            (
+                "custom_funnel_aggregation",
+                json.dumps(
+                    {
+                        "kind": "ActorsQuery",
+                        "source": {
+                            "kind": "FunnelsActorsQuery",
+                            "source": {
+                                "kind": "FunnelsQuery",
+                                "series": [{"kind": "EventsNode", "event": "signup"}],
+                                "funnelsFilter": {"funnelAggregateByHogQL": "properties.$account_id"},
+                            },
+                        },
+                    }
+                ),
+                "does not identify PostHog users or groups",
+            ),
+            ("oversized", "x" * 100_001, "too large"),
+        ]
+    )
+    def test_matches_insight_rejects_invalid_selection(self, _name: str, selection: str, error: str) -> None:
+        expr = self._select(
+            "SELECT count() FROM events WHERE matchesInsight({selection})", {"selection": ast.Constant(value=selection)}
+        )
+        with self.assertRaisesRegex(QueryError, error):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_matches_insight_requires_events_scope(self) -> None:
+        with self.assertRaisesRegex(QueryError, "only be used with the events table"):
+            resolve_types(self._select("SELECT matchesInsight('{}') FROM persons"), self.context, dialect="clickhouse")
+
+    def test_matches_insight_rejects_nested_selection(self) -> None:
+        selection = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "InsightActorsQuery",
+                "day": "2026-01-02",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "properties": [{"type": "hogql", "key": "matchesInsight('{}')"}],
+                    "dateRange": {"date_from": "2026-01-01", "date_to": "2026-01-03"},
+                },
+            },
+        }
+        expr = self._select(
+            "SELECT count() FROM events WHERE matchesInsight({selection})",
+            {"selection": ast.Constant(value=json.dumps(selection))},
+        )
+        with self.assertRaisesRegex(QueryError, "cannot contain another"):
+            resolve_types(expr, self.context, dialect="clickhouse")
 
     def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
@@ -1563,7 +1639,8 @@ class TestResolver(BaseTest):
             "(SELECT id, properties.email AS email FROM "
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
-            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "persons ON and(equals(persons.id, source.person_id), globalIn(persons.id, "
+            "(SELECT source.person_id FROM (SELECT DISTINCT person_id FROM events) AS source))) ORDER BY id ASC) "
             f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 

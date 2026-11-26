@@ -25,6 +25,7 @@ export type FakeSesDelivery = {
     subject: string
     html: string
     configurationSetName: string
+    headers: { name: string; value: string }[]
 }
 
 type NameValue = { Name: string; Value: string }
@@ -46,7 +47,7 @@ export type FakeSesClickEvent = {
 }
 
 const ANCHOR = /<a\b[^>]*>/gi
-const HREF = /\bhref\s*=\s*"(https?:\/\/[^"]*)"/i
+const HREF = /(\s)href\s*=\s*(?:"(https?:\/\/[^"]*)"|'(https?:\/\/[^']*)'|(https?:\/\/[^\s"'=<>`]+))/i
 const NO_TRACK = /\sses:no-track(?=[\s>=/])/i
 
 export class FakeSes {
@@ -122,6 +123,7 @@ export class FakeSes {
             subject,
             html: this.track(simple?.Body?.Html?.Data ?? '', configurationSet, mail),
             configurationSetName: request.ConfigurationSetName ?? '',
+            headers: mail.headers,
         })
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ MessageId: messageId }))
@@ -135,7 +137,8 @@ export class FakeSes {
                     ? tag
                     : tag.replace(
                           HREF,
-                          (_m, href: string) => `href="${this.origin}/L0/${this.links.push({ href, mail }) - 1}"`
+                          (_m, lead: string, dq: string | undefined, sq: string | undefined, uq: string | undefined) =>
+                              `${lead}href="${this.origin}/L0/${this.links.push({ href: (dq ?? sq ?? uq)!, mail }) - 1}"`
                       )
             )
         }

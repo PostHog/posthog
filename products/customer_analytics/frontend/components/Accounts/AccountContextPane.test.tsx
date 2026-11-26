@@ -42,7 +42,7 @@ describe('AccountContextPane', () => {
         jest.restoreAllMocks()
     })
 
-    it('keeps its content out of capture and shows write actions as disabled', async () => {
+    it('keeps its content out of capture', async () => {
         const { container } = render(
             <Provider>
                 <AccountContextPane accountId="account-1" externalId="external-account-1" />
@@ -51,10 +51,69 @@ describe('AccountContextPane', () => {
 
         expect(await screen.findByText("Context isn't set up")).toBeInTheDocument()
         expect(container.firstElementChild).toHaveClass('ph-no-capture')
-        expect(container.querySelector('[data-attr="account-context-add-fact"]')).toHaveAttribute(
-            'aria-disabled',
-            'true'
+    })
+
+    it('shows the add fact action in the facts filter bar as disabled', async () => {
+        jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue({
+            project_id: 1,
+            endpoint: 'account-context',
+            account_variable: 'account_key',
+        })
+        runEndpoint.mockResolvedValue(
+            accountContextResponse([
+                { section: 'fact', id: 'fact-1', fact_text: 'A confirmed fact', confidence: 'confirmed' },
+            ])
         )
+        const { container } = render(
+            <Provider>
+                <AccountContextPane accountId="account-1" externalId="external-account-1" />
+            </Provider>
+        )
+        await screen.findByText('A confirmed fact')
+
+        const addFact = container.querySelector('[data-attr="account-context-add-fact"]')
+        expect(addFact).toHaveAttribute('aria-disabled', 'true')
+        expect(addFact?.closest('[data-attr="account-context-facts"]')).toBeInTheDocument()
+    })
+
+    it('shows when a closed signal started and how long it stayed open', async () => {
+        jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue({
+            project_id: 1,
+            endpoint: 'account-context',
+            account_variable: 'account_key',
+        })
+        runEndpoint.mockResolvedValue(
+            accountContextResponse([
+                {
+                    section: 'signal',
+                    id: 'signal-renewal',
+                    signal_type: 'renewal_window',
+                    signal_state: 'open',
+                    onset: '2026-11-01',
+                },
+                {
+                    section: 'signal',
+                    id: 'signal-cap',
+                    signal_type: 'cap_hit',
+                    signal_state: 'closed',
+                    onset: '2026-09-15',
+                    closed_on: '2026-10-05',
+                },
+            ])
+        )
+        render(
+            <Provider>
+                <AccountContextPane accountId="account-1" externalId="external-account-1" />
+            </Provider>
+        )
+        expect(await screen.findByText('No note yet')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Recently closed (1)'))
+
+        expect(await screen.findByText('Open 20 days')).toBeInTheDocument()
+        expect(screen.getByText('Since')).toBeInTheDocument()
+        expect(screen.getByText('Sep 15, 2026')).toBeInTheDocument()
+        expect(screen.getByText('No reason or note yet')).toBeInTheDocument()
     })
 
     it.each([

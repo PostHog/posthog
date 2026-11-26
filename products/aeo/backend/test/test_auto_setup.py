@@ -1,5 +1,6 @@
 import json
 import uuid
+from contextlib import nullcontext
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
@@ -11,14 +12,14 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from products.aeo.backend import auto_setup
+from products.aeo.backend import auto_setup, credits, prompt_limit
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.facade.api import create_keywords, list_engine_settings
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, SetupRequest
 from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt
 from products.aeo.backend.seeding import prompt_hash
 from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS
-from products.aeo.backend.test.factories import create_citation_check, create_own_brand
+from products.aeo.backend.test.factories import ai_credits_used_up, create_citation_check, create_own_brand
 
 PROMPTS_ANSWER = [
     {"prompt": f"Best session replay tool {i}?", "topic": "Replay", "circle": "battleground", "funnel_stage": "top"}
@@ -36,7 +37,7 @@ def _answer(items: list[dict]) -> MagicMock:
 class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag_patcher = patch("products.aeo.backend.presentation.views.posthog_feature_flag_enabled", return_value=True)
+        flag_patcher = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
         self.organization.is_ai_data_processing_approved = True
@@ -139,11 +140,14 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         expected_status: str,
         expected_steps: list[tuple[str, str, int]],
     ) -> None:
-        job, _, first_run = self._run(
+        job, post, first_run = self._run(
             responses, run_first_check=run_first_check, first_run_available=first_run_available
         )
 
         assert job["status"] == expected_status
+        assert [call.kwargs["headers"]["X-PostHog-Product"] for call in post.call_args_list] == ["ai_visibility"] * len(
+            responses
+        )
         assert self._steps(job) == expected_steps
         assert list(AEOBrand.objects.for_team(self.team.id).values_list("domain", "kind")) == [
             ("example.com", BrandKind.OWN)
@@ -208,7 +212,22 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         ]
         assert first_run.call_count == 1
 
-    def test_configure_only_keeps_existing_prompts_and_run_once_turns_the_paused_ones_on(self) -> None:
+    def test_setup_saves_the_prompts_past_the_limit_paused(self) -> None:
+        prompt_limit.set_max_active_prompts(self.team.id, 2)
+
+        job, _, first_run = self._run([_answer(PROMPTS_ANSWER), _answer(KEYWORDS_ANSWER)])
+
+        assert job["status"] == "completed"
+        assert (self._steps(job)[1], job["steps"][1]["detail"]) == (("prompts", "done", 3), "prompt_limit")
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        assert (prompts.filter(active=True).count(), prompts.filter(active=False).count()) == (2, 1)
+        assert first_run.call_count == 1
+
+    @parameterized.expand([("room_for_all", 100, 3), ("room_for_one_more", 2, 2)])
+    def test_configure_only_keeps_existing_prompts_and_run_once_turns_the_paused_ones_on(
+        self, _name: str, limit: int, expected_active: int
+    ) -> None:
+        prompt_limit.set_max_active_prompts(self.team.id, limit)
         AEOPrompt.objects.for_team(self.team.id).create(
             team=self.team,
             prompt=PROMPTS_ANSWER[0]["prompt"],
@@ -225,14 +244,14 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
             (PROMPTS_ANSWER[2]["prompt"], False),
         ]
         context = self.client.get(f"{self.url}context/").json()
-        assert (context["active_prompts"], context["paused_prompts"]) == (1, 2)
+        assert (context["active_prompts"], context["paused_prompts"], context["max_active_prompts"]) == (1, 2, limit)
 
         job, post, first_run = self._run([], body={"only_first_run": True, "activate_paused_prompts": True})
 
         assert self._steps(job)[3] == ("first_run", "done", 0)
         assert post.call_count == 0
         assert first_run.call_count == 1
-        assert prompts.filter(active=False).count() == 0
+        assert prompts.filter(active=True).count() == expected_active
 
     def test_run_only_queues_checks_without_consent_or_model_calls(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -311,21 +330,29 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_ai_consent", False, {"domain": "example.com"}, status.HTTP_403_FORBIDDEN),
-            ("not_a_domain", True, {"domain": "localhost"}, status.HTTP_400_BAD_REQUEST),
+            ("no_ai_consent", False, {"domain": "example.com"}, status.HTTP_403_FORBIDDEN, False),
+            ("not_a_domain", True, {"domain": "localhost"}, status.HTTP_400_BAD_REQUEST, False),
             (
                 "activation_outside_a_run",
                 True,
                 {"domain": "example.com", "activate_paused_prompts": True},
                 status.HTTP_400_BAD_REQUEST,
+                False,
             ),
+            ("out_of_ai_credits", True, {"domain": "example.com"}, status.HTTP_402_PAYMENT_REQUIRED, True),
         ]
     )
-    def test_setup_refuses_to_start(self, _name: str, ai_approved: bool, body: dict, expected: int) -> None:
+    def test_setup_refuses_to_start(
+        self, _name: str, ai_approved: bool, body: dict, expected: int, out_of_credits: bool
+    ) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
 
-        with patch("products.aeo.backend.facade.api.set_up_aeo_task.apply_async") as queued:
+        with (
+            ai_credits_used_up(self.team) if out_of_credits else nullcontext(),
+            patch.object(credits, "BILLABLE_AI_PRODUCTS", frozenset({"ai_visibility"})),
+            patch("products.aeo.backend.facade.api.set_up_aeo_task.apply_async") as queued,
+        ):
             response = self.client.post(self.url, body, format="json")
 
         assert response.status_code == expected
