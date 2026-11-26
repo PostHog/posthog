@@ -941,11 +941,16 @@ def _reads_tables_the_walk_cannot_name(
     joins: dict[str, set[str]] = cache["graph"][0]
     reading_expressions: frozenset[str] = cache["graph"][1]
     if "views" not in cache:
+        # Deleted views stay in, as deleted tables do: the staleness check reads when they went.
         cache["views"] = list(
-            DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True).values_list("name", "query")
+            DataWarehouseSavedQuery.objects.filter(team_id=team.pk).values_list("name", "query", "deleted")
         )
+    live_views = [(name, query) for name, query, deleted in cache["views"] if not deleted]
     # Inferred foreign keys can target a saved view whose name shares a table's namespace.
-    namespaced_views = {name.rsplit(".", 1)[0].lower(): name for name, _query in cache["views"] if "." in name}
+    namespaced_views: dict[str, set[str]] = defaultdict(set)
+    for name, _query, _deleted in cache["views"]:
+        if "." in name:
+            namespaced_views[name.rsplit(".", 1)[0].lower()].add(name)
     if not joins and not reading_expressions and not namespaced_views:
         return False
     if "sources" not in cache:
@@ -974,8 +979,8 @@ def _reads_tables_the_walk_cannot_name(
             else:
                 group = f"table:{table.pk}"
             source_tables[group] |= {key(table.name), key(dotted)}
-        for namespace, name in namespaced_views.items():
-            source_tables[namespace].add(key(name))
+        for namespace, view_names in namespaced_views.items():
+            source_tables[namespace] |= {key(name) for name in view_names}
         cache["sources"] = [frozenset(tables) for tables in source_tables.values()]
     # Foreign-key lazy fields, declared or inferred, link the tables of one group to each other.
     linked: dict[str, set[str]] = defaultdict(set)
@@ -988,7 +993,7 @@ def _reads_tables_the_walk_cannot_name(
     # Built-in tables reach each other through lazy fields such as `events.person`, so a join stored on one
     # is reachable from all of them.
     builtin = {key(name) for name in root.children["posthog"].children}
-    view_keys = {key(name) for name, _query in cache["views"]}
+    view_keys = {key(name) for name, _query, _deleted in cache["views"]}
     reached: set[str] = set()
     joined: set[str] = set()
     frontier = list(names)
@@ -1010,19 +1015,19 @@ def _reads_tables_the_walk_cannot_name(
             frontier.append(target)
     if not joined:
         return False
-    known = linked.keys() | view_keys | {key(name) for node in root.children.values() for name in node.children}
+    live_view_keys = {key(name) for name, _query in live_views}
+    known = linked.keys() | live_view_keys | {key(name) for node in root.children.values() for name in node.children}
     if joined - known:
         # A join to a view renamed or deleted since the build still names what the copy read through it.
         return True
     # A joined view can read a gated table itself, so it fails closed unless the name walk read that definition.
     walked_queries = [view_queries.get(name) for name in walked_views]
-    joined_views = [(name, query) for name, query in cache["views"] if key(name) in joined]
-    reached_views.update(name for name, _query in joined_views)
-    return any(query not in walked_queries for _name, query in joined_views)
+    reached_views.update(name for name, _query, _deleted in cache["views"] if key(name) in joined)
+    return any(key(name) in joined and query not in walked_queries for name, query in live_views)
 
 
 def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:
-    """True when a warehouse join or saved expression of the team was changed or removed after `built_at`.
+    """True when a warehouse join or saved expression was changed or removed, or a table renamed, after `built_at`.
 
     A build reads the joins and expressions that existed then, which a later walk can no longer see.
     The join API hard deletes, so its activity log is the only record that a join is gone.
@@ -1041,6 +1046,14 @@ def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:
         .exclude(activity="created")
         .exists()
     ):
+        return True
+    # A renamed table drops out of the name graph while the copy still holds what was read through it.
+    if ActivityLog.objects.filter(
+        team_id=team.pk,
+        scope="DataWarehouseTable",
+        created_at__gt=built_at,
+        detail__contains={"changes": [{"field": "name"}]},
+    ).exists():
         return True
     if DataWarehouseJoin.objects.filter(team_id=team.pk, deleted_at__gt=built_at).exists():
         return True

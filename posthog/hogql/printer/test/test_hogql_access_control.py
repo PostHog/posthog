@@ -936,6 +936,23 @@ class TestDeniedTableError(BaseTest):
                 # Caches and async statuses check later readers against this.
                 assert read_scopes == ({"tracing"} if "trace_spans" in view_sql else set())
 
+    @parameterized.expand([("name", True), ("row_count", False)])
+    def test_table_rename_after_build_marks_copies_stale(self, field: str, stale: bool) -> None:
+        from posthog.hogql.database.database import _virtual_fields_changed_since
+
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        built_at = datetime.now(UTC) - timedelta(minutes=5)
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            scope="DataWarehouseTable",
+            activity="updated",
+            item_id="1",
+            detail={"changes": [{"type": "DataWarehouseTable", "action": "changed", "field": field}]},
+        )
+
+        assert _virtual_fields_changed_since(built_at, self.team) is stale
+
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""
         database = Database.create_for(team=self.team, user=self.user)
