@@ -429,6 +429,21 @@ describe('emailTemplaterLogic', () => {
             editor.destroy()
         })
 
+        it('keeps plain text the person cleared empty on later edits', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, onChange)
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', '')
+            await logic.asyncActions.flushPendingDesignEdit()
+            const html = '<p>New</p>'
+            editor.view.dispatch(editor.state.tr.setNodeAttribute(0, 'html', html))
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ html, text: '' }))
+            editor.destroy()
+        })
+
         it('keeps text typed in the plain text tab as the email own when the editor modal saves from the canvas', async () => {
             const onChange = jest.fn()
             const { editor } = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, onChange, 'modal')

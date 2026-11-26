@@ -325,7 +325,8 @@ function plainTextForEdit(
     design: JSONTemplate,
     current: EmailTemplate | null | undefined
 ): string {
-    return keepsOwnPlainText(design) && current?.text?.trim() ? current.text : exported.text
+    // Owned text stays even when emptied: clearing it in the plain text tab is the person's choice.
+    return keepsOwnPlainText(design) && typeof current?.text === 'string' ? current.text : exported.text
 }
 
 /**
