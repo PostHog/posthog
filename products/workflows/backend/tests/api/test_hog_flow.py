@@ -1158,6 +1158,17 @@ class TestHogFlowAPI(APIBaseTest):
         else:
             assert response.json()["actions"][1]["config"]["run_link_tag_enabled"] is sent
 
+    def test_an_action_that_is_not_an_object_is_refused_with_a_400(self) -> None:
+        sync_template_to_db(_email_function_template())
+        hog_flow, _action = self._create_hog_flow_with_action(
+            {"template_id": "template-email", "inputs": _valid_email_inputs()}
+        )
+        hog_flow["actions"].append("not an action")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.
         # Re-sending the stored graph unchanged must not fail on it, or every edit to an affected

@@ -1166,7 +1166,9 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
 
 def _refuse_a_non_boolean_run_link_tag(actions: list) -> None:
     for step_action in actions:
-        config = step_action.get("config") if isinstance(step_action, dict) else None
+        if not isinstance(step_action, dict):
+            continue
+        config = step_action.get("config")
         if (
             step_action.get("type") == "function_email"
             and isinstance(config, dict)
