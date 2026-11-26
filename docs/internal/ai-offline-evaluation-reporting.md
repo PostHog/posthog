@@ -882,7 +882,7 @@ stay visible on both the experiments and datasets setup screens.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
 The recent experiments table shows the name, tags, source, experiment score, upload state, author, and execution time.
 The experiment score column appears when at least one listed run has an assigned scorer. Hover over or focus a score to see the item scorer versions for each formula input.
-When the formula cannot combine versions, the row names the affected input and its versions. Its tooltip explains why the experiment score was not calculated.
+When an input uses multiple versions and the formula requires a single version, the experiment score shows “Not calculated”. Hover or focus it to see which versions were used.
 Hover over an experiment name to see its item, result, and scorer counts.
 
 **Choose scores** selects and orders item and experiment scorers above the experiment list.
@@ -899,11 +899,11 @@ Overview charts show each loaded scorer version as a separate series. Arrows bro
 For item scorers, the card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
 Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
 Boolean charts show the passing rate, with true passing by default when polarity is omitted.
-Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.
+Numeric charts show the mean and the configured threshold with faint passing and failing regions. On item scorer overview cards, the threshold follows the selected version and its label includes the version number. The chart retains every version's series and color.
 Summaries and tooltips show actual passing and failing counts separately from numeric means. Pooled passing rates divide total passing results by total passing plus failing results.
 On an experiment, the experiment score and item score summaries share one section. Scorer names open version-specific history in a new tab.
 Item summaries show compact bars for rates and bounded numeric means. Each category has its own rate and the first three are visible by default.
-Experiment scores and numeric means with a passing rule show a green check when they pass and a red cross when they fail. Hover or focus the value to read the verdict.
+Experiment scores with a passing rule show a green check or a red cross. Numeric mean bars are green when the mean passes and red when it fails. Hover or focus the value to read the verdict.
 Percentage displays use at most two decimal places across summaries, charts, and tooltips. Numeric scores and means normally use six significant digits, retaining more precision when rounding would change their passing verdict. Numeric tooltips and threshold labels show the exact value.
 On item scorer cards, the main metric appears beside the title. Categorical cards show the most frequent category and offer a popup with every category rate.
 Passing and failing counts share a line with the distinct experiment count and scored item count. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores.

@@ -1,8 +1,6 @@
-import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { cn } from 'lib/utils/css-classes'
 
 import { getNumericConfig } from '../scoreDefinitions/scoreDefinitionConfigUtils'
 import { boundedScorePercent, offlineScorePasses } from './offlineScoreInterpretation'
@@ -36,17 +34,9 @@ function SummaryMetric({
                 </span>
             )}
             <Tooltip title={title}>
-                <strong
-                    className={cn(
-                        'inline-flex items-center gap-1 tabular-nums font-semibold',
-                        passed === true && 'text-success',
-                        passed === false && 'text-danger'
-                    )}
-                    tabIndex={title ? 0 : undefined}
-                >
-                    {passed === true && <IconCheck role="img" aria-label="Passed" />}
-                    {passed === false && <IconX role="img" aria-label="Failed" />}
+                <strong className="tabular-nums font-semibold" tabIndex={title ? 0 : undefined}>
                     {value}
+                    {passed != null && <span className="sr-only">{passed ? ' Passed' : ' Failed'}</span>}
                 </strong>
             </Tooltip>
             <span className="text-xs text-muted break-words min-w-0">{label}</span>
@@ -160,11 +150,17 @@ export function OfflineSummaryMetrics({
     )
 }
 
-export function OfflineScoreCounts({ summary }: { summary: OfflineScoreSummary }): JSX.Element | null {
+export function OfflineScoreCounts({
+    summary,
+    showPassRate = true,
+}: {
+    summary: OfflineScoreSummary
+    showPassRate?: boolean
+}): JSX.Element | null {
     const { scorer, pass_rate, pass_count, fail_count } = summary
     return summary.status_counts.ok > 0 && pass_count != null && fail_count != null ? (
         <div className="flex flex-wrap gap-x-2 text-xs text-muted tabular-nums">
-            {scorer.kind !== 'boolean' && pass_rate != null && (
+            {showPassRate && scorer.kind !== 'boolean' && pass_rate != null && (
                 <span>{`${formatOfflinePercentage(pass_rate)} pass rate`}</span>
             )}
             <span>{`${pass_count} passed · ${fail_count} failed`}</span>

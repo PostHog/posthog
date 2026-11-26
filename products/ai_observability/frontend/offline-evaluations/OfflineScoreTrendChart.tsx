@@ -37,6 +37,7 @@ export interface OfflineScoreTrendChartProps {
     xDomain?: [number, number]
     showHeading?: boolean
     combineVersions?: boolean
+    passingRuleVersionId?: string
     breakdown?: OfflineHistoryBreakdown
 }
 
@@ -50,6 +51,7 @@ export function OfflineScoreTrendChart({
     xDomain,
     showHeading = true,
     combineVersions = false,
+    passingRuleVersionId,
     breakdown,
 }: OfflineScoreTrendChartProps): JSX.Element {
     const baseTheme = useChartTheme()
@@ -64,7 +66,7 @@ export function OfflineScoreTrendChart({
     )
     const panels = useMemo(
         () =>
-            buildOfflineTrendPanels(periods, combineVersions, breakdown).map((panel) => {
+            buildOfflineTrendPanels(periods, combineVersions, breakdown, passingRuleVersionId).map((panel) => {
                 const domain = !panel.elapsed && xDomain ? xDomain : panel.xDomain
                 return {
                     ...panel,
@@ -72,7 +74,7 @@ export function OfflineScoreTrendChart({
                     tickFormatter: createOfflineScoreTrendTickFormatter(domain, panel.elapsed, timezone),
                 }
             }),
-        [periods, xDomain, timezone, combineVersions, breakdown]
+        [periods, xDomain, timezone, combineVersions, breakdown, passingRuleVersionId]
     )
 
     if (panels.length === 0) {
@@ -241,7 +243,7 @@ export function OfflineScoreTrendChart({
                                         />
                                         <ReferenceLine
                                             value={panel.passingRule.threshold}
-                                            label={`${panel.passingRule.operator === 'gte' ? '≥' : '≤'} ${panel.passingRule.threshold}`}
+                                            label={`${panel.passingRuleVersion != null ? `v${panel.passingRuleVersion} ` : ''}${panel.passingRule.operator === 'gte' ? '≥' : '≤'} ${panel.passingRule.threshold}`}
                                             fillSide={panel.passingRule.operator === 'gte' ? 'above' : 'below'}
                                             style={{
                                                 color: 'var(--color-text-success)',

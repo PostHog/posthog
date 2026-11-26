@@ -1,10 +1,10 @@
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { cn } from 'lib/utils/css-classes'
 
-import type { ExperimentScoreApi, ExperimentScorePreviewApi } from '../generated/api.schemas'
+import type { ExperimentScoreApi, ExperimentScorePreviewApi, OfflineScorerSummaryApi } from '../generated/api.schemas'
 import {
     getBooleanConfig,
     getCategoricalConfig,
@@ -28,6 +28,9 @@ const statusLabels = {
 
 export function experimentScoreLabel(score: ExperimentScorePreviewApi, exact = false): string {
     if (score.status !== 'ok') {
+        if (score.status === 'mixed_versions') {
+            return statusLabels.mixed_versions
+        }
         const aliases = score.inputs.filter((input) => input.status === score.status).map((input) => input.alias)
         return [statusLabels[score.status], aliases.join(', ')].filter(Boolean).join(' · ')
     }
@@ -58,9 +61,11 @@ export function experimentScoreLabel(score: ExperimentScorePreviewApi, exact = f
 export function ExperimentScoreResult({
     score,
     historyUrl,
+    itemSummaries = [],
 }: {
     score: ExperimentScorePreviewApi | ExperimentScoreApi
     historyUrl?: string
+    itemSummaries?: OfflineScorerSummaryApi[]
 }): JSX.Element {
     const scorer = 'scorer_version_id' in score ? score : null
     const numeric = score.kind === 'numeric' ? getNumericConfig(score.config) : null
@@ -68,6 +73,22 @@ export function ExperimentScoreResult({
     const passes = score.passed
     const mixedInputs =
         score.status === 'mixed_versions' ? score.inputs.filter((input) => input.status === 'mixed_versions') : []
+    const scoreHelp = mixedInputs.length ? (
+        <div className="space-y-2">
+            {mixedInputs.map((input) => {
+                const scorer = itemSummaries.find(({ scorer }) =>
+                    input.sources.some((source) => source.version_id === scorer.id)
+                )?.scorer
+                return (
+                    <div key={input.alias}>{explainMixedScorerVersions(input, scorer?.short_name || scorer?.name)}</div>
+                )
+            })}
+        </div>
+    ) : passes === null ? undefined : passes ? (
+        'Passed'
+    ) : (
+        'Failed'
+    )
     return (
         <section
             className={`min-w-0 bg-surface-primary px-4 py-4 @container/experiment-score ${scorer ? 'rounded-t-lg border-b' : 'rounded-lg border'}`}
@@ -99,7 +120,7 @@ export function ExperimentScoreResult({
                         />
                     )}
                     <div className="flex flex-wrap items-baseline gap-1">
-                        <Tooltip title={passes === null ? undefined : passes ? 'Passed' : 'Failed'}>
+                        <Tooltip title={scoreHelp} openOnClick={mixedInputs.length > 0}>
                             <strong
                                 className={cn(
                                     'inline-flex items-center gap-1 font-semibold',
@@ -107,11 +128,14 @@ export function ExperimentScoreResult({
                                     passes === true && 'text-success',
                                     passes === false && 'text-danger'
                                 )}
-                                tabIndex={passes === null ? undefined : 0}
+                                tabIndex={scoreHelp ? 0 : undefined}
                             >
                                 {passes === true && <IconCheck className="text-xl" role="img" aria-label="Passed" />}
                                 {passes === false && <IconX className="text-xl" role="img" aria-label="Failed" />}
                                 {experimentScoreLabel(score)}
+                                {mixedInputs.length > 0 && (
+                                    <IconInfo className="text-muted shrink-0" aria-hidden="true" />
+                                )}
                             </strong>
                         </Tooltip>
                         {score.status === 'ok' && numeric?.min === 0 && numeric.max != null && (
@@ -120,11 +144,6 @@ export function ExperimentScoreResult({
                     </div>
                 </div>
             </div>
-            {mixedInputs.map((input) => (
-                <p key={input.alias} className="mt-2 mb-0 text-sm">
-                    {explainMixedScorerVersions(input)}
-                </p>
-            ))}
             {score.inputs.length > 0 && (
                 <details className="mt-3 border-t pt-2 text-sm">
                     <summary className="cursor-pointer text-muted w-fit" data-attr="aio-experiment-score-breakdown">

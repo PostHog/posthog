@@ -80,10 +80,12 @@ export function OfflineOverviewTrend(
                         )}
                     </div>
                     {periodSummary && (
-                        <div className="flex min-h-6 flex-wrap items-center gap-x-3 gap-y-1 text-muted text-xs">
-                            <OfflineScoreCounts summary={periodSummary} />
-                            <span>{`${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'} (${scoredItemCount} ${scoredItemCount === 1 ? 'item' : 'items'})`}</span>
-                            <div className="flex items-center gap-1 ml-auto">
+                        <div className="grid min-h-6 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 text-muted text-xs">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <OfflineScoreCounts summary={periodSummary} showPassRate={false} />
+                                <span>{`${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'} (${scoredItemCount} ${scoredItemCount === 1 ? 'item' : 'items'})`}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
                                 {versionSummaries.length > 1 && (
                                     <LemonButton
                                         size="xsmall"
@@ -172,6 +174,7 @@ export function OfflineOverviewTrend(
                             heightClassName="h-36"
                             showHeading={false}
                             combineVersions
+                            passingRuleVersionId={periodSummary?.scorer.id}
                             hoverLogic={overviewLogic}
                             xDomain={props.xDomain}
                             colorOffset={props.colorOffset}

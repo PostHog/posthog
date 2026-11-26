@@ -114,6 +114,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                 {experiment?.experiment_score && (
                     <ExperimentScoreResult
                         score={experiment.experiment_score}
+                        itemSummaries={summaries}
                         historyUrl={offlineScorerHistoryUrl(
                             {
                                 id: experiment.experiment_score.scorer_version_id,

@@ -336,7 +336,16 @@ describe('offline score trends', () => {
         const first = makeOfflineHistoryPoint(1, 2)
         const second = makeOfflineHistoryPoint(2, 4)
         const third = makeOfflineHistoryPoint(3, 80)
-        third.summary.scorer = { ...third.summary.scorer, id: 'percentage-version', config: { min: 0, max: 100 } }
+        const firstRule = { operator: 'gte', threshold: 3 } as const
+        const thirdRule = { operator: 'lte', threshold: 60 } as const
+        first.summary.scorer.config = { min: 0, max: 5, passing_rule: firstRule }
+        second.summary.scorer.config = first.summary.scorer.config
+        third.summary.scorer = {
+            ...third.summary.scorer,
+            id: 'percentage-version',
+            version: 3,
+            config: { min: 0, max: 100, passing_rule: thirdRule },
+        }
         const panels = buildOfflineTrendPanels([
             { key: 'primary', label: 'Selected', points: [first, third], dateFrom: '2026-01-01', dateTo: '2026-01-11' },
             { key: 'comparison', label: 'Comparison', points: [second], dateFrom: '2026-01-01', dateTo: '2026-01-06' },
@@ -350,6 +359,13 @@ describe('offline score trends', () => {
         expect(combined[0].series).toHaveLength(2)
         expect(combined[0].series.map((series) => series.points[0].y)).toEqual([2, 80])
         expect(combined[0].passingRule).toBeNull()
+
+        const period = { key: 'primary', label: 'Selected', points: [first, third] }
+        const [firstSelected] = buildOfflineTrendPanels([period], true, undefined, first.summary.scorer.id)
+        const [thirdSelected] = buildOfflineTrendPanels([period], true, undefined, third.summary.scorer.id)
+        expect(firstSelected).toMatchObject({ passingRule: firstRule, passingRuleVersion: 2 })
+        expect(thirdSelected).toMatchObject({ passingRule: thirdRule, passingRuleVersion: 3 })
+        expect(thirdSelected.series).toEqual(firstSelected.series)
     })
 
     it('aligns equal windows by elapsed time without changing the actual execution date', () => {

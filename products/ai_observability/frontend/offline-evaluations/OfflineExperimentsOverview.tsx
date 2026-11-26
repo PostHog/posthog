@@ -179,11 +179,6 @@ export function OfflineExperimentsOverview({
                                     <IconInfo className="shrink-0 text-muted" aria-label="Score details" />
                                 )}
                             </span>
-                            {blockedInputs.map((input) => (
-                                <span key={input.alias} className="break-words text-muted">
-                                    “{input.alias}” used {formatItemScorerVersions(input)}
-                                </span>
-                            ))}
                         </span>
                     </Tooltip>
                 )

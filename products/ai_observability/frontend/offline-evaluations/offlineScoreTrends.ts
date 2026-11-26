@@ -46,6 +46,7 @@ export interface OfflineTrendPanel {
     xDomain?: [number, number]
     yDomain?: [number, number]
     passingRule: ReturnType<typeof offlineNumericPassingRule>
+    passingRuleVersion?: number
 }
 
 export type OfflineScoreSummary = Pick<
@@ -245,7 +246,8 @@ export function getOfflineHistoryCoverage(page: OfflineHistoryPageApi, timezone:
 export function buildOfflineTrendPanels(
     periods: OfflineTrendPeriod[],
     combineVersions = false,
-    breakdown?: OfflineHistoryBreakdown
+    breakdown?: OfflineHistoryBreakdown,
+    passingRuleVersionId?: string
 ): OfflineTrendPanel[] {
     const durations = periods.map((period) =>
         period.dateFrom && period.dateTo ? Date.parse(period.dateTo) - Date.parse(period.dateFrom) : null
@@ -264,6 +266,7 @@ export function buildOfflineTrendPanels(
             }
             const metricLabel = summary ? offlineScoreMetricLabel(scorer) : 'Experiment score'
             const versionId = 'scorer_version_id' in scorer ? scorer.scorer_version_id : scorer.id
+            const passingRule = offlineNumericPassingRule(scorer)
             const configuration = combineVersions
                 ? `${scorer.definition_id}:${scorer.kind}`
                 : `${scorer.kind}:${JSON.stringify(scorer.config)}`
@@ -275,7 +278,7 @@ export function buildOfflineTrendPanels(
                     label: `${periods.length > 1 && !elapsed ? `${period.label} · ` : ''}${metricLabel}`,
                     series: [],
                     percentage: scorer.kind !== 'numeric',
-                    passingRule: offlineNumericPassingRule(scorer),
+                    passingRule: passingRuleVersionId ? null : passingRule,
                     elapsed,
                     xDomain:
                         period.dateFrom && period.dateTo
@@ -285,12 +288,15 @@ export function buildOfflineTrendPanels(
                             : undefined,
                 }
                 panels.set(panelKey, panel)
+            }
+            if (passingRuleVersionId === versionId) {
+                panel.passingRule = passingRule
+                panel.passingRuleVersion = scorer.version
             } else if (
+                !passingRuleVersionId &&
                 combineVersions &&
-                !(
-                    panel.passingRule?.operator === offlineNumericPassingRule(scorer)?.operator &&
-                    panel.passingRule?.threshold === offlineNumericPassingRule(scorer)?.threshold
-                )
+                (panel.passingRule?.operator !== passingRule?.operator ||
+                    panel.passingRule?.threshold !== passingRule?.threshold)
             ) {
                 panel.passingRule = null
             }
