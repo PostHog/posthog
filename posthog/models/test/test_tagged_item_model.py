@@ -9,6 +9,7 @@ from django.db import models
 from parameterized import parameterized
 
 from posthog.models import Tag, TaggedItem, Team
+from posthog.models.tag import tagify_filter
 from posthog.models.tagged_item_registry import content_type_id_for_legacy_field
 from posthog.models.tagged_items_relation import Taggable
 
@@ -316,3 +317,12 @@ class TestTaggedItemsRelation(BaseTest):
         assert tagged_item.object_id == dashboard.id
         assert tagged_item.related_object_type == "dashboard"
         assert tagged_item.content_object == dashboard
+
+
+def test_tagify_filter_normalizes_names() -> None:
+    assert tagify_filter(["Finance", " FINANCE ", "ops"]) == ["finance", "ops"]
+
+
+def test_tagify_filter_skips_non_string_and_blank_entries() -> None:
+    assert tagify_filter([None, {"a": 1}, ["x"]]) == []
+    assert tagify_filter([" ", ""]) == []

@@ -26,7 +26,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
-from posthog.models import Team, User
+from posthog.models import Tag, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
@@ -4969,6 +4969,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already exists", response.json()["error"])
+
+    @parameterized.expand([("mixed_case", "Finance"), ("upper_case_with_whitespace", " FINANCE ")])
+    def test_filter_dashboards_by_tag_matches_stored_tag_names(self, _name: str, tag: str) -> None:
+        tagged = Dashboard.objects.create(team=self.team, name="Tagged Dashboard")
+        untagged = Dashboard.objects.create(team=self.team, name="Untagged Dashboard")
+        tagged.tagged_items.create(tag=Tag.objects.create(name="finance", team=self.team))
+
+        response = self.client.get(f"/api/environments/{self.team.id}/dashboards/", {"tags": tag})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [d["id"] for d in response.json()["results"]]
+        self.assertIn(tagged.id, ids)
+        self.assertNotIn(untagged.id, ids)
 
     def test_create_unlisted_dashboard_reads_dashboards_from_the_writer(self) -> None:
         # Tests configure no "replica" alias, so a Dashboard read routed to it raises instead of

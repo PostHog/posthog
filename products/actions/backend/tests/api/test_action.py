@@ -562,6 +562,16 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual([a["name"] for a in response.json()["results"]], ["tagged action"])
         self.assertEqual(response.json()["count"], 1)
 
+    @parameterized.expand([("mixed_case", '["Billing"]'), ("upper_case_with_whitespace", '[" BILLING "]')])
+    def test_listing_actions_tag_filter_matches_stored_tag_names(self, _name: str, tags: str) -> None:
+        tagged = Action.objects.create(team=self.team, name="tagged action")
+        Action.objects.create(team=self.team, name="untagged action")
+        tagged.tagged_items.create(tag=Tag.objects.create(name="billing", team_id=self.team.id))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?tags={tags}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([a["name"] for a in response.json()["results"]], ["tagged action"])
+
     @parameterized.expand(
         [
             ("valid_field", "name", ["alpha", "beta", "gamma"]),
