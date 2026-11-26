@@ -54,17 +54,21 @@ describe('host boot', () => {
         expect(poweredOff()).toBe(true)
     })
 
-    it.each<[string, { runId: string; stored: string }, boolean]>([
+    it.each<[string, { runId: string; stored: string; admittedCard?: string }, boolean]>([
         ['inputs that match the manifest', { runId: RUN_ID, stored: '{"card":"failover"}' }, true],
         ['an input whose bytes differ from the manifest', { runId: RUN_ID, stored: '{"card":"other"}' }, false],
         ['a manifest of another run', { runId: OTHER_RUN_ID, stored: '{"card":"failover"}' }, false],
-    ])('checks the run inputs before it installs the toolchain, given %s', (_, { runId, stored }, verified) => {
+        [
+            'a valid bundle whose manifest differs from the one admitted by the controller',
+            { runId: RUN_ID, stored: '{"card":"failover"}', admittedCard: '{"card":"other"}' },
+            false,
+        ],
+    ])('checks inputs before installing the toolchain, given %s', (_, { runId, stored, admittedCard }, verified) => {
         const prefix = path.join(bucket, 'runs', RUN_ID)
         mkdirSync(path.join(prefix, 'input'), { recursive: true })
-        writeFileSync(
-            path.join(prefix, 'input', 'manifest.json'),
-            JSON.stringify({ runId, inputs: { 'profile.json': sha256('{"card":"failover"}') } })
-        )
+        const manifestOf = (profile: string): string =>
+            JSON.stringify({ runId, inputs: { 'profile.json': sha256(profile) } })
+        writeFileSync(path.join(prefix, 'input', 'manifest.json'), manifestOf('{"card":"failover"}'))
         writeFileSync(path.join(prefix, 'input', 'profile.json'), stored)
         tool('apt-get', 'exit 0')
         tool(
@@ -84,7 +88,13 @@ describe('host boot', () => {
             ].join('\n')
         )
 
-        const result = spawnSync('bash', [BOOTSTRAP], { env: env(), encoding: 'utf8' })
+        const result = spawnSync('bash', [BOOTSTRAP], {
+            env: {
+                ...env(),
+                SCENARIO_INPUT_MANIFEST_SHA256: sha256(manifestOf(admittedCard ?? '{"card":"failover"}')),
+            },
+            encoding: 'utf8',
+        })
 
         expect(result.status).not.toBe(0)
         expect(existsSync(path.join(prefix, 'host', 'failed'))).toBe(true)

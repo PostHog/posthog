@@ -624,27 +624,34 @@ describe('cloud controller', () => {
         expect(cloud.stacks.size).toBe(0)
     })
 
-    it('ships the alert rules and labels beside their runner profile with checksums', async () => {
-        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+    it('ships the alert files with checksums and includes their contents in the cloud runner fingerprint', async () => {
         const rules = 'groups: []\n'
         const labels = 'labels: {}\n'
         const input = `runs/${GIVEN_RUN_ID}/input`
-        writeFileSync(
-            path.join(dir, 'runner.yaml'),
-            `${RUNNER_PROFILE}\nalerts:\n  rules: alerts/rules.yaml\n  labels: alerts/labels.yaml\n`
-        )
         mkdirSync(path.join(dir, 'alerts'))
-        writeFileSync(path.join(dir, 'alerts/rules.yaml'), rules)
-        writeFileSync(path.join(dir, 'alerts/labels.yaml'), labels)
+        const runWithAlerts = async (rules: string, labels: string): Promise<unknown> => {
+            now = T
+            api.captured.length = 0
+            const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+            writeFileSync(
+                path.join(dir, 'runner.yaml'),
+                `${RUNNER_PROFILE}\nalerts:\n  rules: alerts/rules.yaml\n  labels: alerts/labels.yaml\n`
+            )
+            writeFileSync(path.join(dir, 'alerts/rules.yaml'), rules)
+            writeFileSync(path.join(dir, 'alerts/labels.yaml'), labels)
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+            return published().runner_profile_hash
+        }
 
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+        const original = await runWithAlerts(rules, labels)
 
         expect(cloud.objects.get(`${input}/alerts/rules.yaml`)).toBe(rules)
         expect(cloud.objects.get(`${input}/alerts/labels.yaml`)).toBe(labels)
         expect(parseJSON(cloud.objects.get(`${input}/manifest.json`)!)).toMatchObject({
             inputs: { 'alerts/rules.yaml': sha256(rules), 'alerts/labels.yaml': sha256(labels) },
         })
-        expect(published().runner_profile_hash).not.toBe(sha256(readFileSync(path.join(dir, 'runner.yaml'), 'utf8')))
+        expect(await runWithAlerts('groups: []\n\n', labels)).not.toBe(original)
+        expect(await runWithAlerts(rules, 'labels: {}\n\n')).not.toBe(original)
     })
 
     it.each<[string, (fake: FakeCloud) => void]>([

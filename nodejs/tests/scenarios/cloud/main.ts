@@ -40,7 +40,12 @@ function defaultController(): Controller {
     return { ...controller, origin: githubOrigin(controller) }
 }
 
-async function run(controller: Controller, inputs: CloudRunProfileInputs, cardId: string, seed?: number): Promise<number> {
+async function run(
+    controller: Controller,
+    inputs: CloudRunProfileInputs,
+    cardId: string,
+    seed?: number
+): Promise<number> {
     const { profile } = inputs
     const { min, max, idleMax } = profile.readerAcu
     if (idleMax !== undefined && idleMax < min) {
