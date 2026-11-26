@@ -55450,6 +55450,14 @@
                 {
                     "param": "snapshots",
                     "key": "snapshots"
+                },
+                {
+                    "param": "expected_seq",
+                    "key": "expected_seq"
+                },
+                {
+                    "param": "override_rejection",
+                    "key": "override_rejection"
                 }
             ],
             "injectBody": {},
@@ -55466,7 +55474,52 @@
             "textInclude": []
         },
         "input": {
-            "aliases": {},
+            "aliases": {
+                "id": ["run_id"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "visual-review-runs-clear-create": {
+        "name": "visual-review-runs-clear-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/visual_review/runs/{id}/clear/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "identifiers",
+                    "key": "identifiers"
+                },
+                {
+                    "param": "expected_seq",
+                    "key": "expected_seq"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["run_id"]
+            },
             "casts": {},
             "validators": []
         }
@@ -55768,6 +55821,49 @@
             "validators": []
         }
     },
+    "visual-review-runs-reject-create": {
+        "name": "visual-review-runs-reject-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/visual_review/runs/{id}/reject/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "snapshots",
+                    "key": "snapshots"
+                },
+                {
+                    "param": "expected_seq",
+                    "key": "expected_seq"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["run_id"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
     "visual-review-runs-retrieve": {
         "name": "visual-review-runs-retrieve",
         "kind": "http",
@@ -55893,6 +55989,11 @@
                 {
                     "param": "quarantined_only",
                     "key": "quarantined_only",
+                    "csv": false
+                },
+                {
+                    "param": "review_state",
+                    "key": "review_state",
                     "csv": false
                 },
                 {
