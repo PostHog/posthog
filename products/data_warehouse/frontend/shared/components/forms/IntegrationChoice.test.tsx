@@ -122,7 +122,7 @@ describe('SourceIntegrationChoice', () => {
                     <SourceIntegrationChoice sourceConfig={sourceConfig} integration={kind} />
                 </Provider>
             )
-            await screen.findByText(/^Choose .+ connection$/)
+            await screen.findByText(/^Connect to /)
         }
 
         // A user who isn't a GitHub org owner comes back from GitHub to this field with only a
@@ -135,6 +135,59 @@ describe('SourceIntegrationChoice', () => {
         it('keeps the request off other connect fields', async () => {
             await renderField('hubspot')
             expect(screen.queryByText('Copy message for your org owner')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('connect field', () => {
+        const hubspotConnection = {
+            id: 3,
+            kind: 'hubspot',
+            display_name: 'Synthetic portal',
+            icon_url: '',
+        } as IntegrationType
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        // Behind a "Choose ... connection" menu, users read the field as needing an existing
+        // connection and leave through "Manage integrations" instead of connecting.
+        it.each([
+            [
+                'offers the OAuth connect directly when no connection exists yet',
+                [],
+                'Connect to Hubspot',
+                /^Choose .+ connection$/,
+                expect.stringMatching(/\/integrations\/authorize.*kind=hubspot/),
+            ],
+            [
+                'keeps the connection picker once a connection of this kind exists',
+                [hubspotConnection],
+                /^Choose .+ connection$/,
+                'Connect to Hubspot',
+                null,
+            ],
+        ])('%s', async (_name, existing: IntegrationType[], shown, hidden, connectHref) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/integrations': { results: existing },
+                    '/api/projects/:team_id/integrations': { results: existing },
+                },
+            })
+            initKeaTests()
+            router.actions.push('/data-warehouse/new-source', { kind: 'Hubspot' })
+            const sourceConfig = { name: 'Hubspot', fields: [] } as unknown as SourceConfigResponseApi
+            render(
+                <Provider>
+                    <SourceIntegrationChoice sourceConfig={sourceConfig} integration="hubspot" />
+                </Provider>
+            )
+
+            expect(await screen.findByText(shown)).toBeInTheDocument()
+            expect(screen.queryByText(hidden)).not.toBeInTheDocument()
+            expect(screen.queryByText('Connect to Hubspot')?.closest('a')?.getAttribute('href') ?? null).toEqual(
+                connectHref
+            )
         })
     })
 })

@@ -14,6 +14,7 @@ import { integrationsLogic, OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/
 import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -81,13 +82,18 @@ export function SourceIntegrationChoice({
     const sourceKind = sourceConfig.name.toLowerCase()
     const kind = integration ?? sourceKind
 
-    // Members can't start an OAuth connect (see IntegrationChoice), and the only hint is a tooltip
-    // on a disabled menu item. With no existing connection to pick, they have no way forward.
-    const blockedFromConnecting =
-        !!integrationManagementRestriction &&
+    // The shared picker's "Choose ... connection" menu reads as if a connection must already exist, and
+    // its "Manage integrations" item leads away from the wizard. With nothing to pick, offer the connect.
+    const needsFirstConnection =
         !integrationsLoading &&
+        integrations !== null &&
+        !value &&
         !getIntegrationSetup(kind) &&
-        !integrations?.some((existing) => existing.kind === kind)
+        !integrations.some((existing) => existing.kind === kind)
+
+    // Members can't start an OAuth connect (see IntegrationChoice). With no existing connection to
+    // pick, they have no way forward.
+    const blockedFromConnecting = !!integrationManagementRestriction && needsFirstConnection
 
     // A failed authorization sends the user back here, where the connect button is. The callback
     // carries the reason in the URL rather than a toast, which would be gone before they retry.
@@ -144,14 +150,32 @@ export function SourceIntegrationChoice({
                     }}
                 />
             )}
-            <IntegrationChoice
-                {...props}
-                value={value}
-                onChange={onChange}
-                integration={kind}
-                redirectUrl={redirectUrl}
-                beforeRedirect={saveFormStateBeforeRedirect}
-            />
+            {needsFirstConnection ? (
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        to={api.integrations.authorizeUrl({ kind, next: redirectUrl })}
+                        disableClientSideRouting
+                        onClick={() => {
+                            reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                            saveFormStateBeforeRedirect()
+                        }}
+                        disabledReason={integrationManagementRestriction ?? undefined}
+                        data-attr="source-integration-connect"
+                    >
+                        Connect to {getIntegrationNameFromKind(kind)}
+                    </LemonButton>
+                </div>
+            ) : (
+                <IntegrationChoice
+                    {...props}
+                    value={value}
+                    onChange={onChange}
+                    integration={kind}
+                    redirectUrl={redirectUrl}
+                    beforeRedirect={saveFormStateBeforeRedirect}
+                />
+            )}
         </div>
     )
 }
