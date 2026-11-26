@@ -5004,6 +5004,54 @@ export const SignalsScoutReportCheckCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Ask to message a person or channel through one of the scout config's routes (`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the message must point at a report this run wrote or edited. Nothing is posted during the run: the message is queued and sent when the run ends, and a second call with the same route and `dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key sent in the last 30 days is refused as a duplicate.
+ * @summary Send a message through an owner-set route
+ */
+export const signalsScoutSendMessageBodyRouteMax = 64
+
+export const signalsScoutSendMessageBodyReportIdMax = 64
+
+export const signalsScoutSendMessageBodyTitleMax = 150
+
+export const signalsScoutSendMessageBodyBodyMax = 3000
+
+export const signalsScoutSendMessageBodyDedupeKeyMax = 200
+
+export const SignalsScoutSendMessageBody = /* @__PURE__ */ zod
+    .object({
+        route: zod
+            .string()
+            .max(signalsScoutSendMessageBodyRouteMax)
+            .describe(
+                "Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient."
+            ),
+        report_id: zod
+            .string()
+            .max(signalsScoutSendMessageBodyReportIdMax)
+            .nullish()
+            .describe(
+                'Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.'
+            ),
+        title: zod
+            .string()
+            .max(signalsScoutSendMessageBodyTitleMax)
+            .describe('Short plain-text title. At most 150 characters.'),
+        body: zod
+            .string()
+            .max(signalsScoutSendMessageBodyBodyMax)
+            .describe(
+                'Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.'
+            ),
+        dedupe_key: zod
+            .string()
+            .max(signalsScoutSendMessageBodyDedupeKeyMax)
+            .describe(
+                'Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.'
+            ),
+    })
+    .describe('Request body for `scout-send-message`: one message on an owner-set route.')
+
+/**
  * Batched form of the per-run emissions endpoint: return the findings every requested `SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its `run_id`, so the caller can regroup by run. The findings UI uses this to load the whole recent window in one round-trip instead of one request per run. Strictly team-scoped — run ids belonging to another team contribute no rows (no per-run 404; one stale id never fails the batch).
  * @summary List emitted findings for many runs at once
  */

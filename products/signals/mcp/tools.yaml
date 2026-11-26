@@ -1629,6 +1629,27 @@ tools:
             whole call with nothing written — fix and resubmit the batch. Each accepted record lands in the project's
             event stream as a `$scout_structured_output` event, queryable like any event. Idempotent — event ids are
             deterministic, so retrying a call that failed with a delivery error (503) cannot double-count.
+    scout-send-message:
+        operation: signals_scout_send_message
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send a message through a scout route
+        description: >
+            Ask to message a person or channel through one of this scout's owner-set routes. Pass the `run_id`, the
+            route `key` listed in your run prompt, the `report_id` of a report this run wrote or edited (leave it out on
+            a dry run), a short plain-text `title`, a markdown `body`, and a `dedupe_key` that names the subject, for
+            example `pr-12345`. You never name a recipient: the route decides who receives the message. Nothing is
+            posted during the run; the message is sent when the run ends, and a second call with the same route and key
+            replaces it. The result `outcome` is `queued`, `replaced`, `duplicate` (the route and key were sent in the
+            last 30 days; `recent_dedupe_keys` shows the keys in use), `over_cap` (the scout sent its 5 messages for the
+            last 24 hours; do not retry), or `dry_run`.
+        feature_flag: scout-send-message
+        feature_flag_behavior: enable
     scout-report-check-cancel:
         operation: signals_scout_report_check_cancel
         enabled: true

@@ -9,7 +9,10 @@ prompt, the tool and the end-of-run send all agree on one parse.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING
+
+from django.db import connection
 
 import posthoganalytics
 
@@ -29,6 +32,13 @@ MAX_ROUTE_KEY_LENGTH = 64
 MAX_ROUTE_WHEN_LENGTH = 300
 ROUTE_KEY_RE = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 SLACK_CHANNEL_TARGET_RE = r"^[CG][A-Z0-9]{4,}\s*(\|.*)?$"
+
+MAX_MESSAGES_PER_SCOUT_PER_WINDOW = 5
+MESSAGE_CAP_WINDOW = timedelta(hours=24)
+DEDUPE_WINDOW = timedelta(days=30)
+
+# A report the inbox does not show: the safety judge suppressed it, a person deleted it, or it failed.
+UNSENDABLE_REPORT_STATUSES = frozenset(("deleted", "suppressed", "failed"))
 
 MESSAGE_TARGET_SLACK_DM = "slack_dm"
 MESSAGE_TARGET_SLACK_CHANNEL = "slack_channel"
@@ -120,3 +130,11 @@ def scout_send_message_enabled(team: Team) -> bool:
     except Exception:
         logger.warning("signals_scout: scout-send-message flag check failed", extra={"team_id": team.id})
         return False
+
+
+def lock_scout_message_lane(*, team_id: int, skill_name: str) -> None:
+    """Serialize message writes for one scout until the transaction ends. Call inside `transaction.atomic`."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-scout-message:{team_id}:{skill_name}"]
+        )

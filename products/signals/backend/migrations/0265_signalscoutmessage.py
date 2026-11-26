@@ -52,7 +52,10 @@ class Migration(migrations.Migration):
                             ("flag_off", "Feature off"),
                             ("route_removed", "Route removed"),
                             ("report_missing", "Report missing"),
+                            ("report_hidden", "Report hidden"),
                             ("no_slack_integration", "No Slack integration"),
+                            ("duplicate", "Duplicate"),
+                            ("expired", "Expired"),
                         ],
                         max_length=32,
                         null=True,
@@ -172,6 +175,13 @@ class Migration(migrations.Migration):
             index=models.Index(
                 fields=["team", "skill_name", "status", "sent_at"],
                 name="signal_scout_message_lane_idx",
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="signalscoutmessagedelivery",
+            index=models.Index(
+                fields=["team", "status", "created_at"],
+                name="signal_scout_msg_dlv_team_idx",
             ),
         ),
         migrations.AddConstraint(

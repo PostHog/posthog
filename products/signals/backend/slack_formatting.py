@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from urllib.parse import urlparse
 
@@ -67,32 +68,55 @@ def strip_chart_references(text: str) -> str:
     return _REFERENCE_LINK_RE.sub(_reduce, _CHART_REF_DEFINITION_RE.sub("", text))
 
 
-# An inline markdown link, `[label](dest)` or `[label](<dest>)`. Neither class matches `[`, so a
-# run of unclosed brackets cannot make each start position rescan the rest of the text.
-_INLINE_LINK_RE = re.compile(r"""(?<![!\\])\[([^\[\]\n]{1,300})\]\(\s*<?([^\s<>()\[\]]+)>?\s*\)""")
+# An inline markdown link: `[label](dest)`, `[label](<dest>)`, either with an optional `"title"`,
+# `'title'` or `(title)`, and a destination holding one level of balanced parentheses. The label may
+# span lines, as CommonMark allows. Neither class matches `[`, so a run of unclosed brackets cannot
+# make each start position rescan the rest of the text.
+_INLINE_LINK_RE = re.compile(
+    r"""(?<![!\\])\[([^\[\]]{1,300})\]\(\s*<?((?:[^\s<>()\[\]]|\([^\s<>()\[\]]*\))+)>?"""
+    r"""(?:\s+(?:"[^"\n]{0,300}"|'[^'\n]{0,300}'|\([^()\n]{0,300}\)))?\s*\)"""
+)
 # A label a reader takes for an address: an optional scheme, a dotted host, and an optional path.
 _URL_SHAPED_LABEL_RE = re.compile(
     r"""^(?:[a-z][a-z0-9+.-]*://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:[/?#]\S*)?$""", re.IGNORECASE
 )
+# Characters that change how a label reads without changing what it shows: zero-width characters,
+# and the emphasis and code markers Slack renders away.
+_INVISIBLE_LABEL_CHARS_RE = re.compile(r"[\u200b-\u200f\u2060\ufeff*_~`]")
 
 
 def _link_host(value: str) -> str | None:
-    parsed = urlparse(value if "://" in value else f"//{value}")
-    return parsed.hostname.lower() if parsed.hostname else None
+    try:
+        parsed = urlparse(value if "://" in value else f"//{value}")
+        host = parsed.hostname
+    except ValueError:
+        return None
+    return host.lower() if host else None
+
+
+def _label_address(label: str) -> str | None:
+    """The address a reader sees at the start of a label, or None when the label does not open with one."""
+    visible = _INVISIBLE_LABEL_CHARS_RE.sub("", unicodedata.normalize("NFKC", label)).strip()
+    first_word = visible.split(maxsplit=1)[0] if visible else ""
+    return first_word if _URL_SHAPED_LABEL_RE.match(first_word) else None
 
 
 def bare_misleading_link_labels(text: str) -> str:
-    """Render a link as its bare destination when its label looks like an address on another host.
+    """Render a link as its bare destination when its label reads as an address on another host.
 
     `[github.com/org/repo](https://elsewhere.example)` reads as a GitHub link and opens another site.
     A message interrupts a person who acts on it from Slack, so such a link is shown as the URL it
-    opens. Every other link, and every other part of the text, is left as written."""
+    opens. A label is read as Slack shows it, so emphasis, code marks, zero-width characters and
+    trailing words do not hide the address it opens with. A destination that cannot be parsed has no
+    host to match and is shown bare too. Every other link, and every other part of the text, is left
+    as written."""
 
     def _replace(match: re.Match[str]) -> str:
-        label, destination = match.group(1).strip(), match.group(2)
-        if not _URL_SHAPED_LABEL_RE.match(label):
+        label_address, destination = _label_address(match.group(1)), match.group(2)
+        if label_address is None:
             return match.group(0)
-        if _link_host(label) == _link_host(destination):
+        destination_host = _link_host(destination)
+        if destination_host is not None and _link_host(label_address) == destination_host:
             return match.group(0)
         return destination
 

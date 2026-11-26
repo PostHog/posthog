@@ -34,6 +34,11 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.scout_harness.message_routes import (
+    UNSENDABLE_REPORT_STATUSES,
+    find_message_route,
+    scout_send_message_enabled,
+)
 from products.signals.backend.scout_harness.scout_naming import scout_display_name
 from products.signals.backend.scout_harness.slack_charts import (
     ChartRenderBudget,
@@ -1015,6 +1020,35 @@ def _ensure_channel_not_shared(client: WebClient, channel_id: str) -> None:
         )
 
 
+def _ensure_message_delivery_authorized(delivery: SignalScoutMessageDelivery, *, integration_id: int) -> None:
+    """Refuse a delivery its route no longer allows. Checked before every post and retry, because an owner
+    can remove a recipient, a route or the integration, or the flag can turn off, while it waits in the queue."""
+    message = delivery.message
+    config = message.run.scout_config
+    destinations = config.output_destinations if config is not None else None
+    refusal: str | None = None
+    if not scout_send_message_enabled(message.run.team):
+        refusal = "flag_off"
+    elif (route := find_message_route(destinations, message.route_key)) is None:
+        refusal = "route_removed"
+    elif not any(
+        target.target_id == delivery.target_id and target.type == delivery.target_type for target in route.targets
+    ):
+        refusal = "recipient_removed"
+    elif (
+        not isinstance(destinations, dict)
+        or not isinstance(destinations.get("slack"), dict)
+        or destinations["slack"].get("integration_id") != integration_id
+    ):
+        refusal = "integration_changed"
+    elif message.report is None or message.report.status in UNSENDABLE_REPORT_STATUSES:
+        refusal = "report_hidden"
+    if refusal is not None:
+        raise ScoutSlackPermanentDeliveryError(
+            f"The scout message route no longer allows this delivery ({refusal})", error_code=refusal
+        )
+
+
 def post_scout_message_to_slack(
     delivery: SignalScoutMessageDelivery,
     *,
@@ -1026,6 +1060,7 @@ def post_scout_message_to_slack(
     if delivery.status == SignalScoutMessageDelivery.Status.SENT:
         return
     message = delivery.message
+    _ensure_message_delivery_authorized(delivery, integration_id=integration_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=message.run.team.project_id)
     channel_id = _slack_channel_id(channel)
     blocks, fallback = build_scout_message_slack_message(message)

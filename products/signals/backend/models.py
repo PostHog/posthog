@@ -3997,7 +3997,13 @@ class SignalScoutMessage(TeamScopedRootMixin, UUIDModel):
         FLAG_OFF = "flag_off", "Feature off"
         ROUTE_REMOVED = "route_removed", "Route removed"
         REPORT_MISSING = "report_missing", "Report missing"
+        # The report is suppressed by the safety judge, deleted, or failed, so the inbox does not show it.
+        REPORT_HIDDEN = "report_hidden", "Report hidden"
         NO_SLACK_INTEGRATION = "no_slack_integration", "No Slack integration"
+        # Another run sent the same route and key after this message was queued.
+        DUPLICATE = "duplicate", "Duplicate"
+        # Left queued by a failed send for longer than the cap window, so no longer worth sending.
+        EXPIRED = "expired", "Expired"
 
     # See SignalScoutConfig.all_teams for rationale: the end-of-run send runs with no team scope set.
     all_teams = models.Manager()  # noqa: DJ012
@@ -4074,6 +4080,10 @@ class SignalScoutMessageDelivery(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["message", "target_id"], name="signal_scout_msg_delivery_uniq"),
+        ]
+        indexes = [
+            # The FK's own index is off; team deletion and the pending-delivery recovery read by team.
+            models.Index(fields=["team", "status", "created_at"], name="signal_scout_msg_dlv_team_idx"),
         ]
 
 

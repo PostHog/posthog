@@ -120329,6 +120329,77 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for `scout-send-message`: one message on an owner-set route.
+     */
+    export interface SendScoutMessageRequest {
+      /**
+         * Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient.
+         * @maxLength 64
+         */
+      route: string;
+      /**
+         * Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.
+         * @maxLength 64
+         * @nullable
+         */
+      report_id?: string | null;
+      /**
+         * Short plain-text title. At most 150 characters.
+         * @maxLength 150
+         */
+      title: string;
+      /**
+         * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
+         * @maxLength 3000
+         */
+      body: string;
+      /**
+         * Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.
+         * @maxLength 200
+         */
+      dedupe_key: string;
+    }
+
+    /**
+     * * `queued` - queued
+     * * `replaced` - replaced
+     * * `duplicate` - duplicate
+     * * `over_cap` - over_cap
+     * * `dry_run` - dry_run
+     */
+    export type SendScoutMessageResponseOutcomeEnum = typeof SendScoutMessageResponseOutcomeEnum[keyof typeof SendScoutMessageResponseOutcomeEnum];
+
+
+    export const SendScoutMessageResponseOutcomeEnum = {
+      Queued: 'queued',
+      Replaced: 'replaced',
+      Duplicate: 'duplicate',
+      OverCap: 'over_cap',
+      DryRun: 'dry_run',
+    } as const;
+
+    /**
+     * Outcome of a `scout-send-message` call.
+     */
+    export interface SendScoutMessageResponse {
+      /** `queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this route and key, and it now holds this content. `duplicate`: the route and key were sent in the last 30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was queued. `dry_run`: recorded for review and never sent.
+       *
+       * * `queued` - queued
+       * * `replaced` - replaced
+       * * `duplicate` - duplicate
+       * * `over_cap` - over_cap
+       * * `dry_run` - dry_run */
+      outcome: SendScoutMessageResponseOutcomeEnum;
+      /**
+         * Id of the queued message, or null when nothing was queued.
+         * @nullable
+         */
+      message_id: string | null;
+      /** On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise. */
+      recent_dedupe_keys: string[];
+    }
+
+    /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
     export type SendTransactionalEmailMessageData = {[key: string]: unknown};

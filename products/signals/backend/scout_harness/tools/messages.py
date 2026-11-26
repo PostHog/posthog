@@ -11,7 +11,7 @@ report posts, so a message can link to its report and a report edited several ti
 reaches Slack once. A second call in the same run with the same route and `dedupe_key` replaces the
 queued message.
 
-Limits are enforced here, under the run-row lock: at most `MAX_MESSAGES_PER_SCOUT_PER_WINDOW` per scout
+Limits are enforced here, under a lock on the scout's lane: at most `MAX_MESSAGES_PER_SCOUT_PER_WINDOW` per scout
 in any rolling `MESSAGE_CAP_WINDOW`, and no message whose route and `dedupe_key` were sent in the last
 `DEDUPE_WINDOW`. A refusal is an outcome, not an error, and is recorded on the run's metadata.
 """
@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import uuid
 import logging
-from datetime import timedelta
 from enum import StrEnum
 
 from django.db import transaction
@@ -36,8 +35,13 @@ from posthog.models import Team
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutMessage, SignalScoutRun
 from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.message_routes import (
+    DEDUPE_WINDOW,
+    MAX_MESSAGES_PER_SCOUT_PER_WINDOW,
+    MESSAGE_CAP_WINDOW,
+    UNSENDABLE_REPORT_STATUSES,
     find_message_route,
     get_message_routes,
+    lock_scout_message_lane,
     scout_send_message_enabled,
 )
 
@@ -46,9 +50,6 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGE_TITLE_LENGTH = 150
 MAX_MESSAGE_BODY_LENGTH = 3000
 MAX_DEDUPE_KEY_LENGTH = 200
-MAX_MESSAGES_PER_SCOUT_PER_WINDOW = 5
-MESSAGE_CAP_WINDOW = timedelta(hours=24)
-DEDUPE_WINDOW = timedelta(days=30)
 MAX_RECENT_DEDUPE_KEYS = 10
 # `SignalScoutRun.metadata` key holding the refused calls of the run, newest last.
 MESSAGE_REFUSALS_METADATA_KEY = "message_refusals"
@@ -144,6 +145,10 @@ def _resolve_report(*, team: Team, run: SignalScoutRun, report_id: str | None) -
     report = SignalReport.objects.filter(team_id=team.id, id=report_uuid).first()
     if report is None:
         raise InvalidMessageError(f"No report {report_id} exists in this project.")
+    if report.status in UNSENDABLE_REPORT_STATUSES:
+        # A report the safety judge suppressed is still stored and still on the run, so without this a
+        # scout could send the content the judge withheld from every other channel.
+        raise InvalidMessageError(f"Report {report_id} is not shown in the inbox, so no message can point at it.")
     touched = (
         SignalScoutRun.all_teams.filter(pk=run.pk)
         .filter(Q(emitted_report_ids__contains=[str(report_uuid)]) | Q(edited_report_ids__contains=[str(report_uuid)]))
@@ -171,6 +176,9 @@ def _queue(
     now = timezone.now()
     pending_status = SignalScoutMessage.Status.DRY_RUN if dry_run else SignalScoutMessage.Status.QUEUED
     with transaction.atomic():
+        # The cap and the dedupe window cover every run of the scout, and runs of one scout can overlap,
+        # so the lane is locked rather than the run. The config row is no lane: it can be recreated.
+        lock_scout_message_lane(team_id=team.id, skill_name=run.skill_name)
         locked_run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run.pk).first()
         if locked_run is None:
             raise InvalidMessageError("The run row is gone; nothing was queued.")
@@ -185,21 +193,25 @@ def _queue(
             return SendMessageResult(outcome=SendMessageOutcome.REPLACED, message_id=str(existing.id))
 
         lane = SignalScoutMessage.all_teams.filter(team_id=team.id, skill_name=run.skill_name)
-        sent = lane.filter(status=SignalScoutMessage.Status.SENT)
-        on_route = sent.filter(route_key=route_key, sent_at__gte=now - DEDUPE_WINDOW)
+        # Another run's queued message counts as sent: it goes out when that run ends.
+        on_route = lane.filter(route_key=route_key).filter(
+            Q(status=SignalScoutMessage.Status.SENT, sent_at__gte=now - DEDUPE_WINDOW)
+            | Q(status=SignalScoutMessage.Status.QUEUED, created_at__gte=now - MESSAGE_CAP_WINDOW)
+        )
         if on_route.filter(dedupe_key=dedupe_key).exists():
-            recent_keys = tuple(dict.fromkeys(on_route.order_by("-sent_at").values_list("dedupe_key", flat=True)[:50]))[
-                :MAX_RECENT_DEDUPE_KEYS
-            ]
+            recent_keys = tuple(
+                dict.fromkeys(on_route.order_by("-created_at").values_list("dedupe_key", flat=True)[:50])
+            )[:MAX_RECENT_DEDUPE_KEYS]
             _record_refusal(locked_run, SendMessageOutcome.DUPLICATE, route_key, dedupe_key, now)
             return SendMessageResult(
                 outcome=SendMessageOutcome.DUPLICATE, message_id=None, recent_dedupe_keys=recent_keys
             )
 
-        # Queued rows count wherever they came from: a reaped run's queued messages are still sent.
+        # Queued rows count wherever they came from: a reaped run's queued messages are still sent. Only
+        # inside the window, so a row a failed send left queued stops counting once the window passes.
         spent = lane.filter(
             Q(status=SignalScoutMessage.Status.SENT, sent_at__gte=now - MESSAGE_CAP_WINDOW)
-            | Q(status=SignalScoutMessage.Status.QUEUED)
+            | Q(status=SignalScoutMessage.Status.QUEUED, created_at__gte=now - MESSAGE_CAP_WINDOW)
             | Q(status=SignalScoutMessage.Status.DRY_RUN, run_id=run.pk)
         ).count()
         if spent >= MAX_MESSAGES_PER_SCOUT_PER_WINDOW:

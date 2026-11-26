@@ -2640,6 +2640,42 @@ const scoutRecordOutput = (): ToolBase<
     },
 })
 
+const ScoutSendMessageSchema = () => {
+    const SignalsScoutSendMessageBody = orvalSchemas.SignalsScoutSendMessageBody()
+    const SignalsScoutSendMessageParams = orvalSchemas.SignalsScoutSendMessageParams()
+    return SignalsScoutSendMessageParams.omit({ project_id: true }).extend(SignalsScoutSendMessageBody.shape)
+}
+
+const scoutSendMessage = (): ToolBase<ReturnType<typeof ScoutSendMessageSchema>, Schemas.SendScoutMessageResponse> => ({
+    name: 'scout-send-message',
+    schema: ScoutSendMessageSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutSendMessageSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.route !== undefined) {
+            body['route'] = params.route
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.body !== undefined) {
+            body['body'] = params.body
+        }
+        if (params.dedupe_key !== undefined) {
+            body['dedupe_key'] = params.dedupe_key
+        }
+        const result = await context.api.request<Schemas.SendScoutMessageResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/send_message/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutReportCheckCancelSchema = () => {
     const SignalsScoutReportCheckCancelBody = orvalSchemas.SignalsScoutReportCheckCancelBody()
     const SignalsScoutReportCheckCancelParams = orvalSchemas.SignalsScoutReportCheckCancelParams()
@@ -4409,6 +4445,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-notes-list': scoutNotesList,
     'scout-project-profile-get': scoutProjectProfileGet,
     'scout-record-output': scoutRecordOutput,
+    'scout-send-message': scoutSendMessage,
     'scout-report-check-cancel': scoutReportCheckCancel,
     'scout-report-check-create': scoutReportCheckCreate,
     'scout-report-check-list': scoutReportCheckList,

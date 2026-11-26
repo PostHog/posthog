@@ -45288,6 +45288,59 @@
             "validators": []
         }
     },
+    "scout-send-message": {
+        "name": "scout-send-message",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/runs/{run_id}/send_message/",
+            "pathParams": ["run_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "route",
+                    "key": "route"
+                },
+                {
+                    "param": "report_id",
+                    "key": "report_id"
+                },
+                {
+                    "param": "title",
+                    "key": "title"
+                },
+                {
+                    "param": "body",
+                    "key": "body"
+                },
+                {
+                    "param": "dedupe_key",
+                    "key": "dedupe_key"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "scout-trial-archive": {
         "name": "scout-trial-archive",
         "kind": "http",

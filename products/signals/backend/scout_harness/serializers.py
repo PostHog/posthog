@@ -115,6 +115,12 @@ from products.signals.backend.scout_harness.tools.lighthouse import (
     FORM_FACTORS,
     MAX_AUDITS_PER_RUN,
 )
+from products.signals.backend.scout_harness.tools.messages import (
+    MAX_DEDUPE_KEY_LENGTH,
+    MAX_MESSAGE_BODY_LENGTH,
+    MAX_MESSAGE_TITLE_LENGTH,
+    SendMessageOutcome,
+)
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
@@ -595,6 +601,71 @@ class RecordStructuredOutputResponseSerializer(serializers.Serializer):
             "order. Stable across a resubmission of the identical batch, which is what makes retrying "
             "a failed delivery safe."
         ),
+    )
+
+
+class SendScoutMessageRequestSerializer(serializers.Serializer):
+    """Request body for `scout-send-message`: one message on an owner-set route."""
+
+    route = serializers.CharField(
+        max_length=MAX_ROUTE_KEY_LENGTH,
+        help_text=(
+            "Key of the route to send on, from the scout config's `output_destinations.messages`. The route "
+            "decides who receives the message; the scout never names a recipient."
+        ),
+    )
+    report_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=64,
+        help_text=(
+            "Id of the report this message is about. Required unless the scout is on a dry run. The report "
+            "must belong to this project and must have been written or edited by this run."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_MESSAGE_TITLE_LENGTH,
+        trim_whitespace=True,
+        help_text=f"Short plain-text title. At most {MAX_MESSAGE_TITLE_LENGTH} characters.",
+    )
+    body = serializers.CharField(
+        max_length=MAX_MESSAGE_BODY_LENGTH,
+        trim_whitespace=True,
+        help_text=(
+            f"Markdown body with the links the reader needs. At most {MAX_MESSAGE_BODY_LENGTH} characters. A link "
+            "whose label looks like an address on another host is shown as the bare URL."
+        ),
+    )
+    dedupe_key = serializers.CharField(
+        max_length=MAX_DEDUPE_KEY_LENGTH,
+        trim_whitespace=True,
+        help_text=(
+            "Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were "
+            "sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route "
+            "and key replaces the queued message."
+        ),
+    )
+
+
+class SendScoutMessageResponseSerializer(serializers.Serializer):
+    """Outcome of a `scout-send-message` call."""
+
+    outcome = serializers.ChoiceField(
+        choices=[(outcome.value, outcome.value) for outcome in SendMessageOutcome],
+        help_text=(
+            "`queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this "
+            "route and key, and it now holds this content. `duplicate`: the route and key were sent in the last "
+            "30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was "
+            "queued. `dry_run`: recorded for review and never sent."
+        ),
+    )
+    message_id = serializers.UUIDField(
+        allow_null=True, help_text="Id of the queued message, or null when nothing was queued."
+    )
+    recent_dedupe_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise.",
     )
 
 
@@ -3401,6 +3472,9 @@ class SignalScoutMessageTargetSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
+        # DRF skips required fields on a partial update, nested ones included, so check them here.
+        if "type" not in attrs:
+            raise serializers.ValidationError({"type": "This field is required."})
         if attrs["type"] == MESSAGE_TARGET_SLACK_DM:
             if not attrs.get("user") or attrs.get("channel"):
                 raise serializers.ValidationError("A `slack_dm` target needs `user` and no `channel`.")
@@ -3434,6 +3508,13 @@ class SignalScoutMessageRouteSerializer(serializers.Serializer):
         max_length=MAX_ROUTE_TARGETS,
         help_text=f"Who receives a message sent on this route. At most {MAX_ROUTE_TARGETS} targets.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        # DRF skips required fields on a partial update, nested ones included, so check them here.
+        missing = [field for field in ("key", "when", "to") if field not in attrs]
+        if missing:
+            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
+        return attrs
 
 
 class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
@@ -3502,9 +3583,10 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     webhook = value.get("webhook") or None
     # Absent means "not supplied", which the update path reads to keep a stored opt-out.
     inbox = {"inbox": value["inbox"]} if "inbox" in value else {}
-    # `messages: []` clears the routes, so nothing is stored for it. The update path fills in the
-    # stored routes before this runs when the key is absent.
-    messages = {"messages": value["messages"]} if value.get("messages") else {}
+    # Kept when supplied, `[]` included: a second validation pass (the upsert path) reads an absent key
+    # as "keep the stored routes", so dropping an explicit clear here would restore them. The update
+    # path fills in the stored routes before this runs when the key is absent.
+    messages = {"messages": value["messages"]} if "messages" in value else {}
     slack = value.get("slack")
     if slack is None:
         if value.get("messages"):

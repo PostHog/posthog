@@ -13011,6 +13011,77 @@ export interface CreateReportCheckRequestApi {
 }
 
 /**
+ * Request body for `scout-send-message`: one message on an owner-set route.
+ */
+export interface SendScoutMessageRequestApi {
+    /**
+     * Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient.
+     * @maxLength 64
+     */
+    route: string
+    /**
+     * Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.
+     * @maxLength 64
+     * @nullable
+     */
+    report_id?: string | null
+    /**
+     * Short plain-text title. At most 150 characters.
+     * @maxLength 150
+     */
+    title: string
+    /**
+     * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
+     * @maxLength 3000
+     */
+    body: string
+    /**
+     * Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.
+     * @maxLength 200
+     */
+    dedupe_key: string
+}
+
+/**
+ * * `queued` - queued
+ * * `replaced` - replaced
+ * * `duplicate` - duplicate
+ * * `over_cap` - over_cap
+ * * `dry_run` - dry_run
+ */
+export type SendScoutMessageResponseOutcomeEnumApi =
+    (typeof SendScoutMessageResponseOutcomeEnumApi)[keyof typeof SendScoutMessageResponseOutcomeEnumApi]
+
+export const SendScoutMessageResponseOutcomeEnumApi = {
+    Queued: 'queued',
+    Replaced: 'replaced',
+    Duplicate: 'duplicate',
+    OverCap: 'over_cap',
+    DryRun: 'dry_run',
+} as const
+
+/**
+ * Outcome of a `scout-send-message` call.
+ */
+export interface SendScoutMessageResponseApi {
+    /** `queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this route and key, and it now holds this content. `duplicate`: the route and key were sent in the last 30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was queued. `dry_run`: recorded for review and never sent.
+     *
+     * * `queued` - queued
+     * * `replaced` - replaced
+     * * `duplicate` - duplicate
+     * * `over_cap` - over_cap
+     * * `dry_run` - dry_run */
+    outcome: SendScoutMessageResponseOutcomeEnumApi
+    /**
+     * Id of the queued message, or null when nothing was queued.
+     * @nullable
+     */
+    message_id: string | null
+    /** On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise. */
+    recent_dedupe_keys: string[]
+}
+
+/**
  * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
  * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
  * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.

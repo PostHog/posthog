@@ -67,6 +67,11 @@ from products.signals.backend.scout_harness.limits import (
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
+from products.signals.backend.scout_harness.message_routes import (
+    MessageRoute,
+    get_message_routes,
+    scout_send_message_enabled,
+)
 from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
@@ -1072,6 +1077,18 @@ def _inbox_reports_search_available(team: Team, mcp_tool_allowlist: list[str] | 
         return False
 
 
+def _message_routes_for_run(
+    team: Team, config: SignalScoutConfig, *, is_private_trial: bool
+) -> tuple[MessageRoute, ...]:
+    """The routes the run's prompt lists, or none when `scout-send-message` would refuse every call."""
+    if is_private_trial:
+        return ()
+    routes = get_message_routes(config.output_destinations)
+    if not routes or not scout_send_message_enabled(team):
+        return ()
+    return routes
+
+
 def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
     """The team's report tags for the prompt, or none for a signal-channel scout.
 
@@ -1339,6 +1356,9 @@ async def _spawn_and_run(
     inbox_reports_search = await database_sync_to_async(_inbox_reports_search_available, thread_sensitive=False)(
         team, mcp_tool_allowlist
     )
+    message_routes = await database_sync_to_async(_message_routes_for_run, thread_sensitive=False)(
+        team, config, is_private_trial=trial is not None
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1360,6 +1380,10 @@ async def _spawn_and_run(
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
         structured_output_schema=(config.structured_output_schema if config.emit else None),
+        # Renders the messages section (route keys and conditions) only when the scout may send:
+        # the flag is on, the config has routes, and the run is not a private trial.
+        message_routes=message_routes,
+        messages_dry_run=not config.emit,
         # Names the objects this scout may change, so it acts on them and reports what it changed.
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
