@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
-from dataclasses import asdict, field
+from dataclasses import field
 from functools import reduce
 from operator import or_
 from typing import TYPE_CHECKING, Optional
@@ -111,6 +111,7 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
+    action_expressions: dict[int, list[str]] = field(default_factory=dict)
 
     def for_next_fingerprint(self) -> "_WarehouseCatalog":
         """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
@@ -122,7 +123,16 @@ class _WarehouseCatalog:
             looked_up_table_names=self.looked_up_table_names,
             view_queries=self.view_queries,
             looked_up_names=self.looked_up_names,
+            action_expressions=self.action_expressions,
         )
+
+    def action_hogql_expressions(self, project_id: int) -> list[str]:
+        """The HogQL in the project's live action steps, read once per shared lookup scope."""
+        if project_id not in self.action_expressions:
+            from products.actions.backend.facade import api as actions_facade  # noqa: PLC0415
+
+            self.action_expressions[project_id] = actions_facade.hogql_step_expressions(project_id=project_id)
+        return self.action_expressions[project_id]
 
     def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
@@ -267,18 +277,12 @@ def queried_access_controlled_resources(
     )
     if not _nested:
         # Execution also applies HogQL stored outside the query: the team's test-account filters when the
-        # query turns them on, and the steps of every action it names. Either can read any table.
+        # query turns them on, and the steps of the actions it names. Either can read any table. A query can
+        # name an action in too many ways (series, `matchesAction(...)`, behavioral filters) to find them all,
+        # so the HogQL in every live action of the project counts: an unused one only adds scopes.
         if _enables_test_account_filters(query):
             embedded_sources.append(team.test_account_filters)
-        action_ids = set(_referenced_action_ids(query))
-        if action_ids:
-            from products.actions.backend.facade import api as actions_facade  # noqa: PLC0415
-
-            embedded_sources.extend(
-                asdict(step)
-                for action in actions_facade.get_actions(action_ids=action_ids, project_id=team.project_id)
-                for step in action.steps
-            )
+        embedded_sources.append(catalog.action_hogql_expressions(team.project_id))
     with nullcontext() if _shared_catalogs.get() is not None else shared_warehouse_lookups():
         for embedded_sql in _embedded_hogql(embedded_sources):
             nested = queried_access_controlled_resources(
@@ -517,29 +521,6 @@ def _enables_test_account_filters(value) -> bool:
             _enables_test_account_filters(item) for item in value.values()
         )
     return False
-
-
-def _referenced_action_ids(value) -> Iterator[int]:
-    """Ids of the saved actions a query's tree names: actions series nodes, `actionId` fields, and actions
-    retention entities."""
-    if isinstance(value, BaseModel):
-        kind = getattr(value, "kind", None)
-        is_actions_entity = isinstance(value, RetentionEntity) and value.type == EntityType.ACTIONS
-        if (isinstance(kind, str) and kind.endswith("ActionsNode")) or is_actions_entity:
-            identifier = getattr(value, "id", None)
-            if isinstance(identifier, int) or (isinstance(identifier, str) and identifier.isdigit()):
-                yield int(identifier)
-        action_id = getattr(value, "actionId", None)
-        if isinstance(action_id, int):
-            yield action_id
-        for item in value.__dict__.values():
-            yield from _referenced_action_ids(item)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _referenced_action_ids(item)
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _referenced_action_ids(item)
 
 
 def _table_names_including_join_constraints(select) -> set[str]:

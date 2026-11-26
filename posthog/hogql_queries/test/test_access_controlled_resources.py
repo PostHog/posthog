@@ -307,7 +307,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert result is not None
         assert ("tracing" in result) is expect_tracing
 
-    def test_saved_action_steps_are_scanned(self):
+    def _create_span_action(self) -> int:
         action = create_action(
             team=self.team,
             name="span action",
@@ -318,10 +318,41 @@ class TestQueriedAccessControlledResources(BaseTest):
                 }
             ],
         )
-        query = EventsQuery(select=["*"], actionId=action.id)
+        return action.id
+
+    @parameterized.expand(
+        [
+            ("events_query_action_id", lambda action_id: EventsQuery(select=["*"], actionId=action_id)),
+            (
+                "matches_action_in_hogql",
+                lambda action_id: HogQLQuery(query=f"select count() from events where matchesAction({action_id})"),
+            ),
+            (
+                "retention_entity_with_numeric_id",
+                lambda action_id: RetentionQuery(
+                    retentionFilter=RetentionFilter(
+                        targetEntity=RetentionEntity(id=float(action_id), type=EntityType.ACTIONS)
+                    )
+                ),
+            ),
+        ]
+    )
+    def test_saved_action_steps_are_scanned(self, _name, build_query):
+        query = build_query(self._create_span_action())
         result = queried_access_controlled_resources(query, self.team)
         assert result is not None
         assert "tracing" in result
+
+    def test_actions_without_hogql_add_nothing(self):
+        create_action(team=self.team, name="plain", steps_json=[{"event": "$pageview"}])
+        assert queried_access_controlled_resources(HogQLQuery(query="select 1"), self.team) == set()
+
+    def test_dashboard_fingerprints_load_action_steps_once(self):
+        self._create_span_action()
+        queries = [HogQLQuery(query="select 1"), HogQLQuery(query="select 2")]
+        with shared_warehouse_lookups(), self.assertNumQueries(1):
+            for query in queries:
+                assert queried_access_controlled_resources(query, self.team) == {"tracing"}
 
     def test_structured_query_with_nested_placeholder_table_fails_closed(self):
         query = DataVisualizationNode(source=HogQLQuery(query="select * from {table}"))
@@ -582,10 +613,10 @@ class TestQueriedAccessControlledResources(BaseTest):
         table.save()
 
         query = HogQLQuery(query="select * from stripe_customers")
-        # One query each for tables and views. A third means either the .only() field list no
-        # longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
+        # One query each for action steps, tables and views. A fourth means either the .only() field
+        # list no longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
         # row) or the default manager's externaldataschema_set prefetch leaked back in.
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
 
     def test_warehouse_table_of_another_team_not_matched(self):
