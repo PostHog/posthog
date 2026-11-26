@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -56,6 +57,7 @@ from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.utils import relative_date_parse
 
+from products.canvas.backend.facade.access import public_canvas_ids
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
     execute_managed_trino_query,
@@ -299,7 +301,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
 
         if _FILE_SYSTEM_TABLE in self._queried_table_names:
-            payload["file_system_canvas_rows"] = "readable_canvases"
+            readable_canvases = ",".join(public_canvas_ids(self.team.pk))
+            payload["file_system_canvas_rows"] = hashlib.sha256(readable_canvases.encode()).hexdigest()
 
         return payload
 

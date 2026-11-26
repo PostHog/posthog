@@ -25,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -1746,6 +1747,23 @@ class TestSystemTablesFileSystemCanvasVisibility(NonAtomicBaseTest):
         )
 
         assert self._canvas_refs(other) == {str(public_canvas)}
+
+    def test_cached_canvas_rows_drop_a_canvas_moved_out_of_a_public_channel(self):
+        other = User.objects.create_and_join(self.organization, "file-system-cache@example.com", "pwd")
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        canvas = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=channel.id, name="Shared", created_by_id=self.user.pk
+        )
+        query = HogQLQuery(query="SELECT ref FROM system.file_system WHERE type = 'canvas'")
+
+        with time_machine.travel("2026-11-26T08:00:00Z", tick=False):
+            before = HogQLQueryRunner(query=query, team=self.team).run(user=other)
+            with team_scope(self.team.pk):
+                Channel.objects.filter(id=channel.id).update(channel_type=Channel.ChannelType.PERSONAL)
+            after = HogQLQueryRunner(query=query, team=self.team).run(user=other)
+
+        assert ([row[0] for row in before.results], after.results) == ([str(canvas)], [])
 
     def test_canvas_rows_are_dropped_for_a_key_without_canvas_scope(self):
         with team_scope(self.team.pk):

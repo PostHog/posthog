@@ -246,6 +246,10 @@ def _live_or_owned_q(user_id: int | None) -> Q:
     return Q(deleted=False) | Q(created_by_id=user_id) if user_id is not None else Q(deleted=False)
 
 
+def public_canvas_ids(team_id: int) -> list[str]:
+    return sorted(str(canvas_id) for canvas_id in _visible_canvases(team_id, None).values_list("id", flat=True))
+
+
 def _visible_canvases(team_id: int, user_id: int | None) -> QuerySet[Canvas]:
     return Canvas.objects.for_team(team_id).filter(
         tasks_facade.visible_channels_q(user_id, relation="channel"), deleted=False
