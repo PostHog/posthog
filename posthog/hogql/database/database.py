@@ -1988,7 +1988,8 @@ class Database(BaseModel):
             include_flag_evaluations_table=include_flag_evaluations_table,
         )
         shared = current_shared_databases()
-        if shared is None:
+        if shared is None or (team_id is not None and team is not None and team_id != team.pk):
+            # A mismatched pair builds alone so _build_for raises, as it would outside a scope.
             return build()
         key = shared_database_key(
             team=team,

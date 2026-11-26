@@ -5189,6 +5189,25 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert (first is second) is shared
 
+    def test_a_sharing_scope_still_rejects_a_team_id_that_does_not_match_the_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+
+        with sharing_databases(SharedDatabases()):
+            Database.create_for(team=self.team, user=self.user)
+            with pytest.raises(ValueError):
+                Database.create_for(team_id=other_team.pk, team=self.team, user=self.user)
+
+    def test_a_sharing_scope_stops_keeping_databases_past_its_limit(self) -> None:
+        modifiers = [
+            HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
+            HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
+        ]
+
+        with sharing_databases(SharedDatabases(max_databases=1)):
+            kept, over_limit = (Database.create_for(team=self.team, user=self.user, modifiers=m) for m in modifiers)
+            assert Database.create_for(team=self.team, user=self.user, modifiers=modifiers[0]) is kept
+            assert Database.create_for(team=self.team, user=self.user, modifiers=modifiers[1]) is not over_limit
+
     @parameterized.expand([("member", False), ("member_with_preloaded_access_control", True)])
     def test_a_sharing_scope_keeps_an_admins_tables_from_a_member(self, _name: str, preload: bool) -> None:
         self.organization.available_product_features = [

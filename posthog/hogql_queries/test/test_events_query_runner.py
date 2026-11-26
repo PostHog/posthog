@@ -39,6 +39,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.request_scope import SharedDatabases, sharing_databases
 
 from posthog.clickhouse.client import sync_execute
 from posthog.date_util import start_of_day
@@ -1943,6 +1945,21 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [row[0] for row in response.results] == [
             {"display_name": "merged-user@example.com", "id": str(merged.uuid), "distinct_id": "merged-user-anon"}
         ]
+
+    def test_flag_evaluations_person_join_stays_out_of_a_batchs_shared_database(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+        query = EventsQuery(
+            kind="EventsQuery", select=["person_display_name -- Person"], event="$feature_flag_called", after="-30d"
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+
+        with sharing_databases(SharedDatabases()):
+            runner.calculate()
+            shared = Database.create_for(team=self.team, modifiers=runner.modifiers)
+
+        assert runner.shared_database is not shared
 
     @parameterized.expand([("default_order", None), ("requested_order", ["person_display_name -- Person ASC"])])
     def test_flag_evaluations_sort_by_person_display_name(self, _name: str, order_by: list[str] | None):

@@ -42,9 +42,12 @@ class SharedDatabases:
 
     Lives only as long as its owner, so a warehouse or saved-query change is seen by the next request.
     A Database is built to be read by concurrent query threads (its deferred builds take their own locks),
-    so the only coordination needed here is that one thread builds each key while the others wait."""
+    so the only coordination needed here is that one thread builds each key while the others wait.
 
-    def __init__(self) -> None:
+    Each stored catalog can be large, so past max_databases distinct keys a build is handed out but not kept."""
+
+    def __init__(self, max_databases: int = 4) -> None:
+        self._max_databases = max_databases
         self._lock = threading.Lock()
         self._databases: dict[SharedDatabaseKey, Database] = {}
         self._build_locks: dict[SharedDatabaseKey, threading.Lock] = {}
@@ -54,7 +57,12 @@ class SharedDatabases:
             database = self._databases.get(key)
             if database is not None:
                 return database
-            build_lock = self._build_locks.setdefault(key, threading.Lock())
+            if key not in self._build_locks and len(self._build_locks) >= self._max_databases:
+                build_lock = None
+            else:
+                build_lock = self._build_locks.setdefault(key, threading.Lock())
+        if build_lock is None:
+            return build()
         with build_lock:
             with self._lock:
                 database = self._databases.get(key)
@@ -77,6 +85,16 @@ _shared_databases: ContextVar[Optional[SharedDatabases]] = ContextVar("hogql_sha
 @contextmanager
 def sharing_databases(databases: SharedDatabases) -> Iterator[None]:
     token = _shared_databases.set(databases)
+    try:
+        yield
+    finally:
+        _shared_databases.reset(token)
+
+
+@contextmanager
+def building_alone() -> Iterator[None]:
+    """Build databases outside any sharing scope, for a caller that changes the catalog it gets."""
+    token = _shared_databases.set(None)
     try:
         yield
     finally:
