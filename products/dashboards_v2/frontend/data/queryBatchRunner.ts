@@ -23,11 +23,12 @@ interface Pending {
     resolve: (result: QueryResult) => void
     reject: (error: Error) => void
     queuedAt: number
+    context: Record<string, unknown>
     retriedBusy?: boolean
 }
 
 export interface QueryBatchRunnerOptions {
-    /** Read when each batch ends, and added to its timing event, such as the tab on screen. */
+    /** Read when a query is asked, and added to its batch's timing event, such as the tab on screen. */
     context?: () => Record<string, unknown>
 }
 
@@ -190,7 +191,7 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             retryingBusy = true
         }).finally(() => {
             try {
-                batchTimer.capture(options.context?.() ?? {})
+                batchTimer.capture(batch[0].context)
             } catch {
                 // Timing must never hold up the next batch.
             }
@@ -206,7 +207,7 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
 
     return (request) =>
         new Promise<QueryResult>((resolve, reject) => {
-            queued.push({ request, resolve, reject, queuedAt: performance.now() })
+            queued.push({ request, resolve, reject, queuedAt: performance.now(), context: options.context?.() ?? {} })
             if (!running && timer === null) {
                 timer = setTimeout(flush, COALESCE_MS)
             }

@@ -94,6 +94,8 @@ export class QueryBatchTimer {
             this.throttleRetries++
         }
         this.attemptStartedAt = now
+        this.headersAt = null
+        this.status = null
     }
 
     response(status: number): void {
@@ -114,6 +116,7 @@ export class QueryBatchTimer {
         }
         if (line.error) {
             this.errorLines++
+            return
         }
         if (line.result?.cache?.hit) {
             this.cacheHits++

@@ -189,7 +189,8 @@ describe('createQueryBatchRunner', () => {
         jest.spyOn(performance, 'now').mockImplementation(() => clock)
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         try {
-            const runQuery = createQueryBatchRunner(7, { context: () => ({ dashboard_tab_id: 'main' }) })
+            let tabOnScreen = 'main'
+            const runQuery = createQueryBatchRunner(7, { context: () => ({ dashboard_tab_id: tabOnScreen }) })
             clock = 1010
             const sql = runQuery(SQL)
             const latency = runQuery(LATENCY)
@@ -200,12 +201,13 @@ describe('createQueryBatchRunner', () => {
             const traceparent = (globalThis.fetch as jest.Mock).mock.calls[0][1].headers.traceparent
             expect(traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
 
+            tabOnScreen = 'other'
             clock = 1100
-            streams[0].push(`${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true } } })}\n`)
-            await expect(latency).resolves.toEqual({ frames: [], stale: true })
-            clock = 1400
             streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
             await expect(sql).rejects.toThrow('Query timed out')
+            clock = 1400
+            streams[0].push(`${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true } } })}\n`)
+            await expect(latency).resolves.toEqual({ frames: [], stale: true })
             clock = 1500
             streams[0].close()
             await flush()
@@ -235,7 +237,7 @@ describe('createQueryBatchRunner', () => {
                         cache_hits: 1,
                         stale_lines: 1,
                         since_mount_request_ms: 40,
-                        since_mount_first_result_ms: 100,
+                        since_mount_first_result_ms: 400,
                         since_mount_last_result_ms: 400,
                     }),
                 ],
