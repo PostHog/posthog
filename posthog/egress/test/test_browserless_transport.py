@@ -4,6 +4,7 @@ from django.test import SimpleTestCase
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.egress.browserless.observability import browserless_egress
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted, browserless_request, fleet_scope
@@ -68,6 +69,26 @@ class TestBrowserlessTransport(SimpleTestCase):
         assert "Authorization" not in request.call_args.kwargs["headers"]
         assert request.call_args.args[1] == _URL
         assert record.called
+
+    def test_a_session_is_counted_while_open_and_released_when_the_request_fails(self) -> None:
+        labels = {"scope": fleet_scope(_URL, _TOKEN), "client": "rest", "source": "heatmap_screenshot"}
+        seen_while_open: list[float | None] = []
+
+        def failing_request(*_args, **_kwargs):
+            seen_while_open.append(REGISTRY.get_sample_value("browserless_sessions_in_flight", labels))
+            raise requests.ConnectionError("connection reset")
+
+        with (
+            patch("posthog.egress.browserless.transport.consume_browserless_sync", return_value=True),
+            patch("requests.request", side_effect=failing_request),
+        ):
+            with self.assertRaises(requests.ConnectionError):
+                browserless_request(
+                    "POST", _URL, token=_TOKEN, source="heatmap_screenshot", endpoint="screenshot", json={}
+                )
+
+        assert seen_while_open == [1.0]
+        assert REGISTRY.get_sample_value("browserless_sessions_in_flight", labels) == 0.0
 
     def test_a_sheddable_call_raises_when_the_fleet_budget_is_spent(self) -> None:
         # The whole point of one budget per fleet: a background consumer is turned away before it

@@ -29,6 +29,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.api.shared import ImageSizeSerializer
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
+from posthog.egress.browserless.transport import browserless_session_gauge
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -630,7 +631,10 @@ def _screenshot_asset_browserless(
     )
 
     stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
-    with sync_playwright() as p:
+    session_gauge = browserless_session_gauge(
+        settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, client="cdp", source="image_export"
+    )
+    with sync_playwright() as p, session_gauge.track_inprogress():
         try:
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
         except (PlaywrightError, PlaywrightTimeoutError) as e:

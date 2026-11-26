@@ -28,8 +28,16 @@ A denied call raises `BrowserlessEgressBudgetExhausted`; the heatmap caller maps
 ## Rate-limit headers
 
 Browserless documents none, and a live response from the hosted fleet carries no `X-RateLimit-*` and no `Retry-After`.
-Its `X-Response-*` headers describe the page it fetched, not the API's budget, so the domain declares no gauges.
+Its `X-Response-*` headers describe the page it fetched, not the API's budget, so the domain declares no rate-limit gauges.
 The counter is `browserless_requests_total`, labeled `scope, method, endpoint, status_code, source`.
+
+## Open sessions
+
+Browserless limits concurrent sessions, and it reports no session count, so we count our own.
+`browserless_sessions_in_flight` is the number of sessions open right now, labeled `scope, client, source`.
+`client` is `rest` for calls through `browserless_request` and `cdp` for image exports, which connect with Playwright and bypass the egress budget.
+Both clients use the same `scope`, so the gauge summed by `scope` is one fleet's concurrency, comparable with the plan's limit.
+A REST call counts from before the budget check, so a call the budget refuses shows for a moment before it raises.
 
 ## Auth
 

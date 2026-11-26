@@ -23,6 +23,7 @@ from prometheus_client import REGISTRY
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.insight_result import InsightResult
+from posthog.egress.browserless.transport import fleet_scope
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -1127,8 +1128,18 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         page.pdf.assert_not_called()
 
     def test_connect_error_is_wrapped_as_browserless_unavailable(self) -> None:
+        cdp_url = "wss://chrome.browserless.io"
+        session_labels = {"scope": fleet_scope(cdp_url, ""), "client": "cdp", "source": "image_export"}
+        sessions_while_connecting: list[float | None] = []
+
+        def refuse_connection(*_args, **_kwargs):
+            sessions_while_connecting.append(
+                REGISTRY.get_sample_value("browserless_sessions_in_flight", session_labels)
+            )
+            raise PlaywrightError("ECONNREFUSED")
+
         playwright_obj = MagicMock()
-        playwright_obj.chromium.connect_over_cdp.side_effect = PlaywrightError("ECONNREFUSED")
+        playwright_obj.chromium.connect_over_cdp.side_effect = refuse_connection
 
         # Mock the `with sync_playwright() as p:` shape: the context manager's
         # __enter__ returns the playwright object whose .chromium.connect_over_cdp raises.
@@ -1139,9 +1150,15 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
             "products.exports.backend.tasks.image_exporter.sync_playwright",
             return_value=sync_playwright_cm,
         ):
-            with patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"):
+            with (
+                patch.object(settings, "BROWSERLESS_CDP_URL", cdp_url),
+                patch.object(settings, "BROWSERLESS_TOKEN", ""),
+            ):
                 with self.assertRaises(BrowserlessUnavailable):
                     image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
+
+        assert sessions_while_connecting == [1.0]
+        assert REGISTRY.get_sample_value("browserless_sessions_in_flight", session_labels) == 0.0
 
     def test_connect_error_redacts_token_and_breaks_chain(self) -> None:
         token = "super-secret-token"

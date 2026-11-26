@@ -1,12 +1,13 @@
 """Gated, recorded transport for calls to a Browserless fleet."""
 
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import requests
+from prometheus_client import Gauge
 
 from posthog.egress.browserless.limiter import consume_browserless_sync
-from posthog.egress.browserless.observability import browserless_egress
+from posthog.egress.browserless.observability import BROWSERLESS_SESSIONS_IN_FLIGHT, browserless_egress
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
@@ -31,6 +32,10 @@ def fleet_scope(url: str, token: str) -> str:
     if not host and not token:
         return ""
     return scope_fingerprint(host, token)
+
+
+def browserless_session_gauge(url: str, token: str, *, client: Literal["rest", "cdp"], source: str) -> Gauge:
+    return BROWSERLESS_SESSIONS_IN_FLIGHT.labels(scope=fleet_scope(url, token), client=client, source=source)
 
 
 class BrowserlessClient(EgressClient):
@@ -73,14 +78,16 @@ def browserless_request(
     somebody is waiting on. Raises `BrowserlessEgressBudgetExhausted` when the fleet's budget is
     spent; the limiter does not block, so backing off is the caller's job.
     """
-    return _browserless_client.request(
-        method,
-        url,
-        source=source,
-        scope=fleet_scope(url, token),
-        priority=priority,
-        endpoint=endpoint,
-        timeout=timeout,
-        session=session,
-        **kwargs,
-    )
+    scope = fleet_scope(url, token)
+    with browserless_session_gauge(url, token, client="rest", source=source).track_inprogress():
+        return _browserless_client.request(
+            method,
+            url,
+            source=source,
+            scope=scope,
+            priority=priority,
+            endpoint=endpoint,
+            timeout=timeout,
+            session=session,
+            **kwargs,
+        )
