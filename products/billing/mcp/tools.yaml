@@ -206,9 +206,8 @@ tools:
             billing-spend-summary-get. Use it to investigate a cost spike, compare periods, or attribute spend to
             products or projects. For spend so far this period call billing-spend-summary-get, and for quantities call
             billing-usage-timeseries-get. Needs an API key or OAuth token with organization access, because a key
-            limited to specific projects gets a 403. Use the returned
-            pricing_reset_dates to locate pricing resets; these organization-wide usage dates can differ from the
-            subscription renewal date.
+            limited to specific projects gets a 403. Use the returned pricing_reset_dates to locate pricing resets;
+            these organization-wide usage dates can differ from the subscription renewal date.
         param_overrides:
             team_ids:
                 input_schema: BillingTeamIdsSchema
