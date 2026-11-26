@@ -1598,6 +1598,8 @@ class SourceConfigSpec:
     object_access: SourceObjectAccess | None = None
     # Words a failed check's error for a read through the platform API. None shows it as stored.
     check_error: CheckErrorWording | None = None
+    # The platform API reads the kind's alerts and refuses writes to them (409): the source's API makes them.
+    read_only: bool = False
 
     @property
     def creatable(self) -> bool:

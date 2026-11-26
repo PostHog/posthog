@@ -104,8 +104,9 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
     admit=admit_platform_write,
-    # No `mirror`: the insight API writes a moved alert's edits to its copy alone, and the platform API
-    # reads insight alerts but does not write them.
+    # No `mirror`: the insight API writes a moved alert's edits to its copy alone, and an edit through
+    # the platform API would miss the insight's own row.
+    read_only=True,
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
     # HogFunctions. `creates_native_alert` turns its creates on per team. A native create picks any
     # insight cadence, daily by default.
