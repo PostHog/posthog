@@ -7,6 +7,7 @@ Built from Postgres only, bounded in size, and without secret input values.
 import json
 from dataclasses import asdict, replace
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -72,7 +73,9 @@ class HistoryEntry:
     enabled: bool | None = None
     # A test that sent real requests records the origins it reached. Redacted again against the secrets stored now,
     # because the row only redacts the secrets that were stored when the test ran.
+    # Origins that a rule flags come first.
     request_origins: tuple[str, ...] | None = None
+    request_origins_omitted: int = 0
     mocked_async_functions: bool | None = None
 
 
@@ -227,6 +230,7 @@ def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
     code = test.get("hog") if test else new_values.get("hog")
     enabled = new_values.get("enabled")
     origins = test.get("request_origins")
+    shown_origins = _redacted_origins(origins, secrets) if isinstance(origins, list) else None
     mocked = test.get("mock_async_functions")
     return HistoryEntry(
         activity=row.activity,
@@ -234,14 +238,17 @@ def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
         changed_fields=tuple(str(change.get("field")) for change in changes if change.get("field")),
         code=_cut(code, MAX_HISTORY_CODE_CHARS) if isinstance(code, str) else None,
         enabled=enabled if isinstance(enabled, bool) else None,
-        request_origins=_redacted_origins(origins, secrets) if isinstance(origins, list) else None,
+        request_origins=shown_origins,
+        request_origins_omitted=max(len(origins) - MAX_ORIGINS_PER_TEST, 0) if isinstance(origins, list) else 0,
         mocked_async_functions=mocked if isinstance(mocked, bool) else None,
     )
 
 
 def _redacted_origins(origins: list[JsonValue], secrets: list[str]) -> tuple[str, ...]:
-    shown = [_cut(str(origin), MAX_ORIGIN_CHARS) for origin in origins[:MAX_ORIGINS_PER_TEST]]
-    return tuple(redact_secrets_in_origins(shown, secrets))
+    # Redacted before the cut: the redactor matches only a whole origin, and a cut can split a secret.
+    redacted = redact_secrets_in_origins([str(origin) for origin in origins], secrets)
+    ranked = sorted(redacted, key=lambda origin: not rules.is_flagged_host(_origin_host(origin)))
+    return tuple(_cut(origin, MAX_ORIGIN_CHARS) for origin in ranked[:MAX_ORIGINS_PER_TEST])
 
 
 @frozen
@@ -297,10 +304,11 @@ def _named_hosts(content: HogFunctionContent) -> _Hosts:
 
 
 def _fit(case_file: CaseFile) -> CaseFile:
-    """Drop the oldest history, then the least recently updated functions of the organization, until the case
-    file fits. The function under review and the account are bounded on their own, so they always stay."""
+    """Drop the oldest history or the least recently updated function of the organization, from whichever section
+    is larger, until the case file fits, so neither section can push the other out. The function under review and
+    the account are bounded on their own, so they always stay."""
     while len(case_file.to_json()) > MAX_CASE_FILE_CHARS:
-        if case_file.history:
+        if case_file.history and _size(case_file.history) >= _size(case_file.org_functions):
             case_file = replace(case_file, history=case_file.history[1:], history_omitted=case_file.history_omitted + 1)
         elif case_file.org_functions:
             case_file = replace(
@@ -311,6 +319,17 @@ def _fit(case_file: CaseFile) -> CaseFile:
         else:
             break
     return case_file
+
+
+def _origin_host(origin: str) -> str:
+    try:
+        return urlsplit(origin).hostname or ""
+    except ValueError:
+        return ""
+
+
+def _size(section: tuple[HistoryEntry, ...] | tuple[OrgFunction, ...]) -> int:
+    return len(json.dumps([asdict(entry) for entry in section], ensure_ascii=False, default=_json_default))
 
 
 def _cut(text: str, limit: int) -> str:

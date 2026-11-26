@@ -91,7 +91,12 @@ class TestAbuseReview(AbuseClassificationTestCase):
         self.log(
             destination,
             "tested",
-            context={"hog": "fetch('b')", "mock_async_functions": False, "request_origins": ["http://10.0.0.1"]},
+            context={
+                "hog": "fetch('b')",
+                "mock_async_functions": False,
+                "request_origins": [f"https://site{index:02}.example.com" for index in range(25)]
+                + ["http://169.254.169.254"],
+            },
         )
         sibling_team = Team.objects.create(organization=self.organization, name="Second project")
         self.other_function(sibling_team, name="Deleted probe", hog="fetch('http://localhost:8000')", deleted=True)
@@ -130,7 +135,9 @@ class TestAbuseReview(AbuseClassificationTestCase):
             ("tested", "fetch('b')", None),
         ]
         assert case["history"][1]["changed_fields"] == ["hog", "enabled"]
-        assert case["history"][2]["request_origins"] == ["http://10.0.0.1"]
+        assert case["history"][2]["request_origins"][0] == "http://169.254.169.254"
+        assert len(case["history"][2]["request_origins"]) == case_file.MAX_ORIGINS_PER_TEST
+        assert case["history"][2]["request_origins_omitted"] == 26 - case_file.MAX_ORIGINS_PER_TEST
         others = {other["name"]: other for other in case["org_functions"]}
         assert others["Deleted probe"]["deleted"] is True
         assert others["Deleted probe"]["rule_hits"] == ["internal_host"]
@@ -162,7 +169,13 @@ class TestAbuseReview(AbuseClassificationTestCase):
         self.log(
             destination,
             "tested",
-            context={"hog": "fetch(inputs.url)", "request_origins": [f"https://{SECRET_VALUE}.example.com"]},
+            context={
+                "hog": "fetch(inputs.url)",
+                "request_origins": [
+                    f"https://{SECRET_VALUE}.example.com",
+                    f"https://{SECRET_VALUE}." + "a" * 60 + "." + ("b" * 60 + ".") * 5 + "example.com",
+                ],
+            },
         )
         secret_url = f"https://{SECRET_VALUE}.example.com/hook"
         self.other_function(
@@ -194,23 +207,23 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert len(case["org_functions"]) == case_file.MAX_ORG_FUNCTIONS
         assert case["org_functions_omitted"] == 3
 
-    def test_an_oversized_case_file_drops_the_oldest_history_and_functions_to_fit(self) -> None:
+    def test_an_oversized_case_file_trims_both_history_and_functions_to_fit(self) -> None:
         destination = self.create_destination()
         for version in range(10):
-            entry = self.log(destination, "updated", changes=[{"field": "hog", "after": f"{version}" + "x" * 3_000}])
+            entry = self.log(destination, "updated", changes=[{"field": "hog", "after": f"{version}" + "x" * 400}])
             ActivityLog.objects.filter(pk=entry.pk).update(created_at=timezone.now() + timedelta(seconds=version))
         for index in range(10):
             self.other_function(self.team, name=f"Function {index} " + "n" * 300)
 
-        with patch.object(case_file, "MAX_CASE_FILE_CHARS", 5_000):
+        with patch.object(case_file, "MAX_CASE_FILE_CHARS", 8_000):
             destination.refresh_from_db()
             built = build_case_file(destination, score(destination))
 
         serialized = built.to_json()
-        assert len(serialized) <= 5_000
+        assert len(serialized) <= 8_000
         assert "169.254.169.254" in serialized
-        assert built.history == ()
-        assert built.history_omitted == 10
+        assert 0 < len(built.history) < 10
+        assert len(built.history) + built.history_omitted == 10
         assert 0 < len(built.org_functions) < 10
         assert len(built.org_functions) + built.org_functions_omitted == 10
 

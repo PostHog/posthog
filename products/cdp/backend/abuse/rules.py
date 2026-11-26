@@ -1209,9 +1209,10 @@ def named_hosts(content: HogFunctionContent) -> tuple[str, ...]:
     flagged: dict[str, bool] = {}
     for host in _hosts_in(_texts(content)):
         named = host[:_MAX_NAMED_HOST_CHARS]
-        flagged[named] = flagged.get(named, False) or _is_flagged_host(host)
+        flagged[named] = flagged.get(named, False) or is_flagged_host(host)
     return tuple(sorted(flagged, key=lambda host: (not flagged[host], host)))
 
 
-def _is_flagged_host(host: str) -> bool:
+def is_flagged_host(host: str) -> bool:
+    """Whether a host is internal, a request catcher or a security callback."""
     return _is_internal(host) or _is_request_catcher(host) or _is_security_callback(host)

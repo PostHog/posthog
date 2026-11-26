@@ -17,6 +17,7 @@ from products.cdp.backend.abuse.case_file import CaseFile
 REVIEW_MODEL = "claude-opus-5-5"
 AI_PRODUCT = "cdp_abuse_review"
 MAX_FINDINGS = 5
+MAX_FINDING_CHARS = 500
 MAX_OUTPUT_TOKENS = 16_000
 # Sized for a long case file at high effort. The SDK retries once, so a call can take twice this.
 REQUEST_TIMEOUT_SECONDS = 300.0
@@ -57,7 +58,8 @@ that only probe weigh toward abuse. A history of working integrations weighs aga
 
 Answer with:
 - findings: one to five short, concrete observations from the case file that decide the verdict, each one citing \
-what you saw (a host, a code line, a count, a time). No speculation beyond the case file.
+what you saw (a host, a code line, a count, a time), each at most 500 characters. No speculation beyond the case \
+file.
 - verdict: true_positive when the function is abuse, false_positive when it is a legitimate use that tripped a \
 check, uncertain when the case file does not settle it.
 - confidence: from 0 to 1, how sure you are of the verdict.
@@ -67,7 +69,7 @@ disable_function is for abuse inside an organization that also has legitimate us
 - admin_reason: one line a staff member can paste as the reason for the action, or for taking none. No line breaks.
 """
 
-_Finding = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+_Finding = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_FINDING_CHARS)]
 _OneLine = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=300, pattern="^[^\r\n\u0085\u2028\u2029]+$"),
@@ -114,7 +116,7 @@ _OUTPUT_FORMAT: JSONOutputFormatParam = {
             "findings": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": f"One to {MAX_FINDINGS} observations.",
+                "description": f"One to {MAX_FINDINGS} observations, each at most {MAX_FINDING_CHARS} characters.",
             },
             "verdict": {"type": "string", "enum": [verdict.value for verdict in Verdict]},
             "confidence": {"type": "number", "description": "From 0 to 1."},
