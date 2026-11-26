@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from posthog.api.embedding_worker import EmbeddingResponse
 from posthog.clickhouse.client import sync_execute
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport
@@ -149,13 +149,21 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
             assert response.json()["semantic_available"] is False
             assert [row["match_kinds"] for row in response.json()["results"]] == [["keyword"]]
 
-    def test_a_vector_read_refused_at_the_query_limit_still_returns_semantic_matches(self) -> None:
+    @parameterized.expand(
+        [
+            ("capacity_refusal", ClickHouseAtCapacity),
+            ("query_timeout", ClickHouseQueryTimeOut),
+        ]
+    )
+    def test_a_temporary_vector_read_failure_still_returns_semantic_matches(
+        self, _name: str, error_type: type[Exception]
+    ) -> None:
         report = self._report("Purchases stall after the payment step")
         self._embed(report, _vector(1.0, 0.0))
 
         with (
             patch(f"{SEARCH}.VECTOR_READ_RETRY_WAIT_S", (0, 0)),
-            patch(f"{SEARCH}.sync_execute", wraps=sync_execute, side_effect=[ClickHouseAtCapacity(), DEFAULT]),
+            patch(f"{SEARCH}.sync_execute", wraps=sync_execute, side_effect=[error_type(), DEFAULT]),
         ):
             response = self._search(query="checkout")
 
