@@ -657,6 +657,9 @@ class LazyComputationTable(StrEnum):
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
     WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
+    # The same dimensional tables partitioned by the day of `period_bucket`, filled next to them for comparison.
+    WEB_STATS_DIMENSIONAL_PREAGGREGATED_BY_DAY = "web_stats_dimensional_preaggregated_by_day"
+    WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY = "web_bounces_dimensional_preaggregated_by_day"
 
 
 # The HogQL table that reads each target table. The two dimensional web tables are read
@@ -705,11 +708,25 @@ _EVENTS_RETENTION_EXEMPT_TABLES: frozenset[LazyComputationTable] = frozenset(
 )
 
 
+# Tables whose rows outlive their job by less than EXPIRY_BUFFER_SECONDS. Their rows expire one by one through TTL
+# merges, so superseded generations go away soon after their job expires. The buffer must stay above the longest read
+# grace (`stale_while_revalidate_seconds`) a reader of the table passes, plus the longest query.
+_SHORT_EXPIRY_BUFFER_SECONDS: dict[LazyComputationTable, int] = {
+    LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED_BY_DAY: 2 * 60 * 60,
+    LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY: 2 * 60 * 60,
+}
+
+
+def expiry_buffer_seconds(table: LazyComputationTable) -> int:
+    """How long the ClickHouse rows of a job of `table` outlive the job."""
+    return _SHORT_EXPIRY_BUFFER_SECONDS.get(table, EXPIRY_BUFFER_SECONDS)
+
+
 def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) -> datetime:
     """Compute the ClickHouse expires_at for a job, accounting for the table's column type."""
     assert job.expires_at is not None
     extra_days = 1 if table in _DATE_EXPIRES_AT_TABLES else 0
-    return job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=extra_days)
+    return job.expires_at + timedelta(seconds=expiry_buffer_seconds(table), days=extra_days)
 
 
 @dataclass(frozen=False)
@@ -2081,6 +2098,8 @@ def ensure_precomputed(
             empty_result_max_age_seconds=empty_result_max_age_seconds,
         )
     )
+    if stale_while_revalidate_seconds is not None and stale_while_revalidate_seconds >= expiry_buffer_seconds(table):
+        raise ValueError(f"stale_while_revalidate_seconds must be below the expiry buffer of {table}")
     executor = LazyComputationExecutor(
         ttl_schedule=ttl_schedule,
         wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,

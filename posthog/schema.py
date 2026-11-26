@@ -3880,6 +3880,14 @@ class WebAnalyticsQueryModifiers(BaseModel):
             " the normal path otherwise."
         ),
     )
+    useDimensionalTablesByDay: bool | None = Field(
+        default=None,
+        description=(
+            "Read the day-partitioned copy of the dimensional tables instead of the"
+            " current one, to compare the two layouts. Applies only to queries that"
+            " read the dimensional tables."
+        ),
+    )
 
 
 class WebAnalyticsSampling(BaseModel):

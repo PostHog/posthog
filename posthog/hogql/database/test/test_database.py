@@ -4717,6 +4717,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "web_pre_aggregated_bounces",
             "web_stats_dimensional_preaggregated",
             "web_bounces_dimensional_preaggregated",
+            "web_stats_dimensional_preaggregated_by_day",
+            "web_bounces_dimensional_preaggregated_by_day",
             "preaggregation_results",
             "experiment_exposures_preaggregated",
             "experiment_metric_events_preaggregated",

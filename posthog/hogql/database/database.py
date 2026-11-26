@@ -145,9 +145,11 @@ from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpans
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedByDayTable,
     WebBouncesDimensionalPreAggregatedTable,
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
+    WebStatsDimensionalPreAggregatedByDayTable,
     WebStatsDimensionalPreAggregatedTable,
 )
 from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
@@ -416,12 +418,19 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     # tables are the v2 tables' read successors and must live in the root namespace
     # for the same reason v2 does — the web-analytics query builder qualifies columns
     # as `table.col` (single-identifier), which only resolves at the root. Namespacing
-    # them under `posthog.` would require reworking that shared builder.
+    # them under `posthog.` would require reworking that shared builder. The `_by_day` copies hold the same rows in
+    # another layout, and the same builder reads them, so the same exception applies.
     "web_stats_dimensional_preaggregated": TableNode(
         name="web_stats_dimensional_preaggregated", table=WebStatsDimensionalPreAggregatedTable()
     ),
     "web_bounces_dimensional_preaggregated": TableNode(
         name="web_bounces_dimensional_preaggregated", table=WebBouncesDimensionalPreAggregatedTable()
+    ),
+    "web_stats_dimensional_preaggregated_by_day": TableNode(
+        name="web_stats_dimensional_preaggregated_by_day", table=WebStatsDimensionalPreAggregatedByDayTable()
+    ),
+    "web_bounces_dimensional_preaggregated_by_day": TableNode(
+        name="web_bounces_dimensional_preaggregated_by_day", table=WebBouncesDimensionalPreAggregatedByDayTable()
     ),
     "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
     "experiment_exposures_preaggregated": TableNode(

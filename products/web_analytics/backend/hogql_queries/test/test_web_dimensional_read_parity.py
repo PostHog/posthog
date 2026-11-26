@@ -33,7 +33,9 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorQueryWasCancelled
@@ -49,6 +51,7 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
+    DimensionalLayout,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
@@ -1024,3 +1027,78 @@ class TestStatsTableDimensionalHostParity(_HostParityBase):
         assert not live_strategy.startswith("stats_table_dimensional")
         assert dimensional_strategy.startswith("stats_table_dimensional")
         assert dimensional == live, f"{_name}\nlive={live}\ndimensional={dimensional}"
+
+
+OPT_IN_BY_DAY = WebAnalyticsQueryModifiers(useDimensionalTables=True, useDimensionalTablesByDay=True)
+
+
+class TestDimensionalByDayLayoutParity(_HostParityBase):
+    def _setup_test_data(self):
+        super()._setup_test_data()
+        ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END, layout=DimensionalLayout.BY_DAY)
+        ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END, layout=DimensionalLayout.BY_DAY)
+
+    def _overview(self, web_query_modifiers) -> tuple[list[str], dict]:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                properties=[_host(APP_HOST)],
+                webQueryModifiers=web_query_modifiers,
+            ),
+        )
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as mock_execute:
+            response = runner.calculate()
+        printed = [call.kwargs["query"] for call in mock_execute.call_args_list]
+        tables = sorted({field for query in printed for field in _table_names(query)})
+        return tables, {item.key: _rounded(item.value) for item in response.results}
+
+    def test_by_day_layout_reads_its_own_tables_and_matches_the_current_layout(self):
+        by_job_tables, by_job = self._overview(OPT_IN)
+        by_day_tables, by_day = self._overview(OPT_IN_BY_DAY)
+        _live_tables, live = self._overview(LIVE)
+
+        assert by_job_tables == ["web_bounces_dimensional_preaggregated", "web_stats_dimensional_preaggregated"]
+        assert by_day_tables == [
+            "web_bounces_dimensional_preaggregated_by_day",
+            "web_stats_dimensional_preaggregated_by_day",
+        ]
+        assert by_day == by_job == live
+
+    def test_by_day_layout_serves_a_stats_breakdown_like_the_current_layout(self):
+        def run(web_query_modifiers):
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=[_host(APP_HOST)],
+                    breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                    includeBounceRate=True,
+                    limit=100,
+                    webQueryModifiers=web_query_modifiers,
+                ),
+            )
+            results = runner.calculate().results
+            return runner.query_strategy(), results
+
+        by_day_strategy, by_day = run(OPT_IN_BY_DAY)
+        _by_job_strategy, by_job = run(OPT_IN)
+
+        assert by_day_strategy.startswith("stats_table_dimensional")
+        assert by_day == by_job
+
+
+def _table_names(query: ast.SelectQuery) -> set[str]:
+    names: set[str] = set()
+
+    class Collector(TraversingVisitor):
+        def visit_join_expr(self, node: ast.JoinExpr) -> None:
+            if isinstance(node.table, ast.Field):
+                names.add(str(node.table.chain[-1]))
+            super().visit_join_expr(node)
+
+    Collector().visit(query)
+    return names

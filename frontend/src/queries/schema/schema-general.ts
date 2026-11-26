@@ -3869,6 +3869,8 @@ export type WebAnalyticsSampling = {
 export interface WebAnalyticsQueryModifiers {
     /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
     useDimensionalTables?: boolean
+    /** Read the day-partitioned copy of the dimensional tables instead of the current one, to compare the two layouts. Applies only to queries that read the dimensional tables. */
+    useDimensionalTablesByDay?: boolean
 }
 
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
