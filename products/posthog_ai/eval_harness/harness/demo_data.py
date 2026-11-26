@@ -14,7 +14,6 @@ from products.posthog_ai.eval_harness.data_setup import (
     create_core_memory,
     create_empty_eval_project,
     ensure_master_demo_team,
-    prewarm_demo_teams,
 )
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_skill_isolation_environment
 
@@ -56,9 +55,6 @@ class SandboxedDemoData:
         self.reasoning_effort = reasoning_effort
         self.service_tier = service_tier
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
-
-    def prewarm(self, count: int, concurrency: int) -> None:
-        prewarm_demo_teams(self.master_team_id, self._django_db_blocker, count, concurrency)
 
     def make_context(
         self, case_label: str, *, disable_bundled_skills: bool = False, inherit_demo_data: bool = True

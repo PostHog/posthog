@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.local_skills import (
 )
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
+from ..data_setup import ensure_master_demo_team, prewarm_demo_teams
 from ..engines.base import EvalEngine
 from ..engines.registry import resolve_engine
 from ..log_sink import LOGS_ROOT
@@ -58,7 +59,7 @@ from .offline_delivery import OfflineEvalDelivery
 from .ports import AI_GATEWAY_PORT, AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
-from .requirements import Infra, expand, infra_union
+from .requirements import Infra, infra_union
 from .run_report import RunReport
 from .skill_snapshot import SkillSnapshot
 
@@ -161,11 +162,15 @@ class SandboxedEvalHarness:
             ensure_personhog_binaries()
             try:
                 with self._stack:
-                    self._bootstrap(expand([Infra.DEMO_DATA]), reporter)
-                    assert self._demo_data is not None
+                    self._bootstrap(frozenset({Infra.DATABASE, Infra.PERSONHOG}), reporter)
+                    assert self._database is not None
+                    blocker = self._database.blocker
+                    master_team_id = ensure_master_demo_team(blocker)
                     reporter.setup_started(f"prepare {self.options.prewarm_teams} single-use teams")
                     started = time.monotonic()
-                    self._demo_data.prewarm(self.options.prewarm_teams, self.options.team_setup_concurrency)
+                    prewarm_demo_teams(
+                        master_team_id, blocker, self.options.prewarm_teams, self.options.team_setup_concurrency
+                    )
                     reporter.prewarm_finished(self.options.prewarm_teams, time.monotonic() - started)
             finally:
                 atexit.unregister(stop_all_subprocesses)
