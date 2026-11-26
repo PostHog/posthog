@@ -56,6 +56,47 @@
                                         "maxItems": 100,
                                         "type": "array"
                                     },
+                                    "selection": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "column": {
+                                                        "description": "Result column whose selected value sets the input.",
+                                                        "maxLength": 256,
+                                                        "type": "string"
+                                                    },
+                                                    "condition": {
+                                                        "default": "",
+                                                        "description": "Optional Hog condition over row, value, and inputs.",
+                                                        "maxLength": 1200,
+                                                        "type": "string"
+                                                    },
+                                                    "condition_bytecode": {
+                                                        "description": "Compiled Hog condition for this selection.",
+                                                        "items": {},
+                                                        "type": "array"
+                                                    },
+                                                    "tab_id": {
+                                                        "default": "",
+                                                        "description": "Tab to open after selection.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    },
+                                                    "variable": {
+                                                        "description": "Published input to update.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["column", "variable"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Action when a viewer selects a result."
+                                    },
                                     "step": {
                                         "default": 1,
                                         "description": "Slider increment.",
@@ -199,6 +240,47 @@
                                         },
                                         "maxItems": 100,
                                         "type": "array"
+                                    },
+                                    "selection": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "column": {
+                                                        "description": "Result column whose selected value sets the input.",
+                                                        "maxLength": 256,
+                                                        "type": "string"
+                                                    },
+                                                    "condition": {
+                                                        "default": "",
+                                                        "description": "Optional Hog condition over row, value, and inputs.",
+                                                        "maxLength": 1200,
+                                                        "type": "string"
+                                                    },
+                                                    "condition_bytecode": {
+                                                        "description": "Compiled Hog condition for this selection.",
+                                                        "items": {},
+                                                        "type": "array"
+                                                    },
+                                                    "tab_id": {
+                                                        "default": "",
+                                                        "description": "Tab to open after selection.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    },
+                                                    "variable": {
+                                                        "description": "Published input to update.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["column", "variable"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Action when a viewer selects a result."
                                     },
                                     "step": {
                                         "default": 1,
