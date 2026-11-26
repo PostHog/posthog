@@ -118,6 +118,8 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         node_id = block.node_id
         if node_id not in sources:
             problems.append(f"{name}: the source cell is missing.")
+        elif block.submit_action and sources[node_id].tag_name != "SQLV2":
+            problems.append(f"{name}: choose a SQL cell for the submit action.")
         elif block.display != "source" and node_id in result_ids:
             cell = states.get(node_id)
             if not cell or not cell.last_run or cell.status != "done":
@@ -129,6 +131,8 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
                 problems.append(f"{name}: run the preview and wait for the result to save.")
                 continue
             completed.append(cell.last_run["finished_at"])
+            if block.submit_action == "create_cohort" and "person_id" not in (props["result"].get("columns") or []):
+                problems.append(f"{name}: include a person_id column in the SQL result to create a cohort.")
     return AppReleaseReview(
         problems=problems,
         results_as_of=min(completed, default=None),

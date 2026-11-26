@@ -31043,6 +31043,21 @@ export namespace Schemas {
       previous: string | null;
     }
 
+    export interface CohortFromSelection {
+      /** Reuse this key when retrying the same submission. */
+      request_id: string;
+      /**
+         * Name for the new static cohort.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Selected person UUIDs from this project.
+         * @maxItems 1000
+         */
+      person_ids: string[];
+    }
+
     /**
      * Minimal serializer for cohort references, read by the person cohorts endpoint.
      */
@@ -31137,6 +31152,11 @@ export namespace Schemas {
     export interface CohortRealtimeRequest {
       /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
       enabled: boolean;
+    }
+
+    export interface CohortSelectionResult {
+      /** ID of the cohort created by this submission. */
+      cohort_id: number;
     }
 
     export interface CohortUsedInCohort {
@@ -78017,6 +78037,18 @@ export namespace Schemas {
       Both: 'both',
     } as const;
 
+    /**
+     * * `create_cohort` - Create a cohort
+     * * `run_workflow` - Run a workflow
+     */
+    export type NotebookAppSubmitActionEnum = typeof NotebookAppSubmitActionEnum[keyof typeof NotebookAppSubmitActionEnum];
+
+
+    export const NotebookAppSubmitActionEnum = {
+      CreateCohort: 'create_cohort',
+      RunWorkflow: 'run_workflow',
+    } as const;
+
     export interface NotebookAppBlock {
       /**
          * Stable component identifier within the app.
@@ -78088,6 +78120,13 @@ export namespace Schemas {
        * * `source` - Source
        * * `both` - Source and output */
       display?: NotebookAppCellDisplayEnum;
+      /** Action viewers can explicitly submit with rows from a SQL cell.
+       *
+       * * `create_cohort` - Create a cohort
+       * * `run_workflow` - Run a workflow */
+      submit_action?: NotebookAppSubmitActionEnum;
+      /** Workflow to run with the submitted rows. */
+      workflow_id?: string;
     }
 
     export interface NotebookAppLayout {

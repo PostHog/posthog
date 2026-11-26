@@ -755,6 +755,18 @@ export const NotebookAppCellDisplayEnumApi = {
     Both: 'both',
 } as const
 
+/**
+ * * `create_cohort` - Create a cohort
+ * * `run_workflow` - Run a workflow
+ */
+export type NotebookAppSubmitActionEnumApi =
+    (typeof NotebookAppSubmitActionEnumApi)[keyof typeof NotebookAppSubmitActionEnumApi]
+
+export const NotebookAppSubmitActionEnumApi = {
+    CreateCohort: 'create_cohort',
+    RunWorkflow: 'run_workflow',
+} as const
+
 export interface NotebookAppBlockApi {
     /**
      * Stable component identifier within the app.
@@ -826,6 +838,13 @@ export interface NotebookAppBlockApi {
      * * `source` - Source
      * * `both` - Source and output */
     display?: NotebookAppCellDisplayEnumApi
+    /** Action viewers can explicitly submit with rows from a SQL cell.
+     *
+     * * `create_cohort` - Create a cohort
+     * * `run_workflow` - Run a workflow */
+    submit_action?: NotebookAppSubmitActionEnumApi
+    /** Workflow to run with the submitted rows. */
+    workflow_id?: string
 }
 
 export interface NotebookAppLayoutApi {

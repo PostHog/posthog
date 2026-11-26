@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 import type { NotebookStaleReason } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
-import type { NotebookAppLayoutApi } from '../generated/api.schemas'
+import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 import { NotebookAppBlock } from './NotebookAppBlock'
 
 export function NotebookAppCanvas({
@@ -47,7 +47,7 @@ export function NotebookAppCanvas({
     onSource?: (id: string) => void
     onInput: (name: string, value: NotebookVariableValue) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
-    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
+    renderOutput?: (cell: NotebookBlockNode, block: NotebookAppBlockApi) => JSX.Element | undefined
 }): JSX.Element {
     const cellsById = useMemo(() => {
         const index = new Map<string, NotebookBlockNode>()

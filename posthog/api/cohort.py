@@ -59,6 +59,7 @@ from posthog.api.utils import action, paging_params, parse_actor_property_filter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
+from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -95,7 +96,11 @@ from posthog.models.activity_logging.activity_page import (
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
-from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
+from posthog.models.person.util import (
+    get_person_by_uuid,
+    get_person_ids_and_uuids_by_uuids,
+    validate_person_uuids_exist,
+)
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import (
     SEMVER_OPERATORS,
@@ -141,6 +146,7 @@ from products.cohorts.backend.models.dependencies import (
     get_flag_excluded_behavioral_cohort_ids,
 )
 from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
+from products.cohorts.backend.models.selection_submission import CohortSelectionSubmission
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     close_open_population_attempts,
@@ -1455,6 +1461,21 @@ def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculat
     return CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=False).order_by(
         "-started_at", "-id"
     )
+
+
+class CohortFromSelectionSerializer(serializers.Serializer):
+    request_id = serializers.UUIDField(help_text="Reuse this key when retrying the same submission.")
+    name = serializers.CharField(max_length=400, help_text="Name for the new static cohort.")
+    person_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        help_text="Selected person UUIDs from this project.",
+    )
+
+
+class CohortSelectionResultSerializer(serializers.Serializer):
+    cohort_id = serializers.IntegerField(help_text="ID of the cohort created by this submission.")
 
 
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -2893,6 +2914,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
+    requires_resource_level_access = False
 
     def _is_basic_list_request(self) -> bool:
         # `?basic=true` on the list endpoint: trimmed payload + deferred columns.
@@ -3477,6 +3499,59 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             activity="created",
             detail=Detail(name=instance.name),
         )
+
+    @validated_request(
+        request_serializer=CohortFromSelectionSerializer,
+        responses={200: CohortSelectionResultSerializer},
+        description="Create a static cohort from selected people. A retry with the same key returns the original cohort.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["cohort:write", "person:read"],
+        requires_resource_level_access=True,
+    )
+    def from_selection(self, request: ValidatedRequest, **kwargs) -> Response:
+        data = request.validated_data
+        person_ids = sorted({str(person_id) for person_id in data["person_ids"]})
+        fingerprint = hashlib.sha256(json.dumps([data["name"], person_ids]).encode()).hexdigest()
+        lookup = {"team_id": self.team_id, "actor": request.user, "request_id": data["request_id"]}
+        with transaction.atomic():
+            receipt, created = CohortSelectionSubmission.objects.get_or_create(
+                **lookup, defaults={"fingerprint": fingerprint}
+            )
+            if receipt.fingerprint != fingerprint:
+                raise Conflict("This submission was already used for a different selection.")
+            if not created and receipt.cohort_id is None:
+                raise Conflict("The cohort created by this submission was deleted.")
+            if receipt.completed_at:
+                return Response({"cohort_id": receipt.cohort_id})
+            members = get_person_ids_and_uuids_by_uuids(self.team_id, person_ids)
+            if len(members) != len(person_ids):
+                raise ValidationError({"person_ids": "Some selected people are no longer available in this project."})
+            if created:
+                serializer = self.get_serializer(
+                    data={"name": data["name"], "is_static": True, "_create_static_person_ids": []}
+                )
+                serializer.is_valid(raise_exception=True)
+                self.perform_create(serializer)
+                receipt.cohort = serializer.instance
+                receipt.save(update_fields=["cohort"])
+
+        # Membership also lives outside this transaction. Keep the same cohort ID if a write needs to be retried.
+        with transaction.atomic():
+            receipt = CohortSelectionSubmission.objects.select_for_update().get(**lookup)
+            if not receipt.completed_at:
+                cohort = Cohort.objects.filter(team_id=self.team_id, id=receipt.cohort_id, deleted=False).first()
+                if not cohort:
+                    raise Conflict("The cohort created by this submission was deleted.")
+                self.check_object_permissions(request, cohort)
+                cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
+                    members, team_id=self.team_id, raise_on_error=True
+                )
+                receipt.completed_at = timezone.now()
+                receipt.save(update_fields=["completed_at"])
+            return Response({"cohort_id": receipt.cohort_id})
 
     def perform_update(self, serializer):
         instance = cast(Cohort, serializer.instance)

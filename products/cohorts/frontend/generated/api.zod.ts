@@ -216,3 +216,19 @@ export const CohortsRealtimeCreateBody = /* @__PURE__ */ zod.object({
 export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
     person_id: zod.uuid().optional().describe('Person UUID to remove from the cohort'),
 })
+
+/**
+ * Create a static cohort from selected people. A retry with the same key returns the original cohort.
+ */
+export const cohortsFromSelectionCreateBodyNameMax = 400
+
+export const cohortsFromSelectionCreateBodyPersonIdsMax = 1000
+
+export const CohortsFromSelectionCreateBody = /* @__PURE__ */ zod.object({
+    request_id: zod.uuid().describe('Reuse this key when retrying the same submission.'),
+    name: zod.string().max(cohortsFromSelectionCreateBodyNameMax).describe('Name for the new static cohort.'),
+    person_ids: zod
+        .array(zod.uuid())
+        .max(cohortsFromSelectionCreateBodyPersonIdsMax)
+        .describe('Selected person UUIDs from this project.'),
+})

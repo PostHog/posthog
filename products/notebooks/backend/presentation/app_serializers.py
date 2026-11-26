@@ -69,6 +69,11 @@ class NotebookAppCellDisplay(models.TextChoices):
     BOTH = "both", "Source and output"
 
 
+class NotebookAppSubmitAction(models.TextChoices):
+    CREATE_COHORT = "create_cohort", "Create a cohort"
+    RUN_WORKFLOW = "run_workflow", "Run a workflow"
+
+
 class NotebookAppBlockSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=80, help_text="Stable component identifier within the app.")
     kind = serializers.ChoiceField(choices=NotebookAppBlockKind.choices, help_text="Type of app component.")
@@ -99,12 +104,24 @@ class NotebookAppBlockSerializer(serializers.Serializer):
         default="output",
         help_text="Whether to display cell source, output, or both.",
     )
+    submit_action = serializers.ChoiceField(
+        choices=NotebookAppSubmitAction.choices,
+        required=False,
+        help_text="Action viewers can explicitly submit with rows from a SQL cell.",
+    )
+    workflow_id = serializers.UUIDField(required=False, help_text="Workflow to run with the submitted rows.")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if not all(math.isfinite(attrs[field]) for field in ("min", "max", "step")):
             raise serializers.ValidationError("Slider settings must be finite numbers.")
         if attrs["kind"] == "cell" and not attrs["node_id"]:
             raise serializers.ValidationError({"node_id": "Choose a notebook cell."})
+        if attrs.get("submit_action") and (attrs["kind"] != "cell" or attrs["display"] == "source"):
+            raise serializers.ValidationError({"submit_action": "Choose a cell with visible output."})
+        if attrs.get("submit_action") == "run_workflow" and not attrs.get("workflow_id"):
+            raise serializers.ValidationError({"workflow_id": "Choose a workflow."})
+        if attrs.get("workflow_id"):
+            attrs["workflow_id"] = str(attrs["workflow_id"])
         if attrs["kind"] == "input" and not attrs["variable"]:
             raise serializers.ValidationError({"variable": "Choose a notebook variable."})
         if attrs["min"] >= attrs["max"]:
