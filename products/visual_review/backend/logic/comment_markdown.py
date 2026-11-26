@@ -371,6 +371,11 @@ class OpenRejection:
     reason: str
 
 
+# GitHub refuses a comment body over 65,536 characters. The list stops below that, so the
+# text around it and the link still fit.
+_REJECTION_LIST_MAX_LENGTH = 60_000
+
+
 def _build_rejection_comment_body(run: Run, repo: Repo, rejections: list[OpenRejection]) -> str:
     """The PR comment that lists the rejections blocking the pull request, edited in place as they change."""
     link = f"[View in PostHog Visual Review]({app_urls.run_url(run, repo)})"
@@ -381,14 +386,18 @@ def _build_rejection_comment_body(run: Run, repo: Repo, rejections: list[OpenRej
         )
     noun = "a visual change" if len(rejections) == 1 else f"{len(rejections)} visual changes"
     lines = [f"❌ **Rejected {noun}** on this PR:", ""]
-    for rejection in rejections:
+    listed_length = 0
+    for listed, rejection in enumerate(rejections):
         who = _approver_text(rejection.rejecter)
         if rejection.via_agent:
             who = f"an agent for {who}"
         reason = _escape_markdown(_TABLE_BREAKING_CHARS_RE.sub(" ", rejection.reason[:REASON_MAX_LENGTH]))
-        lines.append(
-            f"- {_snapshot_name_cell(rejection.identifier)} on `{rejection.commit_sha[:7]}`, by {who}: {reason}"
-        )
+        line = f"- {_snapshot_name_cell(rejection.identifier)} on `{rejection.commit_sha[:7]}`, by {who}: {reason}"
+        if listed_length + len(line) > _REJECTION_LIST_MAX_LENGTH:
+            lines.append(f"- …and {len(rejections) - listed} more, listed on the run page.")
+            break
+        lines.append(line)
+        listed_length += len(line) + 1
     lines += [
         "",
         "Finalize stays blocked until each story renders a different picture or its rejection is undone.",

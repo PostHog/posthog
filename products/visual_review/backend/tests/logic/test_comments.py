@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.models import User
 
 from products.visual_review.backend.db import WRITER_DB
+from products.visual_review.backend.facade.contracts import REASON_MAX_LENGTH
 from products.visual_review.backend.facade.enums import (
     BaselineMode,
     ReviewDecision,
@@ -944,6 +945,26 @@ class TestReviewDecisionComments:
         body = comment_markdown._build_approval_comment_body(run, repo, None, accepted_by=accepted_by)
 
         assert line in body
+
+    def test_the_rejection_comment_fits_github_body_limit(self, repo):
+        run = self._run(repo, "h" * 40, {"Button": []})
+        rejecter = comment_markdown._Approver(label="alice", is_github_login=True)
+        rejections = [
+            comment_markdown.OpenRejection(
+                identifier=f"components-button--state-{index}",
+                commit_sha="h" * 40,
+                rejecter=rejecter,
+                via_agent=False,
+                reason="*" * REASON_MAX_LENGTH,
+            )
+            for index in range(150)
+        ]
+
+        body = comment_markdown._build_rejection_comment_body(run, repo, rejections)
+
+        assert len(body) <= 65_536
+        assert "more, listed on the run page." in body
+        assert body.rstrip().endswith(")")
 
     def test_the_review_prompt_counts_the_accepts_that_still_count(self, repo, user, mocker):
         head = self._run(repo, "h" * 40, {"Button": [], "Card": []})
