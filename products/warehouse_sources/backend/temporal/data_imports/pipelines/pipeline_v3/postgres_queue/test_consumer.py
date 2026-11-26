@@ -540,8 +540,20 @@ class TestProcessSingle:
                     "server closed the connection unexpectedly"
                 ),
             ),
+            # writers/postgres.py's _client() rewrites a connect timeout into
+            # PostgreSQLConnectionError(CONNECT_TIMEOUT_DETAIL) before it ever reaches
+            # DestinationDeliveryError, so this is the actual text a timed-out destination
+            # connect carries here, not the client's raw "Timed-out while trying to connect
+            # for..." message.
+            DestinationDeliveryError(
+                "Prod",
+                RuntimeError(
+                    "The database did not answer on the host and port given. Check the host and "
+                    "port on the destination, and allow PostHog's IP addresses through your firewall."
+                ),
+            ),
         ],
-        ids=["non_reportable_s3_blip", "destination_connect_exhausted"],
+        ids=["non_reportable_s3_blip", "destination_connect_exhausted", "destination_connect_timeout"],
     )
     @pytest.mark.asyncio
     async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self, error: Exception):
@@ -4864,10 +4876,10 @@ class TestIsRetryableError:
                 False,
             ),
             ("connection reset by peer", True),
-            # A destination connect that exhausted its own retries without a classified
-            # configuration problem — the customer's destination being briefly unreachable,
-            # not a bug — must stay retryable so the next scheduled run tries again.
-            ("Failed to connect after 5 attempts due to an unrecoverable error.", True),
+            # A destination's own server dropping the connection mid-handshake — the
+            # customer's infrastructure being briefly unreachable, not a bug — must stay
+            # retryable so the next scheduled run tries again.
+            ("server closed the connection unexpectedly", True),
         ],
     )
     def test_pattern_classification(self, message: str, retryable: bool):

@@ -206,14 +206,23 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     INCOMPLETE_RUN_ERROR,
 )
 
-# A destination connect that exhausted its own internal retries (PostgreSQLClient.connect,
-# shared by the Postgres and Redshift writers) without landing on a classified configuration
-# problem. This is the destination's network or server being briefly unreachable, the same
-# shape sources/postgres/postgres.py already treats as transient on the source side — kept out
-# of NON_RETRYABLE_ERROR_PATTERNS so the next scheduled run still retries it.
+# The specific upstream shapes of a destination connect exhausting its own internal retries
+# (PostgreSQLClient.connect, shared by the Postgres and Redshift writers) that are the
+# destination's own network or server being briefly unreachable — the same shapes
+# sources/postgres/postgres.py already treats as transient on the source side. Kept out of
+# NON_RETRYABLE_ERROR_PATTERNS so the next scheduled run still retries them.
+#
+# Deliberately not the client's generic "Failed to connect after {attempts} attempts..."
+# wrapper: that text also covers an OperationalError our own connect setup could raise (an
+# SSL root-cert file problem, a host-resolution failure), and matching it would hide a
+# regression in our code, not just the destination's own infra.
 DESTINATION_CONNECT_EXHAUSTED_PATTERNS: tuple[str, ...] = (
-    "Failed to connect after",
-    "Timed-out while trying to connect for",
+    # libpq's wording for the destination dropping the connection mid-handshake or mid-query.
+    "server closed the connection unexpectedly",
+    # writers/postgres.py's _client() rewrites a ConnectionTimeout into this detail (see
+    # CONNECT_TIMEOUT_DETAIL) before it reaches DestinationDeliveryError, so the client's own
+    # "Timed-out while trying to connect for..." text never survives to this point.
+    "The database did not answer on the host and port given",
 )
 
 # Errors that are expected upstream/customer conditions rather than pipeline bugs. The run still
