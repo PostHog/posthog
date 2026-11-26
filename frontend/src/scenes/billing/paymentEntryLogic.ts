@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { billingLogic, parseBillingResponse } from 'lib/logic/billing/billingLogic'
+import { billingLogic, fetchBilling } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -20,7 +20,6 @@ import {
     billingOrganizationActivateAuthorizeCreate,
     billingOrganizationActivateAuthorizeStatusCreate,
     billingOrganizationActivateCreate,
-    billingOrganizationList,
 } from 'products/billing/frontend/generated/api'
 import type { BillingActivationRequestApi } from 'products/billing/frontend/generated/api.schemas'
 import { retrieve as retrieveOrganization } from 'products/platform_features/frontend/generated/api'
@@ -156,15 +155,6 @@ interface PaymentFlow {
 }
 
 type CompletionParams = Record<string, string | boolean>
-
-const fetchBilling = async (organizationId: string): Promise<BillingType | null> => {
-    const skipForecasting = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
-    const response = await billingOrganizationList(
-        organizationId,
-        skipForecasting ? { include_forecasting: false } : undefined
-    )
-    return parseBillingResponse(response)
-}
 
 const navigateAfterPayment = (redirectPath: string | null, searchParams: CompletionParams): void => {
     const onCallbackPage = router.values.location.pathname === urls.billingAuthorizationStatus()
@@ -379,7 +369,10 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 await runPaymentStep(
                     async (): Promise<[BillingType | null, OrganizationType | null]> => {
                         // The billing read saves the organization's new features, so read the organization after it.
-                        const billing = await fetchBilling(organizationId).catch(() => null)
+                        const billing = await fetchBilling(
+                            organizationId,
+                            !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
+                        ).catch(() => null)
                         // Generated organization teams/features are readonly arrays; the stores use OrganizationType.
                         const fetchedOrganization = await retrieveOrganization(organizationId)
                             .then((organization) => organization as unknown as OrganizationType)
