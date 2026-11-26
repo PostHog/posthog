@@ -4848,7 +4848,10 @@ def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None
     problems: list[str] = [
         f'The "{step_action.get("name") or "Email"}" step has no sender, so its emails would fail. Choose a verified sender.'
         for step_action in actions
-        if _has_no_sender(step_action) and step_action["config"].get("run_link_tag_enabled") is False
+        if step_action.get("type") == "function_email"
+        and isinstance(step_action.get("config"), dict)
+        and step_action["config"].get("run_link_tag_enabled") is False
+        and not _email_step_sender_ids(step_action)
     ]
     named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
     if not any(sender_ids for _, sender_ids in named):

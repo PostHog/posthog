@@ -709,8 +709,9 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert not HogFlow.objects.filter(team=self.team).exists()
         assert not self._sandbox_sender_is_set_up()
 
-    def test_enabling_refuses_a_senderless_email_that_keeps_the_run_link_tag_off(self) -> None:
-        step = _own_email_step(None)
+    @parameterized.expand([("no_sender", {}), ("a_sender_that_is_not_an_object", {"from": True})])
+    def test_enabling_refuses_a_senderless_email_that_keeps_the_run_link_tag_off(self, _: str, value: dict) -> None:
+        step = _own_email_step(None, **value)
         step["config"]["run_link_tag_enabled"] = False
         with _flag(True):
             created = self.client.post(
