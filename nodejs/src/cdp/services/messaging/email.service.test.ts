@@ -2954,7 +2954,7 @@ describe('EmailService', () => {
                 }
             )
 
-            it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
+            it('after an email abandoned a download mid-body, the next email in the same admission loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000, admits: 'nothing' })
                 const logoRef = { filename: 'logo.png', contentType: 'image/png', contentId: 'logo' }
                 logo = attachmentFile(logoRef)

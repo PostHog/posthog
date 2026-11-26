@@ -66,29 +66,6 @@ const admittedLoad = (
 
 const minutesFromNow = (minutes: number): Date => new Date(Date.now() + minutes * MINUTE_MS)
 
-const loadCountingGets = async (
-    load: (at: S3AttachmentStore) => Promise<unknown>
-): Promise<{ outcome: string; gets: number }> => {
-    const at = buildAttachmentStore(config)!
-    let gets = 0
-    at.s3.middlewareStack.add(
-        (next, context) => (args) => {
-            gets += context.commandName === 'GetObjectCommand' ? 1 : 0
-            return next(args)
-        },
-        { step: 'initialize' }
-    )
-    try {
-        const outcome = await load(at).then(
-            () => 'loaded',
-            (error) => (error instanceof AttachmentsNotAdmittedError ? 'refused' : String(error))
-        )
-        return { outcome, gets }
-    } finally {
-        at.s3.destroy()
-    }
-}
-
 const settledWithin = async <T>(ms: number, promise: Promise<T>): Promise<T> => {
     let timer: NodeJS.Timeout | undefined
     try {
@@ -104,9 +81,16 @@ const settledWithin = async <T>(ms: number, promise: Promise<T>): Promise<T> => 
 }
 
 type FileBody = 'stall after its first byte' | 'change its last byte'
-type BucketFault = FileBody | 'stall every copy'
+type BucketFault = FileBody | 'stall every copy' | 'pass every request'
 
-type BucketProxy = { endpoint: string; bodyAnswered: Promise<void>; cut: () => void; close: () => Promise<void> }
+type BucketProxy = {
+    endpoint: string
+    gets: () => number
+    bodyAnswered: Promise<void>
+    bodyClosed: Promise<void>
+    cut: () => void
+    close: () => Promise<void>
+}
 
 const answerTheFileBody = (body: FileBody, file: NodeJS.ReadableStream, response: ServerResponse): Promise<void> =>
     new Promise((answered) => {
@@ -130,7 +114,11 @@ const answerTheFileBody = (body: FileBody, file: NodeJS.ReadableStream, response
 const bucketProxyThat = async (fault: BucketFault): Promise<BucketProxy> => {
     let bodyAnswered: () => void = () => undefined
     const answered = new Promise<void>((resolve) => (bodyAnswered = resolve))
+    let bodyClosed: () => void = () => undefined
+    const closed = new Promise<void>((resolve) => (bodyClosed = resolve))
+    let gets = 0
     const server = createServer((request, response) => {
+        gets += request.method === 'GET' ? 1 : 0
         if (fault === 'stall every copy' && request.headers['x-amz-copy-source']) {
             request.resume()
             return
@@ -140,7 +128,12 @@ const bucketProxyThat = async (fault: BucketFault): Promise<BucketProxy> => {
             { method: request.method, headers: request.headers },
             (answer) => {
                 response.writeHead(answer.statusCode!, answer.headers)
-                if (fault !== 'stall every copy' && request.method === 'GET' && answer.statusCode === 200) {
+                if (
+                    (fault === 'stall after its first byte' || fault === 'change its last byte') &&
+                    request.method === 'GET' &&
+                    answer.statusCode === 200
+                ) {
+                    response.once('close', bodyClosed)
                     void answerTheFileBody(fault, answer, response).then(bodyAnswered)
                     return
                 }
@@ -156,9 +149,28 @@ const bucketProxyThat = async (fault: BucketFault): Promise<BucketProxy> => {
     }
     return {
         endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+        gets: () => gets,
         bodyAnswered: answered,
+        bodyClosed: closed,
         cut,
         close: () => new Promise((resolve) => (cut(), server.close(() => resolve()))),
+    }
+}
+
+const loadCountingGets = async (
+    load: (at: S3AttachmentStore) => Promise<unknown>
+): Promise<{ outcome: string; gets: number }> => {
+    const bucket = await bucketProxyThat('pass every request')
+    const at = buildAttachmentStore({ ...config, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint })!
+    try {
+        const outcome = await load(at).then(
+            () => 'loaded',
+            (error) => (error instanceof AttachmentsNotAdmittedError ? 'refused' : String(error))
+        )
+        return { outcome, gets: bucket.gets() }
+    } finally {
+        at.s3.destroy()
+        await bucket.close()
     }
 }
 
@@ -606,6 +618,11 @@ describe('S3AttachmentStore', () => {
                     Reflect.set(admission, 'files', [other]),
             ],
             [
+                'replaces a file in the list of',
+                (admission: Admission, other: EmailAttachmentMetadata): unknown =>
+                    Reflect.set(admission.files, 0, other),
+            ],
+            [
                 'edits a file of',
                 (admission: Admission, other: EmailAttachmentMetadata): unknown =>
                     Object.entries(other).map(([field, value]) => Reflect.set(admission.files[0], field, value)),
@@ -703,6 +720,7 @@ describe('S3AttachmentStore', () => {
                 interrupt(bucket, caller)
 
                 await settled
+                await settledWithin(3000, bucket.bodyClosed)
             } finally {
                 viaBucket.s3.destroy()
                 await bucket.close()

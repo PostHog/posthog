@@ -1,6 +1,7 @@
 import { register } from 'prom-client'
 
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import { CyclotronJobInvocation } from '~/cdp/types'
 
 import { settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
 import {
@@ -11,6 +12,7 @@ import {
     MachineMemory,
     deferralDelayMs,
     estimateSend,
+    filesOf,
     inFlightLimitsFor,
     requireAdmission,
 } from './in-flight-registry'
@@ -172,6 +174,30 @@ describe('InFlightRegistry', () => {
             await expect(Promise.resolve().then(load)).rejects.toThrow(AttachmentsNotAdmittedError)
             expect(await unadmittedLoads(reason)).toBe(before + 1)
         })
+    })
+})
+
+describe('filesOf', () => {
+    const queued = oneFileOf(MIB, 'q'.repeat(64))
+    const saved = oneFileOf(2 * MIB, 's'.repeat(64))
+    const jobWith = (queueParameters: unknown, send: unknown): CyclotronJobInvocation =>
+        ({ queueParameters, state: { send } }) as unknown as CyclotronJobInvocation
+
+    it.each([
+        [
+            'the queued email files over a saved send that disagrees',
+            jobWith({ type: 'email', attachments: queued }, { attachments: saved }),
+            queued,
+        ],
+        [
+            'no files when the queued email has none, whatever the saved send holds',
+            jobWith({ type: 'email' }, { attachments: saved }),
+            null,
+        ],
+        ['the saved send files when nothing is queued', jobWith(undefined, { attachments: saved }), saved],
+        ['no files for an empty list', jobWith({ type: 'email', attachments: [] }, undefined), null],
+    ])('reads %s', (_, job, files) => {
+        expect(filesOf(job)).toEqual(files)
     })
 })
 
