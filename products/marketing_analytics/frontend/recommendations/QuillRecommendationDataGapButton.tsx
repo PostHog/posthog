@@ -5,14 +5,16 @@ import { RecommendationsActionLocation } from 'scenes/web-analytics/tabs/marketi
 
 import { QuillRecommendationCountBadge } from './QuillRecommendationCountBadge'
 import { QuillRecommendationDataGapList } from './QuillRecommendationDataGapList'
-import { RecommendationDataGap } from './recommendations'
+import { RecommendationDataGap, ServerDataGap } from './recommendations'
 
 export function QuillRecommendationDataGapButton({
     gaps,
+    serverGaps,
     dataAttr,
     location,
 }: {
     gaps: RecommendationDataGap[]
+    serverGaps: ServerDataGap[]
     dataAttr: string
     location: RecommendationsActionLocation
 }): JSX.Element {
@@ -21,10 +23,10 @@ export function QuillRecommendationDataGapButton({
             <PopoverTrigger render={<Button data-attr={dataAttr} />}>
                 <IconInfo />
                 <span>Improve recommendations</span>
-                <QuillRecommendationCountBadge count={gaps.length} maxDigits={1} />
+                <QuillRecommendationCountBadge count={gaps.length + serverGaps.length} maxDigits={1} />
             </PopoverTrigger>
             <PopoverContent align="start" className="w-112 max-w-screen">
-                <QuillRecommendationDataGapList gaps={gaps} location={location} />
+                <QuillRecommendationDataGapList gaps={gaps} serverGaps={serverGaps} location={location} />
             </PopoverContent>
         </Popover>
     )

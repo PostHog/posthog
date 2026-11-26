@@ -12,7 +12,7 @@ import { IMPACT_DIRECTION_DESCRIPTIONS, IMPACT_DIRECTION_LABELS } from './recomm
 import { recommendationsLogic } from './recommendationsLogic'
 
 export function QuillRecommendationsSummary({ onOpen }: { onOpen: () => void }): JSX.Element {
-    const { hasAdsSource, dataGaps, connectedSourceTypes, activeRecommendations, totals } =
+    const { hasAdsSource, dataGaps, serverDataGaps, connectedSourceTypes, activeRecommendations, totals } =
         useValues(recommendationsLogic)
 
     return (
@@ -47,9 +47,10 @@ export function QuillRecommendationsSummary({ onOpen }: { onOpen: () => void }):
                     All recommendations for this period are dismissed or applied.
                 </Text>
             )}
-            {dataGaps.length > 0 && (
+            {dataGaps.length + serverDataGaps.length > 0 && (
                 <QuillRecommendationDataGapButton
                     gaps={dataGaps}
+                    serverGaps={serverDataGaps}
                     dataAttr="marketing-recommendations-data-gaps"
                     location="section_data_gaps"
                 />

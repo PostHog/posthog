@@ -31,6 +31,7 @@ import { QuillRecommendationDataGapButton } from './QuillRecommendationDataGapBu
 import { QuillRecommendationImpactTotals } from './QuillRecommendationImpactTotals'
 import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
 import {
+    conversionSourceLabel,
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
     RECOMMENDATION_RULE_LABELS,
@@ -67,6 +68,8 @@ export function QuillRecommendationsModal({
         selectedGroup,
         selectedGroupTotals,
         dataGaps,
+        serverDataGaps,
+        conversionSource,
         disclaimer,
     } = useValues(recommendationsLogic)
     const showingResolved = showResolved && resolvedCount > 0
@@ -82,9 +85,10 @@ export function QuillRecommendationsModal({
                         <DialogTitle ref={titleRef} tabIndex={-1} className="m-0 outline-none">
                             Recommendations
                         </DialogTitle>
-                        {dataGaps.length > 0 && (
+                        {dataGaps.length + serverDataGaps.length > 0 && (
                             <QuillRecommendationDataGapButton
                                 gaps={dataGaps}
+                                serverGaps={serverDataGaps}
                                 dataAttr="marketing-recommendations-modal-data-gaps"
                                 location="modal_data_gaps"
                             />
@@ -93,6 +97,7 @@ export function QuillRecommendationsModal({
                     <DialogDescription className="m-0 flex flex-wrap items-center gap-2">
                         <span>{`${activeRecommendations.length} for the selected sources and dates`}</span>
                         <QuillRecommendationImpactTotals totals={totals} />
+                        {conversionSource && <span>{conversionSourceLabel(conversionSource)}</span>}
                         {resolvedCount > 0 && (
                             <Button onClick={onToggleResolved} data-attr="marketing-recommendations-toggle-resolved">
                                 {showResolved
