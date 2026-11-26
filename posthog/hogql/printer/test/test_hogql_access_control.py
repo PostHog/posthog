@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -21,6 +22,12 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+
+# A subquery-local CTE named after the trace table the outer query reads.
+_CTE_SHADOWED_TRACE_READ = (
+    "SELECT name FROM posthog.trace_spans UNION ALL SELECT name FROM "
+    "(WITH `posthog.trace_spans` AS (SELECT '' AS name) SELECT name FROM `posthog.trace_spans`)"
+)
 
 
 class TestAccessControlSystemTables(BaseTest):
@@ -650,9 +657,17 @@ class TestDeniedTableError(BaseTest):
 
         assert ("trace_spans" not in database.tables.children["posthog"].children) is denied
 
-    @parameterized.expand([("tracing_none", "none", True), ("tracing_viewer", "viewer", False)])
+    @parameterized.expand(
+        [
+            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, True),
+            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, False),
+            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, True),
+            ("edited_after_build", "none", "SELECT '' AS name", True, True),
+            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, False),
+        ]
+    )
     def test_materialized_view_over_trace_tables_follows_tracing_access(
-        self, _name: str, access_level: str, denied: bool
+        self, _name: str, access_level: str, view_sql: str, edited_after_build: bool, denied: bool
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
         from posthog.hogql.parser import parse_select
@@ -680,14 +695,17 @@ class TestDeniedTableError(BaseTest):
             url_pattern="https://bucket.example.com/slow_spans/*",
             columns={"name": "String"},
         )
+        built_at = datetime.now(UTC)
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="slow_spans",
-            query={"query": "SELECT name FROM posthog.trace_spans"},
+            query={"query": view_sql},
             columns={"name": "String"},
             table=backing_table,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
+            last_run_at=built_at,
+            query_updated_at=built_at + timedelta(minutes=1) if edited_after_build else None,
         )
         modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
         database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
@@ -700,7 +718,7 @@ class TestDeniedTableError(BaseTest):
             else:
                 resolve_types(parse_select("SELECT name FROM slow_spans"), context, dialect="clickhouse")
                 # Caches and async statuses check later readers against this.
-                assert read_scopes == {"tracing"}
+                assert read_scopes == ({"tracing"} if "trace_spans" in view_sql else set())
 
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""

@@ -803,22 +803,76 @@ def record_posthog_table_scopes(scopes: Collection[str]) -> None:
         read_scopes.update(scopes)
 
 
-def materialized_view_read_scopes(table: S3Table, team: Team) -> frozenset[str]:
+def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = None) -> frozenset[str]:
     """The resources gating `posthog.*` tables that a materialized view's definition reads, at any depth.
 
     The materialized copy holds those rows but resolves as a plain S3 table, so it is gated on what its
-    definition reads instead. A definition the walk can't read fails closed on every gated resource.
+    definition reads instead. It fails closed on every gated resource when the walk can't read the definition,
+    or when it or a view it reads changed after the copy was built, since the copy may hold what the old one read.
+    `lookups` comes from `warehouse_lookups` and shares name lookups between the views one query reads.
     """
     if table.saved_query_id is None or table.saved_query_sql is None:
         return frozenset()
     # Deferred: posthog.schema is heavy, and the walk imports hogql back.
     from posthog.schema import HogQLQuery  # noqa: PLC0415
 
-    from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources  # noqa: PLC0415
+    from posthog.hogql_queries.access_controlled_resources import (  # noqa: PLC0415
+        queried_access_controlled_resources,
+        warehouse_lookups,
+    )
 
-    gated = set(access_controlled_posthog_tables().values())
-    scopes = queried_access_controlled_resources(HogQLQuery(query=table.saved_query_sql), team)
-    return frozenset(gated if scopes is None else scopes & gated)
+    gated = frozenset(access_controlled_posthog_tables().values())
+    catalog = (lookups or warehouse_lookups(team.pk)).for_next_fingerprint()
+    scopes = queried_access_controlled_resources(HogQLQuery(query=table.saved_query_sql), team, _catalog=catalog)
+    if scopes is None:
+        return gated
+    if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team.pk):
+        return gated
+    return frozenset(scopes & gated)
+
+
+def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team_id: int) -> bool:
+    """True when the view or a view its definition names was edited, created or deleted after its copy's build began."""
+    from django.db.models import Max  # noqa: PLC0415
+    from django.db.models.functions import Greatest  # noqa: PLC0415
+
+    from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
+        DataModelingJob,
+        DataModelingJobStatus,
+        DataWarehouseSavedQuery,
+    )
+
+    built_at = (
+        DataModelingJob.objects.filter(
+            team_id=team_id, saved_query_id=saved_query_id, status=DataModelingJobStatus.COMPLETED
+        )
+        .order_by("-last_run_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    root = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .values_list("query_updated_at", "last_run_at")
+        .first()
+    )
+    if root is None:
+        return True
+    query_updated_at, last_run_at = root
+    built_at = built_at or last_run_at
+    if built_at is None:
+        return True
+    if query_updated_at is not None and query_updated_at > built_at:
+        return True
+    names = {name.removeprefix("models.") for name in view_names} | set(view_names)
+    if not names:
+        return False
+    # Deleted rows count too: a view removed after the build no longer shows what the copy read through it.
+    latest_upstream_change = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name__in=names)
+        .exclude(id=saved_query_id)
+        .aggregate(latest=Max(Greatest("created_at", "query_updated_at", "deleted_at")))["latest"]
+    )
+    return latest_upstream_change is not None and latest_upstream_change > built_at
 
 
 _credential_denied_scopes: ContextVar[frozenset[str]] = ContextVar("credential_denied_scopes", default=frozenset())

@@ -90,6 +90,8 @@ Unlike system tables, they stay readable without a user: product query runners a
 Synthetic and shared-link principals read them only when their scopes cover the resource, so a member denied it cannot read it through their own shared insight.
 They also partition the query cache by their scope, including when a structured query names one in a warehouse node.
 A raw HogQL query with a placeholder in a `FROM` or `JOIN` position partitions on every scope, since the table it reads is unknown until the placeholder expands.
+A materialized view whose definition reads one of these tables, at any depth, is denied to the same users, even though it resolves to its stored copy.
+Until the copy is rebuilt, it is gated on every product scope when its definition, or a view that definition reads, changed after its last build, because the copy still holds what the old definition read.
 
 ### Object-level access
 
