@@ -2,9 +2,12 @@ import { Avatar, AvatarFallback, Text, Tooltip, TooltipContent, TooltipTrigger, 
 
 import { fullName } from 'lib/utils/strings'
 
-import { AnalyticsItem } from './analyticsUtils'
+import { UserBasicType } from '~/types'
 
-function initials(owner: NonNullable<AnalyticsItem['createdBy']>): string {
+/** `first_name` is optional so a generated `UserBasicApi` fits without an adapter. */
+type Owner = Pick<UserBasicType, 'email'> & { first_name?: string; last_name?: string }
+
+function initials(owner: Owner): string {
     const name = fullName(owner)
     const letters = name === 'Unknown User' || !name ? owner.email : name
     return letters
@@ -15,7 +18,7 @@ function initials(owner: NonNullable<AnalyticsItem['createdBy']>): string {
         .join('')
 }
 
-export function AnalyticsOwnerAvatar({ owner }: { owner: NonNullable<AnalyticsItem['createdBy']> }): JSX.Element {
+export function AnalyticsOwnerAvatar({ owner }: { owner: Owner }): JSX.Element {
     return (
         <Avatar size="xs">
             <AvatarFallback>{initials(owner)}</AvatarFallback>
@@ -24,13 +27,7 @@ export function AnalyticsOwnerAvatar({ owner }: { owner: NonNullable<AnalyticsIt
 }
 
 /** Who created an item, as an avatar and first name with the full name on hover. A dash when the API knows no creator. */
-export function AnalyticsOwner({
-    owner,
-    className,
-}: {
-    owner: AnalyticsItem['createdBy']
-    className?: string
-}): JSX.Element {
+export function AnalyticsOwner({ owner, className }: { owner: Owner | null; className?: string }): JSX.Element {
     if (!owner) {
         return (
             <Text size="xs" variant="muted" className={className}>

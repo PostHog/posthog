@@ -4,7 +4,7 @@
  * `products/dashboards/backend/v2/frames.py` (`frame_json`).
  */
 
-export interface FrameField {
+export type FrameField = {
     name: string
     type: 'time' | 'number' | 'string' | 'boolean' | 'other'
     /** A time field holds epoch milliseconds. A number field holds null for a gap. */
@@ -13,7 +13,7 @@ export interface FrameField {
     labels?: Record<string, string>
 }
 
-export interface Frame {
+export type Frame = {
     name: string | null
     labels: Record<string, string>
     fields: FrameField[]
@@ -21,23 +21,27 @@ export interface Frame {
     hash: string
 }
 
-export interface QueryBatchLine {
+export type QueryBatchLine = {
     i: number
     refId?: string
     error?: string
+    /** Set with `error` when a frames request ran but its result has no frame shape: the query's node kind or language. */
+    unsupported_shape?: string
     result?: {
+        /** A frames request always comes back as `frames`, or as a line with `error`. */
         format?: 'frames' | 'result'
         frames?: Frame[]
         canonical?: string
         /** Freshness and access-control notes that qualify the frames. */
         warnings?: { message: string }[]
-        cache?: { fetchedAt?: string | null; stale?: boolean }
+        cache?: { fetchedAt?: string | null; stale?: boolean; hit?: boolean }
     } | null
 }
 
 export async function readNdjson(
     body: ReadableStream<Uint8Array>,
-    onLine: (line: QueryBatchLine) => void
+    onLine: (line: QueryBatchLine) => void,
+    onChunk?: (byteLength: number) => void
 ): Promise<void> {
     const reader = body.getReader()
     const decoder = new TextDecoder()
@@ -55,6 +59,7 @@ export async function readNdjson(
     while (true) {
         const { done, value } = await reader.read()
         if (value) {
+            onChunk?.(value.byteLength)
             buffer += decoder.decode(value, { stream: true })
             const lines = buffer.split('\n')
             buffer = lines.pop() ?? ''

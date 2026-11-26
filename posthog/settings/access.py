@@ -118,6 +118,7 @@ SANDBOX_JWT_PRIVATE_KEY_SECONDARY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_K
 SANDBOX_JWT_PUBLIC_KEY_SECONDARY: str | None = os.getenv("SANDBOX_JWT_PUBLIC_KEY_SECONDARY")
 
 AGENT_EGRESS_REGISTRY_JWT_SECRETS: list[str] = get_list(os.getenv("AGENT_EGRESS_REGISTRY_JWT_SECRETS", ""))
+AGENT_EGRESS_CREDENTIALS_JWT_SECRETS: list[str] = get_list(os.getenv("AGENT_EGRESS_CREDENTIALS_JWT_SECRETS", ""))
 AGENT_EGRESS_REGION: str = os.getenv("AGENT_EGRESS_REGION", "")
 
 # Local dev shares one .env with the agent-proxy, which sets the verify-only public keys. Tests must

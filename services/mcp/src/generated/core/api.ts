@@ -400,6 +400,14 @@ export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsIte
 
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
 
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -3017,14 +3025,28 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
+                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.'
                     ),
                 blocked_ips: zod
                     .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax))
                     .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax)
                     .optional()
                     .describe(
-                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
+                        'IP addresses or CIDR ranges to block from \/flags requests, up to 100. The widest ranges are \/8 for IPv4 and \/16 for IPv6.'
+                    ),
+                allowed_hosts: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.'
+                    ),
+                allowed_ips: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .optional()
+                    .describe(
+                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins."
                     ),
             })
             .optional(),
@@ -3340,6 +3362,14 @@ export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlocke
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
 
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5972,7 +6002,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
+                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.'
                     ),
                 blocked_ips: zod
                     .array(
@@ -5981,7 +6011,27 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax)
                     .optional()
                     .describe(
-                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
+                        'IP addresses or CIDR ranges to block from \/flags requests, up to 100. The widest ranges are \/8 for IPv4 and \/16 for IPv6.'
+                    ),
+                allowed_hosts: zod
+                    .array(
+                        zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.'
+                    ),
+                allowed_ips: zod
+                    .array(
+                        zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .optional()
+                    .describe(
+                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins."
                     ),
             })
             .optional(),

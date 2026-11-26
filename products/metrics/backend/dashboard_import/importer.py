@@ -130,7 +130,7 @@ logger = structlog.get_logger(__name__)
 
 IMPORT_STATE_KEY = "metrics_dashboard_import"
 SANDBOX_ENVIRONMENT_NAME = "METRICS_DASHBOARD_IMPORT"
-AGENT_MODEL = "claude-sonnet-5"
+AGENT_MODEL = "claude-haiku-5-5"
 AGENT_RUNTIME_ADAPTER = "claude"
 START_CHECK_SECONDS = 20.0
 FINAL_CHECK_SECONDS = 60.0
@@ -593,6 +593,7 @@ class DashboardImporter:
         prompt = build_prompt(source=state.source, promql_available=state.promql_available, checks_layout=checks_layout)
 
         def bind_inputs(run_id: uuid.UUID) -> dict[str, Any]:
+            # The brief holds every panel the agent converts, so the Grafana JSON stays in storage for a retry only.
             bound = [
                 TaskRunInputFile(
                     id=str(uuid.uuid5(run_id, file.id)),
@@ -602,6 +603,7 @@ class DashboardImporter:
                     content_type=file.content_type,
                 )
                 for file in files
+                if file.name != GRAFANA_FILE_NAME
             ]
             tasks_facade.attach_task_run_input_files(team_id=self._team.id, run_id=run_id, files=bound)
             return {

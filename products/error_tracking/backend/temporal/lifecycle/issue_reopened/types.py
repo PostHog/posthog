@@ -15,6 +15,8 @@ class IssueReopenedWorkflowInputs:
     event_uuid: str
     event_timestamp: str
     assignee: str | None = None
+    # The status the exception reopened the issue from. None when the sender predates the field.
+    previous_status: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

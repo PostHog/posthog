@@ -377,7 +377,7 @@ export const getCohortsRealtimeCreateUrl = (projectId: string, id: number) => {
 }
 
 /**
- * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them.
+ * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them. Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.
  */
 export const cohortsRealtimeCreate = async (
     projectId: string,

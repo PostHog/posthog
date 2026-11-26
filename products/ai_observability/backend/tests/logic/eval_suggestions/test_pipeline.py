@@ -42,7 +42,7 @@ from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     screen_stage,
 )
 from products.ai_observability.backend.logic.eval_suggestions.prices import MODEL_PRICES
-from products.ai_observability.backend.logic.eval_suggestions.ranking import Proposal
+from products.ai_observability.backend.logic.eval_suggestions.ranking import DEFAULT_JUDGE_MODEL, Proposal
 from products.ai_observability.backend.logic.eval_suggestions.runs import create_run, fail_run, publish
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
@@ -228,7 +228,7 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
         "na_on_fails": 0,
         "na_on_passes": 0,
     }
-    return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
+    return {"status": "ok", "model": DEFAULT_JUDGE_MODEL, "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 
 def _review_replies(card: dict[str, Any]) -> Callable[..., MagicMock]:
@@ -783,7 +783,7 @@ class TestRunRecords(BaseTest):
                 True,
                 None,
                 "turned off by the project",
-                "gpt-5-mini",
+                DEFAULT_JUDGE_MODEL,
                 True,
             ),
         ]
@@ -796,7 +796,7 @@ class TestRunRecords(BaseTest):
         consent: bool,
         deadline: float | None,
         detail: str,
-        judge_model: str = "gpt-5-mini",
+        judge_model: str = DEFAULT_JUDGE_MODEL,
         turned_off: bool = False,
     ) -> None:
         self.organization.is_ai_data_processing_approved = consent

@@ -54,7 +54,6 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
         result = await _call()
 
     assert result is parsed
-    assert mock_get.call_args.kwargs["product"] == "review_hog"
     assert mock_get.call_args.kwargs["ai_product"] == "review_hog"
     assert mock_get.call_args.kwargs["team_id"] == 1
     kwargs = client.messages.stream.call_args.kwargs
@@ -64,7 +63,7 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
     assert kwargs["thinking"] == {"type": "adaptive"}
     assert kwargs["system"] == "the system prompt"
     assert kwargs["messages"] == [{"role": "user", "content": "the prompt"}]
-    assert kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
+    assert "extra_headers" not in kwargs
 
 
 @pytest.mark.asyncio
@@ -156,14 +155,13 @@ async def test_truncated_json_validation_error_becomes_a_compact_application_err
 
 
 @pytest.mark.asyncio
-async def test_stage_labels_both_gateway_dialects() -> None:
+async def test_stage_labels_the_gateway_client() -> None:
     client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=IssueDeduplication(duplicates=[]))))
 
     with patch(f"{_MODULE}.build_async_anthropic_client", return_value=client) as mock_get:
         await _call()
 
     assert mock_get.call_args.kwargs["ai_stage"] == "dedup"
-    assert client.messages.stream.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
 
 
 def _openai_client(content: str | None, finish_reason: str | None) -> MagicMock:

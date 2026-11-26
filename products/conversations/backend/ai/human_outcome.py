@@ -96,6 +96,18 @@ def _ticket_comments(*, team_id: int, ticket_id: str) -> QuerySet[Comment]:
     )
 
 
+def _ai_drafts(comments: QuerySet[Comment]) -> QuerySet[Comment]:
+    # Only private AI notes are drafts a human can adopt. A public AI reply was auto-sent
+    # to the customer, so a later human reply is a follow-up, not adoption of a draft.
+    # Other products post agent findings and automated updates as private AI notes too.
+    # Those carry a key, and Support AI did not write them, so they are not drafts.
+    return (
+        comments.filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
+        .filter(item_context__automated_update_key__isnull=True)
+        .filter(item_context__internal_note_key__isnull=True)
+    )
+
+
 def _public_human_comments(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     return (
         comments.filter(created_by_id__isnull=False)
@@ -146,9 +158,7 @@ def record_human_outcome(*, team_id: int, ticket_id: str, draft_message_id: str,
         if ticket is None:
             return False
         latest_ai_draft_id = (
-            _ticket_comments(team_id=team_id, ticket_id=ticket_id)
-            .filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
-            .filter(item_context__automated_update_key__isnull=True)
+            _ai_drafts(_ticket_comments(team_id=team_id, ticket_id=ticket_id))
             .order_by("-created_at", "-id")
             .values_list("id", flat=True)
             .first()
@@ -188,15 +198,7 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         before_this = Q(created_at__lt=this_comment.created_at) | Q(
             created_at=this_comment.created_at, id__lt=this_comment.id
         )
-        # Only private AI notes are drafts a human can adopt. A public AI reply was auto-sent
-        # to the customer, so a later human reply is a follow-up, not adoption of a draft.
-        ai_note = (
-            comments.filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
-            .filter(item_context__automated_update_key__isnull=True)
-            .filter(before_this)
-            .order_by("-created_at", "-id")
-            .first()
-        )
+        ai_note = _ai_drafts(comments).filter(before_this).order_by("-created_at", "-id").first()
         if ai_note is None or not (ai_note.content or "").strip():
             return
 

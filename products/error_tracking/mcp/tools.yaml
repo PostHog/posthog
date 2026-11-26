@@ -553,7 +553,8 @@ tools:
         title: Create error tracking tag rule
         description: >
             Create a tag rule for the current project. Provide a `label` and at least one event property filter in
-            `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Once a day, the
+            `filters`. Set `color` to one of the named colors to color the tag, or omit it to get a color picked from
+            the label. When the first event of a new issue matches the filters, the issue gets the tag. Once a day, the
             rule also tags other issues that had a matching event in the past day, unless its filters use
             `$exception_list`. The daily check never removes a tag, and never applies a tag that a person removed. Every
             matching rule applies its own tag. Filters can use event properties only. The call fails with "Issue tags
@@ -585,9 +586,10 @@ tools:
             idempotent: true
         title: List error tracking tag rules
         description: >
-            List the tag rules of the current project, with the label, filters, key, version and disabled state of each.
-            Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on one issue.
-            The call fails with "Issue tags are off for this project." when the project does not have issue tags.
+            List the tag rules of the current project, with the label, color, filters, key, version and disabled state
+            of each. Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on
+            one issue. The call fails with "Issue tags are off for this project." when the project does not have issue
+            tags.
         feature_flag: error-tracking-issue-tags
     error-tracking-tag-rules-update:
         operation: error_tracking_tag_rules_partial_update
@@ -600,12 +602,12 @@ tools:
             idempotent: true
         title: Update error tracking tag rule
         description: >
-            Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep
-            their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply
-            to new issues, and once a day to other issues that had a matching event in the past day. When the new
-            filters read the same event properties, issues that already have the tag keep it. When they read different
-            properties, the rule gets a new `key` and loses its existing tags, so list the rules again to get the new
-            key.
+            Update a tag rule by ID. Include `label`, `description`, `color`, `filters`, or a combination. Omitted
+            fields keep their existing values. Set `color` to null for a color picked from the label. A new `label` or
+            `color` shows at once on every issue that has the rule's tag. New filters apply to new issues, and once a
+            day to other issues that had a matching event in the past day. When the new filters read the same event
+            properties, issues that already have the tag keep it. When they read different properties, the rule gets a
+            new `key` and loses its existing tags, so list the rules again to get the new key.
         feature_flag: error-tracking-issue-tags
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create

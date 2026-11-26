@@ -176,8 +176,6 @@ def build_client(team_id: int, run_id: str, model: str, trigger: str) -> JudgeCl
     if kind is None:
         raise ValueError(f"No gateway route to calibrate on {model}")
     client = build_openai_client(
-        # Only the Python gateway reads this route, and privacy mode raises instead of falling back to it.
-        "django",
         ai_product=AI_PRODUCT,
         trace_id=run_id,
         properties={"team_id": str(team_id), "trigger": trigger},

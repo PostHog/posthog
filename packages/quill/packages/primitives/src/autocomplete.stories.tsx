@@ -13,6 +13,7 @@ import {
     AutocompleteLabel,
     AutocompleteList,
     AutocompleteStatus,
+    AutocompleteTrigger,
 } from './autocomplete'
 import { Button } from './button'
 import { Dialog, DialogContent } from './dialog'
@@ -61,9 +62,9 @@ export const Default: Story = {
                     value={value}
                     onValueChange={setValue}
                 >
-                    <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen((p) => !p)}>
+                    <AutocompleteTrigger ref={triggerRef} render={<Button variant="outline" size="sm" />}>
                         Pick a framework
-                    </Button>
+                    </AutocompleteTrigger>
                     <AutocompleteContent anchor={triggerRef}>
                         <AutocompleteInput placeholder="Search…" />
                         <AutocompleteEmpty>No frameworks match</AutocompleteEmpty>
