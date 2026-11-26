@@ -545,6 +545,7 @@ class TestOtelSampler(SimpleTestCase):
         tracer = TracerProvider(sampler=build_sampler()).get_tracer(__name__)
 
         span = tracer.start_span("POST", context=context, kind=trace.SpanKind.SERVER, attributes=attributes)
+        assert isinstance(span, ReadableSpan)
 
         self.assertTrue(span.get_span_context().trace_flags.sampled)
         if traceparent:
