@@ -362,6 +362,12 @@ describe('load', () => {
             'valves.0.at: the valve can fire 189.999s into the drive, inside the 160s warm-up and the 30s fault-free baseline after it that load and host admission measure; set at to 190s or later',
         ],
         [
+            'a warm-up whose floor is no whole second, which the floor names in milliseconds',
+            { ...card, drive: { ...card.drive, for: '30s', warmUp: '548ms' } },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'drive.for: the drive ends 30s in, inside the 0.548s warm-up and the 30s fault-free baseline after it that load and host admission measure; run it for 30548ms or longer',
+        ],
+        [
             'a warm-up that leaves the paired control too short a baseline',
             { ...card, drive: { ...card.drive, for: '227s', warmUp: '210s' } },
             { ...profile, host: { cpuCeiling: 0.5 } },

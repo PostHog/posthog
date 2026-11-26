@@ -348,13 +348,11 @@ const runWindowOf = (from: number, to: number): RunWindow => ({
 
 function windowsOf(
     drive: DriveWindow,
-    timeline: readonly ValveTimelineEntry[],
-    warmUpMs: number | undefined
+    timeline: readonly ValveTimelineEntry[]
 ): Pick<RunResult, 'warmUp' | 'baseline'> {
     const { baseline } = phasesOf(drive, timeline)
     return {
-        ...(drive.warmedAt !== undefined &&
-            warmUpMs !== undefined && { warmUp: runWindowOf(drive.warmedAt - warmUpMs, baseline.from) }),
+        ...(drive.warmedAt !== undefined && { warmUp: runWindowOf(drive.startedAt, baseline.from) }),
         baseline: runWindowOf(baseline.from, baseline.to),
     }
 }
@@ -621,6 +619,7 @@ export function createRunner(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
                 probes = await opened.probes(seeded.teamIds)
+                const offers = await opened.offers()
                 const driveStartedAt = Date.now()
                 live.write({
                     type: 'phase',
@@ -644,7 +643,6 @@ export function createRunner(
                     commits: probes.commits,
                     manifest,
                 })
-                const offers = await opened.offers()
                 const windowOpen = new AbortController()
                 void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
                     .then(() => valves.releaseAll())
@@ -690,7 +688,7 @@ export function createRunner(
                     startedAt: driveStartedAt,
                     endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
                     ...(card.drive.warmUp !== undefined && {
-                        warmedAt: (units.steps[0]?.startedAt ?? driveStartedAt) + durationMs(card.drive.warmUp),
+                        warmedAt: driveStartedAt + durationMs(card.drive.warmUp),
                     }),
                 }
                 driven = driveWindow
@@ -777,11 +775,7 @@ export function createRunner(
                 })
                 outcome = {
                     ...verdict,
-                    ...windowsOf(
-                        admittedWindowOf(card.drive, driveWindow, units.steps),
-                        evidence.timeline,
-                        card.drive.warmUp === undefined ? undefined : durationMs(card.drive.warmUp)
-                    ),
+                    ...windowsOf(admittedWindowOf(card.drive, driveWindow, units.steps), evidence.timeline),
                     units,
                     convergence,
                     janitorResets,

@@ -1506,7 +1506,7 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('records the warm-up from the first offer it drove, and the baseline it admitted after it', async () => {
+    it('records the warm-up its drive ran before the first offer, and the baseline it admitted after it', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
             NEVER_ABORTED
@@ -1517,14 +1517,13 @@ describe('runner through seed, drive and judge', () => {
         const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
         const saved = evidenceOf(result, 'scorecard.json') as { warmUp: RunWindow; baseline: RunWindow }
         const warmUpFrom = Date.parse(saved.warmUp.from)
-        const firstOfferMs = Math.min(...journal.map(({ offeredAt }) => offeredAt)) - warmUpFrom
         expect({
             warmUpMs: Date.parse(saved.warmUp.to) - warmUpFrom,
-            firstOfferedAtWarmUpStart: firstOfferMs >= 0 && firstOfferMs < 100,
+            offeredBeforeWarmUp: journal.filter(({ offeredAt }) => offeredAt < warmUpFrom).length,
             baseline: saved.baseline,
         }).toEqual({
             warmUpMs: 1000,
-            firstOfferedAtWarmUpStart: true,
+            offeredBeforeWarmUp: 0,
             baseline: { from: saved.warmUp.to, to: new Date(drive.endedAt).toISOString() },
         })
     }, 30_000)

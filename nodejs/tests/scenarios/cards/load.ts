@@ -235,6 +235,8 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     )
 }
 
+const durationTextOf = (ms: number): string => (ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`)
+
 const SCRAPED_FAULT_MS = MIN_BASELINE_SECONDS * 1000 + SAMPLE_INTERVAL_MS + SCRAPE_TIMEOUT_MS
 
 function faultFreeOf(card: Card, profile: Profile): { ms: number; inside: string } | undefined {
@@ -265,7 +267,7 @@ function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
     const tooShort =
         card.drive.warmUp !== undefined && driveMs < faultFree.ms
             ? [
-                  `drive.for: the drive ends ${driveMs / 1000}s in, inside ${faultFree.inside}; run it for ${faultFree.ms / 1000}s or longer`,
+                  `drive.for: the drive ends ${driveMs / 1000}s in, inside ${faultFree.inside}; run it for ${durationTextOf(faultFree.ms)} or longer`,
               ]
             : []
     return [
@@ -274,7 +276,7 @@ function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
             const atMs = durationMs(entry.at ?? '0s')
             if (atMs < faultFree.ms) {
                 return [
-                    `valves.${i}.at: the valve can fire ${atMs / 1000}s into the drive, inside ${faultFree.inside}; set at to ${faultFree.ms / 1000}s or later`,
+                    `valves.${i}.at: the valve can fire ${atMs / 1000}s into the drive, inside ${faultFree.inside}; set at to ${durationTextOf(faultFree.ms)} or later`,
                 ]
             }
             return atMs < driveMs
