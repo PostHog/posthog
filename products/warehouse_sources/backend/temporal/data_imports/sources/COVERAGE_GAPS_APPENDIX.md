@@ -15149,11 +15149,11 @@ Diffed against: <https://developers.toriihq.com/sitemap.xml>
 - [x] `apps/{idApp}/users` — app-to-user membership/license assignment rows; the join table that makes Apps and Users analytically useful (high) → `AppUsers` (full refresh, fan-out over `Apps`)
 - [x] `roles` — lookup table resolving the role ids carried on users and app owners (high) → `Roles` (full refresh)
 - [x] `apps/metadata, users/metadata, contracts/metadata, transactions/metadata` — custom-field definitions that resolve the field ids present on rows we already sync (medium) → `FieldsMetadata` (full refresh, one table for all four entities)
-- [ ] `workflows` — automation definitions referenced by execution logs and access requests (medium)
+- [x] `workflows` — automation definitions referenced by execution logs and access requests (medium) → `Workflows` (full refresh, regular workflows)
 - [x] `workflows/actionExecutions` — action execution log, the event stream for offboarding/provisioning automation (medium) → `ActionExecutions` (full refresh, no server-side time filter)
-- [ ] `audit` — admin audit log of changes to apps, contracts and users (medium)
-- [ ] `users/{idUser}/apps` — per-user app portfolio; complements the app-users join for user-centric queries (low)
-- [ ] `workflows/audit` — workflow change history (low)
+- [x] `audit` — admin audit log of changes to apps, contracts and users (medium) → `Audit` (incremental on `creationTime`, synthetic hash `id`)
+- [ ] `users/{idUser}/apps` — per-user app portfolio; complements the app-users join for user-centric queries (low) Skipped: same user-app pairs as `AppUsers`, and it needs one request per user.
+- [ ] `workflows/audit` — workflow change history (low) Skipped: `/audit` already returns the same workflow event types, so the `Audit` table covers it.
 
 Note: Docs are a JS-rendered ReadMe site with no downloadable OAS, so the endpoint list came from the docs sitemap; individual reference pages were fetched to confirm titles (e.g. getappsidappusers = 'List application users', getroles = 'List roles'). SCIM v2 endpoints and app-catalog access-request policies were excluded as plumbing/config.
 
