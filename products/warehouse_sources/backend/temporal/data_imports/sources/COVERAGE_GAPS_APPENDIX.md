@@ -6203,10 +6203,10 @@ Diffed against: <https://api.freshservice.com/>
 - [x] `sla_policies` — lookup that resolves the SLA policy ID on tickets into targets and escalation rules (medium)
 - [x] `tickets/{id}/tasks (and problem/change/release tasks)` — sub-task breakdown and completion state under each ticket (medium) — synced as `ticket_tasks`, `problem_tasks`, `change_tasks` and `release_tasks`
 - [x] `approvals` — account-wide approval records with approver, state and timestamps — the service-request bottleneck metric (medium) — the listing needs a filter beyond `parent`, so it is swept once per ticket/change module and approval status
-- [ ] `alerts (+ alert logs)` — alert-management records that precede incidents; logs give the state transition history (medium)
-- [ ] `service_catalog/items (+ service_categories lookup)` — resolves what was actually requested in each service request, and the category lookup (medium)
-- [ ] `tickets/{id}/csat_response` — satisfaction score per ticket — the headline support quality metric (medium)
-- [ ] `solutions/articles (+ categories, folders)` — knowledge base content with view/hit counts for deflection analysis (low)
+- [x] `alerts (+ alert logs)` — alert-management records that precede incidents; logs give the state transition history (medium) — synced as `alerts`; alert logs not built, because a log row has no documented unique id
+- [x] `service_catalog/items (+ service_categories lookup)` — resolves what was actually requested in each service request, and the category lookup (medium) — synced as `service_items` and `service_categories`
+- [x] `tickets/{id}/csat_response` — satisfaction score per ticket — the headline support quality metric (medium) — synced as `ticket_csat_responses`
+- [x] `solutions/articles (+ categories, folders)` — knowledge base content with view/hit counts for deflection analysis (low) — synced as `solution_categories`, `solution_folders` and `solution_articles`
 
 Note: Freshservice's single-page API reference exposes ~680 anchored operations. Static table list in the source; no dynamic discovery. Coverage is good on the top-level ITSM objects but misses every sub-resource hanging off tickets/problems/changes/releases.
 
