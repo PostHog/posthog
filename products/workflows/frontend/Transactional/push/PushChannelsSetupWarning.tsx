@@ -40,8 +40,8 @@ export function PushChannelsSetupWarning({ channels }: { channels: number[] }): 
                         'data-attr': 'transactional-push-recheck-devices',
                     }}
                 >
-                    We couldn't check whether any device has registered with the selected app. Check your connection and
-                    try again.
+                    We couldn't check for registered devices, so it's unknown whether this notification will reach
+                    anyone. Check your connection and try again.
                 </LemonBanner>
             </div>
         )
