@@ -2251,6 +2251,7 @@ infrastructure-direction	clickhouse_client	access_control	1
 level:isolated	account_audits	1
 level:isolated	actions	1
 level:isolated	aeo	1
+level:isolated	agent_transcripts	1
 level:isolated	ai_gateway	1
 level:isolated	ai_training	1
 level:isolated	alerts_platform	1
