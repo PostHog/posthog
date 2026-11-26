@@ -100,6 +100,11 @@ class IdempotencyKeyReused(TransactionalEmailError):
     code = "idempotency_key_reused"
 
 
+class CategoryNotFound(TransactionalEmailError):
+    code = "category_not_found"
+    attr = "category"
+
+
 class SendingSuspended(TransactionalEmailError):
     code = "sending_suspended"
 
@@ -251,6 +256,13 @@ class EmailTracking:
 
 
 @frozen
+class EmailCategory:
+    id: UUID
+    type: str
+    archived: bool = False
+
+
+@frozen
 class CodeEmail:
     key: str
     subject: str
@@ -264,6 +276,7 @@ class CodeEmail:
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
     reply_headers: ReplyHeaders | None = None
+    category: EmailCategory | None = None
 
 
 class DeliveryUnavailable(Exception):

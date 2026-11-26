@@ -131,6 +131,7 @@ describe('email step variants', () => {
         ['tracking turned off', {}, { tracking_enabled: false }, ['tracking_off']],
         ['click tracking turned off', {}, { click_tracking_enabled: false }, ['click_tracking_off']],
         ['UTM tags', {}, { utm_tags_enabled: true }, ['utm_tags']],
+        ['connecting clicks to sessions turned off', {}, { run_link_tag_enabled: false }, ['run_link_tag_off']],
     ])('lists %s as settings the sandbox sender drops', (_name, value, config, expected) => {
         expect(
             ownOnlySettings(ownAction(value, { tracking_enabled: true, utm_tags_enabled: false, ...config }))
