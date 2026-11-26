@@ -62,14 +62,21 @@ describe('the edge in front of Cyclotron', () => {
         expect((await client.query('SELECT id FROM cyclotron_jobs')).rows).toEqual([{ id: 2 }])
     })
 
-    test('passes an insert into a table whose name only starts like the jobs table, and keeps the dose', async () => {
+    test.each([
+        ['a table whose name only starts like it', 'cyclotron_jobs$shadow', 'inserted'],
+        ['a table in a schema of its name', 'cyclotron_jobs.audit', UNDEFINED_TABLE],
+    ])('passes an insert into %s, and keeps the dose', async (_, table, answer) => {
         edge.addFault(ruleOf({ name: 'pg.enqueue_refused', dose: { count: 1 } }))
         await client.query('CREATE TEMP TABLE cyclotron_jobs$shadow (id int)')
 
-        const shadow = await client.query('INSERT INTO cyclotron_jobs$shadow VALUES (1)').then(() => 'inserted', codeOf)
+        const other = await client.query(`INSERT INTO ${table} VALUES (1)`).then(() => 'inserted', codeOf)
         const enqueue = await client.query('INSERT INTO cyclotron_jobs VALUES (1)').then(() => 'inserted', codeOf)
 
-        expect([shadow, enqueue]).toEqual(['inserted', UNDEFINED_TABLE])
+        expect([other, enqueue]).toEqual([answer, UNDEFINED_TABLE])
+    })
+
+    test('refuses to proxy a database URL whose query names its endpoint', async () => {
+        await expect(edge.pgProxyOf(`${UPSTREAM}?host=127.0.0.2`)).rejects.toThrow('names host in its query')
     })
 
     test('marks the fault observed once a refusal reaches the client, and not when the connection closes first', async () => {

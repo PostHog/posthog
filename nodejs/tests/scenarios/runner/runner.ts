@@ -545,7 +545,13 @@ export function createRunner(
     }
 
     const stage = {
-        async judge(loaded: LoadedCard, signal: AbortSignal, role?: PairRole): Promise<Judged> {
+        // A pair's control resets with its faulted run's routing, so the two runs differ in the fault alone.
+        async judge(
+            loaded: LoadedCard,
+            signal: AbortSignal,
+            role?: PairRole,
+            throughEdge = cyclotronThroughEdge(loaded.card.valves)
+        ): Promise<Judged> {
             if (restartRequired !== undefined) {
                 throw restartRequired
             }
@@ -604,7 +610,7 @@ export function createRunner(
                 enter('reset')
                 await environment
                     .reset(profile.settings, profile.replicas, {
-                        cyclotronThroughEdge: cyclotronThroughEdge(card.valves),
+                        cyclotronThroughEdge: throughEdge,
                     })
                     .catch((error: unknown) => {
                         restartRequired = new Error(
@@ -957,7 +963,12 @@ export function createRunner(
         },
 
         async runPair(loaded, signal) {
-            const control = await stage.judge(controlOf(loaded), signal, 'control')
+            const control = await stage.judge(
+                controlOf(loaded),
+                signal,
+                'control',
+                cyclotronThroughEdge(loaded.card.valves)
+            )
             const faulted = signal.aborted
                 ? { missing: 'the run was interrupted before the faulted run' }
                 : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))

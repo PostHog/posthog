@@ -14,8 +14,10 @@ const STARTUP_MIN_BYTES = 8
 const STARTUP_MAX_BYTES = 10000
 const TYPED_HEADER_BYTES = 5
 const TYPED_MIN_LENGTH = 4
+// pg connects to these query parameters over the URL's host and port, so a URL that names one would bypass the proxy.
+const ENDPOINT_PARAMETERS = ['host', 'hostaddr', 'port']
 
-const ENQUEUE = /^(\s*INSERT\s+INTO\s+)cyclotron_jobs(?![\w$])/i
+const ENQUEUE = /^(\s*INSERT\s+INTO\s+)cyclotron_jobs(?![\w$.])/i
 const REFUSED = /cyclotron_jobs_refused_([0-9a-f]{32})/
 
 export type PgRefusals = { refusePg(): string | undefined; pgRefusalAnswered(token: string): void }
@@ -179,6 +181,12 @@ function connect(client: net.Socket, server: net.Socket, refusals: PgRefusals): 
 
 export async function startPgProxy(upstream: string, refusals: PgRefusals): Promise<PgProxy> {
     const target = new URL(upstream)
+    const overrides = ENDPOINT_PARAMETERS.filter((name) => target.searchParams.has(name))
+    if (overrides.length > 0) {
+        throw new Error(
+            `The edge proxies the host and port of a Cyclotron database URL, and this one names ${overrides.join(', ')} in its query: put the endpoint in the URL's host and port.`
+        )
+    }
     const sockets = new Set<net.Socket>()
     const track = (socket: net.Socket): net.Socket => {
         sockets.add(socket)

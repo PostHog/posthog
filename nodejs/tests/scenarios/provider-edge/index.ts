@@ -405,6 +405,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const pgProxyOf = (upstream: string): Promise<PgProxy> => {
         const proxy = pgProxies.get(upstream) ?? startPgProxy(upstream, faults)
         pgProxies.set(upstream, proxy)
+        proxy.catch(() => pgProxies.delete(upstream))
         return proxy
     }
 
@@ -428,7 +429,14 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         clearFaults,
         close: async () => {
             proxy?.close()
-            await Promise.all([...pgProxies.values()].map(async (pg) => (await pg).close()))
+            await Promise.all(
+                [...pgProxies.values()].map((pg) =>
+                    pg.then(
+                        (started) => started.close(),
+                        () => undefined
+                    )
+                )
+            )
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
         },
