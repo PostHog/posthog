@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { posix } from "node:path";
 export interface ContextWikiEnv {
   path: string;
   commitsPath: string;
@@ -24,6 +25,21 @@ export function resolveContextWikiPath(
     explicitPath ?? process.env.POSTHOG_CONTEXT_LAYER_PATH;
   return contextWikiPath && fs.existsSync(contextWikiPath)
     ? contextWikiPath
+    : undefined;
+}
+
+/**
+ * The wiki-relative path of a Markdown page under the mount, or undefined for any
+ * other path. Normalizing first keeps a `..` path that leaves the mount out.
+ */
+export function contextWikiPagePath(
+  path: string,
+  mountPath: string,
+): string | undefined {
+  const root = `${posix.normalize(mountPath).replace(/\/+$/, "")}/`;
+  const normalized = posix.normalize(path);
+  return normalized.startsWith(root) && normalized.endsWith(".md")
+    ? normalized.slice(root.length)
     : undefined;
 }
 

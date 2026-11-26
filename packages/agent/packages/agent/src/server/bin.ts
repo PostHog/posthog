@@ -89,7 +89,6 @@ const envSchema = z.object({
   POSTHOG_AGENT_OTEL_LOGS_URL: z.url().optional(),
   POSTHOG_AGENT_OTEL_LOGS_TOKEN: z.string().min(1).optional(),
   POSTHOG_AGENT_OTEL_TRACES_URL: z.url().optional(),
-  POSTHOG_CONTEXT_LAYER_PATH: z.string().min(1).optional(),
 });
 
 const program = new Command();
@@ -335,7 +334,6 @@ program
       otelLogsUrl: env.POSTHOG_AGENT_OTEL_LOGS_URL,
       otelLogsToken: env.POSTHOG_AGENT_OTEL_LOGS_TOKEN,
       otelTracesUrl: env.POSTHOG_AGENT_OTEL_TRACES_URL,
-      contextWikiPath: env.POSTHOG_CONTEXT_LAYER_PATH,
       repositoryPath: options.repositoryPath,
       repoReadyFile: options.repoReadyFile,
       apiUrl: env.POSTHOG_API_URL,

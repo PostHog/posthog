@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mapNotificationToLogRecord, OtelRunTelemetry } from "./otel-telemetry";
@@ -731,13 +734,14 @@ describe("OtelRunTelemetry", () => {
     it("records context wiki pages a tool read, and no other location", async () => {
       await telemetry.shutdown();
       mockSpanExport.mockClear();
+      const wiki = mkdtempSync(join(tmpdir(), "context-wiki-"));
+      vi.stubEnv("POSTHOG_CONTEXT_LAYER_PATH", `${wiki}/`);
       telemetry = new OtelRunTelemetry(
         {
           url: "https://us.i.posthog.com/i/v1/logs",
           token: "phc_test_key",
           tracesUrl: "https://us.i.posthog.com/i/v1/traces",
           flushIntervalMs: 100,
-          contextWikiPath: "/tmp/workspace/context/",
         },
         RESOURCE,
       );
@@ -749,7 +753,7 @@ describe("OtelRunTelemetry", () => {
           toolCallId: "t1",
           kind: "read",
           status: "pending",
-          locations: [{ path: "/tmp/workspace/context/areas/slack-app.md" }],
+          locations: [{ path: `${wiki}/areas/slack-app.md` }],
         }),
       );
       telemetry.append(
@@ -759,8 +763,8 @@ describe("OtelRunTelemetry", () => {
           toolCallId: "t1",
           status: "completed",
           locations: [
-            { path: "/tmp/workspace/context/../repos/app/SECRET.md" },
-            { path: "/tmp/workspace/context" },
+            { path: `${wiki}/../repos/app/SECRET.md` },
+            { path: wiki },
             { path: "/tmp/workspace/repos/app/notes.md" },
           ],
         }),
@@ -780,7 +784,7 @@ describe("OtelRunTelemetry", () => {
           sessionUpdate: "tool_call_update",
           toolCallId: "t2",
           status: "completed",
-          locations: [{ path: "/tmp/workspace/context/decisions/d.md" }],
+          locations: [{ path: `${wiki}/decisions/d.md` }],
         }),
       );
       await telemetry.shutdown();

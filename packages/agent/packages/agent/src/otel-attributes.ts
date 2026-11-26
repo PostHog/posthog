@@ -1,8 +1,8 @@
-import { posix } from "node:path";
 import {
   readAgentToolName,
   readMcpToolDescriptor,
 } from "@posthog/agent-contracts";
+import { contextWikiPagePath } from "@posthog/harness/extensions/context-wiki";
 
 const MAX_BODY_CHARS = 2000;
 // PostHog Logs only facets attribute key/value pairs shorter than 256 chars,
@@ -62,23 +62,20 @@ export function toolNameAttribute(
  * A page path names a shared wiki page, not repository or user content, so it
  * is the only tool location exported; every other location stays in the sandbox.
  */
-export function contextWikiPages(
+export function contextWikiPagesAttribute(
   update: Record<string, unknown>,
   wikiPath: string | undefined,
-): string | undefined {
-  if (!wikiPath) return undefined;
-  const root = `${posix.normalize(wikiPath).replace(/\/+$/, "")}/`;
-  const locations = Array.isArray(update.locations) ? update.locations : [];
+): Attributes {
+  const attrs: Attributes = {};
+  if (!wikiPath || !Array.isArray(update.locations)) return attrs;
   const pages = new Set<string>();
-  for (const location of locations) {
+  for (const location of update.locations) {
     const path = asString(asRecord(location)?.path);
-    if (!path) continue;
-    const normalized = posix.normalize(path);
-    if (normalized.startsWith(root) && normalized.endsWith(".md")) {
-      pages.add(normalized.slice(root.length));
-    }
+    const page = path && contextWikiPagePath(path, wikiPath);
+    if (page) pages.add(page);
   }
-  return pages.size ? [...pages].join(",") : undefined;
+  if (pages.size) strAttr(attrs, "context_wiki_pages", [...pages].join(","));
+  return attrs;
 }
 
 export function toolFailureReason(

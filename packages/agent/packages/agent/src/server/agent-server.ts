@@ -787,7 +787,6 @@ export class AgentServer {
           url: otelLogsUrl,
           token: otelLogsToken,
           tracesUrl: this.config.otelTracesUrl,
-          contextWikiPath: this.config.contextWikiPath,
         },
         {
           taskId: payload.task_id,

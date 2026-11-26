@@ -16,12 +16,13 @@ import {
   type IdGenerator,
   RandomIdGenerator,
 } from "@opentelemetry/sdk-trace-base";
+import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
 import { POSTHOG_NOTIFICATIONS } from "./acp-extensions";
 import {
   type Attributes,
   asRecord,
   asString,
-  contextWikiPages,
+  contextWikiPagesAttribute,
   DEFAULT_FLUSH_INTERVAL_MS,
   EXPORT_TIMEOUT_MS,
   entryTime,
@@ -54,8 +55,6 @@ export interface RunTraceBuilderConfig {
   runId: string;
   /** Batch flush interval in ms (default: 2000) */
   flushIntervalMs?: number;
-  /** Context wiki mount; reads under it are recorded on tool spans */
-  contextWikiPath?: string;
 }
 
 /**
@@ -88,10 +87,9 @@ export class RunTraceBuilder {
   private turnIndex = 0;
   private toolSpans = new Map<string, { span: Span; context: Context }>();
   private ended = false;
-  private contextWikiPath?: string;
+  private contextWikiPath = resolveContextWikiPath();
 
   constructor(config: RunTraceBuilderConfig, resource: Resource) {
-    this.contextWikiPath = config.contextWikiPath;
     const exporter = new OTLPTraceExporter({
       url: config.url,
       headers: { Authorization: `Bearer ${config.token}` },
@@ -270,10 +268,9 @@ export class RunTraceBuilder {
     const attributes: Attributes = { tool_kind: kind };
     if (toolCallId) attributes.tool_call_id = toolCallId;
     strAttr(attributes, "tool_name", toolNameAttribute(update));
-    strAttr(
+    Object.assign(
       attributes,
-      "context_wiki_pages",
-      contextWikiPages(update, this.contextWikiPath),
+      contextWikiPagesAttribute(update, this.contextWikiPath),
     );
 
     const span = this.tracer.startSpan(
@@ -328,13 +325,8 @@ export class RunTraceBuilder {
 
     // Tool input can finish streaming after the call starts, so a later update
     // may be the first to carry the locations.
-    const pages: Attributes = {};
-    strAttr(
-      pages,
-      "context_wiki_pages",
-      contextWikiPages(update, this.contextWikiPath),
-    );
-    open.span.setAttributes(pages);
+    const pages = contextWikiPagesAttribute(update, this.contextWikiPath);
+    if (Object.keys(pages).length) open.span.setAttributes(pages);
 
     const status = update.status;
     if (status === "completed" || status === "failed") {
