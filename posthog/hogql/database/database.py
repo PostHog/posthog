@@ -840,6 +840,7 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
         view_query = catalog.view_queries.get(name)
         if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
             definitions.append(view_query["query"])
+    reached_views: set[str] = set()
     if _reads_tables_the_walk_cannot_name(
         definitions,
         catalog.looked_up_names,
@@ -848,9 +849,11 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
         frozenset(gated_tables),
         team,
         catalog.virtual_fields,
+        reached_views,
     ):
         return gated
-    if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team):
+    # A view reached only through a join or foreign key can be edited or recreated after the build too.
+    if _definition_changed_since_materialized(table.saved_query_id, {*catalog.looked_up_names, *reached_views}, team):
         return gated
     return frozenset(scopes & gated)
 
@@ -863,6 +866,7 @@ def _reads_tables_the_walk_cannot_name(
     gated_tables: frozenset[str],
     team: Team,
     cache: dict[str, Any],
+    reached_views: set[str],
 ) -> bool:
     """True when a definition may read a table through a field its text doesn't name, which the name walk misses.
 
@@ -936,7 +940,13 @@ def _reads_tables_the_walk_cannot_name(
         cache["graph"] = (dict(join_targets), frozenset(reading))
     joins: dict[str, set[str]] = cache["graph"][0]
     reading_expressions: frozenset[str] = cache["graph"][1]
-    if not joins and not reading_expressions:
+    if "views" not in cache:
+        cache["views"] = list(
+            DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True).values_list("name", "query")
+        )
+    # Inferred foreign keys can target a saved view whose name shares a table's namespace.
+    namespaced_views = {name.rsplit(".", 1)[0].lower(): name for name, _query in cache["views"] if "." in name}
+    if not joins and not reading_expressions and not namespaced_views:
         return False
     if "sources" not in cache:
         source_tables: dict[str, set[str]] = defaultdict(set)
@@ -964,6 +974,8 @@ def _reads_tables_the_walk_cannot_name(
             else:
                 group = f"table:{table.pk}"
             source_tables[group] |= {key(table.name), key(dotted)}
+        for namespace, name in namespaced_views.items():
+            source_tables[namespace].add(key(name))
         cache["sources"] = [frozenset(tables) for tables in source_tables.values()]
     # Foreign-key lazy fields, declared or inferred, link the tables of one group to each other.
     linked: dict[str, set[str]] = defaultdict(set)
@@ -976,6 +988,7 @@ def _reads_tables_the_walk_cannot_name(
     # Built-in tables reach each other through lazy fields such as `events.person`, so a join stored on one
     # is reachable from all of them.
     builtin = {key(name) for name in root.children["posthog"].children}
+    view_keys = {key(name) for name, _query in cache["views"]}
     reached: set[str] = set()
     joined: set[str] = set()
     frontier = list(names)
@@ -987,6 +1000,7 @@ def _reads_tables_the_walk_cannot_name(
         if name in builtin:
             frontier.extend(builtin - reached)
         frontier.extend(linked.get(name, set()) - reached)
+        joined |= linked.get(name, set()) & view_keys - {name}
         if name in reading_expressions:
             return True
         for target in joins.get(name, ()):
@@ -996,18 +1010,15 @@ def _reads_tables_the_walk_cannot_name(
             frontier.append(target)
     if not joined:
         return False
-    if "views" not in cache:
-        cache["views"] = list(
-            DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True).values_list("name", "query")
-        )
-    known = linked.keys() | {key(name) for node in root.children.values() for name in node.children}
-    known |= {key(name) for name, _query in cache["views"]}
+    known = linked.keys() | view_keys | {key(name) for node in root.children.values() for name in node.children}
     if joined - known:
         # A join to a view renamed or deleted since the build still names what the copy read through it.
         return True
     # A joined view can read a gated table itself, so it fails closed unless the name walk read that definition.
     walked_queries = [view_queries.get(name) for name in walked_views]
-    return any(key(name) in joined and query not in walked_queries for name, query in cache["views"])
+    joined_views = [(name, query) for name, query in cache["views"] if key(name) in joined]
+    reached_views.update(name for name, _query in joined_views)
+    return any(query not in walked_queries for _name, query in joined_views)
 
 
 def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:

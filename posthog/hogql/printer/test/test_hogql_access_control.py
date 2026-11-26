@@ -780,6 +780,16 @@ class TestDeniedTableError(BaseTest):
                 True,
             ),
             (
+                "trace_read_through_a_foreign_key_to_a_saved_view",
+                "none",
+                "SELECT id AS name FROM postgres.shop.orders",
+                False,
+                [("postgres.shop.unread", "models.postgres.shop.customers")],
+                None,
+                False,
+                True,
+            ),
+            (
                 "join_deleted_after_build",
                 "none",
                 "SELECT event AS name FROM events",
