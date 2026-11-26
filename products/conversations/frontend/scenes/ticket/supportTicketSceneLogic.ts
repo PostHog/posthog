@@ -61,6 +61,7 @@ import {
 import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsAiRerunCreate,
     conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
@@ -84,6 +85,7 @@ import { supportMacrosLogic } from '../../components/Macros/supportMacrosLogic'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
+    AITriage,
     AiReplyFeedbackRating,
     ChatMessage,
     MessageDeliveryStatus,
@@ -97,6 +99,9 @@ import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import { changedTicketFields } from './ticketFieldChanges'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+const AI_RERUN_POLL_INTERVAL = 10000
+// Ten minutes of polling. A run that takes longer shows its result on the next ticket load.
+const AI_RERUN_MAX_POLLS = 60
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
@@ -288,6 +293,7 @@ export interface supportTicketSceneLogicValues {
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     aiDraftApplying: boolean
+    aiRerunning: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -485,6 +491,12 @@ export interface supportTicketSceneLogicActions {
         messageId: string
         rating: AiReplyFeedbackRating
     }
+    refreshAiTriage: () => {
+        value: true
+    }
+    rerunAi: () => {
+        value: true
+    }
     sendMessage: (
         content: string,
         richContent: Record<string, unknown> | null,
@@ -500,6 +512,12 @@ export interface supportTicketSceneLogicActions {
     }
     setAiDraftApplying: (applying: boolean) => {
         applying: boolean
+    }
+    setAiRerunning: (rerunning: boolean) => {
+        rerunning: boolean
+    }
+    setAiTriage: (aiTriage: AITriage) => {
+        aiTriage: AITriage
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
@@ -687,6 +705,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
         applyAiDraft: (message: ChatMessage) => ({ message }),
         setAiDraftApplying: (applying: boolean) => ({ applying }),
+        rerunAi: true,
+        setAiRerunning: (rerunning: boolean) => ({ rerunning }),
+        setAiTriage: (aiTriage: AITriage) => ({ aiTriage }),
+        refreshAiTriage: true,
         bumpComposerPrefill: true,
         insertMacro: (macro: Pick<TicketMacroApi, 'id' | 'body' | 'visibility'>, source: 'button' | 'slash') => ({
             macro,
@@ -877,6 +899,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 setTicket: (_, { ticket }) => ticket,
                 setSavedTicket: (_, { ticket }) => ticket,
+                setAiTriage: (state, { aiTriage }) => (state ? { ...state, ai_triage: aiTriage } : state),
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
@@ -994,6 +1017,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 applyAiDraft: () => true,
                 setAiDraftApplying: (_, { applying }) => applying,
+            },
+        ],
+        aiRerunning: [
+            false,
+            {
+                rerunAi: () => true,
+                setAiRerunning: (_, { rerunning }) => rerunning,
             },
         ],
         composerPrefillAt: [
@@ -1745,6 +1775,56 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             } finally {
                 actions.setAiDraftApplying(false)
+            }
+        },
+        rerunAi: async () => {
+            const ticket = values.ticket
+            if (!ticket) {
+                actions.setAiRerunning(false)
+                return
+            }
+            try {
+                await conversationsTicketsAiRerunCreate(String(getCurrentTeamId()), ticket.id)
+            } catch (error: unknown) {
+                const detail = error instanceof ApiError ? error.detail : null
+                lemonToast.error(detail || "Couldn't start Support AI. Try again in a minute.")
+                actions.setAiRerunning(false)
+                return
+            }
+            lemonToast.success('Support AI is running. Its note will appear on this ticket.')
+            // The server writes the new run's state a few seconds after it starts. Until the finish time
+            // changes, a fetched "done" belongs to the earlier run.
+            cache.aiRerunPreviousFinishedAt = ticket.ai_triage?.finished_at ?? null
+            cache.aiRerunPollsLeft = AI_RERUN_MAX_POLLS
+            actions.setAiTriage({ ...ticket.ai_triage, status: 'in_progress' })
+            actions.setAiRerunning(false)
+            cache.disposables.dispose('aiTriagePolling')
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => actions.refreshAiTriage(), AI_RERUN_POLL_INTERVAL)
+                return () => clearInterval(intervalId)
+            }, 'aiTriagePolling')
+        },
+        refreshAiTriage: async () => {
+            const ticketId = values.ticket?.id
+            cache.aiRerunPollsLeft = (cache.aiRerunPollsLeft ?? 0) - 1
+            if (!ticketId || cache.aiRerunPollsLeft < 0) {
+                cache.disposables.dispose('aiTriagePolling')
+                return
+            }
+            let fetched: Ticket
+            try {
+                fetched = await api.conversationsTickets.get(ticketId)
+            } catch {
+                return
+            }
+            const triage = fetched.ai_triage
+            const runFinished =
+                triage?.status !== 'in_progress' && (triage?.finished_at ?? null) !== cache.aiRerunPreviousFinishedAt
+            if (triage && (runFinished || triage.status === 'in_progress')) {
+                actions.setAiTriage(triage)
+            }
+            if (runFinished) {
+                cache.disposables.dispose('aiTriagePolling')
             }
         },
         insertMacro: ({ macro, source }) => {

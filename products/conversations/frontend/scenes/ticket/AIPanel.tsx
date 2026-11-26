@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
 
-import { LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
@@ -22,6 +22,9 @@ import {
 
 interface AIPanelProps {
     aiTriage?: AITriage
+    /** Starts a new Support AI run on the ticket. Leave unset to hide the button. */
+    onRerun?: () => void
+    rerunning?: boolean
 }
 
 function AITriageHeaderTag({ aiTriage }: { aiTriage?: AITriage }): JSX.Element | null {
@@ -199,8 +202,28 @@ function AITriageDetails({ aiTriage }: { aiTriage: AITriage }): JSX.Element {
     )
 }
 
-export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
+export function AIPanel({ aiTriage, onRerun, rerunning = false }: AIPanelProps): JSX.Element {
     const hasData = Boolean(aiTriage?.status)
+    const rerunButton = onRerun ? (
+        <LemonButton
+            type="secondary"
+            size="xsmall"
+            className="mt-2"
+            loading={rerunning}
+            disabledReason={
+                rerunning
+                    ? 'Starting Support AI'
+                    : aiTriage?.status === 'in_progress'
+                      ? 'Support AI is working on this ticket'
+                      : undefined
+            }
+            tooltip="Runs Support AI on the whole thread and adds a private note. Nothing is sent to the customer."
+            onClick={onRerun}
+            data-attr="support-ai-rerun"
+        >
+            {hasData ? 'Run again' : 'Run Support AI'}
+        </LemonButton>
+    ) : null
 
     return (
         <LemonCollapse
@@ -222,14 +245,18 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
                             <AITriageHeaderTag aiTriage={aiTriage} />
                         </span>
                     ),
-                    content:
-                        hasData && aiTriage ? (
-                            <AITriageDetails aiTriage={aiTriage} />
-                        ) : (
-                            <div className="text-muted-alt text-xs">
-                                No AI draft yet. AI skips tickets your team already replied to.
-                            </div>
-                        ),
+                    content: (
+                        <>
+                            {hasData && aiTriage ? (
+                                <AITriageDetails aiTriage={aiTriage} />
+                            ) : (
+                                <div className="text-muted-alt text-xs">
+                                    No AI draft yet. AI skips tickets your team already replied to.
+                                </div>
+                            )}
+                            {rerunButton}
+                        </>
+                    ),
                 },
             ]}
         />
