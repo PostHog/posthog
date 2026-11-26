@@ -61,6 +61,7 @@ class TestDagsterTestSelection(unittest.TestCase):
             "pyproject.toml",
             ".github/workflows/ci-dagster.yml",
             ".github/clickhouse-versions.json",
+            ".github/clickhouse-schema-cache/backup-disk.xml",
             ".github/actions/setup-sqlx-cli/action.yml",
             "tools/dagster_test_selection.py",
             "tools/test_dagster_test_selection.py",

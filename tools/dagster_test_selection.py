@@ -50,6 +50,7 @@ DAGS_TREE_PATTERN = re.compile(r"^(posthog/dags|products/[^/]+/dags)/")
 FULL_RUN_PATTERNS = (
     ".github/workflows/ci-dagster.yml",
     ".github/clickhouse-versions.json",
+    ".github/clickhouse-schema-cache/",
     ".github/actions/setup-sqlx-cli/",
     "tools/dagster_test_selection.py",
     "tools/test_dagster_test_selection.py",
