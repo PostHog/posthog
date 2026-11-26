@@ -5,10 +5,10 @@ import { fallbackHost, readSettings } from '@/posthog/settings'
 import { PRODUCT_IDS, productLabel, type ProductId } from '../products'
 import type { SetupInput } from '../result'
 import type { SetupRun, Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 const QUESTION = 'What do you want to use PostHog for?'
-const COMMAND = `${SETUP_NEXT} --reason "<what the project uses PostHog for>" --products <id,id>`
+const COMMAND = `${SETUP_COMMAND} --reason "<what the project uses PostHog for>" --products <id,id>`
 
 const SENT_NOTICE = 'hog sends your answer to PostHog to improve setup.'
 const KEPT_NOTICE = 'Your answer stays on this machine.'

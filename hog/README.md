@@ -44,7 +44,7 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 - `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
 - `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
 - When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
-- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Package managers can take a while to pick up a release, so for Homebrew, npm, pnpm and bun installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
+- `hog setup` and `hog setup status` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Package managers can take a while to pick up a release, so for Homebrew, npm, pnpm and bun installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
 
 ### Notices
 
@@ -110,7 +110,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 
 | Command                                   | Status                                                                                                                            |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `hog setup`, `hog setup next`             | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).                 |
+| `hog setup`, `hog setup status`           | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).                 |
 | `hog auth login`                          | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.           |
 | `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                                     |
 | `hog auth status`, `hog whoami`           | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
@@ -174,7 +174,7 @@ The exit code says what happened, so a script or an agent can branch without rea
 | 4    | The work started and is still running. The output names the `--wait` command that resumes it                                                                                                  |
 | 130  | Cancelled with Ctrl-C at a prompt                                                                                                                                                             |
 
-`hog auth login`, `hog auth add` and `hog ci setup` exit with 3 when they return a link for a person to approve, and `hog setup` and `hog setup next` do when setup waits for an answer or an approval from the person.
+`hog auth login`, `hog auth add` and `hog ci setup` exit with 3 when they return a link for a person to approve, and `hog setup` does when setup waits for an answer or an approval from the person.
 `--no-fail` turns 1, 3 and 4 into 0, so a build never breaks on hog. Usage errors and Ctrl-C keep their codes. `hog commands -o json` lists the codes under `exitCodes`.
 
 ## Slow queries
@@ -190,26 +190,26 @@ The exit code says what happened, so a script or an agent can branch without rea
 
 ## Setup
 
-`hog setup` shows where the setup of this folder is, and changes nothing.
-`hog setup next` does the current step, keeps going through every step that needs nobody, and stops at the first one that needs the person or the agent.
-The setup is built for a coding agent: it works out what the project uses PostHog for, and runs `hog setup next` itself after each step.
+`hog setup` does the current step, keeps going through every step that needs nobody, and stops at the first one that needs the person or the agent.
+`hog setup status` shows where the setup of this folder is, and changes nothing.
+The setup is built for a coding agent: it works out what the project uses PostHog for, and runs `hog setup` itself after each step.
 A person at a terminal gets prompts for any answer the options leave out.
 Agents get JSON: `{ step, status, code, next: { kind, command, read, instructions }, done, context }`, where `next.kind` is `run`, `read`, `wait` or `done`. The outcome comes before `context`, so an agent that sees only the start of the output still knows where setup stands. `context.skills` lists skill names only, as `hog skills list` does, and `hog skills search` describes them.
 [src/setup/README.md](src/setup/README.md) draws the steps for a person alone and for a person with an agent.
 Setup runs only on the latest hog: it stops with `hog_outdated` and the update command when a newer release exists. See [Updates](#updates).
 
-| Step        | `hog setup next`                                                                                                                                                                                                                                                        | Done when                                     |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `purpose`   | The agent works out what the project uses PostHog for from the conversation and the code, without asking, and passes it as `--reason` and the matching product ids as `--products a,b`. Without `--region`, setup uses the region of the latest hog login, or US Cloud. | The answers are stored                        |
-| `login`     | Starts a browser login to the chosen host, where new users can sign up, and returns. The next `hog setup next` waits for the approval. When hog picked the region, the agent offers the other one, and `--region` moves the login there before it is approved.          | A login for this folder's host and project    |
-| `project`   | Names the project in `posthog.json` and tells PostHog which products were picked. A failure there only warns.                                                                                                                                                           | Always, once it ran                           |
-| `agents-md` | Adds a note to `AGENTS.md`, and to `CLAUDE.md` when it doesn't import `AGENTS.md`, so a later session continues the setup.                                                                                                                                              | Always, once it ran                           |
-| `install`   | Returns the project token and host, and the two `hog skills read` commands that read the install skill and its rules.                                                                                                                                                   | Both files were read, and `next` ran after it |
-| `review`    | Asks the agent to check its changes against the rules.                                                                                                                                                                                                                  | `--reviewed`, or yes at the terminal          |
-| `verify`    | Looks for events PostHog received since the setup started. Exits with code 1 while there are none.                                                                                                                                                                      | An event arrived                              |
-| `products`  | Lists the other products and the command that starts each, and the PostHog skills that could help later, which `hog skills add <skill...>` adds.                                                                                                                        | `--products-ack`, or shown at the terminal    |
-| `mcp`       | Checks whether the agent running setup has PostHog's MCP server, and puts `{ agent, configured, command }` in `context.mcp`. Changes nothing.                                                                                                                           | Never stops                                   |
-| `connected` | Rewrites the note in `AGENTS.md` with the commands for later PostHog work. From then on `hog setup` shows a summary.                                                                                                                                                    | Always                                        |
+| Step        | `hog setup`                                                                                                                                                                                                                                                             | Done when                                    |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `purpose`   | The agent works out what the project uses PostHog for from the conversation and the code, without asking, and passes it as `--reason` and the matching product ids as `--products a,b`. Without `--region`, setup uses the region of the latest hog login, or US Cloud. | The answers are stored                       |
+| `login`     | Starts a browser login to the chosen host, where new users can sign up, and returns. The next `hog setup` waits for the approval. When hog picked the region, the agent offers the other one, and `--region` moves the login there before it is approved.               | A login for this folder's host and project   |
+| `project`   | Names the project in `posthog.json` and tells PostHog which products were picked. A failure there only warns.                                                                                                                                                           | Always, once it ran                          |
+| `agents-md` | Adds a note to `AGENTS.md`, and to `CLAUDE.md` when it doesn't import `AGENTS.md`, so a later session continues the setup.                                                                                                                                              | Always, once it ran                          |
+| `install`   | Returns the project token and host, and the two `hog skills read` commands that read the install skill and its rules.                                                                                                                                                   | Both files were read, and setup ran after it |
+| `review`    | Asks the agent to check its changes against the rules.                                                                                                                                                                                                                  | `--reviewed`, or yes at the terminal         |
+| `verify`    | Looks for events PostHog received since the setup started. Exits with code 1 while there are none.                                                                                                                                                                      | An event arrived                             |
+| `products`  | Lists the other products and the command that starts each, and the PostHog skills that could help later, which `hog skills add <skill...>` adds.                                                                                                                        | `--products-ack`, or shown at the terminal   |
+| `mcp`       | Checks whether the agent running setup has PostHog's MCP server, and puts `{ agent, configured, command }` in `context.mcp`. Changes nothing.                                                                                                                           | Never stops                                  |
+| `connected` | Rewrites the note in `AGENTS.md` with the commands for later PostHog work. From then on `hog setup` shows a summary.                                                                                                                                                    | Always                                       |
 
 The setup belongs to the folder of the closest `posthog.json`, or to the working folder when there is none, so each app in a monorepo has its own.
 The answers, the start time, the skill files `hog skills read` served in that folder and the finished steps live in `~/.posthog/setup/`, one file per folder. Everything else is checked on each run.

@@ -22,7 +22,7 @@ import type { OAuthLogin } from '@/posthog/oauth'
 
 import type { Stop } from '../result'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT, updateState, type SetupState } from '../state'
+import { SETUP_COMMAND, updateState, type SetupState } from '../state'
 
 function regionNote(host: Host, picked: SetupState['hostPicked'], named: boolean): string {
     const current = REGION_CHOICES.find((choice) => choice.value === regionOf(host))
@@ -35,7 +35,7 @@ function regionNote(host: Host, picked: SetupState['hostPicked'], named: boolean
         picked === 'default'
             ? `hog defaults to ${current.label} (${current.hint})`
             : `hog uses ${current.label} (${current.hint}), where they last logged in`
-    return ` Tell the user ${using}. If they want their data hosted in ${other.label}, or their account is on ${other.hint}, they shouldn't open the link and should tell you instead. Then run \`${SETUP_NEXT} --region ${other.value}\`. End your turn after telling them, and run \`${SETUP_NEXT}\` once they reply that they approved.`
+    return ` Tell the user ${using}. If they want their data hosted in ${other.label}, or their account is on ${other.hint}, they shouldn't open the link and should tell you instead. Then run \`${SETUP_COMMAND} --region ${other.value}\`. End your turn after telling them, and run \`${SETUP_COMMAND}\` once they reply that they approved.`
 }
 
 function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, region: string): Stop {
@@ -95,7 +95,7 @@ async function checkProject(run: SetupRun, key: AccessKey, expected: ProjectId |
     throw new HogError(
         'setup_project_mismatch',
         `You approved project ${key.projectId}, but this folder uses project ${expected}.`,
-        `Run \`${SETUP_NEXT}\` and pick project ${expected} on the approval page. To set up project ${key.projectId} instead, first change \`"projectId"\` in \`posthog.json\` or \`HOG_PROJECT_ID\`.`,
+        `Run \`${SETUP_COMMAND}\` and pick project ${expected} on the approval page. To set up project ${key.projectId} instead, first change \`"projectId"\` in \`posthog.json\` or \`HOG_PROJECT_ID\`.`,
         EXIT_USAGE
     )
 }
@@ -114,7 +114,7 @@ export const login: Step = {
         await switchRegion(run, named)
         const { host, projectId } = await run.target()
         const region = regionNote(host, run.state?.hostPicked, named)
-        const identity = { command: SETUP_NEXT, resume: SETUP_NEXT, pendingName: run.scope.pendingName }
+        const identity = { command: SETUP_COMMAND, resume: SETUP_COMMAND, pendingName: run.scope.pendingName }
         const flow = loginFlow(ctx.runtime, host, LOGIN_SCOPES, { identity })
 
         if (!run.input.next) {
@@ -123,11 +123,11 @@ export const login: Step = {
                 ? waitingStop(pendingResult(flow, pending), projectId, region)
                 : runNext(
                       'setup_login_needed',
-                      `Run \`${SETUP_NEXT}\` to get a login link for ${host}, and ask the user to open it. ${SIGN_UP_INSTRUCTIONS}${region}`
+                      `Run \`${SETUP_COMMAND}\` to get a login link for ${host}, and ask the user to open it. ${SIGN_UP_INSTRUCTIONS}${region}`
                   )
         }
 
-        refuseInCi(ctx, SETUP_NEXT, CI_CREDENTIALS_HINT)
+        refuseInCi(ctx, SETUP_COMMAND, CI_CREDENTIALS_HINT)
         const approval = await approve(ctx, flow)
         if (approval.status === 'pending') {
             return waitingStop(approval, projectId, region)
@@ -140,7 +140,7 @@ export const login: Step = {
             throw new HogError(
                 'setup_config_unwritable',
                 `You're logged in, but hog couldn't write ${config.path}: ${config.error ?? 'unknown error'}`,
-                `Make ${run.scope.folder} writable, or add \`"host": "${host}"\` and \`"projectId": ${approval.value.projectId}\` to \`posthog.json\`. Then run \`${SETUP_NEXT}\`.`
+                `Make ${run.scope.folder} writable, or add \`"host": "${host}"\` and \`"projectId": ${approval.value.projectId}\` to \`posthog.json\`. Then run \`${SETUP_COMMAND}\`.`
             )
         }
 

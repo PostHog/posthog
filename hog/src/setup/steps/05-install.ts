@@ -6,7 +6,7 @@ import { ProjectTokenSchema } from '@/posthog/tokens'
 
 import { INSTALL_SKILL } from '../products'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { hasRead, SETUP_NEXT, type SkillFile } from '../state'
+import { hasRead, SETUP_COMMAND, type SkillFile } from '../state'
 
 export const SKILL_READ: SkillFile = { skill: INSTALL_SKILL, path: 'SKILL.md' }
 export const RULES_READ: SkillFile = { skill: INSTALL_SKILL, path: 'references/COMMANDMENTS.md' }
@@ -44,7 +44,7 @@ export const install: Step = {
         if (read) {
             return runNext(
                 'setup_install_pending',
-                `Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`
+                `Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_COMMAND}\`.`
             )
         }
 
@@ -53,8 +53,8 @@ export const install: Step = {
             next: {
                 kind: 'read',
                 read: [readCommand(SKILL_READ), readCommand(RULES_READ)],
-                command: SETUP_NEXT,
-                instructions: `Run both commands and read each file in full, without \`--lines\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`,
+                command: SETUP_COMMAND,
+                instructions: `Run both commands and read each file in full, without \`--lines\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_COMMAND}\`.`,
             },
         }
     },
