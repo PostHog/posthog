@@ -134,8 +134,6 @@ export function ruleOf(fault: CardFault): FaultRule {
     }
 }
 
-export const isEnqueue = (statement: string): boolean => /^\s*INSERT\s+INTO\s+cyclotron_jobs\b/i.test(statement)
-
 export const heldAnswerRule = (): FaultRule => ({
     name: 'edge.accepted',
     answer: { kind: 'hold-answer' },
@@ -152,6 +150,10 @@ type ActiveFault = {
 }
 
 const SHARE_TOLERANCE = 1e-9
+
+// A refusal holds its dose from the rewrite until the client reads Postgres's answer, and hands it back when the
+// connection closes first, so a count of one is one refusal the client saw.
+export type Refusal = { answered(): void; lost(): void }
 
 const isWebhookAnswer = (answer: Answer): answer is WebhookAnswer =>
     answer.kind === 'webhook-status' || answer.kind === 'webhook-ambiguous'
@@ -234,11 +236,25 @@ export class FaultList {
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
-    refusesStatement(statement: string): boolean {
-        return isEnqueue(statement) && this.take({ channel: 'pg' }) !== undefined
+    refusePg(): Refusal | undefined {
+        const fault = this.take({ channel: 'pg' }, { appliesNow: false })
+        if (fault === undefined) {
+            return undefined
+        }
+        return {
+            answered: () => {
+                if (!this.firstApplied.has(fault.id)) {
+                    this.firstApplied.set(fault.id, Date.now())
+                }
+            },
+            lost: () => {
+                fault.matched -= 1
+                fault.applied -= 1
+            },
+        }
     }
 
-    private take(request: FaultedRequest): ActiveFault | undefined {
+    private take(request: FaultedRequest, { appliesNow = true } = {}): ActiveFault | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
@@ -249,7 +265,7 @@ export class FaultList {
         })
         if (answering) {
             answering.applied += 1
-            if (!this.firstApplied.has(answering.id)) {
+            if (appliesNow && !this.firstApplied.has(answering.id)) {
                 this.firstApplied.set(answering.id, now)
             }
         }

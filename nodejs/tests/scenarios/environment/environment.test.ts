@@ -413,6 +413,25 @@ describe('scenario environment', () => {
             expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
         })
 
+        it("lists the database behind the edge's proxy, not the proxy, for a role that reaches Cyclotron through it", () => {
+            const cyclotron = 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
+            const [spec] = roleSpecs(
+                base,
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                {},
+                undefined,
+                {},
+                {
+                    urls: { [cyclotron]: 'postgres://posthog:posthog@127.0.0.1:7001/cyclotron_node' },
+                    fallback: cyclotron,
+                }
+            )
+
+            expect(postgresServersOf(spec, POSTHOG)).toEqual([POSTHOG])
+        })
+
         const hogflowWorker = (settings: Record<string, string>) =>
             roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings).find(
                 ({ role }) => role === 'cdp-cyclotron-worker-hogflow'
@@ -534,26 +553,46 @@ describe('scenario environment', () => {
             expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
         })
 
-        it("reaches each pooler through the edge's proxy for it, while the runner reads the pooler itself", () => {
-            const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
-            const urls = {
-                [poolers[0]]: 'postgres://a@127.0.0.1:7001/cyclotron_node',
-                [poolers[1]]: 'postgres://a@127.0.0.1:7002/cyclotron_node',
-            }
-            const through = roleSpecs(
-                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+        const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+        const SECOND = 'postgres://a@127.0.0.1:5432/cyclotron_second'
+        const PROXIES = {
+            [POOLERS[0]]: 'postgres://a@127.0.0.1:7001/cyclotron_node',
+            [POOLERS[1]]: 'postgres://a@127.0.0.1:7002/cyclotron_node',
+            [SECOND]: 'postgres://a@127.0.0.1:7003/cyclotron_second',
+        }
+        const throughEdge = (env: NodeJS.ProcessEnv, settings: Record<string, string>) =>
+            roleSpecs(
+                { ...base, ...env },
                 EDGE,
                 secretsOf({}),
                 STATE_DIR,
-                {},
+                settings,
                 undefined,
                 {},
-                { upstreams: poolers, urls }
+                {
+                    urls: PROXIES,
+                    fallback: POOLERS[0],
+                }
             )
 
-            expect(through.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
-                through.map((_, index) => [urls[poolers[index % 2]], poolers[index % 2]])
-            )
+        it.each<[string, NodeJS.ProcessEnv, Record<string, string>, (index: number) => string]>([
+            ['each pooler', { SCENARIO_POOLER_URLS: POOLERS.join(',') }, {}, (index) => POOLERS[index % 2]],
+            ['the database a profile names', {}, { CYCLOTRON_NODE_DATABASE_URL: SECOND }, () => SECOND],
+        ])(
+            "reaches %s through the edge's proxy for it, while the runner reads that database itself",
+            (_story, env, settings, databaseOf) => {
+                const through = throughEdge(env, settings)
+
+                expect(through.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
+                    through.map((_, index) => [PROXIES[databaseOf(index)], databaseOf(index)])
+                )
+            }
+        )
+
+        it('refuses to route a role to a database the edge has no proxy for', () => {
+            expect(() =>
+                throughEdge({}, { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@127.0.0.1:5432/cyclotron_third' })
+            ).toThrow('the edge has no Postgres proxy for the Cyclotron database the profile names')
         })
 
         it.each(CdpRole.options)(

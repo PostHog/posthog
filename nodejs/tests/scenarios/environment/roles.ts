@@ -64,7 +64,8 @@ export type RoleId = ReplicaOf<Role>
 // cyclotronUrl is the database a role reaches through the edge's Postgres proxy, when it does.
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv; cyclotronUrl?: string }
 
-export type ThroughEdge = { upstreams: readonly string[]; urls: Readonly<Record<string, string>> }
+// The edge's proxy for each Cyclotron database, and the database a role reaches when nothing names one.
+export type ThroughEdge = { urls: Readonly<Record<string, string>>; fallback: string }
 
 const REPLICA_PORT_OFFSET = 100
 
@@ -121,36 +122,48 @@ export function roleSpecs(
         PERSONHOG_ENABLED: 'true',
         ...settings,
     }
-    const upstreamOf = (index: number): string | undefined => {
-        const upstreams = cyclotronThroughEdge?.upstreams ?? []
-        return upstreams.length > 0 ? upstreams[index % upstreams.length] : undefined
+    const directOf = (index: number): string | undefined =>
+        poolers.length > 0 ? poolers[index % poolers.length] : configured.CYCLOTRON_NODE_DATABASE_URL
+    const throughEdgeOf = (index: number): { cyclotronUrl: string; proxy: string } | undefined => {
+        if (cyclotronThroughEdge === undefined) {
+            return undefined
+        }
+        const cyclotronUrl = directOf(index) || cyclotronThroughEdge.fallback
+        const proxy = cyclotronThroughEdge.urls[cyclotronUrl]
+        if (proxy === undefined) {
+            throw new Error(
+                'The card routes Cyclotron through the edge, and the edge has no Postgres proxy for the Cyclotron database the profile names: start the edge with that database in its pgUpstreams.'
+            )
+        }
+        return { cyclotronUrl, proxy }
     }
-    return roleIdsOf(replicas).map((id, index) => ({
-        ...id,
-        port: portOf(id),
-        ...(upstreamOf(index) === undefined ? {} : { cyclotronUrl: upstreamOf(index) }),
-        env: {
-            ...(isIntake(id.role) ? { CDP_DLQ_ENABLED: 'true' } : {}),
-            ...configured,
-            ...(poolers.length > 0 ? { CYCLOTRON_NODE_DATABASE_URL: poolers[index % poolers.length] } : {}),
-            ...(upstreamOf(index) === undefined
-                ? {}
-                : { CYCLOTRON_NODE_DATABASE_URL: cyclotronThroughEdge!.urls[upstreamOf(index)!] }),
-            SES_ENDPOINT: edge.url,
-            HTTPS_PROXY: edge.url,
-            ...(edge.caCertPath ? { NODE_EXTRA_CA_CERTS: edge.caCertPath } : {}),
-            PERSONHOG_ADDR,
-            SES_RATE_LIMITER_VALKEY_HOST: sesValkey.host,
-            SES_RATE_LIMITER_VALKEY_PORT: String(sesValkey.port),
-            ENCRYPTION_SALT_KEYS: secrets.encryptionSaltKeys,
-            WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
-            PLUGIN_SERVER_MODE: id.role,
-            HTTP_SERVER_PORT: String(portOf(id)),
-            PGAPPNAME: `${SCENARIO_SESSION_PREFIX}${id.role}`,
-            KAFKA_CONSUMER_CLIENT_ID: `${SCENARIO_SESSION_PREFIX}${id.role}`,
-            [MARKER_KEY]: stateDir,
-        },
-    }))
+    return roleIdsOf(replicas).map((id, index) => {
+        const through = throughEdgeOf(index)
+        const cyclotron = through?.proxy ?? (poolers.length > 0 ? directOf(index) : undefined)
+        return {
+            ...id,
+            port: portOf(id),
+            ...(through === undefined ? {} : { cyclotronUrl: through.cyclotronUrl }),
+            env: {
+                ...(isIntake(id.role) ? { CDP_DLQ_ENABLED: 'true' } : {}),
+                ...configured,
+                ...(cyclotron === undefined ? {} : { CYCLOTRON_NODE_DATABASE_URL: cyclotron }),
+                SES_ENDPOINT: edge.url,
+                HTTPS_PROXY: edge.url,
+                ...(edge.caCertPath ? { NODE_EXTRA_CA_CERTS: edge.caCertPath } : {}),
+                PERSONHOG_ADDR,
+                SES_RATE_LIMITER_VALKEY_HOST: sesValkey.host,
+                SES_RATE_LIMITER_VALKEY_PORT: String(sesValkey.port),
+                ENCRYPTION_SALT_KEYS: secrets.encryptionSaltKeys,
+                WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
+                PLUGIN_SERVER_MODE: id.role,
+                HTTP_SERVER_PORT: String(portOf(id)),
+                PGAPPNAME: `${SCENARIO_SESSION_PREFIX}${id.role}`,
+                KAFKA_CONSUMER_CLIENT_ID: `${SCENARIO_SESSION_PREFIX}${id.role}`,
+                [MARKER_KEY]: stateDir,
+            },
+        }
+    })
 }
 
 export function fetchRetriesOf({ env }: RoleSpec): number {

@@ -395,8 +395,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const { port } = server.address() as AddressInfo
     const pgProxies = await Promise.all(
         [...new Set(options.pgUpstreams ?? [])].map(
-            async (upstream) =>
-                [upstream, await startPgProxy(upstream, (statement) => faults.refusesStatement(statement))] as const
+            async (upstream) => [upstream, await startPgProxy(upstream, () => faults.refusePg())] as const
         )
     )
 

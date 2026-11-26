@@ -331,7 +331,7 @@ export function createEnvironment({
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
-        const through = cyclotronThroughEdge ? { upstreams: cyclotronUpstreamsOf(env), urls: edge.pgUrls } : undefined
+        const through = cyclotronThroughEdge ? { urls: edge.pgUrls, fallback: STACK.cyclotronNodeUrl } : undefined
         const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, through)
         running = specs
         await createTopics(intakeTopicsOf(specs), docker)

@@ -325,9 +325,14 @@ function serverOf(url: string): string {
 }
 
 export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
+    // A role that reaches Cyclotron through the edge's proxy still holds its sessions on the database behind it.
+    const direct =
+        spec.cyclotronUrl === undefined
+            ? spec
+            : { ...spec, env: { ...spec.env, CYCLOTRON_NODE_DATABASE_URL: spec.cyclotronUrl } }
     const urls = [
         postgresUrl,
-        ...Object.values(settingsOf(spec)).filter(
+        ...Object.values(settingsOf(direct)).filter(
             (value): value is string => typeof value === 'string' && POSTGRES_URL.test(value)
         ),
     ]
