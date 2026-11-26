@@ -1,6 +1,6 @@
 import api, { ApiConfig } from 'lib/api'
 
-import type { DashboardDocument } from '../dashboard/document/dashboardTypes'
+import type { DashboardDocument } from '../document/dashboardTypes'
 
 // TODO(2026-11-26): Replace with `dashboardV2BoardsRetrieve`, `dashboardV2BoardsUpdate` and `BoardDetailApi` from
 // `products/dashboards/frontend/generated/`. The boards API is still in review in #142503, so this branch has no

@@ -1,20 +1,10 @@
-import { type SavedPanel, type SectionPanel, type Tile, isSectionPanel } from '../dashboard/document/dashboardTypes'
-import type { MenuAction } from '../menu/menuAction'
-import { type PanelType, panelSlots } from '../panels/core/panelDefinition'
-import { type TileCustomization, findPanel } from '../panels/core/panelSpec'
-import type { PresentationEdit } from './presentationEdits'
-import { hasPart, showsPart } from './tileParts'
-
-export function showsBorder(panel: SavedPanel | SectionPanel): boolean {
-    return panel.appearance?.border !== false
-}
-
-export const NO_BACKGROUND = 'transparent'
-
-/** The color the tile's panel type lets it show, or null for the card's own background. */
-export function tileBackgroundColor(panel: SavedPanel, customizations: TileCustomization[]): string | null {
-    return (customizations.includes('backgroundColor') && panel.appearance?.backgroundColor) || null
-}
+import { type Tile, isSectionPanel } from '../../dashboard/document/dashboardTypes'
+import type { PresentationEdit } from '../../dashboard/edits/presentationEdits'
+import type { MenuAction } from '../../menu/menuAction'
+import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
+import { findPanel } from '../../panels/core/panelSpec'
+import { NO_BACKGROUND, showsBorder } from '../core/tileAppearance'
+import { hasPart, showsPart } from '../core/tileParts'
 
 type TileSetting = 'header' | 'footer' | 'border'
 type MenuHead = Pick<MenuAction, 'key' | 'label' | 'dataAttr'>
@@ -26,7 +16,7 @@ const SETTINGS: { setting: TileSetting; label: string }[] = [
 ]
 
 /** The colors the menu offers. Each is a theme color, so the tint follows light and dark mode. */
-export const BACKGROUND_COLOR_PRESETS: { key: string; label: string; color: string }[] = [
+const BACKGROUND_COLOR_PRESETS: { key: string; label: string; color: string }[] = [
     { key: 'blue', label: 'Blue', color: 'var(--color-blue-500)' },
     { key: 'green', label: 'Green', color: 'var(--color-green-500)' },
     { key: 'yellow', label: 'Yellow', color: 'var(--color-yellow-500)' },
