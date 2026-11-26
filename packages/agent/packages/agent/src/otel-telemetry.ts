@@ -268,6 +268,17 @@ export function mapNotificationToLogRecord(
         attrs,
       );
     }
+    case POSTHOG_NOTIFICATIONS.EVENT_STREAM_LOSS: {
+      const attrs: Attributes = {};
+      const reason = strAttr(attrs, "event_stream_loss_reason", params.reason);
+      numAttr(attrs, "event_stream_loss_count", params.count);
+      return record(
+        WARN,
+        `event stream loss${reason ? ` (${reason})` : ""}`,
+        method,
+        attrs,
+      );
+    }
     case POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESPONSE:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED: {

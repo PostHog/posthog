@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../utils/logger";
-import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  type EventStreamLoss,
+  TaskRunEventStreamSender,
+} from "./event-stream-sender";
 import type { StreamingUpload } from "./streaming-upload";
 
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
@@ -106,6 +109,34 @@ function createFetchStreamingUpload({
     },
     responsePromise: fetch(url, requestInit),
   };
+}
+
+function lossLine(seq: number, count: number): Record<string, unknown> {
+  return {
+    seq,
+    event: {
+      type: "notification",
+      timestamp: expect.any(String),
+      notification: {
+        jsonrpc: "2.0",
+        method: "_posthog/event_stream_loss",
+        params: { reason: "dropped", count },
+      },
+    },
+  };
+}
+
+function stubRecordingFetch(): string[] {
+  const requestBodies: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = await readRequestBody(init);
+      requestBodies.push(body);
+      return responseForBody(body);
+    }),
+  );
+  return requestBodies;
 }
 
 function createSender(
@@ -432,11 +463,19 @@ describe("TaskRunEventStreamSender", () => {
       events: [
         { type: "notification", notification: { method: "first" } },
         { type: "notification", notification: { method: "second" } },
+        { type: "notification", notification: { method: "third" } },
       ],
-      acceptedMethod: "first",
+      expectedLines: [
+        {
+          seq: 1,
+          event: { type: "notification", notification: { method: "first" } },
+        },
+        lossLine(2, 2),
+      ],
+      count: 2,
     },
     {
-      name: "when an event is oversized",
+      name: "when an event cannot be truncated to fit",
       senderOptions: { maxEventBytes: 120 },
       events: [
         {
@@ -448,47 +487,48 @@ describe("TaskRunEventStreamSender", () => {
         },
         { type: "notification", notification: { method: "small" } },
       ],
-      acceptedMethod: "small",
+      expectedLines: [
+        lossLine(1, 1),
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "small" } },
+        },
+      ],
+      count: 1,
     },
     {
-      name: "when text still exceeds the limit after removing widget metadata",
-      senderOptions: { maxEventBytes: 600 },
+      name: "when a permission request is oversized",
+      senderOptions: { maxEventBytes: 1000 },
       events: [
         {
-          type: "notification",
-          notification: {
-            method: "session/update",
-            params: {
-              update: {
-                sessionUpdate: "tool_call_update",
-                rawOutput: {
-                  content: [{ type: "text", text: "x".repeat(1000) }],
-                  _meta: {
-                    "com.posthog.mcp/app_data": { rows: "y".repeat(1000) },
-                  },
-                },
-              },
-            },
+          type: "permission_request",
+          requestId: "request-1",
+          options: [{ kind: "allow_once", optionId: "allow" }],
+          toolCall: {
+            toolCallId: "tool-1",
+            rawInput: { diff: "x".repeat(2000) },
           },
         },
         { type: "notification", notification: { method: "small" } },
       ],
-      acceptedMethod: "small",
+      expectedLines: [
+        lossLine(1, 1),
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "small" } },
+        },
+      ],
+      count: 1,
     },
   ])(
-    "drops events before assigning sequence $name",
-    async ({ senderOptions, events, acceptedMethod }) => {
-      const requestBodies: string[] = [];
-      const fetchMock = vi.fn(
-        async (_url: string | URL | Request, init?: RequestInit) => {
-          const body = await readRequestBody(init);
-          requestBodies.push(body);
-          return responseForBody(body);
-        },
-      );
-      vi.stubGlobal("fetch", fetchMock);
-
-      const sender = createSender(senderOptions);
+    "replaces events dropped $name with a sequenced loss event",
+    async ({ senderOptions, events, expectedLines, count }) => {
+      const requestBodies = stubRecordingFetch();
+      const losses: EventStreamLoss[] = [];
+      const sender = createSender({
+        ...senderOptions,
+        onEventLoss: (loss) => losses.push(loss),
+      });
 
       for (const event of events) {
         sender.enqueue(event);
@@ -496,15 +536,176 @@ describe("TaskRunEventStreamSender", () => {
       await sender.stop();
 
       expect(parseLines(requestBodies[1])).toEqual([
-        {
-          seq: 1,
-          event: {
-            type: "notification",
-            notification: { method: acceptedMethod },
+        ...expectedLines,
+        { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 },
+      ]);
+      expect(losses).toEqual([{ reason: "dropped", count }]);
+    },
+  );
+
+  it("truncates large fields of an oversized event instead of dropping it", async () => {
+    const requestBodies = stubRecordingFetch();
+    const losses: EventStreamLoss[] = [];
+    const maxEventBytes = 800;
+    const sender = createSender({
+      maxEventBytes,
+      onEventLoss: (loss) => losses.push(loss),
+    });
+
+    sender.enqueue({
+      type: "notification",
+      notification: {
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-1",
+            status: "completed",
+            rawOutput: {
+              content: [
+                { type: "text", text: "x".repeat(1000) },
+                {
+                  type: "image",
+                  mimeType: "image/png",
+                  data: "z".repeat(1000),
+                },
+              ],
+              _meta: {
+                "com.posthog.mcp/app_data": { rows: "y".repeat(1000) },
+              },
+            },
           },
         },
-        { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 1 },
-      ]);
+      },
+    });
+    await sender.stop();
+
+    const [line] = requestBodies[1].split("\n");
+    expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(
+      maxEventBytes,
+    );
+    const sent = JSON.parse(line);
+    const update = sent.event.notification.params.update;
+    expect(sent.seq).toBe(1);
+    expect(update).toMatchObject({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-1",
+      status: "completed",
+    });
+    expect(update.rawOutput.content[0].text).toMatch(
+      /^x+\n\[truncated: \d+ characters omitted\]$/,
+    );
+    expect(update.rawOutput.content[1]).toEqual({
+      type: "text",
+      text: "Media not shown because it is too large to stream.",
+    });
+    expect(losses).toEqual([{ reason: "truncated", count: 1 }]);
+  });
+
+  it("offers only rejection for a permission request too large to show", () => {
+    const sender = createSender({ maxEventBytes: 1000 });
+
+    const request = sender.rejectOnlyIfOversized({
+      type: "permission_request",
+      requestId: "request-1",
+      options: [
+        { kind: "allow_once", optionId: "allow", name: "Allow" },
+        { kind: "reject_once", optionId: "reject", name: "Reject" },
+      ],
+      toolCall: {
+        toolCallId: "tool-1",
+        title: "Edit src/app.ts",
+        kind: "edit",
+        _meta: { codeToolKind: "edit" },
+        rawInput: {
+          old_string: "a".repeat(2000),
+          new_string: "b".repeat(2000),
+        },
+        content: [
+          {
+            type: "diff",
+            path: "src/app.ts",
+            oldText: "a".repeat(2000),
+            newText: "b".repeat(2000),
+          },
+        ],
+      },
+    });
+
+    expect(request).toEqual({
+      type: "permission_request",
+      requestId: "request-1",
+      options: [{ kind: "reject_once", optionId: "reject", name: "Reject" }],
+      toolCall: {
+        toolCallId: "tool-1",
+        title: "Edit src/app.ts",
+        kind: "edit",
+        _meta: { codeToolKind: "edit" },
+        content: [
+          {
+            type: "content",
+            content: {
+              type: "text",
+              text: "This request is too large to show here, so it can only be rejected. Ask the agent to make a smaller change.",
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it("truncates an oversized question instead of dropping it", async () => {
+    const requestBodies = stubRecordingFetch();
+    const sender = createSender({ maxEventBytes: 1000 });
+    const options = [{ kind: "allow_once", optionId: "yes", name: "Yes" }];
+    const request = {
+      type: "permission_request",
+      requestId: "request-1",
+      options,
+      toolCall: {
+        toolCallId: "tool-1",
+        title: "q".repeat(2000),
+        _meta: { codeToolKind: "question" },
+      },
+    };
+
+    expect(sender.rejectOnlyIfOversized(request)).toBeNull();
+    sender.enqueue(request);
+    await sender.stop();
+
+    expect(parseLines(requestBodies[1])[0].event).toMatchObject({
+      type: "permission_request",
+      options,
+    });
+  });
+
+  it.each([
+    { name: "per-batch uploads", options: { keepProxyStreamOpen: false } },
+    {
+      name: "a persistent upload",
+      options: { keepProxyStreamOpen: true, streamWindowMs: 20 },
+    },
+  ])(
+    "sends the loss event once the buffer drains with $name",
+    async ({ options }) => {
+      const requestBodies = stubRecordingFetch();
+      const sender = createSender({ maxBufferedEvents: 1, ...options });
+
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "first" },
+      });
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "second" },
+      });
+
+      await vi.waitFor(() => {
+        expect(
+          requestBodies.flatMap((body) => parseLines(body)),
+        ).toContainEqual(lossLine(2, 1));
+      });
+      await sender.stop();
     },
   );
 
@@ -856,7 +1057,8 @@ describe("TaskRunEventStreamSender", () => {
 
   it("stops retrying after the stop deadline", async () => {
     const requestBodies: string[] = [];
-    const warnings: string[] = [];
+    const errors: string[] = [];
+    const losses: EventStreamLoss[] = [];
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, init?: RequestInit) => {
         const body = await readRequestBody(init);
@@ -877,13 +1079,14 @@ describe("TaskRunEventStreamSender", () => {
       logger: new Logger({
         debug: false,
         onLog: (level, _scope, message) => {
-          if (level === "warn") {
-            warnings.push(message);
+          if (level === "error") {
+            errors.push(message);
           }
         },
       }),
       retryDelayMs: 10_000,
       stopTimeoutMs: 0,
+      onEventLoss: (loss) => losses.push(loss),
     });
 
     sender.enqueue({ type: "notification", notification: { method: "first" } });
@@ -891,9 +1094,10 @@ describe("TaskRunEventStreamSender", () => {
 
     expect(requestBodies).toHaveLength(1);
     expect(eventSequences(requestBodies[0])).toEqual([1]);
-    expect(warnings).toContain(
+    expect(errors).toContain(
       "Task run event ingest stop deadline reached before fully completing transport",
     );
+    expect(losses).toEqual([{ reason: "stop_timeout", count: 1 }]);
   });
 
   it("continues after a payload error acknowledges a valid prefix", async () => {

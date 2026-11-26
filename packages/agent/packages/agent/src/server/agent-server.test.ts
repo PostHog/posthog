@@ -52,7 +52,8 @@ import {
   type TestRepo,
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
-import type { StoredEntry, TaskRun } from "../types";
+import type { StoredEntry, StoredNotification, TaskRun } from "../types";
+import { Logger } from "../utils/logger";
 import {
   AgentServer,
   codexProcessCwd,
@@ -66,6 +67,10 @@ import {
 } from "./agent-server";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelayError } from "./credential-relay";
+import {
+  type EventStreamLoss,
+  TaskRunEventStreamSender,
+} from "./event-stream-sender";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -1308,7 +1313,8 @@ describe("AgentServer HTTP Mode", () => {
 
   describe("turn completion", () => {
     function stubSessionCleanup(testServer: unknown): {
-      session: unknown;
+      session: Record<string, unknown>;
+      recordEventStreamLoss(loss: EventStreamLoss): void;
       cleanupSession: (options?: {
         completeEventStream?: boolean;
       }) => Promise<void>;
@@ -1318,7 +1324,8 @@ describe("AgentServer HTTP Mode", () => {
       };
     } {
       const cleanupServer = testServer as {
-        session: unknown;
+        session: Record<string, unknown>;
+        recordEventStreamLoss(loss: EventStreamLoss): void;
         eventStreamSender: {
           enqueue: ReturnType<typeof vi.fn>;
           stop: ReturnType<typeof vi.fn>;
@@ -1358,6 +1365,33 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
       expect(testServer.eventStreamSender.stop).toHaveBeenCalledOnce();
+    });
+
+    it("records event ingest losses raised while terminal cleanup stops ingest", async () => {
+      const testServer = stubSessionCleanup(createServer());
+      const recorded: StoredNotification[] = [];
+      let telemetryShutDown = false;
+      testServer.session.telemetry = {
+        append: (_runId: string, entry: StoredNotification) => {
+          if (!telemetryShutDown) recorded.push(entry);
+        },
+        shutdown: async () => {
+          telemetryShutDown = true;
+        },
+      };
+      testServer.eventStreamSender.stop = vi.fn(async () => {
+        testServer.recordEventStreamLoss({ reason: "stop_timeout", count: 2 });
+      });
+
+      await testServer.cleanupSession({ completeEventStream: true });
+
+      expect(recorded.map((entry) => entry.notification)).toEqual([
+        {
+          jsonrpc: "2.0",
+          method: "_posthog/event_stream_loss",
+          params: { reason: "stop_timeout", count: 2 },
+        },
+      ]);
     });
 
     it("emits rtk savings once before terminal event ingest stops", async () => {
@@ -3990,6 +4024,40 @@ describe("AgentServer HTTP Mode", () => {
       ).toBe("resolved");
       await expect(pending).resolves.toEqual({
         outcome: { outcome: "selected", optionId: "allow_once" },
+      });
+    });
+
+    it("refuses the hidden allow option of an oversized permission request", async () => {
+      const testServer = exposeCloudClient(createServer());
+      testServer.eventStreamSender = new TaskRunEventStreamSender({
+        apiUrl: "http://localhost:8000",
+        projectId: 1,
+        taskId: "task-1",
+        runId: "run-1",
+        token: "ingest-token",
+        logger: new Logger({ debug: false }),
+        maxEventBytes: 1000,
+      });
+      const pending = testServer.relayPermissionToClient({
+        options: [
+          { optionId: "allow_once", kind: "allow_once" },
+          { optionId: "reject_once", kind: "reject_once" },
+        ],
+        toolCall: {
+          toolCallId: "tool-1",
+          rawInput: { diff: "x".repeat(2000) },
+        },
+      });
+      const requestId = [...testServer.pendingPermissions.keys()][0] as string;
+
+      expect(testServer.resolvePermission(requestId, "allow_once")).toBe(
+        "invalid_option",
+      );
+      expect(testServer.resolvePermission(requestId, "reject_once")).toBe(
+        "resolved",
+      );
+      await expect(pending).resolves.toEqual({
+        outcome: { outcome: "selected", optionId: "reject_once" },
       });
     });
 

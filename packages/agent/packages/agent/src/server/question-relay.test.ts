@@ -28,6 +28,7 @@ import {
 } from "./agent-server";
 
 import type { ContextSelection } from "./context-selection";
+import type { TaskRunEventStreamSender } from "./event-stream-sender";
 
 interface TestableAgentServer {
   createContextSelection(runId: string): ContextSelection;
@@ -349,7 +350,11 @@ describe("Question relay", () => {
         const appendRawLine = vi.fn();
         const enqueue = vi.fn();
         const srv = server as TestableAgentServer & {
-          eventStreamSender: { enqueue: typeof enqueue } | null;
+          eventStreamSender:
+            | (Pick<TaskRunEventStreamSender, "rejectOnlyIfOversized"> & {
+                enqueue: typeof enqueue;
+              })
+            | null;
           resolvePermission: (
             requestId: string,
             optionId: string,
@@ -363,7 +368,10 @@ describe("Question relay", () => {
           hasDesktopConnected: false,
           logWriter: { appendRawLine },
         };
-        srv.eventStreamSender = { enqueue };
+        srv.eventStreamSender = {
+          enqueue,
+          rejectOnlyIfOversized: () => null,
+        };
 
         const client = srv.createCloudClient(TEST_PAYLOAD);
         const pending = client.requestPermission({

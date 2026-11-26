@@ -166,7 +166,10 @@ import {
 } from "./codex-subscription-token";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
-import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  type EventStreamLoss,
+  TaskRunEventStreamSender,
+} from "./event-stream-sender";
 import {
   buildGatewayEnv,
   codexAuthFromGatewayEnv,
@@ -753,9 +756,23 @@ export class AgentServer {
         token: config.eventIngestToken,
         logger: this.logger.child("EventIngest"),
         streamWindowMs: config.eventIngestStreamWindowMs,
+        onEventLoss: (loss) => this.recordEventStreamLoss(loss),
       });
     }
     this.app = this.createApp();
+  }
+
+  private recordEventStreamLoss(loss: EventStreamLoss): void {
+    const telemetry = this.session?.telemetry ?? this.initializingTelemetry;
+    telemetry?.append(this.session?.payload.run_id ?? this.config.runId, {
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification: {
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.EVENT_STREAM_LOSS,
+        params: { ...loss },
+      },
+    });
   }
 
   private getRuntimeAdapter(): Adapter {
@@ -1268,13 +1285,21 @@ export class AgentServer {
         ]),
         5_000,
       );
-      await withTimeout(
+      const cleanup = await withTimeout(
         this.session
           ? this.cleanupSession({ completeEventStream: true })
           : (this.eventStreamSender?.stop({ complete: false }) ??
               Promise.resolve()),
         5_000,
       );
+      const unacknowledgedEventCount =
+        this.eventStreamSender?.pendingEventCount ?? 0;
+      if (cleanup.result === "timeout" && unacknowledgedEventCount > 0) {
+        this.logger.error(
+          "Agent server stop timed out with unacknowledged task run events",
+          { unacknowledgedEventCount },
+        );
+      }
       // An abort during initialization leaves the root span open with no session
       // to carry it, and the caller exits the process as soon as this returns.
       await withTimeout(
@@ -5791,15 +5816,6 @@ export class AgentServer {
       this.mcpRelayServer = null;
     }
 
-    // Shutdown ends open spans and flushes batched records; without it,
-    // sandbox teardown races the OTel batch delay and drops the tail of the
-    // run's telemetry.
-    try {
-      await this.session.telemetry?.shutdown();
-    } catch (error) {
-      this.logger.error("Failed to shut down OTel run telemetry", error);
-    }
-
     // Drain pending permissions before ACP cleanup to avoid deadlocks —
     // cleanup may await operations that are blocked on a permission response.
     for (const [, pending] of this.pendingPermissions) {
@@ -5822,7 +5838,19 @@ export class AgentServer {
 
     if (completeEventStream) {
       await this.emitRtkSavings();
-      await this.eventStreamSender?.stop();
+      await withTimeout(
+        this.eventStreamSender?.stop() ?? Promise.resolve(),
+        3_000,
+      );
+    }
+
+    // Shutdown ends open spans and flushes batched records; without it,
+    // sandbox teardown races the OTel batch delay and drops the tail of the
+    // run's telemetry.
+    try {
+      await this.session.telemetry?.shutdown();
+    } catch (error) {
+      this.logger.error("Failed to shut down OTel run telemetry", error);
     }
 
     this.pendingEvents = [];
@@ -6088,21 +6116,26 @@ export class AgentServer {
   }> {
     const requestId = crypto.randomUUID();
     const toolCallId = params.toolCall?.toolCallId as string | undefined;
-
-    this.broadcastEvent({
+    const fullRequest = {
       type: "permission_request",
       requestId,
       options: params.options,
       toolCall: params.toolCall,
-    });
+    };
+    const rejectOnlyRequest =
+      this.eventStreamSender?.rejectOnlyIfOversized(fullRequest) ?? null;
+    const request = rejectOnlyRequest ?? fullRequest;
+    const options = request.options as typeof params.options;
+
+    this.broadcastEvent(request);
 
     // Persist the request so a client that connects after the live event can
     // recover the requestId from the log and re-surface the prompt.
     this.persistPermissionLifecycle(POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST, {
       requestId,
       toolCallId,
-      options: params.options,
-      toolCall: params.toolCall,
+      options,
+      toolCall: request.toolCall,
     });
 
     const toolCallMeta = params.toolCall?._meta as
@@ -6112,8 +6145,10 @@ export class AgentServer {
       this.pendingPermissions.set(requestId, {
         resolve,
         toolCallId,
-        optionIds: new Set(params.options.map((option) => option.optionId)),
-        validateOptionIds: toolCallMeta?.codeToolKind !== "question",
+        optionIds: new Set(options.map((option) => option.optionId)),
+        validateOptionIds:
+          rejectOnlyRequest !== null ||
+          toolCallMeta?.codeToolKind !== "question",
       });
     });
   }
