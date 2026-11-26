@@ -35,8 +35,8 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
 
 - Superseded runs on PR branches go after 3 days, on the default branch after 180 days.
   A run without a PR number counts as default-branch history, because we do not record a repo's real default branch.
-- A superseded run that holds a review decision stays until its branch has had no run for 30 days, because the decision counts on the newest run of its pull request.
-  Then all such runs of the pull request go in one transaction, so a newer undo never disappears while an older accept stays.
+- A run that holds a review decision stays until its branch has had no run and the pull request no decision for 30 days, because the decision counts on every run of its pull request.
+  Then every decided run of the pull request goes in one transaction, together with its latest run, so a newer reject or undo never disappears while an older accept stays. When one of them has to stay, for example a latest run that open approvals still need, they all stay.
 - A PR branch with no run in 30 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
   Merge-queue branches (`trunk-merge/`) hold one batch run each and go after 7 days.
 - A run that an active quarantine names as its source stays, so the quarantine can still show where it came from.
@@ -399,10 +399,11 @@ So accepts made on an earlier push still count on the newest run, and a decision
 A push that changes either picture needs a new decision; the earlier one shows as `earlier_decision`.
 A decision republishes the status of the pull request's newest run.
 
-- A rejection blocks the gate and finalize, also when the story is quarantined or tolerated, and also when a partial run does not render the story. A rejected pair cannot be tolerated. The pull request gets one comment per run type that lists the open rejections and is edited as they change.
+- A rejection blocks the gate and finalize, also when the story is quarantined or tolerated, and also when a partial run does not render the story. A rejected pair cannot be tolerated. A pair that an earlier toleration turned unchanged on a later run still takes a decision there, and stays listed while it is rejected. The pull request gets one comment per run type that lists the open rejections and is edited as they change.
 - Finalize stays manual. It writes the effective decisions onto the newest run's rows and refuses while anything is rejected or needs review. "Accept all" accepts only what nobody decided on, never a rejection. Removals are accepted at finalize unless someone rejected them. Each approval row names the person whose accept counts.
 - Nothing changes while the newest run of the pull request is finalized, nor a pair that a finalized approval row of the pull request holds. Push a new commit to change one.
-- An agent through MCP cannot change a person's decision, and nobody accepts over another person's rejection without `override_rejection`; an agent never does. The MCP marker is set by the client, so this rule is a best effort that fails toward refusing an agent.
+- An agent through MCP cannot change a person's decision, and nobody accepts over another person's rejection without `override_rejection`. An agent never accepts over a rejection, and never undoes one another user's agent made. The MCP marker is set by the client, so this rule is a best effort that fails toward refusing an agent.
+- Only `decide` writes the history: a client's snapshot metadata cannot carry it, and an entry that cannot be read is logged and skipped.
 - A caller can pass `expected_seq`, the newest `seq` it read, so a decision made after that read is refused (`409 decided_since`) instead of replaced unseen.
 
 In `yaml` and `shadow` mode an accept marks the row of the run it was made on, as before, and reject and undo are refused.

@@ -65,7 +65,7 @@ Judge the `--light` and `--dark` snapshots of a story separately, and quarantine
 Rules for decisions that the server also enforces:
 
 - An agent never changes a person's decision. An accept, reject or undo over it returns `409 decided_by_person`.
-- An agent never accepts over a rejection, its own or anyone else's (`409 rejected_by_other`).
+- An agent never accepts over a rejection, its own or anyone else's, and never undoes a rejection another user's agent made (`409 rejected_by_other`).
 - Never reject your own change: fix the code instead. Reject only when the user asked you to review someone else's change, and give a reason the author can act on.
 - A picture that is wrong on the default branch gets a quarantine, not a reject.
 
@@ -233,7 +233,7 @@ Toleration call shape — both fields are required:
 Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
 
 - `id` (required) — the run UUID.
-- Finalize the PR's newest run: `head_run` on `runs-retrieve`. `can_finalize: true` says finalize would pass now.
+- Finalize the PR's newest run: `head_run` on `runs-retrieve`. `can_finalize: true` says finalize without `approve_all` would pass now. `progress.needs_review` also counts removed snapshots nobody decided on, which finalize accepts by itself, so `can_finalize` can be true while it is above 0.
 - `approve_all: true` — accept every `changed`/`new` snapshot nobody decided on before finalizing (tolerated and quarantined ones are left alone, and a rejected one is never accepted). Use when you've verified every remaining diff is intended.
 - Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` unless every change is accepted, tolerated, or quarantined and none is rejected. The error lists `rejected` (with `by` and `reason`) and `needs_review` separately: a rejected snapshot needs a new picture or the rejecter's undo, never your accept.
 - It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — finalize posts a green status, and the required check turns green when its job re-runs) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).

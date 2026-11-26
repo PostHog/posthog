@@ -9,7 +9,7 @@ ui_apps:
     visual-review-snapshots:
         type: custom
         app_name: PostHog Visual Review Snapshots
-        description: Visual review run snapshots — diff viewer with accept/tolerate actions
+        description: 'Visual review run snapshots: diff viewer with accept and tolerate actions'
         resource_domains:
             - https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/
             - http://localhost:19000/posthog/visual_review/
@@ -275,19 +275,23 @@ tools:
         description: >
             Accept changed, new or removed snapshots of a pull request run (stored as `review_state: approved`). Pass
             the run's UUID as `id` and `snapshots: [{identifier, new_hash}]`, where `new_hash` is the snapshot's
-            `current_artifact.content_hash` on that run, or null for a `removed` snapshot. In ledger mode the run can be
-            the newest run of the pull request or an older one: an accept counts on every later run that renders the
-            same before and after pictures. It does not pass the gate: `visual-review-runs-finalize-create` does that,
-            and it needs a person's yes. An agent cannot change a decision a person made, and never accepts over a
-            rejection. An accept of a snapshot that is already accepted changes nothing and keeps the first approver
-            (listed in `already_approved`). The response has `head_run` and its `progress`. All or nothing: on an error
-            nothing is written, and `snapshots` names every refused snapshot with its `code`.
+            `current_artifact.content_hash` on that run. In ledger mode `new_hash` is null for a `removed` snapshot;
+            elsewhere finalize accepts removals by itself. In ledger mode the run can be the newest run of the pull
+            request or an older one: an accept counts on every later run that renders the same before and after
+            pictures. It does not pass the gate: `visual-review-runs-finalize-create` does that, and it needs a
+            person's yes. An agent cannot change a decision a person made, and never accepts over a rejection, its own
+            or anyone else's (`rejected_by_other`). An accept of a snapshot that is already accepted changes nothing
+            and keeps the first approver (listed in `already_decided`). The response has `head_run` and its
+            `progress`. All or nothing: on an error nothing is written, and `snapshots` names every refused snapshot
+            with its `code`.
         param_overrides:
             id:
                 description: |
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
+        exclude_params:
+            - override_rejection
         feature_flag: visual-review
     visual-review-runs-clear-create:
         operation: visual_review_runs_clear_create
@@ -302,15 +306,16 @@ tools:
         description: >
             Undo the accept or reject of snapshots in ledger mode, so they need review again. Pass the run's UUID as
             `id` and the snapshot `identifiers`. Works on any run of the pull request until its newest run is
-            finalized. An agent can undo only decisions made through MCP, never a person's. The response has
-            `head_run` and its `progress`.
+            finalized. An agent can undo only decisions made through MCP, never a person's, and never a rejection
+            another user's agent made. The response has `head_run` and its `progress`.
         param_overrides:
             id:
                 description: |
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
-        feature_flag: visual-review
+        feature_flag: visual-review-decisions
+        feature_flag_behavior: enable
     visual-review-runs-counts-retrieve:
         operation: visual_review_runs_counts_retrieve
         enabled: true
@@ -487,7 +492,8 @@ tools:
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
-        feature_flag: visual-review
+        feature_flag: visual-review-decisions
+        feature_flag_behavior: enable
     visual-review-runs-retrieve:
         operation: visual_review_runs_retrieve
         enabled: true
@@ -505,8 +511,9 @@ tools:
             keep a `commit_status` run red until the branch is updated), and the newer run that supersedes it, if any.
             `progress` counts the run's changes by where they stand (`approved`, `approved_on_earlier_commits`,
             `approved_via_mcp`, `rejected`, `needs_review`, `tolerated`), `head_run` is the newest run of the pull
-            request, which finalize needs, and `can_finalize` says whether finalize would pass now. Per-snapshot results
-            come from `visual-review-runs-snapshots-list`.
+            request, which finalize needs, and `can_finalize` says whether finalize without `approve_all` would pass
+            now. `needs_review` also counts removed snapshots nobody decided on, which finalize accepts by itself.
+            Per-snapshot results come from `visual-review-runs-snapshots-list`.
         feature_flag: visual-review
     visual-review-runs-snapshot-history-list:
         operation: visual_review_runs_snapshot_history_list

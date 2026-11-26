@@ -53,6 +53,10 @@ function deciderName(snapshot: VisualReviewSnapshot): string {
     return by?.first_name || by?.email?.split('@')[0] || 'someone'
 }
 
+function upperFirst(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 function decisionLine(snapshot: VisualReviewSnapshot): string | null {
     const decision = snapshot.decision
     if (!decision) {
@@ -66,7 +70,7 @@ function decisionLine(snapshot: VisualReviewSnapshot): string | null {
     if (decision.state === 'rejected') {
         return `Rejected by ${who}: ${decision.reason}`
     }
-    return `${who} undid a decision on ${commit}`
+    return upperFirst(`${who} undid a decision on ${commit}`)
 }
 
 /** A person's reject or undo, which an agent through MCP cannot change. */

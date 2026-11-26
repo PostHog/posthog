@@ -483,9 +483,6 @@ const visualReviewRunsApproveCreate = (): ToolBase<
         if (params.expected_seq !== undefined) {
             body['expected_seq'] = params.expected_seq
         }
-        if (params.override_rejection !== undefined) {
-            body['override_rejection'] = params.override_rejection
-        }
         const result = await context.api.request<Schemas.DecisionResult>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/approve/`,
