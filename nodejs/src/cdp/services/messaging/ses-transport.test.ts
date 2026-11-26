@@ -1,17 +1,12 @@
+import { LookupAnswer, lookupAnswers, loopbackAddresses } from '~/tests/helpers/mocks/dns.mock'
+
 import http, { Agent, ClientRequest, IncomingMessage, RequestListener, ServerResponse, createServer } from 'node:http'
 import https, { createServer as createTlsServer } from 'node:https'
 import { AddressInfo, Server, Socket } from 'node:net'
 import tls from 'node:tls'
 import { register } from 'prom-client'
 
-import {
-    ENDPOINT_THAT_REFUSES_CONNECTIONS,
-    LookupAnswer,
-    attachmentFile,
-    lookupAnswers,
-    loopbackAddresses,
-    sesTransportFor,
-} from '~/cdp/_tests/email-delivery-fakes'
+import { ENDPOINT_THAT_REFUSES_CONNECTIONS, attachmentFile, sesTransportFor } from '~/cdp/_tests/email-delivery-fakes'
 
 import { SesTransport } from './ses-transport'
 

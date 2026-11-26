@@ -1,3 +1,4 @@
+import { firstLookupGoesWhereNothingListens, lookupAnswers, stopAnsweringLookups } from '~/tests/helpers/mocks/dns.mock'
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -16,10 +17,7 @@ import {
     StoredFile,
     attachmentFile,
     deliveredTo,
-    firstLookupGoesWhereNothingListens,
-    lookupAnswers,
     sesTransportFor,
-    stopAnsweringLookups,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
 import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
