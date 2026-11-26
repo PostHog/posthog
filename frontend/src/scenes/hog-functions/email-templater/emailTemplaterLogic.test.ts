@@ -425,6 +425,18 @@ describe('emailTemplaterLogic', () => {
             editor.destroy()
         })
 
+        it('keeps a text-only email without a design text-only when its plain text is edited', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '', text: 'Only text', design: null }, onChange)
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Only text, edited')
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ html: '', text: 'Only text, edited' }))
+            editor.destroy()
+        })
+
         it('keeps the text of an email a plain text edit left without html once the canvas is edited', async () => {
             const source = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, jest.fn())
             let design: Record<string, any> = {}
