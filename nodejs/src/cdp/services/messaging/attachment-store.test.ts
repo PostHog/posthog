@@ -4,6 +4,7 @@ import { ServerResponse, createServer, request as httpRequest } from 'node:http'
 import { AddressInfo } from 'node:net'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
+import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 import {
@@ -11,11 +12,13 @@ import {
     AttachmentMissingError,
     AttachmentStoreUnavailableError,
     DAY_MS,
+    LoadedAttachment,
     S3AttachmentStore,
     UploadSlot,
     buildAttachmentStore,
     credentialsThatOutliveUploadUrls,
 } from './attachment-store'
+import { Admission, AttachmentsNotAdmittedError, InFlightRegistry, requireAdmission } from './in-flight-registry'
 
 jest.setTimeout(30000)
 
@@ -39,6 +42,27 @@ const put = (slot: UploadSlot, body: Buffer): Promise<FetchResponse> => {
     }
     return internalFetch(slot.url, { method: slot.method, headers: slot.headers, body })
 }
+
+const roomForAnySend = new InFlightRegistry({
+    budgetBytes: Number.MAX_SAFE_INTEGER,
+    heapLimitBytes: Number.MAX_SAFE_INTEGER,
+    maxInFlight: Number.MAX_SAFE_INTEGER,
+})
+
+const inAdmissionFor = async <T>(
+    files: EmailAttachmentMetadata[],
+    use: (admission: Admission) => Promise<T>
+): Promise<T> => {
+    const { started } = roomForAnySend.tryStart(files, () => use(requireAdmission(files))) as { started: Promise<T> }
+    return await started
+}
+
+const admittedLoad = (
+    at: S3AttachmentStore,
+    teamId: number,
+    files: EmailAttachmentMetadata[],
+    signal: AbortSignal
+): Promise<LoadedAttachment[]> => inAdmissionFor(files, (admission) => at.load(teamId, admission, signal))
 
 const minutesFromNow = (minutes: number): Date => new Date(Date.now() + minutes * MINUTE_MS)
 
@@ -500,7 +524,8 @@ describe('S3AttachmentStore', () => {
 
             await Promise.all([use(later, f.sha256, needsUntil), use(later, f.sha256, needsUntil)])
 
-            const [loaded] = await store.load(
+            const [loaded] = await admittedLoad(
+                store,
                 1,
                 [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }],
                 AbortSignal.timeout(10000)
@@ -519,7 +544,7 @@ describe('S3AttachmentStore', () => {
                 { sha256: logo.sha256, filename: 'logo.png', contentId: 'logo', sizeBytes: logo.bytes.length },
             ]
 
-            const loaded = await store.load(1, files, AbortSignal.timeout(10000))
+            const loaded = await admittedLoad(store, 1, files, AbortSignal.timeout(10000))
 
             expect(loaded).toEqual([
                 { file: files[0], bytes: new Uint8Array(pdf.bytes) },
@@ -535,8 +560,17 @@ describe('S3AttachmentStore', () => {
             await uploaded(ownerTeam, f)
 
             await expect(
-                store.load(1, [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }], signal())
+                admittedLoad(store, 1, [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }], signal())
             ).rejects.toThrow(error)
+        })
+
+        it('refuses an admission whose send ended, and loads nothing', async () => {
+            const f = file()
+            await uploaded(1, f)
+            const files = [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }]
+            const ended = await inAdmissionFor(files, (admission) => Promise.resolve(admission))
+
+            await expect(store.load(1, ended, AbortSignal.timeout(10000))).rejects.toThrow(AttachmentsNotAdmittedError)
         })
 
         it.each([
@@ -544,29 +578,45 @@ describe('S3AttachmentStore', () => {
                 'the caller aborts while the file body stalls',
                 'stall after its first byte',
                 (_: BucketProxy, caller: AbortController) => caller.abort(),
+                0,
             ],
             [
                 'the connection is cut while the file body stalls',
                 'stall after its first byte',
                 (bucket: BucketProxy) => bucket.cut(),
+                0,
             ],
-            ['the file body arrives with a changed byte', 'change its last byte', () => undefined],
-        ] as const)('throws unavailable at once when %s', async (_, body, interrupt) => {
+            ['the file body arrives with a changed byte', 'change its last byte', () => undefined, 0],
+            [
+                'the stored body is longer than declared, without reading the body',
+                'stall after its first byte',
+                () => undefined,
+                -1,
+            ],
+            [
+                'the stored body is shorter than declared, without reading the body',
+                'stall after its first byte',
+                () => undefined,
+                1,
+            ],
+        ] as const)('throws unavailable at once when %s', async (_, body, interrupt, declaredBeyondStored) => {
             const f = file()
             await uploaded(1, f)
             const bucket = await bucketProxyThat(body)
             const viaBucket = buildAttachmentStore({ ...config, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint })!
             const caller = new AbortController()
             try {
-                const loading = viaBucket.load(
+                const loading = admittedLoad(
+                    viaBucket,
                     1,
-                    [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }],
+                    [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length + declaredBeyondStored }],
                     caller.signal
                 )
+                const settled = expect(settledWithin(3000, loading)).rejects.toThrow(AttachmentStoreUnavailableError)
                 await bucket.bodyAnswered
                 interrupt(bucket, caller)
 
-                await expect(settledWithin(3000, loading)).rejects.toThrow(AttachmentStoreUnavailableError)
+                await settled
             } finally {
                 viaBucket.s3.destroy()
                 await bucket.close()
@@ -586,7 +636,7 @@ describe('S3AttachmentStore', () => {
             [
                 'load',
                 (at: S3AttachmentStore) =>
-                    at.load(1, [{ sha256, filename: 'a.pdf', sizeBytes: 10 }], AbortSignal.timeout(200)),
+                    admittedLoad(at, 1, [{ sha256, filename: 'a.pdf', sizeBytes: 10 }], AbortSignal.timeout(200)),
             ],
         ])('%s throws unavailable once its time is up', async (_, use) => {
             const stalled = new S3Client({

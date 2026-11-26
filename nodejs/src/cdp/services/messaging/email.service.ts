@@ -68,7 +68,14 @@ import {
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { WorkflowRunTag } from './helpers/utm'
 import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
-import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
+import {
+    AttachmentsNotAdmittedError,
+    callsSettledBefore,
+    declaredFileBytes,
+    exceedsLargestSend,
+    requireAdmission,
+    settledBeforeAbort,
+} from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
@@ -283,7 +290,9 @@ function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boole
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
-    error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
+    error instanceof AttachmentStoreUnavailableError ||
+    error instanceof EmailSendDeadlineError ||
+    error instanceof AttachmentsNotAdmittedError
 
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
@@ -1611,6 +1620,7 @@ export class EmailService {
         if (exceedsLargestSend(declaredFileBytes(files))) {
             throw new MessageTooLargeError()
         }
+        const admission = requireAdmission(files)
         if (!this.attachmentStore) {
             throw new AttachmentStoreUnavailableError(new Error('No attachment store is configured on this pod'))
         }
@@ -1619,7 +1629,7 @@ export class EmailService {
         })
         const loadFailed = new AbortController()
         try {
-            return await this.attachmentStore.load(teamId, files, AbortSignal.any([deadline, loadFailed.signal]))
+            return await this.attachmentStore.load(teamId, admission, AbortSignal.any([deadline, loadFailed.signal]))
         } catch (error) {
             loadFailed.abort(error)
             throw error

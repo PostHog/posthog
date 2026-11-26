@@ -13,9 +13,10 @@ import { ATTACHMENT_SEND_DEADLINE_MS } from '../services/messaging/email.service
 import {
     InFlightRegistry,
     callsSettledWithin,
+    declaredFileBytes,
     deferralDelayMs,
     exceedsLargestSend,
-    fileBytesOf,
+    filesOf,
     firstDueAt,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'
@@ -77,15 +78,15 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const sends: Promise<void>[] = []
         const deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[] = []
         const withFiles = invocations.filter(
-            (invocation) => !invocation.cancelRequestedAt && fileBytesOf(invocation) !== null
+            (invocation) => !invocation.cancelRequestedAt && filesOf(invocation) !== null
         )
         const hogFlows = withFiles.length ? await this.workflowsWithHeartbeat(invocations, withFiles) : {}
         withFiles.forEach((invocation) => this.workflowAtAdmission.set(invocation, hogFlows[invocation.functionId]))
         for (const invocation of invocations) {
-            const fileBytes = fileBytesOf(invocation)
+            const files = filesOf(invocation)
             if (
-                fileBytes === null ||
-                exceedsLargestSend(fileBytes) ||
+                files === null ||
+                exceedsLargestSend(declaredFileBytes(files)) ||
                 invocation.cancelRequestedAt ||
                 hogFlows[invocation.functionId]?.status !== 'active' ||
                 !sendStepAhead(invocation, hogFlows[invocation.functionId])
@@ -93,7 +94,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 plain.push(invocation)
                 continue
             }
-            const admission = this.sendsWithFiles.tryStart(fileBytes, () => this.runSendWithFiles(invocation))
+            const admission = this.sendsWithFiles.tryStart(files, () => this.runSendWithFiles(invocation))
             if ('started' in admission) {
                 sends.push(admission.started)
             } else if (Date.now() - firstDueAt(invocation, Date.now()) >= LONGEST_WAIT_FOR_ROOM_MS) {

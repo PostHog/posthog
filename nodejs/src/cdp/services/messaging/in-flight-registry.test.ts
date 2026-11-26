@@ -1,15 +1,26 @@
+import { register } from 'prom-client'
+
+import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+
 import { settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
 import {
+    Admission,
+    AttachmentsNotAdmittedError,
     InFlightLimits,
     InFlightRegistry,
     MachineMemory,
     deferralDelayMs,
     estimateSend,
     inFlightLimitsFor,
+    requireAdmission,
 } from './in-flight-registry'
 
 const MIB = 1024 * 1024
 const GIB = 1024 * MIB
+
+const filesOf = (sizeBytes: number, sha256 = 'a'.repeat(64)): EmailAttachmentMetadata[] => [
+    { sha256, filename: 'report.pdf', sizeBytes },
+]
 
 const pending = (): { promise: Promise<void>; resolve: () => void } => {
     let resolve!: () => void
@@ -37,16 +48,18 @@ describe('InFlightRegistry', () => {
         const registry = new InFlightRegistry(limits, heapUsed)
         const first = pending()
 
-        const started = registry.tryStart(MIB, () => first.promise)
-        expect(registry.tryStart(MIB, () => Promise.resolve())).toEqual({ deferred: reason })
+        const started = registry.tryStart(filesOf(MIB), () => first.promise)
+        expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toEqual({ deferred: reason })
         first.resolve()
         await (started as { started: Promise<void> }).started
 
-        expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
+        expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toHaveProperty('started')
     })
 
     it('defers every send when the worker refused sends with files', () => {
-        expect(new InFlightRegistry(null).tryStart(1, () => Promise.resolve())).toEqual({ deferred: 'refused' })
+        expect(new InFlightRegistry(null).tryStart(filesOf(1), () => Promise.resolve())).toEqual({
+            deferred: 'refused',
+        })
     })
 
     it.each([
@@ -72,16 +85,66 @@ describe('InFlightRegistry', () => {
             const registry = new InFlightRegistry(roomFor(1, MIB))
             const download = pending()
 
-            const { started } = registry.tryStart(MIB, () =>
+            const { started } = registry.tryStart(filesOf(MIB), () =>
                 abandon(new AbortController(), download.promise).catch(() => undefined)
             ) as { started: Promise<unknown> }
             await started
-            expect(registry.tryStart(MIB, () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
+            expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
             download.resolve()
             await new Promise(setImmediate)
-            expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
+            expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toHaveProperty('started')
         }
     )
+
+    describe('requireAdmission', () => {
+        const unadmittedLoads = async (reason: string): Promise<number> =>
+            (await register.getSingleMetric('cdp_email_attachments_unadmitted_loads_total')!.get()).values.find(
+                (sample) => sample.labels.reason === reason
+            )?.value ?? 0
+
+        const admissionHeldBy = async (
+            files: EmailAttachmentMetadata[],
+            during: (admission: Admission) => void = () => undefined
+        ): Promise<Admission> => {
+            const { started } = new InFlightRegistry(roomFor(1, 4 * MIB)).tryStart(files, () => {
+                const admission = requireAdmission(files)
+                during(admission)
+                return Promise.resolve(admission)
+            }) as { started: Promise<Admission> }
+            return await started
+        }
+
+        it('gives a send the admission for exactly the files it was admitted with', async () => {
+            const files = [...filesOf(MIB), ...filesOf(2 * MIB, 'b'.repeat(64))]
+
+            expect((await admissionHeldBy(files)).files).toEqual(files)
+        })
+
+        it.each([
+            ['outside any send', 'outside_any_admission', () => requireAdmission(filesOf(MIB))],
+            [
+                'for files other than the admitted ones',
+                'other_files',
+                () => admissionHeldBy(filesOf(MIB), () => requireAdmission(filesOf(MIB + 1))),
+            ],
+            [
+                'once the admitted send ended',
+                'released',
+                async () => {
+                    let loadAfterTheSend!: Promise<Admission>
+                    await admissionHeldBy(filesOf(MIB), () => {
+                        loadAfterTheSend = new Promise(setImmediate).then(() => requireAdmission(filesOf(MIB)))
+                    })
+                    return await loadAfterTheSend
+                },
+            ],
+        ])('refuses and counts a load %s', async (_, reason, load) => {
+            const before = await unadmittedLoads(reason)
+
+            await expect(Promise.resolve().then(load)).rejects.toThrow(AttachmentsNotAdmittedError)
+            expect(await unadmittedLoads(reason)).toBe(before + 1)
+        })
+    })
 })
 
 describe('inFlightLimitsFor', () => {
