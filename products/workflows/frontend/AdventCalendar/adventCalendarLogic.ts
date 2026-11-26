@@ -31,6 +31,23 @@ const CLOCK_REFRESH_MS = 60_000
 // pinned: the localStorage key of each person's opened doors. Renaming it resets them.
 const PROGRESS_STORAGE_KEY = 'workflows-advent-calendar-progress'
 
+function storedProgress(value: string): Record<string, AdventProgress> | null {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(value)
+    } catch {
+        return null
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null
+    }
+    const entries = Object.entries(parsed).filter(
+        (entry): entry is [string, AdventProgress] =>
+            !!entry[1] && Array.isArray(entry[1].opened) && !!entry[1].answers && typeof entry[1].answers === 'object'
+    )
+    return Object.fromEntries(entries)
+}
+
 function prefersReducedMotion(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
@@ -325,8 +342,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         cache.disposables.add(
             () => {
                 const onStorage = (event: StorageEvent): void => {
-                    if (event.key === PROGRESS_STORAGE_KEY && event.newValue) {
-                        actions.syncProgress(JSON.parse(event.newValue))
+                    const incoming =
+                        event.key === PROGRESS_STORAGE_KEY && event.newValue ? storedProgress(event.newValue) : null
+                    if (incoming) {
+                        actions.syncProgress(incoming)
                     }
                 }
                 window.addEventListener('storage', onStorage)

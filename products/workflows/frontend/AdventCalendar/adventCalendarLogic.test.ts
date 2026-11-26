@@ -117,6 +117,22 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.progress).toEqual({ opened: [1, 2], answers: { 2: 'james' } })
     })
 
+    it.each(['[object Object]', 'undefined', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
+        'keeps its progress when another tab stores %s',
+        (newValue) => {
+            const uncaught: ErrorEvent[] = []
+            const onError = (event: ErrorEvent): number => uncaught.push(event)
+            window.addEventListener('error', onError)
+            logic.actions.activateDoor('door-1')
+
+            window.dispatchEvent(new StorageEvent('storage', { key: 'workflows-advent-calendar-progress', newValue }))
+            window.removeEventListener('error', onError)
+
+            expect(uncaught).toEqual([])
+            expect(doorOf(logic, 'door-1')?.status).toBe('open')
+        }
+    )
+
     it('opens a question door with the answer and drops the path not taken', () => {
         logic.actions.activateDoor('door-1')
         logic.actions.answerDoor('door-2', 'tim')

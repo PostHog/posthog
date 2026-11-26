@@ -73,7 +73,7 @@ export function AdventDoorCard({
     const color = adventDoorColor(door)
     const { title, detail } = headline(door)
 
-    const { isLeftward, width } = adventCardPlacement(face, stage.width, door.row)
+    const { isLeftward, left, width } = adventCardPlacement(face, stage.width, door.row)
     const isUpward = door.row === 2
     const far = `calc(100% - ${ADVENT_CARD_INSET + face.size}px)`
     const near = `${ADVENT_CARD_INSET}px`
@@ -84,9 +84,7 @@ export function AdventDoorCard({
         maxHeight: isUpward
             ? face.top + face.size + ADVENT_CARD_INSET - ADVENT_CARD_EDGE_GAP
             : stage.height - (face.top - ADVENT_CARD_INSET) - ADVENT_CARD_EDGE_GAP,
-        ...(isLeftward
-            ? { right: stage.width - (face.left + face.size + ADVENT_CARD_INSET) }
-            : { left: face.left - ADVENT_CARD_INSET }),
+        left,
         ...(isUpward
             ? { bottom: stage.height - (face.top + face.size + ADVENT_CARD_INSET) }
             : { top: face.top - ADVENT_CARD_INSET }),
