@@ -15,6 +15,7 @@ from .. import url_fetch
 from ..constants import (
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
+    BK_SEARCH_MAX_QUERY_CHARS,
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
@@ -564,9 +565,10 @@ class KnowledgeSearchRequestSerializer(serializers.Serializer):
     """Body of a search sent with POST, which keeps the query text out of the request URL."""
 
     query = serializers.CharField(
+        max_length=BK_SEARCH_MAX_QUERY_CHARS,
         help_text=(
             "Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY "
-            "knowledge chunks in this project."
+            f"knowledge chunks in this project. At most {BK_SEARCH_MAX_QUERY_CHARS} characters."
         ),
     )
     limit = serializers.IntegerField(

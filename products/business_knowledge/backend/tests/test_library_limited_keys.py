@@ -86,6 +86,8 @@ class TestLibraryLimitedKeys(APIBaseTest):
             f"{self.base}/documents/search/", {"query": "lorem", "library_id": str(self.internal.id)}, format="json"
         )
         assert other.status_code == status.HTTP_404_NOT_FOUND
+        too_long = self.client.post(f"{self.base}/documents/search/", {"query": "lorem " * 400}, format="json")
+        assert too_long.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_limited_key_searches_only_its_library(self, _ff: Any, _embed: Any) -> None:
         self._use_key(None, "whole project")

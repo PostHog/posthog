@@ -69146,7 +69146,10 @@ export namespace Schemas {
      * Body of a search sent with POST, which keeps the query text out of the request URL.
      */
     export interface KnowledgeSearchRequest {
-      /** Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. */
+      /**
+         * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
+         * @maxLength 2000
+         */
       query: string;
       /** Maximum number of ranked chunks to return. Defaults to 10, capped at 20. */
       limit?: number;
