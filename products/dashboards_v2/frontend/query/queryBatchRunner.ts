@@ -191,16 +191,30 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
     let queued: Pending[] = []
     let timer: ReturnType<typeof setTimeout> | null = null
     let streams = 0
+    let nextStream = 0
+    const open = new Set<number>()
+    // Busy answers wait for every stream that was open when theirs ended, because those streams hold the person's
+    // running queries on the server.
+    let held: { busy: Pending[]; waitingOn: Set<number>; due: boolean }[] = []
 
     const flush = (): void => {
         if (timer !== null) {
             clearTimeout(timer)
             timer = null
         }
+        held = held.filter((entry) => {
+            const ready = entry.due && entry.waitingOn.size === 0
+            if (ready) {
+                queued.push(...entry.busy)
+            }
+            return !ready
+        })
         while (streams < MAX_STREAMS && queued.length > 0) {
             const batch = queued.slice(0, MAX_QUERIES_PER_BATCH)
             queued = queued.slice(MAX_QUERIES_PER_BATCH)
             streams++
+            const id = nextStream++
+            open.add(id)
             const busy: Pending[] = []
             const batchTimer = new QueryBatchTimer(board, batch)
             void runBatch(teamId, batch, batchTimer, (pending) => busy.push(pending)).finally(() => {
@@ -209,10 +223,15 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
                 } catch {
                     // Timing must never hold up the next batch.
                 }
-                // Held back from the other streams too, so a stream that ends sooner cannot send them early.
+                open.delete(id)
+                held.forEach((entry) => entry.waitingOn.delete(id))
+                const entry = { busy, waitingOn: new Set(open), due: false }
+                if (busy.length > 0) {
+                    held.push(entry)
+                }
                 setTimeout(
                     () => {
-                        queued.push(...busy)
+                        entry.due = true
                         streams--
                         flush()
                     },

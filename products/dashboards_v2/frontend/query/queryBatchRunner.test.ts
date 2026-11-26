@@ -189,6 +189,29 @@ describe('createQueryBatchRunner', () => {
         await expect(result).rejects.toThrow(BUSY_ERROR)
     })
 
+    it('holds a busy retry until the streams open when it was answered busy have ended', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const first = runQuery(SQL)
+        await flush()
+        const second = runQuery(TRENDS)
+        await flush()
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+
+        streams[1].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
+        streams[1].close()
+        await jest.advanceTimersByTimeAsync(5000)
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+
+        answer(streams[0], 0, 1)
+        streams[0].close()
+        await expect(first).resolves.toEqual(totalOf(1))
+        await flush()
+        expect(globalThis.fetch).toHaveBeenCalledTimes(3)
+        expect(streams[2].body.queries[0].target.language).toBe('query')
+        answer(streams[2], 0, 2)
+        await expect(second).resolves.toEqual(totalOf(2))
+    })
+
     it('asks again when the endpoint is busy with earlier batches', async () => {
         status = 429
         const runQuery = createQueryBatchRunner(7)
