@@ -68,6 +68,8 @@ class TestWixTransport:
             ("bookings", "extendedBookings", "pagingMetadata", "booking.updatedDate"),
             ("inventory_items", "inventoryItems", "pagingMetadata", "updatedDate"),
             ("pricing_plans", "plans", "pagingMetadata", "updatedDate"),
+            ("event_guests", "guests", "pagingMetadata", "updatedDate"),
+            ("event_rsvps", "rsvps", "pagingMetadata", "updatedDate"),
         ],
     )
     def test_incremental_run_filters_and_sorts_on_the_chosen_field(
@@ -93,20 +95,35 @@ class TestWixTransport:
         assert body["filter"] == {expected_field: {"$gte": "2026-01-02T03:04:05Z"}}
         assert body["sort"] == [{"fieldName": expected_field, "order": "ASC"}]
 
-    def test_store_categories_send_the_tree_reference_on_every_page(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,path,data_key,expected_extras",
+        [
+            (
+                "store_categories",
+                "/categories/v1/categories/query",
+                "categories",
+                {"treeReference": {"appNamespace": "@wix/stores"}, "returnNonVisibleCategories": True},
+            ),
+            ("event_guests", "/events/v2/guests/query", "guests", {"fields": ["GUEST_DETAILS"]}),
+            ("event_rsvps", "/events/v2/rsvps/query", "rsvps", {"fields": ["DETAILS"]}),
+        ],
+    )
+    def test_cursor_endpoints_send_their_extra_fields_on_every_page(
+        self, endpoint: str, path: str, data_key: str, expected_extras: dict[str, Any]
+    ) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [
-            _response(payload=_page([{"id": "1"}], "categories", "pagingMetadata", "cursor-2")),
-            _response(payload=_page([{"id": "2"}], "categories", "pagingMetadata", None)),
+            _response(payload=_page([{"id": "1"}], data_key, "pagingMetadata", "cursor-2")),
+            _response(payload=_page([{"id": "2"}], data_key, "pagingMetadata", None)),
         ]
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            batches = list(get_rows("key", "site", "store_categories", mock.MagicMock(), _manager()))
+            batches = list(get_rows("key", "site", endpoint, mock.MagicMock(), _manager()))
 
         assert batches == [[{"id": "1"}], [{"id": "2"}]]
         for call in session.post.call_args_list:
-            assert call.kwargs["json"]["treeReference"] == {"appNamespace": "@wix/stores"}
-            assert call.kwargs["json"]["returnNonVisibleCategories"] is True
+            assert call.args[0] == f"https://www.wixapis.com{path}"
+            assert {key: call.kwargs["json"][key] for key in expected_extras} == expected_extras
         assert session.post.call_args_list[1].kwargs["json"]["query"] == {
             "cursorPaging": {"limit": 100, "cursor": "cursor-2"}
         }
@@ -131,6 +148,20 @@ class TestWixTransport:
         assert batches == [[{"id": "b1", "status": "CONFIRMED", "attendance": {"status": "ATTENDED"}}, {}]]
 
     @pytest.mark.parametrize(
+        "endpoint,path,data_key,sort_field,expected_extras",
+        [
+            ("blog_categories", "/blog/v3/categories/query", "categories", "id", {}),
+            ("booking_services", "/_api/bookings/v2/services/query", "services", "createdDate", {}),
+            (
+                "events",
+                "/events/v3/events/query",
+                "events",
+                "createdDate",
+                {"fields": ["DETAILS", "REGISTRATION", "URLS", "CATEGORIES"]},
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
         "page_sizes,expected_offsets",
         [
             ([100, 3], [0, 100]),
@@ -138,21 +169,31 @@ class TestWixTransport:
             ([0], [0]),
         ],
     )
-    def test_blog_categories_page_by_offset_until_a_short_page(
-        self, page_sizes: list[int], expected_offsets: list[int]
+    def test_offset_endpoints_page_until_a_short_page(
+        self,
+        endpoint: str,
+        path: str,
+        data_key: str,
+        sort_field: str,
+        expected_extras: dict[str, Any],
+        page_sizes: list[int],
+        expected_offsets: list[int],
     ) -> None:
         session = mock.MagicMock()
         offsets: list[int] = []
 
         def respond(url: str, json: dict[str, Any], timeout: int) -> mock.MagicMock:
+            assert url == f"https://www.wixapis.com{path}"
+            assert json["query"]["sort"] == [{"fieldName": sort_field, "order": "ASC"}]
+            assert {key: json[key] for key in expected_extras} == expected_extras
             offsets.append(json["query"]["paging"]["offset"])
             size = page_sizes[len(offsets) - 1]
-            return _response(payload={"categories": [{"id": f"{len(offsets)}-{i}"} for i in range(size)]})
+            return _response(payload={data_key: [{"id": f"{len(offsets)}-{i}"} for i in range(size)]})
 
         session.post.side_effect = respond
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            batches = list(get_rows("key", "site", "blog_categories", mock.MagicMock(), _manager()))
+            batches = list(get_rows("key", "site", endpoint, mock.MagicMock(), _manager()))
 
         assert offsets == expected_offsets
         assert [len(batch) for batch in batches] == [size for size in page_sizes if size]
@@ -347,6 +388,12 @@ class TestWixCredentials:
         [
             ("order_transactions", "/ecom/v1/orders/search", {"search": {"cursorPaging": {"limit": 1}}}),
             ("blog_categories", "/blog/v3/categories/query", {"query": {"paging": {"limit": 1}}}),
+            (
+                "events",
+                "/events/v3/events/query",
+                {"query": {"paging": {"limit": 1}}, "fields": ["DETAILS", "REGISTRATION", "URLS", "CATEGORIES"]},
+            ),
+            ("event_rsvps", "/events/v2/rsvps/query", {"query": {"cursorPaging": {"limit": 1}}, "fields": ["DETAILS"]}),
             (
                 "store_categories",
                 "/categories/v1/categories/query",

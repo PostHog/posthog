@@ -158,6 +158,16 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 
 The writer stores each session's channel type with the team's custom channel rules applied, so channel breakdowns and `$channel_type` filters read that column. The rules are one of those modifiers. The jobs' identity includes the team's values of those modifiers. A change to the team's bounce, session or channel rule settings gives new jobs, so reads fall back until the writer rebuilds the window.
 
+#### Where dimensional reads approximate live
+
+The dimensional tables trade exactness for speed in a few places. Each gap stays small, within about 1% on counts and well under a point on bounce rate. A larger gap is a bug, not one of these.
+
+- **Per-event dimensions in the bounces table.** The bounces table keeps one value per session for dimensions that can change within a session, such as country, city or viewport. Bounce rate and duration count a session under that one value. Visitors, views and sessions come from the stats table, which stores these dimensions per event, so they match live.
+- **Host filters combined with other filters.** A host filter matches any host the session viewed (`session_hosts`). Each other filter matches the session's one stored value. Live requires one event to match all of them, so a multi-host session can match a combination that no single event had. This affects bounce rate and duration only.
+- **Session duration.** The writer assigns sessions to the day they start and reads events up to `DIMENSIONAL_SESSION_BUFFER_MINUTES` after that day. Live also counts sessions that started before the range, and the full length of very long sessions. Duration reads lower for teams with sessions longer than a day.
+- **Visitors.** A build resolves person IDs when it runs. Persons merged after the build count separately until the writer rebuilds that day, so visitors can read slightly higher than live.
+- **Entry pages with the host in the key.** The initial page breakdown with `includeHost` keys each session on its stored host, which may not be the host of the entry page.
+
 The dimensional tables subclass `EventsRetentionTable`, as `events` does. The printer floors every read of them at the events retention floor on `period_bucket`, so a direct HogQL query cannot read rows past retention either. A new table that stores aggregates of events should subclass it too.
 
 ### Traffic metrics alongside conversion goals

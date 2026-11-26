@@ -77,7 +77,15 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade import experiments as experiments_facade
-from products.experiments.backend.facade.api import get_experiment_health, get_running_time_target
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_latest_recalculation,
+    get_recalculation_run,
+    get_running_time_target,
+    request_metrics_recalculation,
+    start_metrics_recalculation_workflow,
+    start_timeseries_recalculation_workflow,
+)
 from products.experiments.backend.facade.contracts import (
     BaselineStats,
     ExperimentBasic,
@@ -88,19 +96,13 @@ from products.experiments.backend.facade.contracts import (
     LegacyMigrationError,
     ListAccess,
     RunningTimeMode,
+    WarehouseNativeResultAccessDenied,
 )
 from products.experiments.backend.facade.legacy_migration import (
     experiment_uses_legacy_metrics,
     migrate_experiment as migrate_legacy_experiment,
 )
 from products.experiments.backend.facade.llm_metric_templates import build_template, list_templates
-from products.experiments.backend.facade.recalculation import (
-    AGENT_MCP_RECALCULATION_TRIGGER,
-    get_latest_metrics_recalculation,
-    get_metrics_recalculation,
-    request_metrics_recalculation,
-    start_timeseries_recalculation_workflow,
-)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.facade.running_time import (
     calculate_baseline_value,
@@ -115,7 +117,12 @@ from products.experiments.backend.facade.warehouse_native_access import (
 )
 
 # TODO: Route through facade instead of direct import
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentMetricsRecalculation,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.experiments.backend.presentation.saved_metrics import list_access
 from products.experiments.backend.presentation.scout_writes import (
     is_true,
@@ -136,6 +143,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthQuerySerializer,
     ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
@@ -551,6 +559,8 @@ class EnterpriseExperimentsViewSet(
             if exc.conflicting_metric_uuids:
                 body["conflicting_metric_uuids"] = exc.conflicting_metric_uuids
             return Response(body, status=409)
+        if isinstance(exc, WarehouseNativeResultAccessDenied):
+            exc = PermissionDenied(exc.detail)
         # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
         # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
         if isinstance(exc, ConfigFormatError | ExperimentRuleError):
@@ -612,13 +622,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in (
-            "health",
-            "in_session_exposure",
-            "metrics_recalculation",
-            "metrics_recalculation_latest",
-            "metrics_recalculation_detail",
-        ):
+        if self.action in ("health", "in_session_exposure"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -982,12 +986,12 @@ class EnterpriseExperimentsViewSet(
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
 
-    @extend_schema(
-        request=None,
-        responses=ExperimentHealthSerializer,
+    @validated_request(
+        query_serializer=ExperimentHealthQuerySerializer,
+        responses={200: OpenApiResponse(response=ExperimentHealthSerializer)},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
-    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def health(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         """
         Health check findings for this experiment: problems in its configuration and its feature flag
         that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
@@ -1148,6 +1152,11 @@ class EnterpriseExperimentsViewSet(
         A running experiment with `only_count_matured_users` on gets the info
         `metrics_not_matured` while it is younger than the conversion or retention window of
         every primary metric, because no user can count for those metrics until a window passes.
+
+        With `at_launch=true`, a draft is checked as it will be when its launch succeeds: a check
+        that runs only after launch, such as `no_metric`, also runs as if the experiment launched
+        now. A check that needs exposures, a calculation or a flag change keeps the reason
+        "Runs after launch".
         """
         experiment: Experiment = self.get_object()
         # The checks read the stored results and the exposure counts, which came from the warehouse.
@@ -1157,6 +1166,7 @@ class EnterpriseExperimentsViewSet(
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
             user=request.user if isinstance(request.user, User) else None,
+            at_launch=request.validated_query_data["at_launch"],
         )
         return Response(ExperimentHealthSerializer(health).data)
 
@@ -1671,14 +1681,29 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
 
         is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
-        trigger = AGENT_MCP_RECALCULATION_TRIGGER if is_mcp_client else request_serializer.validated_data["trigger"]
+        trigger = (
+            ExperimentMetricsRecalculation.Trigger.AGENT_MCP
+            if is_mcp_client
+            else request_serializer.validated_data["trigger"]
+        )
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
         ExperimentService(team=self.team, user=request.user).assert_user_may_run_warehouse_native_sources(experiment)
         result = request_metrics_recalculation(
-            team_id=self.team.id, experiment_id=experiment.id, user=cast(User, request.user), trigger=trigger
+            team_id=experiment.team_id,
+            experiment_id=experiment.id,
+            user_id=cast(User, request.user).id,
+            trigger=trigger,
         )
-        # A rejected run is new but already FAILED, so it gets a 201.
+
+        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
+        if not result.is_existing and result.status == ExperimentMetricsRecalculation.Status.PENDING:
+            start_metrics_recalculation_workflow(
+                result.id,
+                team_id=experiment.team_id,
+                organization_id=str(experiment.team.organization_id),
+            )
+
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if result.is_existing else 201,
@@ -1694,8 +1719,9 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
-        _check_warehouse_native_result_access(experiment, self.team, request.user)
-        latest = get_latest_metrics_recalculation(team_id=self.team.id, experiment_id=experiment.id)
+        latest = get_latest_recalculation(
+            team_id=experiment.team_id, experiment_id=experiment.id, user_id=_request_user_id(request)
+        )
         if latest is None:
             return Response({"detail": "No completed recalculation found"}, status=404)
         return Response(ExperimentMetricsRecalculationLatestSerializer(latest).data)
@@ -1728,9 +1754,11 @@ class EnterpriseExperimentsViewSet(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         experiment: Experiment = self.get_object()
-        _check_warehouse_native_result_access(experiment, self.team, request.user)
-        run = get_metrics_recalculation(
-            team_id=self.team.id, experiment_id=experiment.id, recalculation_id=recalculation_id
+        run = get_recalculation_run(
+            team_id=experiment.team_id,
+            experiment_id=experiment.id,
+            recalculation_id=recalculation_id,
+            user_id=_request_user_id(request),
         )
         if run is None:
             return Response({"detail": "Recalculation not found"}, status=404)
@@ -2146,6 +2174,10 @@ class EnterpriseExperimentsViewSet(
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
             return False
+
+
+def _request_user_id(request: Request) -> int | None:
+    return request.user.id if isinstance(request.user, User) else None
 
 
 def _check_warehouse_native_result_access(experiment: Experiment, team: Team, user: Any) -> None:

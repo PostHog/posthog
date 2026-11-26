@@ -2282,6 +2282,11 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     KEYWORD_TRACKING = "keyword_tracking"
 
 
+class MarketingAnalyticsRecommendationsConversionSourceKind(StrEnum):
+    POSTHOG = "posthog"
+    GOOGLE_ADS = "google_ads"
+
+
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
     PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"

@@ -71,11 +71,11 @@ from products.experiments.backend.facade.enums import (
 )
 from products.experiments.backend.facade.experiment_validation import holdout_exists
 from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.facade.recalculation import (
-    METRICS_RECALCULATION_REQUEST_TRIGGER_CHOICES,
-    METRICS_RECALCULATION_STATUS_CHOICES,
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentMetricsRecalculation,
+    get_experiment_rule,
 )
-from products.experiments.backend.models.experiment import Experiment, get_experiment_rule
 from products.experiments.backend.session_buckets import (
     MAX_BUCKET_SCAN_DAYS,
     MAX_SESSION_BUCKET_LIMIT,
@@ -591,6 +591,18 @@ class ExperimentHealthSetupSerializer(serializers.Serializer):
     )
     analysis = ExperimentHealthAnalysisSetupSerializer(
         help_text="What the results calculation reads besides the metrics, with the project's defaults applied."
+    )
+
+
+class ExperimentHealthQuerySerializer(serializers.Serializer):
+    at_launch = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Check a draft as it will be when its launch succeeds. The checks that run only after launch also run, "
+            "as if the experiment launched now with no exposures, calculation or flag change yet. Has no effect on a "
+            "launched experiment."
+        ),
     )
 
 
@@ -1987,7 +1999,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=METRICS_RECALCULATION_REQUEST_TRIGGER_CHOICES,
+        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
         required=False,
         default="manual",
         help_text=(
@@ -2002,7 +2014,7 @@ class ActiveRecalculationRunSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
     status = serializers.ChoiceField(
-        choices=METRICS_RECALCULATION_STATUS_CHOICES,
+        choices=ExperimentMetricsRecalculation.Status.choices,
         read_only=True,
         help_text="Status of the executing run (pending or in_progress)",
     )
@@ -2018,7 +2030,7 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
     experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
     status = serializers.ChoiceField(
-        choices=METRICS_RECALCULATION_STATUS_CHOICES,
+        choices=ExperimentMetricsRecalculation.Status.choices,
         read_only=True,
         help_text="Current status of the recalculation job",
     )

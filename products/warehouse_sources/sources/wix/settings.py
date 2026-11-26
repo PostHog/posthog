@@ -199,6 +199,57 @@ WIX_ENDPOINTS: dict[str, WixEndpointConfig] = {
         permission="Read Pricing Plans Orders",
         partition_key="createdDate",
     ),
+    "booking_services": WixEndpointConfig(
+        name="booking_services",
+        path="/_api/bookings/v2/services/query",
+        body_key="query",
+        data_key="services",
+        cursors_key="pagingMetadata",
+        # Services page by offset only, and have no documented date filter. createdDate is the
+        # documented default sort; the filtering and sorting article does not list id as sortable.
+        paging="offset",
+        sort_field="createdDate",
+        permission="Read Bookings - Public Data",
+        partition_key="createdDate",
+    ),
+    "events": WixEndpointConfig(
+        name="events",
+        path="/events/v3/events/query",
+        body_key="query",
+        data_key="events",
+        cursors_key="pagingMetadata",
+        # Query Events supports offset paging only.
+        paging="offset",
+        extra_body={"fields": ["DETAILS", "REGISTRATION", "URLS", "CATEGORIES"]},
+        sort_field="createdDate",
+        permission="Read Events",
+        partition_key="createdDate",
+    ),
+    "event_guests": WixEndpointConfig(
+        name="event_guests",
+        path="/events/v2/guests/query",
+        body_key="query",
+        data_key="guests",
+        cursors_key="pagingMetadata",
+        extra_body={"fields": ["GUEST_DETAILS"]},
+        sort_field="createdDate",
+        permission="Read Event Tickets and Guest List",
+        partition_key="createdDate",
+        incremental_fields=list(_UPDATED_CREATED_INCREMENTAL_FIELDS),
+    ),
+    "event_rsvps": WixEndpointConfig(
+        name="event_rsvps",
+        path="/events/v2/rsvps/query",
+        body_key="query",
+        data_key="rsvps",
+        cursors_key="pagingMetadata",
+        # Without the DETAILS field set, an RSVP carries no createdDate or updatedDate.
+        extra_body={"fields": ["DETAILS"]},
+        sort_field="createdDate",
+        permission="Read Event Tickets and Guest List",
+        partition_key="createdDate",
+        incremental_fields=list(_UPDATED_CREATED_INCREMENTAL_FIELDS),
+    ),
 }
 
 ENDPOINTS = tuple(WIX_ENDPOINTS.keys())

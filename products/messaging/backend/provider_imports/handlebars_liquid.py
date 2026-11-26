@@ -161,10 +161,14 @@ class HandlebarsToLiquid:
 
     def convert(self, nodes: tuple[object, ...]) -> str:
         converted = self._nodes(nodes, (_Frame(this=self._root_path),))
+        return self._within_limit(converted)
+
+    @staticmethod
+    def _within_limit(liquid: str) -> str:
         # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
-        if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
+        if len(liquid.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
             raise OutputTooLarge
-        return converted
+        return liquid
 
     # Nodes ------------------------------------------------------------------------------------------------------------
 
@@ -211,9 +215,7 @@ class HandlebarsToLiquid:
                 and not piece.raw
                 and self._is_whole_unquoted_value(following if isinstance(following, str) else "")
             )
-            if (piece.liquid or piece.value_path) and (
-                whole or self._value_fits(raw=piece.raw, in_attribute=piece.in_attribute)
-            ):
+            if (piece.liquid or piece.value_path) and (whole or self._piece_fits(piece)):
                 liquid = self._text_value(piece)
                 yield _in_quotes(liquid) if whole else self._attribute_safe(liquid)
                 self._feed('"x"' if whole else "x")
@@ -227,7 +229,7 @@ class HandlebarsToLiquid:
     def _text_value(self, piece: TextValue) -> str:
         if piece.value_path is None:
             return piece.liquid or ""
-        value = self._print(piece.value_path, piece.raw, may_be_a_list=not piece.raw)
+        value = self._print_piece(piece.value_path, raw=piece.raw)
         if not piece.stays_when_missing:
             return value
         return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"
@@ -714,6 +716,12 @@ class HandlebarsToLiquid:
         if where == "title":
             return not raw and in_attribute
         return where == "value" and in_attribute and not raw and self._html.plain_attribute()
+
+    def _print_piece(self, value: str, *, raw: bool) -> str:
+        return self._print(value, raw, may_be_a_list=not raw)
+
+    def _piece_fits(self, piece: TextValue) -> bool:
+        return self._value_fits(raw=piece.raw, in_attribute=piece.in_attribute)
 
     def _is_whole_unquoted_value(self, following: str) -> bool:
         """Whether the next value is all of an attribute written without quotes, as in `<a href={{x}}>`. Converting it
