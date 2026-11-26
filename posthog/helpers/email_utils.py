@@ -217,14 +217,23 @@ def sanitize_email_string(value: str) -> str:
     mail-client auto-linkers scan for. The recipient still reads `evil.com`
     (the ZWSP is invisible) but the link is no longer clickable.
     """
-    normalized = unicodedata.normalize("NFKC", value)
-    cleaned = _INVISIBLE_CHAR_RE.sub("", normalized)
-    escaped = html.escape(cleaned)
+    return _defang(html.escape(_clean(value)))
+
+
+def defang_urls(value: str) -> str:
+    """`sanitize_email_string` without the HTML-escaping, for plain-text surfaces such as a Slack header."""
+    return _defang(_clean(value))
+
+
+def _clean(value: str) -> str:
+    return _INVISIBLE_CHAR_RE.sub("", unicodedata.normalize("NFKC", value))
+
+
+def _defang(value: str) -> str:
     # No `.` or `:` means neither regex can match — skip the two passes.
-    if "." not in escaped and ":" not in escaped:
-        return escaped
-    defanged = _URL_SCHEME_RE.sub(_defang_match, escaped)
-    return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
+    if "." not in value and ":" not in value:
+        return value
+    return _BARE_DOMAIN_RE.sub(_defang_match, _URL_SCHEME_RE.sub(_defang_match, value))
 
 
 _ASCII_UPPER_TO_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)

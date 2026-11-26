@@ -204,6 +204,7 @@ class TestRenderSectionHtml(SimpleTestCase):
             ("body_url", "Summary", "Sign in at https://evil.example/login", "https://evil.example/login"),
             ("body_domain", "Summary", "Sign in at evil.example/login", "evil.example"),
             ("body_code_block", "Summary", "```\nevil.example/login\n```", "evil.example"),
+            ("body_entities", "Summary", "https&#58;&#47;&#47;evil&#46;example&#47;login", "https://evil.example"),
         ]
     )
     def test_defangs_urls_and_domains(self, _name: str, title: str, content: str, link_text: str):
@@ -716,12 +717,12 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.team_get = self.mock_team.objects.select_related.return_value.get
         self.team_get.return_value.organization.is_ai_data_processing_approved = True
 
-    def _make_report_run(self, sections=None):
+    def _make_report_run(self, sections=None, title="A nice punchline"):
         if sections is None:
             sections = [ReportSection(title="Summary", content="All good.")]
         run = MagicMock()
         run.content = EvalReportContent(
-            title="A nice punchline",
+            title=title,
             sections=sections,
             citations=[],
             metrics=EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0}),
@@ -771,6 +772,28 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
         for call in client.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.integrations.IntegrationManager")
+    def test_defangs_urls_in_the_header_title(self, mock_integration, mock_slack_integration):
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "123.456"}
+        mock_slack_integration.return_value.client = client
+
+        deliver_slack_report(
+            self._make_report_run(title="Re-authenticate at https://evil.example/login"),
+            [{"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH"}],
+            evaluation_name="Test Eval",
+            evaluation_id="eval-1",
+            team_id=7,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        header = client.chat_postMessage.call_args_list[0].kwargs["blocks"][0]
+        self.assertEqual(header["type"], "header")
+        self.assertNotIn("https://evil.example", header["text"]["text"])
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.integrations.IntegrationManager")

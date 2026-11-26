@@ -25,7 +25,8 @@ _ALLOWED_LINK_URLS = ["https://posthog.com", "https://*.posthog.com"]
 _MARKDOWN_LINK_RE = re.compile(
     r"\[([^\[\]]*)\]\(((?:(?>[^()\s]+)|\([^)]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)"
 )
-_MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+# Brackets and parentheses stay out of both runs, so a run of unclosed `![` or `](` cannot rescan the suffix.
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\[\]]*)\]\([^()]*\)")
 # A malformed link the rule above can't span (e.g. `[x](url\nmore)`) leaves its URL after `](`, which
 # the bare-URL rule skips — defang it here as a safety net.
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)

@@ -17,7 +17,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.helpers.email_utils import sanitize_email_string
+from posthog.helpers.email_utils import defang_urls, sanitize_email_string
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
@@ -456,7 +456,10 @@ def deliver_slack_report(
     citation_map = _build_citation_map(content.citations)
     failures: list[SlackDeliveryFailure] = []
 
-    header_text = f"{evaluation_name}: {content.title}" if content.title else f"Evaluation report: {evaluation_name}"
+    # The header block is plain text, which Slack still auto-links, so URLs in the agent's title are defanged.
+    header_text = (
+        f"{evaluation_name}: {defang_urls(content.title)}" if content.title else f"Evaluation report: {evaluation_name}"
+    )
     # Slack header blocks are limited to 150 chars, enforce that here.
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."
