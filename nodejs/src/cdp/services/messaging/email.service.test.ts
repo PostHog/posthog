@@ -877,6 +877,24 @@ describe('EmailService', () => {
                 })
             })
 
+            it('fails the job without a resend when SES records the email, drops the answer, then throttles the retry', async () => {
+                ses.failInTurn('accept-then-drop-connection', tooManyRequests)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect({
+                    finished: result.finished,
+                    rescheduledAt: result.invocation.queueScheduledAt,
+                    error: result.error,
+                    sent: ses.sent.length,
+                }).toEqual({
+                    finished: true,
+                    rescheduledAt: invocation.queueScheduledAt,
+                    error: expect.stringMatching(/^Failed to send email via SES: /),
+                    sent: 1,
+                })
+            })
+
             it.each(throttleCases)('counts an SES send that fails with %s as throttled', async (_name, fault) => {
                 const labels = { result: 'throttled' }
                 const before = await metricValue('cdp_ses_send_results_total', labels)
