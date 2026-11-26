@@ -192,7 +192,7 @@ describe('hog setup', () => {
     test('an agent goes from a fresh folder to connected, one hand-off at a time', async () => {
         const machine = world({ '/work/AGENTS.md': '# My app\n\nUse pnpm.\n' })
 
-        const fresh = await machine.run(['setup'])
+        const fresh = await machine.run(['setup', 'status'])
         expect(fresh.exitCode).toBe(EXIT_SUCCESS)
         expect(fresh.json()).toMatchObject({
             step: 'purpose',
@@ -201,7 +201,7 @@ describe('hog setup', () => {
             done: [],
             next: {
                 kind: 'run',
-                command: 'hog setup next --reason "<what the project uses PostHog for>" --products <id,id>',
+                command: 'hog setup --reason "<what the project uses PostHog for>" --products <id,id>',
                 instructions: expect.stringContaining("Don't ask the user what PostHog is for."),
             },
             context: { folder: '/work', configPath: null },
@@ -210,16 +210,16 @@ describe('hog setup', () => {
             'mcp-analytics'
         )
 
-        const started = await machine.run(['setup', 'next', ...ANSWERS], { telemetry: true })
+        const started = await machine.run(['setup', ...ANSWERS], { telemetry: true })
         expect(started.json()).toMatchObject({
             step: 'login',
             code: 'setup_login_pending',
             next: {
                 kind: 'wait',
-                command: 'hog setup next',
+                command: 'hog setup',
                 url: `${EU}/device?code=BCDF-GHJK`,
                 code: 'BCDF-GHJK',
-                instructions: expect.stringContaining('Then run `hog setup next`.'),
+                instructions: expect.stringContaining('Then run `hog setup`.'),
             },
         })
         expect(started.stdout).not.toContain('device-secret')
@@ -231,7 +231,7 @@ describe('hog setup', () => {
             }
         )
 
-        const loggedIn = await machine.run(['setup', 'next'], { telemetry: true })
+        const loggedIn = await machine.run(['setup'], { telemetry: true })
         expect(loggedIn.json()).toMatchObject({
             step: 'install',
             code: 'setup_skill_not_read',
@@ -270,15 +270,15 @@ describe('hog setup', () => {
             '--lines',
             '1:5',
         ])
-        const halfRead = await machine.run(['setup', 'next'])
+        const halfRead = await machine.run(['setup'])
         expect(halfRead.json()).toMatchObject({ step: 'install', code: 'setup_skill_not_read' })
 
         await machine.run(['skills', 'read', 'instrument-integration', '--file', 'references/COMMANDMENTS.md'])
-        const installed = await machine.run(['setup', 'next'])
+        const installed = await machine.run(['setup'])
         expect(installed.json()).toMatchObject({
             step: 'review',
             code: 'setup_not_reviewed',
-            next: { kind: 'read', command: 'hog setup next --reviewed' },
+            next: { kind: 'read', command: 'hog setup --reviewed' },
         })
 
         // An event PostHog received before the setup started doesn't count, and setup finishes
@@ -293,7 +293,7 @@ describe('hog setup', () => {
                 description: 'Explains how to use one part of PostHog, step by step. '.repeat(11),
             })),
         ]
-        const reviewed = await machine.run(['setup', 'next', '--reviewed'])
+        const reviewed = await machine.run(['setup', '--reviewed'])
         expect(reviewed.exitCode).toBe(EXIT_SUCCESS)
         expect(reviewed.json()).toMatchObject({
             step: 'connected',
@@ -346,7 +346,7 @@ describe('hog setup', () => {
         expect(agentsMd.indexOf('Session replay')).toBeLessThan(agentsMd.indexOf('Debugging errors'))
 
         machine.events.push(START + 60_000)
-        const summary = await machine.run(['setup'])
+        const summary = await machine.run(['setup', 'status'])
         expect((summary.json() as any).next.instructions).not.toContain('tell the user')
         expect(summary.json()).toMatchObject({
             status: 'connected',
@@ -357,7 +357,7 @@ describe('hog setup', () => {
         const state = readJson(machine.files[statePath('/work')] ?? '{}') as object
         machine.files[statePath('/work')] = JSON.stringify({ ...state, startedAt: START - 30 * day })
         machine.events.push(START - 10 * day)
-        const weeksLater = await machine.run(['setup'])
+        const weeksLater = await machine.run(['setup', 'status'])
         expect(weeksLater.json()).toMatchObject({
             context: { events: { since: new Date(START - day).toISOString(), count: 2 } },
         })
@@ -365,10 +365,10 @@ describe('hog setup', () => {
 
     test('a key in --dotenv-file for another project stops setup before it reports a token', async () => {
         const machine = world({ '/work/p.env': `HOG_PERSONAL_API_KEY=phx_test\nHOG_PROJECT_ID=7\nHOG_HOST=${EU}\n` })
-        await machine.run(['setup', 'next', ...ANSWERS])
-        await machine.run(['setup', 'next'])
+        await machine.run(['setup', ...ANSWERS])
+        await machine.run(['setup'])
 
-        const result = await machine.run(['--dotenv-file', '/work/p.env', 'setup', 'next'])
+        const result = await machine.run(['--dotenv-file', '/work/p.env', 'setup'])
 
         expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({ code: 'setup_project_mismatch' })
@@ -376,9 +376,9 @@ describe('hog setup', () => {
     })
 
     test('a person sees how to answer at the terminal, not the instructions for an agent', async () => {
-        const result = await world().run(['setup'], { person: [] })
+        const result = await world().run(['setup', 'status'], { person: [] })
 
-        expect(result.stdout).toContain('Next: Run hog setup next to say what you want to use PostHog for.')
+        expect(result.stdout).toContain('Next: Run hog setup to say what you want to use PostHog for.')
         expect(result.stdout).not.toContain("Don't ask the user")
     })
 
@@ -386,7 +386,7 @@ describe('hog setup', () => {
         const machine = world()
         machine.token = 'phc_custom\u001b]52;c;aGk=\u0007'
 
-        const result = await machine.run(['setup', 'next', '--products', 'product-analytics'], {
+        const result = await machine.run(['setup', '--products', 'product-analytics'], {
             person: ['Track signups', 'us'],
         })
 
@@ -399,11 +399,11 @@ describe('hog setup', () => {
 
         await machine.run(['skills', 'read', 'instrument-integration'])
         await machine.run(['skills', 'read', 'instrument-integration', '--file', 'references/COMMANDMENTS.md'])
-        const notReviewed = await machine.run(['setup', 'next'], { person: ['no'] })
+        const notReviewed = await machine.run(['setup'], { person: ['no'] })
         expect(notReviewed.stdout).toContain('Next: Read the rules again')
 
         machine.events.push(START + 60_000)
-        const finished = await machine.run(['setup', 'next', '--reviewed'], { person: [] })
+        const finished = await machine.run(['setup', '--reviewed'], { person: [] })
 
         expect(finished.exitCode).toBe(EXIT_SUCCESS)
         expect(finished.stdout).toContain('PostHog is set up')
@@ -429,14 +429,14 @@ describe('hog setup', () => {
         'the agent learns whether Claude Code has the MCP server %s, and nothing is written',
         async (_name, files, configured, foreign) => {
             const machine = world({ ...files })
-            await machine.run(['setup', 'next', ...ONE_PRODUCT])
-            await machine.run(['setup', 'next'])
+            await machine.run(['setup', ...ONE_PRODUCT])
+            await machine.run(['setup'])
             await machine.run(['skills', 'read', 'instrument-integration'])
             await machine.run(['skills', 'read', 'instrument-integration', '--file', 'references/COMMANDMENTS.md'])
-            await machine.run(['setup', 'next'])
+            await machine.run(['setup'])
             machine.events.push(START + 60_000)
 
-            const finished = await machine.run(['setup', 'next', '--reviewed'])
+            const finished = await machine.run(['setup', '--reviewed'])
 
             expect(finished.json()).toMatchObject({
                 status: 'connected',
@@ -457,15 +457,15 @@ describe('hog setup', () => {
 
     test('a clone without the state file starts over at the first step it can not prove', async () => {
         const machine = world()
-        await machine.run(['setup', 'next', ...ANSWERS])
-        await machine.run(['setup', 'next'])
+        await machine.run(['setup', ...ANSWERS])
+        await machine.run(['setup'])
         delete machine.files[statePath('/work')]
         machine.intentStatus = 500
 
-        const status = await machine.run(['setup'])
+        const status = await machine.run(['setup', 'status'])
         expect(status.json()).toMatchObject({ step: 'purpose', next: { kind: 'run' } })
 
-        const resumed = await machine.run(['setup', 'next', '--reason', 'Again', '--products', 'session-replay'])
+        const resumed = await machine.run(['setup', '--reason', 'Again', '--products', 'session-replay'])
         expect(resumed.json()).toMatchObject({
             step: 'install',
             done: [{ step: 'purpose' }, { step: 'login' }, { step: 'project' }, { step: 'agents-md' }],
@@ -485,7 +485,7 @@ describe('hog setup', () => {
                 '<!-- posthog:setup:start -->\nThis folder sends data to PostHog project 42.\n<!-- posthog:setup:end -->\n',
         })
 
-        const result = await machine.run(['setup'])
+        const result = await machine.run(['setup', 'status'])
 
         expect(result.json()).toMatchObject({
             status: 'connected',
@@ -501,8 +501,8 @@ describe('hog setup', () => {
             '/repo/apps/api/posthog.json': JSON.stringify({ host: EU }),
         })
 
-        const web = await machine.run(['setup', 'next', ...ONE_PRODUCT], { cwd: '/repo/apps/web/src' })
-        const api = await machine.run(['setup'], { cwd: '/repo/apps/api' })
+        const web = await machine.run(['setup', ...ONE_PRODUCT], { cwd: '/repo/apps/web/src' })
+        const api = await machine.run(['setup', 'status'], { cwd: '/repo/apps/api' })
 
         expect(web.json()).toMatchObject({ step: 'login', context: { folder: '/repo/apps/web' } })
         expect(api.json()).toMatchObject({ step: 'purpose', context: { folder: '/repo/apps/api' } })
@@ -516,8 +516,8 @@ describe('hog setup', () => {
             '/repo/apps/api/posthog.json': JSON.stringify({ host: EU }),
         })
 
-        const web = await machine.run(['setup', 'next', ...ONE_PRODUCT], { cwd: '/repo/apps/web' })
-        const api = await machine.run(['setup', 'next', ...ONE_PRODUCT], { cwd: '/repo/apps/api' })
+        const web = await machine.run(['setup', ...ONE_PRODUCT], { cwd: '/repo/apps/web' })
+        const api = await machine.run(['setup', ...ONE_PRODUCT], { cwd: '/repo/apps/api' })
 
         expect(web.json()).toMatchObject({ code: 'setup_login_pending' })
         expect(api.json()).toMatchObject({ code: 'setup_login_pending' })
@@ -526,14 +526,14 @@ describe('hog setup', () => {
 
     test('a login approved in the last seconds before it expires still finishes', async () => {
         const machine = world()
-        await machine.run(['setup', 'next', ...ANSWERS])
+        await machine.run(['setup', ...ANSWERS])
         const pendingFile = Object.keys(machine.files).find((path) => path.includes('/pending-auth-login-setup-')) ?? ''
         machine.files[pendingFile] = JSON.stringify({
             ...(readJson(machine.files[pendingFile] ?? '{}') as object),
             expiresAt: START + 10_000,
         })
 
-        const resumed = await machine.run(['setup', 'next'])
+        const resumed = await machine.run(['setup'])
 
         expect(resumed.requests.filter((request) => request.url.endsWith('/oauth/device-authorization/'))).toEqual([])
         expect(resumed.json()).toMatchObject({ step: 'install' })
@@ -543,8 +543,8 @@ describe('hog setup', () => {
         const machine = world()
         const host = 'https://ph.example.com'
 
-        const started = await machine.run(['setup', 'next', '--host', host, ...ONE_PRODUCT])
-        const resumed = await machine.run(['setup', 'next'])
+        const started = await machine.run(['setup', '--host', host, ...ONE_PRODUCT])
+        const resumed = await machine.run(['setup'])
 
         expect(started.json()).toMatchObject({ next: { kind: 'wait', url: `${host}/device?code=BCDF-GHJK` } })
         expect(resumed.requests.filter((request) => request.url.endsWith('/oauth/device-authorization/'))).toEqual([])
@@ -554,8 +554,8 @@ describe('hog setup', () => {
     test('an agent can move a login it started in the US to the EU before it is approved', async () => {
         const machine = world()
 
-        const started = await machine.run(['setup', 'next', ...ONE_PRODUCT])
-        const moved = await machine.run(['setup', 'next', '--region', 'eu'])
+        const started = await machine.run(['setup', ...ONE_PRODUCT])
+        const moved = await machine.run(['setup', '--region', 'eu'])
 
         expect((started.json() as any).next.instructions).toContain(
             "hog defaults to US Cloud (us.posthog.com). If they want their data hosted in EU Cloud, or their account is on eu.posthog.com, they shouldn't open the link"
@@ -569,11 +569,11 @@ describe('hog setup', () => {
 
     test('a folder set up after an earlier login logs in to that region first', async () => {
         const machine = world({}, '/repo/web')
-        await machine.run(['setup', 'next', ...ANSWERS])
-        await machine.run(['setup', 'next'])
+        await machine.run(['setup', ...ANSWERS])
+        await machine.run(['setup'])
 
-        const fresh = await machine.run(['setup'], { cwd: '/repo/api' })
-        const started = await machine.run(['setup', 'next', ...ONE_PRODUCT], { cwd: '/repo/api' })
+        const fresh = await machine.run(['setup', 'status'], { cwd: '/repo/api' })
+        const started = await machine.run(['setup', ...ONE_PRODUCT], { cwd: '/repo/api' })
 
         expect(fresh.json()).toMatchObject({
             next: { instructions: expect.stringContaining(EU) },
@@ -597,8 +597,8 @@ describe('hog setup', () => {
         const config = JSON.stringify({ host: EU, projectId: 7 })
         const machine = world({ '/work/posthog.json': config })
 
-        const started = await machine.run(['setup', 'next', ...ONE_PRODUCT], { env })
-        const approved = await machine.run(['setup', 'next'], { env })
+        const started = await machine.run(['setup', ...ONE_PRODUCT], { env })
+        const approved = await machine.run(['setup'], { env })
 
         expect((started.json() as any).next.instructions).toContain(`pick project ${env.HOG_PROJECT_ID ?? 7}`)
         if (code) {
@@ -610,15 +610,15 @@ describe('hog setup', () => {
     })
 
     test.each([
-        ['some answers without the rest', ['setup', 'next', '--reason', 'x'], 'setup_needs_answers', '--products'],
+        ['some answers without the rest', ['setup', '--reason', 'x'], 'setup_needs_answers', '--products'],
         [
             'a product that is not in the list',
-            ['setup', 'next', '--reason', 'x', '--products', 'session-replay,nope'],
+            ['setup', '--reason', 'x', '--products', 'session-replay,nope'],
             'invalid_input',
             'mcp-analytics',
         ],
-        ['answers without next', ['setup', '--reason', 'x'], 'setup_options_need_next', 'hog setup next'],
-        ['an action other than next', ['setup', 'go'], 'invalid_setup_command', 'hog setup next'],
+        ['answers with status', ['setup', 'status', '--reason', 'x'], 'setup_status_takes_no_options', 'hog setup'],
+        ['an action other than status', ['setup', 'next'], 'invalid_setup_command', 'hog setup status'],
     ])('%s fails with a hint', async (_name, argv, code, hint) => {
         const result = await world().run(argv)
 
@@ -633,7 +633,7 @@ describe('hog setup', () => {
         const machine = world()
         const before = { ...machine.files }
 
-        const result = await machine.run(['setup', 'next', ...ONE_PRODUCT], { env })
+        const result = await machine.run(['setup', ...ONE_PRODUCT], { env })
 
         expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.error()).toMatchObject({ code: 'not_in_ci', hint: expect.stringContaining('hog ci setup') })
@@ -642,7 +642,7 @@ describe('hog setup', () => {
     })
 
     test('an agent in a CI sandbox still runs setup, because it hands the login to a person', async () => {
-        const result = await world().run(['setup', 'next', ...ONE_PRODUCT], { env: { CI: 'true' } })
+        const result = await world().run(['setup', ...ONE_PRODUCT], { env: { CI: 'true' } })
 
         expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.json()).toMatchObject({ step: 'login' })

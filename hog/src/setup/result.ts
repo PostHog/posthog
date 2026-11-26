@@ -16,7 +16,7 @@ export interface SetupInput {
     reviewed?: boolean
 }
 
-// What has to happen before `hog setup next` can go on. Every instruction is for the agent, and says
+// What has to happen before `hog setup` can go on. Every instruction is for the agent, and says
 // what it asks or tells the person and which command it runs itself.
 export type NextAction =
     | { kind: 'run'; command: string; instructions: string }
@@ -73,7 +73,7 @@ export interface SetupContext {
 export interface SetupResult {
     step: StepId
     status: 'in_progress' | 'connected'
-    // Why `hog setup next` stopped, for scripts. Null once connected.
+    // Why `hog setup` stopped, for scripts. Null once connected.
     code: string | null
     done: DoneStep[]
     next: NextAction

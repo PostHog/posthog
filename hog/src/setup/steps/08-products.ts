@@ -1,6 +1,6 @@
 import type { SkillInfo } from '../result'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 export const ADD_SKILLS = 'hog skills add <skill...>'
 
@@ -30,7 +30,7 @@ export const products: Step = {
 
     async advance(run) {
         if (!run.input.next) {
-            return runNext('setup_products_pending', `Run \`${SETUP_NEXT}\` to finish setup.`)
+            return runNext('setup_products_pending', `Run \`${SETUP_COMMAND}\` to finish setup.`)
         }
 
         // Both load the same skills release, so they share one download.

@@ -130,7 +130,7 @@ async function cloneIsConnected(run: SetupRun): Promise<boolean> {
     return config?.host !== undefined && config.projectId !== undefined && stage === 'final'
 }
 
-// `hog setup` (next false) only describes. `hog setup next` does the current step and every step
+// `hog setup status` (next false) only describes. `hog setup` does the current step and every step
 // after it that needs nobody, and stops at the first one that needs the person or the agent.
 export async function runSetup(ctx: Context, input: SetupInput): Promise<SetupResult> {
     const scope = await setupScope(ctx)

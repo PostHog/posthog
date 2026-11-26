@@ -5,7 +5,7 @@ import { hasLogin, writeLoginToConfig } from '@/posthog/login/finish'
 
 import { productIntent, productLabel } from '../products'
 import { completed, runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 // A failed intent only costs PostHog a hint about what to show first, so it warns and setup goes on.
 async function recordIntents(run: SetupRun): Promise<void> {
@@ -49,7 +49,7 @@ export const project: Step = {
         if (!run.input.next) {
             return runNext(
                 'setup_project_pending',
-                `Run \`${SETUP_NEXT}\` to save the project in \`posthog.json\` and send the products the user picked to PostHog.`
+                `Run \`${SETUP_COMMAND}\` to save the project in \`posthog.json\` and send the products the user picked to PostHog.`
             )
         }
 
@@ -59,7 +59,7 @@ export const project: Step = {
             throw new HogError(
                 'setup_config_unwritable',
                 `Couldn't write ${written.path}: ${written.error ?? 'unknown error'}`,
-                `Check that you can write to ${run.scope.folder}, then run \`${SETUP_NEXT}\` again.`
+                `Check that you can write to ${run.scope.folder}, then run \`${SETUP_COMMAND}\` again.`
             )
         }
 

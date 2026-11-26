@@ -93,7 +93,7 @@ function contextLines(out: Output, result: SetupResult): string[][] {
 }
 
 function nextLines(out: Output, next: NextAction): [string, ...string[]] {
-    const setupNext = out.style('hog setup next', 'bold')
+    const setupNext = out.style('hog setup', 'bold')
 
     switch (next.kind) {
         case 'wait':
@@ -113,7 +113,7 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
 function nextBlock(out: Output, result: SetupResult): string[] {
     const [first, ...rest] =
         result.step === 'purpose'
-            ? [`Run ${out.style('hog setup next', 'bold')} to say what you want to use PostHog for.`]
+            ? [`Run ${out.style('hog setup', 'bold')} to say what you want to use PostHog for.`]
             : nextLines(out, result.next)
     return [`${out.style('Next:', 'bold')} ${first}`, ...rest]
 }
@@ -156,7 +156,7 @@ export default defineCommand({
     description: 'Set up PostHog in this folder, one step at a time',
     args: {
         action: {
-            description: '`next` runs the current step and every later step that needs no input',
+            description: '`status` shows the current step and changes nothing',
             optional: true,
         },
     },
@@ -168,36 +168,36 @@ export default defineCommand({
     },
     scopes: ['project:read', 'query:read'],
     notes: [
-        '`hog setup` shows the current step and what `hog setup next` will do, and changes nothing.',
-        '`hog setup next` does the current step and keeps going until a step needs you or your agent. Its output names that step.',
+        '`hog setup` does the current step and keeps going until a step needs you or your agent. Its output names that step and what to do before you run it again.',
+        '`hog setup status` shows the current step and changes nothing.',
         'The setup belongs to the folder of the closest posthog.json, or to this folder when there is none, so each app in a monorepo has its own.',
-        'An agent works out the answers from the conversation and the code, and passes them as options. It runs `hog setup next` again only when a step stops.',
+        'An agent works out the answers from the conversation and the code, and passes them as options. It runs `hog setup` again only when a step stops.',
     ].join('\n'),
     examples: [
         'hog setup',
-        'hog setup next',
-        'hog setup next --reason "See where users drop off" --products product-analytics,session-replay',
-        'hog setup next --reason "Track errors in our EU app" --products error-tracking --region eu',
-        'hog setup next --reviewed',
+        'hog setup --reason "See where users drop off" --products product-analytics,session-replay',
+        'hog setup --reason "Track errors in our EU app" --products error-tracking --region eu',
+        'hog setup --reviewed',
+        'hog setup status',
     ],
 
     async run({ args, options, ctx }): Promise<SetupResult> {
-        if (args.action !== undefined && args.action !== 'next') {
+        if (args.action !== undefined && args.action !== 'status') {
             throw new HogError(
                 'invalid_setup_command',
                 `There is no \`hog setup ${escapeControls(args.action)}\`.`,
-                'Run `hog setup` to see the current step, or `hog setup next` to run it.',
+                'Run `hog setup` to do the current step, or `hog setup status` to see it.',
                 EXIT_USAGE
             )
         }
 
-        const next = args.action === 'next'
+        const next = args.action !== 'status'
         const given = Object.values(options).some((value) => value !== undefined && value !== false)
         if (!next && given) {
             throw new HogError(
-                'setup_options_need_next',
-                'These options only work with `hog setup next`.',
-                'Run `hog setup next` with the same options.',
+                'setup_status_takes_no_options',
+                '`hog setup status` takes no options.',
+                'Run `hog setup` with the same options.',
                 EXIT_USAGE
             )
         }
@@ -205,7 +205,7 @@ export default defineCommand({
         const { requireLatestForSetup } = await import('@/updates/check')
         const hog = await requireLatestForSetup(
             ctx.runtime,
-            next ? 'setup next' : 'setup',
+            next ? 'setup' : 'setup status',
             ctx.globals.skipSslVerification === true
         )
 
@@ -214,7 +214,7 @@ export default defineCommand({
     },
 
     human({ args, result, out }) {
-        printSetup(out, result, args.action === 'next')
+        printSetup(out, result, args.action !== 'status')
     },
 
     agent({ result, out }) {
@@ -225,7 +225,7 @@ export default defineCommand({
     exitCode: (result) => (result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS),
 
     telemetry: ({ args, result }) => ({
-        setup_action: args.action ?? 'status',
+        setup_action: args.action ?? 'run',
         setup_step: result.step,
         setup_status: result.status,
         setup_code: result.code,
