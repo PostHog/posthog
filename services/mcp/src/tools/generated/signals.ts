@@ -1945,24 +1945,6 @@ const scoutConfigList = (): ToolBase<
     },
 })
 
-const ScoutConfigRetrieveSchema = () => {
-    const SignalsScoutConfigRetrieveParams = orvalSchemas.SignalsScoutConfigRetrieveParams()
-    return SignalsScoutConfigRetrieveParams.omit({ project_id: true })
-}
-
-const scoutConfigRetrieve = (): ToolBase<ReturnType<typeof ScoutConfigRetrieveSchema>, Schemas.SignalScoutConfig> => ({
-    name: 'scout-config-retrieve',
-    schema: ScoutConfigRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalScoutConfig>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 const ScoutConfigPrecheckTestSchema = () => {
     const SignalsScoutConfigPrecheckTestBody = orvalSchemas.SignalsScoutConfigPrecheckTestBody()
     const SignalsScoutConfigPrecheckTestParams = orvalSchemas.SignalsScoutConfigPrecheckTestParams()
@@ -1987,6 +1969,24 @@ const scoutConfigPrecheckTest = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/precheck_test/`,
             body,
+        })
+        return result
+    },
+})
+
+const ScoutConfigRetrieveSchema = () => {
+    const SignalsScoutConfigRetrieveParams = orvalSchemas.SignalsScoutConfigRetrieveParams()
+    return SignalsScoutConfigRetrieveParams.omit({ project_id: true })
+}
+
+const scoutConfigRetrieve = (): ToolBase<ReturnType<typeof ScoutConfigRetrieveSchema>, Schemas.SignalScoutConfig> => ({
+    name: 'scout-config-retrieve',
+    schema: ScoutConfigRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutConfig>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -4344,8 +4344,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
-    'scout-config-retrieve': scoutConfigRetrieve,
     'scout-config-precheck-test': scoutConfigPrecheckTest,
+    'scout-config-retrieve': scoutConfigRetrieve,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
     'scout-create': scoutCreate,
