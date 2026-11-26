@@ -43,6 +43,11 @@
      * variants/components that own their own press motion: `primary` sinks its
      * face into its shelf, `toggle` dips 2px, and tabs stay put (a tab that jumps
      * would drag the whole strip's baseline with it).
+     *
+     * A trigger stays pressed while the menu, popover or select it opened is open.
+     * Base UI sets `data-pressed` together with `data-popup-open` only on a trigger
+     * that a press opened. A tooltip or hover-opened trigger gets `data-popup-open`
+     * alone, and a selected toggle gets `data-pressed` alone, so neither dips.
      */
     .quill-button:not(
         :disabled,
@@ -50,7 +55,7 @@
         .quill-button--variant-primary,
         .quill-tabs__trigger,
         .quill-toggle
-    ):active {
+    ):is(:active, [data-pressed][data-popup-open]) {
         translate: 0 1px;
     }
 
@@ -207,7 +212,7 @@
         --quill-button-face: color-mix(in oklab, var(--primary) 98%, black 5%);
     }
 
-    .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
+    .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):is(:active, [data-pressed][data-popup-open]) {
         --quill-button-lift: 0px;
     }
 
