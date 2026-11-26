@@ -64,7 +64,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _process_doc_with_field_logging,
     _process_nested_value,
     _read_upper_bound,
-    connection_timeouts,
     decode_resume_id,
     encode_resume_id,
     get_index_keys,
@@ -307,7 +306,7 @@ class TestSafeServerSelector(SimpleTestCase):
         resolver.return_value.get_options.return_value = ""
         with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
             with mongo_client("mongodb+srv://user:pw@cluster0.example.com/db?connect=false", team_id=999) as client:
-                seeds = list(client.topology_description.server_descriptions())
+                seeds = sorted(client.topology_description.server_descriptions())
 
         assert seeds == [("127.0.0.1", 1), ("127.0.0.1", 2)]
 
@@ -1591,54 +1590,82 @@ class TestGetServerMetadata(SimpleTestCase):
 
 
 _MONGO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo"
+# The addresses `MongoClient` gets carry no options, because TLS goes in as a keyword argument.
+# nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+_ADDRESS = "mongodb://user:pw@db.example.com/db"
+# nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+_DOCUMENTDB_ADDRESS = "mongodb://user:pw@docdb.example.com:27017/"
 
 
-class TestConnectionTimeouts(SimpleTestCase):
+class TestClientOptions(SimpleTestCase):
+    @staticmethod
+    def _client_call(connection_string: str, tls_ca_file: str | None = None) -> Any:
+        # The check before the client opens resolves a `mongodb+srv` name. Two hosts keep it off the
+        # network and skip the single-seed check.
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1), ("127.0.0.1", 2)]
+        resolver.return_value.get_options.return_value = ""
+        with (
+            patch("pymongo.synchronous.uri_parser._SrvResolver", resolver),
+            patch(f"{_MONGO_MODULE}.MongoClient") as client_class,
+        ):
+            with mongo_client(connection_string, team_id=1, tls_ca_file=tls_ca_file):
+                pass
+        return client_class.call_args
+
     @parameterized.expand(
         [
             (
                 "no_options",
                 "mongodb+srv://user:pw@cluster.example.com/db",
-                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+                CONNECT_TIMEOUT_MS,
+                SOCKET_TIMEOUT_MS,
             ),
             (
                 "other_options_only",
                 "mongodb://user:pw@db.example.com:27017/db?retryWrites=true&w=majority&tls=true",
-                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+                CONNECT_TIMEOUT_MS,
+                SOCKET_TIMEOUT_MS,
             ),
             (
                 "socket_timeout_in_the_connection_string",
                 "mongodb://user:pw@db.example.com/db?socketTimeoutMS=900000&tls=true",
-                {"connectTimeoutMS": CONNECT_TIMEOUT_MS},
+                CONNECT_TIMEOUT_MS,
+                "900000",
             ),
             (
                 "option_names_are_not_case_sensitive",
                 "mongodb://user:pw@db.example.com/db?connecttimeoutms=5000&SOCKETTIMEOUTMS=5000&tls=true",
-                {},
+                "5000",
+                "5000",
             ),
             (
                 "an_option_name_in_another_options_value_is_not_an_option",
                 "mongodb://user:pw@db.example.com/db?appName=import-socketTimeoutMS=1&tls=true",
-                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+                CONNECT_TIMEOUT_MS,
+                SOCKET_TIMEOUT_MS,
             ),
             (
                 "an_option_name_in_the_credentials_is_not_an_option",
                 "mongodb://sockettimeoutms=1:pw@db.example.com/db?tls=true",
-                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+                CONNECT_TIMEOUT_MS,
+                SOCKET_TIMEOUT_MS,
             ),
         ]
     )
-    def test_default_timeouts_give_way_to_the_connection_string(self, _name, connection_string, expected):
-        # A keyword argument to `MongoClient` wins over the connection string, so a default that
-        # was always sent would discard the limit a customer chose.
-        assert connection_timeouts(connection_string) == expected
+    def test_default_timeouts_give_way_to_the_connection_string(
+        self, _name, connection_string, expected_connect_timeout, expected_socket_timeout
+    ):
+        kwargs = self._client_call(connection_string).kwargs
+
+        assert (kwargs["connectTimeoutMS"], kwargs["socketTimeoutMS"]) == (
+            expected_connect_timeout,
+            expected_socket_timeout,
+        )
 
     def test_client_limits_server_selection_connect_and_each_socket_wait(self):
-        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
-            with mongo_client("mongodb://user:pw@db.example.com/db?tls=true", team_id=1):
-                pass
+        kwargs = self._client_call("mongodb://user:pw@db.example.com/db?tls=true").kwargs
 
-        kwargs = client_class.call_args.kwargs
         assert kwargs["serverSelectionTimeoutMS"] == SERVER_SELECTION_TIMEOUT_MS
         assert kwargs["connectTimeoutMS"] == CONNECT_TIMEOUT_MS
         assert kwargs["socketTimeoutMS"] == SOCKET_TIMEOUT_MS
@@ -1647,46 +1674,156 @@ class TestConnectionTimeouts(SimpleTestCase):
         # A string field that isn't valid UTF-8 (a buggy driver, a bad migration) must not fail
         # the whole getMore batch with InvalidBSON. "replace" substitutes U+FFFD for the bad
         # bytes instead of raising, so the sync continues.
-        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
-            with mongo_client("mongodb://user:pw@db.example.com/db?tls=true", team_id=1):
-                pass
+        kwargs = self._client_call("mongodb://user:pw@db.example.com/db?tls=true").kwargs
 
-        assert client_class.call_args.kwargs["unicode_decode_error_handler"] == "replace"
+        assert kwargs["unicode_decode_error_handler"] == "replace"
 
     @parameterized.expand(
         [
-            (
-                "public_ca_without_file_options",
-                "mongodb://user:pw@db.example.com/db?tls=true",
-                None,
-                "mongodb://user:pw@db.example.com/db?tls=true",
-                certifi.where(),
-            ),
+            ("public_ca_without_file_options", "mongodb://user:pw@db.example.com/db?tls=true", None, certifi.where()),
             (
                 "aws_string_with_its_bundle_name",
                 "mongodb://user:pw@docdb.example.com:27017/?tls=true&tlsCAFile=global-bundle.pem&retryWrites=false",
                 "/srv/bundle.pem",
-                "mongodb://user:pw@docdb.example.com:27017/?tls=true&retryWrites=false",
                 "/srv/bundle.pem",
             ),
             (
                 "option_names_are_not_case_sensitive",
                 "mongodb://user:pw@db.example.com/db?TLSCAFILE=ca.pem&tls=true",
                 None,
-                "mongodb://user:pw@db.example.com/db?tls=true",
                 certifi.where(),
             ),
         ]
     )
     def test_client_trusts_the_source_ca_and_never_reads_the_ca_file_the_string_names(
-        self, _name, connection_string, tls_ca_file, expected_string, expected_ca
+        self, _name, connection_string, tls_ca_file, expected_ca
     ):
-        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
-            with mongo_client(connection_string, team_id=1, tls_ca_file=tls_ca_file):
-                pass
+        kwargs = self._client_call(connection_string, tls_ca_file=tls_ca_file).kwargs
 
-        assert client_class.call_args.args[0] == expected_string
-        assert client_class.call_args.kwargs["tlsCAFile"] == expected_ca
+        assert kwargs["tlsCAFile"] == expected_ca
+
+    @parameterized.expand(
+        [
+            (
+                "atlas_srv",
+                "mongodb+srv://user:pw@cluster0.example.com/app?retryWrites=true&w=majority&appName=Cluster0",
+                "mongodb+srv://user:pw@cluster0.example.com/app",
+                {"appName": "Cluster0"},
+            ),
+            (
+                "documentdb_console",
+                "mongodb://user:pw@docdb.example.com:27017/?tls=true&tlsCAFile=global-bundle.pem"
+                "&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false",
+                _DOCUMENTDB_ADDRESS,
+                {"replicaSet": "rs0", "readPreference": "secondaryPreferred"},
+            ),
+            (
+                "default_mechanism",
+                "mongodb://user:pw@db.example.com/db?tls=true&authMechanism=DEFAULT",
+                _ADDRESS,
+                {"authMechanism": "DEFAULT"},
+            ),
+            (
+                "scram_sha_1",
+                # The rule does not read `;` as an option separator, so it misses the tls=true here.
+                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+                "mongodb://user:pw@db.example.com/db?authMechanism=SCRAM-SHA-1;tls=true",
+                _ADDRESS,
+                {"authMechanism": "SCRAM-SHA-1"},
+            ),
+            (
+                "scram_sha_256_in_lower_case",
+                "mongodb://user:pw@db.example.com/db?tls=true&authmechanism=SCRAM-SHA-256&authSource=admin",
+                _ADDRESS,
+                {"authMechanism": "SCRAM-SHA-256", "authSource": "admin"},
+            ),
+            (
+                "srv_without_direct_connection",
+                "mongodb+srv://user:pw@cluster0.example.com/app?directConnection=false",
+                "mongodb+srv://user:pw@cluster0.example.com/app",
+                {"directConnection": "false"},
+            ),
+            (
+                "percent_encoded_value",
+                "mongodb://user:pw@db.example.com/db?appName=nightly%20import&tls=true",
+                _ADDRESS,
+                {"appName": "nightly import"},
+            ),
+            (
+                "each_read_preference_tag_set",
+                "mongodb://user:pw@db.example.com/db?tls=true&readPreference=secondary"
+                "&readPreferenceTags=dc:ny,rack:1&readPreferenceTags=",
+                _ADDRESS,
+                {"readPreference": "secondary", "readPreferenceTags": ["dc:ny,rack:1", ""]},
+            ),
+        ]
+    )
+    def test_client_gets_the_string_without_options_and_the_allowed_options_as_keywords(
+        self, _name, connection_string, expected_address, expected_options
+    ):
+        call = self._client_call(connection_string)
+
+        assert call.args == (expected_address,)
+        assert {name: call.kwargs.get(name) for name in expected_options} == expected_options
+
+    @parameterized.expand(
+        [
+            ("write_options", "&retryWrites=false&w=majority&journal=true"),
+            ("pool_options", "&maxPoolSize=1&minPoolSize=1&maxIdleTimeMS=1"),
+            ("tls_turned_off", "&tls=false&ssl=false"),
+            ("server_selection_timeout", "&serverSelectionTimeoutMS=1"),
+            ("uuid_representation", "&uuidRepresentation=pythonLegacy"),
+            ("ca_file", "&tlsCAFile=ca.pem"),
+            ("invalid_read_preference_tags", "&readPreferenceTags=dcny"),
+            ("invalid_read_preference", "&readPreference=bogus"),
+            ("invalid_boolean", "&directConnection=maybe"),
+            # pymongo splits options on whitespace when the string has no `&` or `;`, but the client
+            # never gets the options, so the text after the space is only part of the `tls` value.
+            ("mechanism_after_a_space", " authMechanism=MONGODB-OIDC"),
+            ("file_option_after_a_newline", "\ntlsCertificateKeyFile=c.pem"),
+        ]
+    )
+    def test_an_option_off_the_allowlist_or_with_an_invalid_value_has_no_effect_on_the_client(
+        self, _name, options_after_tls
+    ):
+        # The URL sets tls=true, but the rule only matches it before `&` or the closing quote.
+        # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+        call = self._client_call(f"mongodb://user:pw@db.example.com/db?tls=true{options_after_tls}")
+        plain_call = self._client_call("mongodb://user:pw@db.example.com/db?tls=true")
+
+        # The selector and the listener are new objects on each call, so they never compare equal.
+        per_call = {"server_selector", "event_listeners"}
+        kwargs = {name: value for name, value in call.kwargs.items() if name not in per_call}
+        plain_kwargs = {name: value for name, value in plain_call.kwargs.items() if name not in per_call}
+        assert (call.args, kwargs) == (plain_call.args, plain_kwargs)
+
+    @parameterized.expand(
+        [
+            (
+                "all_but_tls_insecure",
+                "replicaSet=rs0&directConnection=false&loadBalanced=false&readPreference=secondary"
+                "&readPreferenceTags=dc:ny&maxStalenessSeconds=120&authSource=admin&authMechanism=SCRAM-SHA-256"
+                "&appName=import&tlsAllowInvalidHostnames=true&tlsAllowInvalidCertificates=true"
+                "&connectTimeoutMS=5000&socketTimeoutMS=5000&readConcernLevel=majority&compressors=zlib"
+                "&zlibCompressionLevel=5&timeoutMS=60000",
+            ),
+            # pymongo refuses tlsInsecure together with the two options it implies.
+            ("tls_insecure", "tlsInsecure=true"),
+        ]
+    )
+    def test_the_client_reads_every_allowed_option_as_pymongo_reads_it_from_the_string(self, _name, options):
+        connection_string = f"mongodb://user:pw@db.example.com/db?tls=true&{options}"
+        call = self._client_call(connection_string)
+
+        client: MongoClient = MongoClient(*call.args, **{**call.kwargs, "connect": False})
+        reference: MongoClient = MongoClient(connection_string, connect=False, tls=True)
+        try:
+            read = {name.lower(): value for name, value in client.options._options.items()}
+            expected = {name.lower(): value for name, value in reference.options._options.items()}
+            assert {name: read.get(name) for name in expected} == expected
+        finally:
+            client.close()
+            reference.close()
 
     @parameterized.expand(
         [
@@ -1699,21 +1836,14 @@ class TestConnectionTimeouts(SimpleTestCase):
             ("plain", "&authMechanism=PLAIN"),
             ("mechanism_in_mixed_case", "&AUTHMECHANISM=mongodb-oidc"),
             ("mechanism_percent_encoded", "&authMechanism=MONGODB%2DOIDC"),
-            ("mechanism_repeated", "&authMechanism=SCRAM-SHA-256&authMechanism=MONGODB-OIDC"),
+            ("mechanism_repeated", "&authMechanism=MONGODB-OIDC&authMechanism=SCRAM-SHA-256"),
+            ("mechanism_after_a_semicolon", ";authMechanism=MONGODB-OIDC"),
             ("mechanism_properties_alone", "&authMechanismProperties=SERVICE_NAME:mongodb"),
             ("mechanism_properties_in_mixed_case", "&AuthMechanismProperties=SERVICE_NAME:mongodb"),
             (
                 "mechanism_properties_with_password_mechanism",
                 "&authMechanism=SCRAM-SHA-256&authMechanismProperties=SERVICE_NAME:mongodb",
             ),
-            ("mechanism_after_a_space", " authMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
-            ("mechanism_after_a_tab", "\tauthMechanism=MONGODB-OIDC;tlsCAFile=ca.pem"),
-            ("mechanism_after_a_newline", "\nauthMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
-            ("mechanism_after_a_non_breaking_space", "\xa0authMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
-            ("file_option_after_a_space", " tlsCertificateKeyFile=c.pem&tlsCAFile=ca.pem"),
-            ("file_option_after_a_space_before_a_semicolon", " tlsCRLFile=crl.pem;tlsCAFile=ca.pem"),
-            ("file_option_after_a_newline", "\ntlsCertificateKeyFile=c.pem&tlsCAFile=ca.pem"),
-            ("ca_file_after_a_space", " tlsCAFile=/some/path"),
         ]
     )
     def test_an_unsupported_option_stops_the_sync_before_the_client_opens(self, _name, options_after_tls):
@@ -1727,20 +1857,38 @@ class TestConnectionTimeouts(SimpleTestCase):
         client_class.assert_not_called()
         assert error_message_matches(str(raised.value), MongoDBSource().get_non_retryable_errors())
 
-    @parameterized.expand(
-        [
-            ("default", "authMechanism=DEFAULT"),
-            ("scram_sha_1", "authMechanism=SCRAM-SHA-1"),
-            ("scram_sha_256", "authmechanism=SCRAM-SHA-256&authSource=admin"),
-        ]
-    )
-    def test_a_password_mechanism_reaches_the_client_unchanged(self, _name, option):
-        connection_string = f"mongodb://user:pw@db.example.com/db?tls=true&{option}"
-        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
-            with mongo_client(connection_string, team_id=1):
+    def test_a_srv_string_still_resolves_its_hosts_and_txt_options(self):
+        resolver = MagicMock()
+        # A closed local port, so the monitor that the client starts gets no answer from any network.
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1)]
+        resolver.return_value.get_options.return_value = "replicaSet=atlas-rs&authSource=admin"
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with mongo_client("mongodb+srv://user:pw@cluster0.example.com/app?retryWrites=true", team_id=1) as client:
+                replica_set_name = client.options.replica_set_name
+
+        assert resolver.call_args.args[0] == "cluster0.example.com"
+        assert replica_set_name == "atlas-rs"
+
+    def test_a_srv_string_keeps_its_service_name_and_host_limit(self):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1)]
+        resolver.return_value.get_options.return_value = ""
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with mongo_client(
+                "mongodb+srv://user:pw@cluster0.example.com/app?srvServiceName=analytics&srvMaxHosts=1", team_id=1
+            ):
                 pass
 
-        assert client_class.call_args.args[0] == connection_string
+        # The resolver compares the limit with a host count, so the string "1" would fail there.
+        assert resolver.call_args.args[2:] == ("analytics", 1)
+
+    def test_a_srv_string_cannot_ask_for_a_direct_connection(self):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with pytest.raises(ConfigurationError, match="directConnection=true"):
+                with mongo_client("mongodb+srv://user:pw@cluster0.example.com/app?directConnection=true", team_id=1):
+                    pass
+
+        client_class.assert_not_called()
 
     def test_a_dns_txt_record_cannot_add_an_authentication_mechanism(self):
         resolver = MagicMock()

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { MessageTemplate } from './MessageTemplate'
+import { messageTemplateLogic } from './messageTemplateLogic'
 
 const TEMPLATE_ID = 'tmpl-1'
 
@@ -40,7 +41,11 @@ describe('MessageTemplate', () => {
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
-    const renderAs = async (workflowAccess: AccessControlLevel, templateName: string): Promise<void> => {
+    const renderAs = async (
+        workflowAccess: AccessControlLevel,
+        templateName: string,
+        extraFlags: Record<string, boolean> = {}
+    ): Promise<void> => {
         window.POSTHOG_APP_CONTEXT = {
             ...priorAppContext,
             resource_access_control: {
@@ -55,6 +60,7 @@ describe('MessageTemplate', () => {
             {
                 [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
+                ...extraFlags,
             }
         )
 
@@ -211,5 +217,159 @@ describe('MessageTemplate', () => {
 
         expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
         expect(router.values.searchParams).toEqual({ tab: 'sends' })
+    })
+
+    it.each([
+        ['a library template', ORDER_RECEIPT, {}, 'row'],
+        ['a library template with the menu bar', ORDER_RECEIPT, { [FEATURE_FLAGS.SCENE_MENU_BAR]: true }, 'menu'],
+        ['a library template with the rail', ORDER_RECEIPT, { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, 'menu'],
+        [
+            'a transactional template with the menu bar',
+            PASSWORD_RESET_WITH_DRAFT,
+            { [FEATURE_FLAGS.SCENE_MENU_BAR]: true },
+            'row',
+        ],
+    ])('keeps tags reachable in one place: %s', async (_, template, flags, place) => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })
+        await renderAs(AccessControlLevel.Editor, template.name, flags)
+
+        await waitFor(() =>
+            expect([
+                !!document.querySelector('[data-attr="message-template-tags-button"]'),
+                !!document.querySelector('[data-attr="message-template-menubar-metadata"]'),
+            ]).toEqual([place === 'row', place === 'menu'])
+        )
+    })
+
+    it.each([
+        ['a library template', ORDER_RECEIPT, true],
+        ['a transactional template', PASSWORD_RESET_WITH_DRAFT, false],
+    ])('description toggle of %s', async (_, template, hasToggle) => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })
+        await renderAs(AccessControlLevel.Editor, template.name)
+        expect(await screen.findByText('Enter description (optional)')).toBeInTheDocument()
+        await waitFor(() =>
+            expect(!!document.querySelector('[data-attr="toggle-description-button-collapse"]')).toBe(hasToggle)
+        )
+    })
+
+    it('puts subject, preheader and the content switch of a library template on one row', async () => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': ORDER_RECEIPT } })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name, {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+        })
+
+        const row = (await screen.findByText('Subject')).closest('.border-b') as HTMLElement
+        expect(within(row).getByLabelText('Preheader')).toBeInTheDocument()
+        expect(within(row).getByText('Plain text')).toBeInTheDocument()
+        expect(screen.getAllByText('Plain text')).toHaveLength(1)
+    })
+
+    it.each([
+        ['a library template', urls.workflowsLibraryTemplate(TEMPLATE_ID), ORDER_RECEIPT, '', 'menu'],
+        ['a transactional email', urls.transactionalTemplate(TEMPLATE_ID), PASSWORD_RESET_WITH_DRAFT, 'row', 'row'],
+        [
+            'a transactional email under workflows',
+            urls.workflowsLibraryTemplate(TEMPLATE_ID),
+            PASSWORD_RESET_WITH_DRAFT,
+            '',
+            'row',
+        ],
+        [
+            'a library template without transactional emails',
+            urls.workflowsLibraryTemplate(TEMPLATE_ID),
+            ORDER_RECEIPT,
+            'menu',
+            'menu',
+            { [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: false },
+        ],
+    ])(
+        'places the tags of %s while it loads and after',
+        async (_, url, template, whileLoading, loadedPlace, flags: Record<string, boolean> = {}) => {
+            let answer: () => void = () => {}
+            const loaded = new Promise<void>((resolve) => (answer = resolve))
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                        await loaded
+                        return [200, template]
+                    },
+                },
+            })
+            const tagsPlace = (): string =>
+                [
+                    document.querySelector('[data-attr="message-template-tags-button"]') && 'row',
+                    document.querySelector('[data-attr="message-template-menubar-metadata"]') && 'menu',
+                ]
+                    .filter(Boolean)
+                    .join()
+            const rendered = renderAs(AccessControlLevel.Editor, template.name, {
+                [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
+                ...flags,
+            })
+            act(() => router.actions.push(url))
+            await waitFor(() => expect(tagsPlace()).toBe(whileLoading))
+            // Tags edited before the saved ones arrive would replace them.
+            if (whileLoading === 'row') {
+                expect(screen.queryByText('Click to add tags')).not.toBeInTheDocument()
+            } else if (whileLoading === 'menu') {
+                fireEvent.click(screen.getByText('Metadata'))
+                await waitFor(() =>
+                    expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeInTheDocument()
+                )
+                expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeDisabled()
+            }
+
+            answer()
+            await rendered
+            await waitFor(() => expect(tagsPlace()).toBe(loadedPlace))
+        }
+    )
+
+    it('takes a tag that did not save out of the row being edited', async () => {
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': { ...ORDER_RECEIPT, tags: ['old'] } },
+            patch: { '/api/environments/:team_id/messaging_templates/:id/': () => [500, { detail: 'Boom' }] },
+        })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
+        fireEvent.click(await screen.findByText('old'))
+        const input = await waitFor(() => {
+            const found = document.querySelector<HTMLInputElement>(
+                'input[data-attr="message-template-new-tag-input"], [data-attr="message-template-new-tag-input"] input'
+            )
+            expect(found).not.toBeNull()
+            return found as HTMLInputElement
+        })
+        fireEvent.change(input, { target: { value: 'new-tag' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+        await waitFor(() => expect(messageTemplateLogic({ id: TEMPLATE_ID }).values.failedTagSaves).toBe(1))
+
+        expect(screen.queryByText('new-tag')).not.toBeInTheDocument()
+        expect(screen.getByText('old')).toBeInTheDocument()
+    })
+
+    it('keeps the open editor while it saves', async () => {
+        let releaseSave = (): void => {}
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': ORDER_RECEIPT },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                    await new Promise<void>((resolve) => (releaseSave = resolve))
+                    return [200, { ...ORDER_RECEIPT, name: 'Renamed' }]
+                },
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
+        const logic = messageTemplateLogic({ id: TEMPLATE_ID })
+        const subject = await screen.findByText('Subject')
+        act(() => logic.actions.setTemplateValue('name', 'Renamed'))
+
+        fireEvent.click(screen.getByText('Save'))
+        await waitFor(() => expect(logic.values.savedTemplateLoading).toBe(true))
+        expect(subject).toBeInTheDocument()
+
+        await act(async () => releaseSave())
+        await waitFor(() => expect(logic.values.templateChanged).toBe(false))
+        expect(subject).toBeInTheDocument()
     })
 })

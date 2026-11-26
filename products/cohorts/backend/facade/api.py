@@ -78,6 +78,23 @@ def find_cohort_ref_by_description(*, team_id: int, description: str) -> CohortR
     )
 
 
+@frozen
+class DescribedCohort:
+    id: int
+    name: str
+    description: str
+
+
+def static_cohorts_by_description_prefix(*, team_id: int, prefix: str) -> list[DescribedCohort]:
+    """The team's static cohorts whose description starts with `prefix`, oldest first, without deleted ones."""
+    cohorts = (
+        Cohort.objects.filter(team_id=team_id, is_static=True, deleted=False, description__startswith=prefix)
+        .order_by("id")
+        .values_list("id", "name", "description")
+    )
+    return [DescribedCohort(id=pk, name=name or "", description=description) for pk, name, description in cohorts]
+
+
 def create_empty_static_cohort(*, team_id: int, name: str, description: str, created_by_id: int) -> CohortRef:
     cohort = Cohort.objects.create(
         team_id=team_id, name=name, description=description, is_static=True, count=0, created_by_id=created_by_id

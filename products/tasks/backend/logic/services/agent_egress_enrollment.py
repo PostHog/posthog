@@ -25,6 +25,7 @@ class AgentEgressEnrollmentConfig(BaseModel):
     client_ca_key_file: Path
     renew_relay_certificate: bool = False
     maintain_for_run: bool = False
+    publish_git_read_grant: bool = False
     duration_seconds: int = Field(default=360, ge=1, le=600)
     concurrency: int = Field(default=1, ge=1, le=32)
     requests_per_round: int = Field(default=1, ge=1, le=256)
@@ -45,6 +46,8 @@ class AgentEgressEnrollmentConfig(BaseModel):
 
 
 class AgentEgressRunConfig(AgentEgressProbeConfig):
+    publish_git_read_grant: bool = False
+
     @classmethod
     def for_run(cls, *, team_id: int, run_id: UUID, sandbox_id: str) -> AgentEgressRunConfig:
         config = AgentEgressEnrollmentConfig.load()

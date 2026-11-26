@@ -48,6 +48,7 @@ from products.data_modeling.backend.temporal.activities import (
     succeed_materialization_activity,
 )
 from products.data_modeling.backend.temporal.activities.enrich_view_semantics import EnrichViewSemanticsInputs
+from products.data_modeling.backend.temporal.activities.fail_materialization import FAIL_MATERIALIZATION_MAX_ATTEMPTS
 from products.data_modeling.backend.temporal.metrics import (
     CANCELLED_STATUS,
     COMPLETED_STATUS,
@@ -90,6 +91,7 @@ NON_RETRYABLE_ERRORS = [
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
+    "HogQLModelQueryError",
     "DuplicateUniqueKeyError",
     "UnstorableIntegerError",
     "EndpointMaterializationTurnedOffError",
@@ -534,7 +536,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=3,
+                            maximum_attempts=FAIL_MATERIALIZATION_MAX_ATTEMPTS,
                         ),
                     )
                 except Exception as fail_err:
@@ -922,7 +924,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     update_node=False,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=FAIL_MATERIALIZATION_MAX_ATTEMPTS),
             )
         except Exception as fail_err:
             temporalio.workflow.logger.warning(

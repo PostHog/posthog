@@ -54,7 +54,6 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user = cast(User, request.user)
         try:
             client = build_openai_client(
-                "django",
                 ai_product="csp_reporting",
                 properties={"ai_feature": "explain-violation", "team_id": str(self.team_id)},
                 distinct_id=user.distinct_id or str(user.id),

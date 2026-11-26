@@ -1,11 +1,16 @@
+import './SectionTile.css'
+import './TileHoverReveal.css'
+
+import clsx from 'clsx'
 import { type ReactNode, useCallback, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconDrag } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
 import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { OnSectionRows } from '../grid/TileGrid'
+import { showsBorder } from '../presentation/tileAppearance'
 import { AddTileMenu } from './AddTileMenu'
 import { TileContextMenu, hasTileMenu, useSectionActions } from './TileContextMenu'
 import { TileMenuButton } from './TileMenuButton'
@@ -42,7 +47,7 @@ export function SectionTile({
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, widget, () => setDraft(widget.title))
     const hasMenu = hasTileMenu(actions)
-    const showAdd = editable && can('addTile')
+    const showAdd = can('addTile')
 
     const onLiveRows = useCallback(
         (rows: number | null): void =>
@@ -59,9 +64,8 @@ export function SectionTile({
 
     return (
         <TileContextMenu actions={actions}>
-            <Section collapsed={collapsed}>
+            <Section border={showsBorder(widget)}>
                 <SectionHeader
-                    draggable={editable}
                     actions={
                         (showAdd || hasMenu) && (
                             <SectionActions>
@@ -74,7 +78,7 @@ export function SectionTile({
                     <SectionTitle
                         title={widget.title}
                         collapsed={collapsed}
-                        canEdit={editable && can('updateSection')}
+                        canEdit={can('updateSection')}
                         onToggle={() => onSectionFoldedChange(id, !collapsed)}
                         onRename={(title) => onEdit({ edit: 'updateSection', id, patch: { title } })}
                         draft={draft}
@@ -100,12 +104,12 @@ export function SectionTile({
 }
 
 /** A section is a quill card, so it reads like a tile that holds tiles. */
-export function Section({ collapsed, children }: { collapsed: boolean; children: ReactNode }): JSX.Element {
+export function Section({ border = true, children }: { border?: boolean; children: ReactNode }): JSX.Element {
     return (
         <Card
             size="sm"
             role="group"
-            className={collapsed ? 'DashboardV2__section DashboardV2__section--collapsed' : 'DashboardV2__section'}
+            className={border ? 'SectionTile' : 'SectionTile SectionTile--no-border'}
             data-attr="dashboard-v2-section"
         >
             {children}
@@ -114,21 +118,10 @@ export function Section({ collapsed, children }: { collapsed: boolean; children:
 }
 
 /** The section's title bar, which is also what the section is dragged by. */
-export function SectionHeader({
-    draggable,
-    actions,
-    children,
-}: {
-    draggable: boolean
-    actions?: ReactNode
-    children: ReactNode
-}): JSX.Element {
+export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
     return (
-        <CardHeader className="DashboardV2__section-header DashboardV2__handle">
-            <div className="flex items-center gap-1 min-w-0">
-                {draggable && <IconDrag className="DashboardV2__chrome size-4 shrink-0 text-muted-foreground" />}
-                {children}
-            </div>
+        <CardHeader className="SectionTile__header TileGrid__handle">
+            <div className="flex items-center gap-1 min-w-0">{children}</div>
             {actions}
         </CardHeader>
     )
@@ -181,7 +174,7 @@ export function SectionTitle({
         label = (
             <Button
                 size="xs"
-                className="quill-card__title min-w-0 max-w-full"
+                className="quill-card__title min-w-0 max-w-full shrink"
                 tooltip="Rename"
                 data-attr="dashboard-v2-section-rename"
                 onClick={() => setDraft(title)}
@@ -190,19 +183,23 @@ export function SectionTitle({
             </Button>
         )
     } else {
-        label = <CardTitle className="truncate">{title}</CardTitle>
+        label = <CardTitle className="TileGrid__text truncate">{title}</CardTitle>
     }
 
     return (
         <div className="flex items-center gap-1 min-w-0">
             <Button
                 size="icon-xs"
+                className="SectionTile__toggle"
                 aria-label={collapsed ? 'Expand' : 'Collapse'}
                 aria-expanded={!collapsed}
                 data-attr="dashboard-v2-section-toggle"
                 onClick={onToggle}
             >
-                {collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                {/* One icon turned, because the down chevron's glyph is drawn smaller than the right one. */}
+                <IconChevronRight
+                    className={clsx('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
+                />
             </Button>
             {label}
         </div>
@@ -215,15 +212,13 @@ export function SectionCount({ count }: { count: number }): JSX.Element {
 
 /** Pushed to the end of the header, and shown only while the header is hovered or focused. */
 export function SectionActions({ children }: { children: ReactNode }): JSX.Element {
-    return <CardAction className="DashboardV2__chrome flex items-center gap-1">{children}</CardAction>
+    return <CardAction className="TileHoverReveal flex items-center gap-1">{children}</CardAction>
 }
 
 export function SectionBody({ emptyLabel, children }: { emptyLabel: string | null; children: ReactNode }): JSX.Element {
     return (
-        <CardContent className="DashboardV2__section-body">
-            {emptyLabel && (
-                <span className="DashboardV2__section-empty text-sm text-muted-foreground">{emptyLabel}</span>
-            )}
+        <CardContent className="SectionTile__body">
+            {emptyLabel && <span className="SectionTile__empty text-sm text-muted-foreground">{emptyLabel}</span>}
             {children}
         </CardContent>
     )

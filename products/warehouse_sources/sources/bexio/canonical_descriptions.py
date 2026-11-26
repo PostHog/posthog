@@ -579,4 +579,83 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "personal_number": "Personnel number of the employee.",
         },
     },
+    "countries": {
+        "description": "Countries that contacts and addresses can use.",
+        "docs_url": _docs("Countries", "v2ListCountries"),
+        "columns": {
+            "id": "Unique identifier of the country.",
+            "name": "Name of the country.",
+            "name_short": "Short name of the country.",
+            "iso3166_alpha2": "ISO 3166-1 alpha-2 code of the country.",
+        },
+    },
+    "languages": {
+        "description": "Languages that contacts and documents can use, with their number and date formats.",
+        "docs_url": _docs("Languages", "v2ListLanguages"),
+        "columns": {
+            "id": "Unique identifier of the language.",
+            "name": "Name of the language.",
+            "decimal_point": "Decimal separator of the language.",
+            "thousands_separator": "Thousands separator of the language.",
+            "date_format_id": "Date format: 1 means DD.MM.YYYY, 2 means MM/DD/YYYY.",
+            "date_format": "Date format as a format string, for example d.m.Y.",
+            "iso_639_1": "ISO 639-1 code of the language.",
+        },
+    },
+    "salutations": {
+        "description": "Salutations that contacts can use, for example Herr or Frau.",
+        "docs_url": _docs("Salutations", "v2ListSalutations"),
+        "columns": {
+            "id": "Unique identifier of the salutation.",
+            "name": "Text of the salutation.",
+        },
+    },
+    "titles": {
+        "description": "Titles that contacts can use, for example Dr.",
+        "docs_url": _docs("Titles", "v2ListTitles"),
+        "columns": {
+            "id": "Unique identifier of the title.",
+            "name": "Text of the title.",
+        },
+    },
+    "contact_branches": {
+        "description": "Contact sectors (branches), the industries that contacts belong to.",
+        "docs_url": _docs("Contact-Sectors", "v2ListContactSectors"),
+        "columns": {
+            "id": "Unique identifier of the contact sector.",
+            "name": "Name of the contact sector.",
+        },
+    },
+    "task_statuses": {
+        "description": "Statuses a task can have, for example open or done.",
+        "docs_url": _docs("Tasks", "v2ListTaskStatus"),
+        "columns": {
+            "id": "Unique identifier of the task status.",
+            "name": "Name of the task status.",
+        },
+    },
+    "task_priorities": {
+        "description": "Priorities a task can have, for example high or low.",
+        "docs_url": _docs("Tasks", "v2ListTaskPriorities"),
+        "columns": {
+            "id": "Unique identifier of the task priority.",
+            "name": "Name of the task priority.",
+        },
+    },
+    "payment_types": {
+        "description": "Payment types that sales documents can use, for example cash.",
+        "docs_url": _docs("Payment-Types", "v2ListPaymentTypes"),
+        "columns": {
+            "id": "Unique identifier of the payment type.",
+            "name": "Name of the payment type.",
+        },
+    },
+    "units": {
+        "description": "Units that items and document positions can use, for example h or kg.",
+        "docs_url": _docs("Units", "v2ListUnits"),
+        "columns": {
+            "id": "Unique identifier of the unit.",
+            "name": "Name of the unit.",
+        },
+    },
 }

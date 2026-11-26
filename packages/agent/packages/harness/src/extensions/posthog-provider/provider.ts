@@ -10,7 +10,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { CloudRegion } from "@posthog/agent-contracts";
 import {
-  getLlmGatewayUrl,
+  getGatewayBaseUrl,
   resolveExplicitRegion,
   resolveRegion,
 } from "./gateway";
@@ -85,7 +85,7 @@ export function buildPosthogProvider(
 ): ProviderConfig {
   const region = resolveRegion(options.region);
   const explicitRegion = resolveExplicitRegion(options.region);
-  const baseUrl = options.baseUrl ?? getLlmGatewayUrl(region);
+  const baseUrl = options.baseUrl ?? getGatewayBaseUrl(region);
   const routedModels = models.map((model) => ({
     ...model,
     headers: options.headers,

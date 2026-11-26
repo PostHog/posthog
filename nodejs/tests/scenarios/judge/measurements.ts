@@ -11,6 +11,7 @@ import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
+import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
@@ -38,21 +39,26 @@ export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
 export type Probed = { writer: WriterSample[]; queue: QueueSample[] }
 
-export type DriveWindow = { startedAt: number; endedAt: number }
+export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: number }
 
 type Value = { value: number; censored?: true } | { value: null; censored: true }
 
-type Measured = { key?: string; incomplete?: true } & Value
+type Measured = { key?: string; incomplete?: true; unmeasured?: string } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
-export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets'> &
+export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> &
     Readonly<Sampled> &
     Readonly<Probed> & {
         sampledFrom: number
         drive: DriveWindow
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
+        counters?: CounterReading
+        unread?: string
+        horizonAt?: number
+        converged?: boolean
+        unsettled?: string
     }
 
 export type MeasurementDefinition = Definition & {
@@ -60,8 +66,8 @@ export type MeasurementDefinition = Definition & {
     measure(evidence: MeasureEvidence): Measured[]
 }
 
-const SAMPLE_INTERVAL_MS = 5000
-const SCRAPE_TIMEOUT_MS = 2000
+export const SAMPLE_INTERVAL_MS = 5000
+export const SCRAPE_TIMEOUT_MS = 2000
 const BASELINE_WITHIN_MS = 10_000
 const BASELINE_RETRY_MS = 500
 
@@ -114,6 +120,9 @@ export const roleCpuSeconds: MeasurementDefinition = {
         }),
 }
 
+export const maxOf = (values: readonly number[]): number =>
+    values.reduce((max, value) => Math.max(max, value), -Infinity)
+
 export const roleRssMaxBytes: MeasurementDefinition = {
     name: 'role_rss_max_bytes',
     params: z.object({}).strict(),
@@ -121,7 +130,7 @@ export const roleRssMaxBytes: MeasurementDefinition = {
     measure: ({ samples, missed }) =>
         [...byRole(samples)].map(([role, ofRole]) => ({
             key: role,
-            value: Math.max(...ofRole.map(({ rssBytes }) => rssBytes)),
+            value: maxOf(ofRole.map(({ rssBytes }) => rssBytes)),
             ...completeness(role, missed),
         })),
 }
@@ -171,13 +180,14 @@ export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEnt
         const released = releaseIntentAt ?? releasedAt
         return { intent: Date.parse(intentAt!), released: released === undefined ? Infinity : Date.parse(released) }
     })
+    const from = Math.min(drive.warmedAt ?? drive.startedAt, drive.endedAt)
     if (applied.length === 0) {
-        return { baseline: { from: drive.startedAt, to: drive.endedAt } }
+        return { baseline: { from, to: drive.endedAt } }
     }
-    const intent = Math.max(Math.min(...applied.map(({ intent }) => intent)), drive.startedAt)
+    const intent = Math.max(Math.min(...applied.map(({ intent }) => intent)), from)
     const released = Math.max(...applied.map(({ released }) => released))
     return {
-        baseline: { from: drive.startedAt, to: intent },
+        baseline: { from, to: intent },
         valve: { from: intent, to: Math.min(released, drive.endedAt) },
         ...(released < drive.endedAt ? { failback: { from: released, to: drive.endedAt } } : {}),
     }
@@ -496,7 +506,7 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
             .map(({ oldestDueSeconds }) => oldestDueSeconds)
         return ages.length === 0
             ? []
-            : [{ value: Math.max(...ages), ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
+            : [{ value: maxOf(ages), ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
     }),
     inPhase('drain_seconds', 's', 'valve', ({ queue }, phase, { baseline }) => drain(queue, baseline, phase)),
     inPhase('failback_drain_seconds', 's', 'failback', ({ queue }, phase, { baseline }) =>
@@ -545,6 +555,7 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
 

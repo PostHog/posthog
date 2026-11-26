@@ -71,6 +71,7 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
+from products.alerts.backend.platform_hooks import key_scopes_lack_metrics
 from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
     count_configurations,
@@ -878,6 +879,7 @@ __all__ = [
     "forecast_detector_access_error",
     "forecast_rule",
     "is_llm_detector_config",
+    "key_scopes_lack_metrics",
     "llm_detector_access_error",
     "validate_alert_write",
 ]

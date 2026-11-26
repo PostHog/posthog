@@ -7,7 +7,11 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { QuillIncrementalConfigOptions } from 'scenes/data-warehouse/editor/QuillIncrementalConfigOptions'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
-import { formatWatermark, refreshModeChange } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
+import {
+    formatWatermark,
+    materializedSettingsReasons,
+    refreshModeChange,
+} from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { QuillSyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/QuillSyncFrequencySelect'
 import { SyncFrequencyValue, defaultCadenceWithin } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
@@ -15,49 +19,78 @@ import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery 
 
 const MATERIALIZATION_DOCS_URL = 'https://posthog.com/docs/data-warehouse/views#materializing-and-scheduling-a-view'
 
-function MaterializedSettings({
+function RefreshModeSettings({
     savedQuery,
-    kind,
+    disabledReason,
+}: {
+    savedQuery: DataWarehouseSavedQuery
+    disabledReason: string | undefined
+}): JSX.Element | null {
+    const jobsLogic = materializationJobsLogic({ viewId: savedQuery.id, kind: 'view' })
+    const { incrementalCheck, incrementalDraft } = useValues(jobsLogic)
+    const { setIncrementalDraft } = useActions(jobsLogic)
+    const { structuralChange, refreshModeChanged } = refreshModeChange(savedQuery.incremental, incrementalDraft)
+
+    if (savedQuery.managed_viewset_kind || !incrementalCheck) {
+        return null
+    }
+    return (
+        <FieldSet className="max-w-160" disabled={!!disabledReason}>
+            <FieldLegend>Refresh mode</FieldLegend>
+            <QuillIncrementalConfigOptions
+                check={incrementalCheck}
+                draft={incrementalDraft}
+                onChange={setIncrementalDraft}
+            />
+            {refreshModeChanged && incrementalDraft.enabled && (
+                <Text size="xs" variant="muted" className="m-0">
+                    {structuralChange
+                        ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
+                        : 'The new lookback applies from the next run.'}
+                </Text>
+            )}
+        </FieldSet>
+    )
+}
+
+/** Settings of a materialized view. Endpoints show none: their cadence and refresh mode live on the endpoint. */
+function MaterializedViewSettings({
+    savedQuery,
     blockedReason,
 }: {
     savedQuery: DataWarehouseSavedQuery
-    kind: 'view' | 'endpoint'
     blockedReason: string | undefined
 }): JSX.Element {
-    const jobsLogic = materializationJobsLogic({ viewId: savedQuery.id, kind })
+    const jobsLogic = materializationJobsLogic({ viewId: savedQuery.id, kind: 'view' })
     const {
         dataModelingJobs,
         startingMaterialization,
-        incrementalCheck,
-        incrementalDraft,
         syncFrequencyDraft,
         savingMaterialization,
         cadencePin,
         nodeFrequency,
         nodeFrequencyLoading,
     } = useValues(jobsLogic)
-    const { setIncrementalDraft, setSyncFrequencyDraft, setPinDraft } = useActions(jobsLogic)
+    const { setSyncFrequencyDraft, setPinDraft } = useActions(jobsLogic)
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
-    const runningReason =
-        dataModelingJobs?.results?.[0]?.status === 'Running'
-            ? 'Materialization is currently running'
-            : startingMaterialization
-              ? 'Materialization is starting'
-              : undefined
-    const frequencyReason = runningReason || blockedReason
-    const { structuralChange, refreshModeChanged } = refreshModeChange(savedQuery.incremental, incrementalDraft)
-    const showIncremental = kind !== 'endpoint' && !!savedQuery.incremental?.enabled
+    const { frequencyReason, refreshModeReason, cadenceNote } = materializedSettingsReasons({
+        running: dataModelingJobs?.results?.[0]?.status === 'Running',
+        startingMaterialization,
+        blockedReason,
+        hasCadenceDraft: syncFrequencyDraft !== null,
+    })
+    const incrementalState = savedQuery.incremental?.enabled ? savedQuery.incremental_state : null
 
     return (
         <>
-            {showIncremental && savedQuery.incremental_state?.last_run_mode === 'incremental' && (
+            {incrementalState?.last_run_mode === 'incremental' && (
                 <Text size="xs" variant="muted" className="m-0">
-                    Updating new rows only, up to {formatWatermark(savedQuery.incremental_state?.watermark)}
+                    Updating new rows only, up to {formatWatermark(incrementalState.watermark)}
                 </Text>
             )}
-            {kind !== 'endpoint' && nodeFrequencyLoading && !nodeFrequency ? (
+            {nodeFrequencyLoading && !nodeFrequency ? (
                 <Skeleton className="h-8 w-80 max-w-full" />
-            ) : kind !== 'endpoint' ? (
+            ) : (
                 <QuillSyncFrequencySelect
                     bounds={savedQuery.sync_frequency_bounds}
                     disabledReason={frequencyReason}
@@ -67,24 +100,13 @@ function MaterializedSettings({
                     pin={cadencePin}
                     onUnpin={() => setPinDraft(false)}
                 />
-            ) : null}
-            {kind !== 'endpoint' && !savedQuery.managed_viewset_kind && incrementalCheck && (
-                <FieldSet className="max-w-160" disabled={!!frequencyReason}>
-                    <FieldLegend>Refresh mode</FieldLegend>
-                    <QuillIncrementalConfigOptions
-                        check={incrementalCheck}
-                        draft={incrementalDraft}
-                        onChange={setIncrementalDraft}
-                    />
-                    {refreshModeChanged && incrementalDraft.enabled && (
-                        <Text size="xs" variant="muted" className="m-0">
-                            {structuralChange
-                                ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
-                                : 'The new lookback applies from the next run.'}
-                        </Text>
-                    )}
-                </FieldSet>
             )}
+            {cadenceNote && (
+                <Text size="xs" variant="muted" className="m-0">
+                    {cadenceNote}
+                </Text>
+            )}
+            <RefreshModeSettings savedQuery={savedQuery} disabledReason={refreshModeReason} />
         </>
     )
 }
@@ -158,15 +180,16 @@ export function QuillMaterializationSettings({
     return (
         <div className="flex flex-col gap-4">
             {savedQuery.is_materialized ? (
-                <MaterializedSettings
-                    savedQuery={savedQuery}
-                    kind={kind}
-                    blockedReason={
-                        (savingMaterialization ? 'Saving materialization settings' : undefined) ||
-                        accessReason ||
-                        actionReason
-                    }
-                />
+                kind === 'endpoint' ? null : (
+                    <MaterializedViewSettings
+                        savedQuery={savedQuery}
+                        blockedReason={
+                            (savingMaterialization ? 'Saving materialization settings' : undefined) ||
+                            accessReason ||
+                            actionReason
+                        }
+                    />
+                )
             ) : (
                 <UnmaterializedSettings
                     savedQuery={savedQuery}
