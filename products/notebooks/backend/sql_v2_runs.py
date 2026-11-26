@@ -17,6 +17,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.hogql.database.database import access_controlled_posthog_tables
+
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots, renew_run_slots
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT, outcome_for_status, record_node_run_terminal
@@ -113,22 +115,42 @@ def record_kernel_read_scopes(team_id: int, run_id: str, read_scopes: set[str]) 
     if kernel_runtime_id is None:
         return
     with transaction.atomic():
+        # nosemgrep: idor-lookup-without-user-and-team (internal data-plane path; a user filter would skip a kernel another user owns and lift its gate)
         runtime = KernelRuntime.objects.select_for_update().filter(id=kernel_runtime_id, team_id=team_id).first()
-        if runtime is None or read_scopes.issubset(runtime.read_scopes or []):
+        # None is a kernel started before reads were recorded: its history stays unknown, and
+        # kernel_read_scopes gates it on everything.
+        if runtime is None or runtime.read_scopes is None or read_scopes.issubset(runtime.read_scopes):
             return
         runtime.read_scopes = sorted(read_scopes.union(runtime.read_scopes or []))
         runtime.save(update_fields=["read_scopes"])
 
 
+def run_credential_denied_scopes(team_id: int, run_id: str | None) -> frozenset[str]:
+    """What the credential that started `run_id` may not read, for the queries the sandbox makes without it."""
+    if not run_id:
+        return frozenset()
+    scopes = (
+        NotebookNodeRun.objects.for_team(team_id)
+        .filter(id=run_id)
+        .values_list("credential_denied_scopes", flat=True)
+        .first()
+    )
+    return frozenset(scopes or ())
+
+
 def kernel_read_scopes(team_id: int, kernel_runtime_id: UUID | None) -> list[str]:
     if kernel_runtime_id is None:
         return []
-    scopes = (
-        KernelRuntime.objects.filter(id=kernel_runtime_id, team_id=team_id)
-        .values_list("read_scopes", flat=True)
-        .first()
+    rows = list(
+        # nosemgrep: idor-lookup-without-user-and-team (internal data-plane path; a user filter would skip a kernel another user owns and lift its gate)
+        KernelRuntime.objects.filter(id=kernel_runtime_id, team_id=team_id).values_list("read_scopes", flat=True)[:1]
     )
-    return sorted(scopes or [])
+    if not rows:
+        return []
+    if rows[0] is None:
+        # A kernel started before reads were recorded may hold any gated rows in its cache.
+        return sorted(set(access_controlled_posthog_tables().values()))
+    return sorted(rows[0])
 
 
 def seconds_until_kernel_run_is_stale(run: NotebookNodeRun) -> float | None:

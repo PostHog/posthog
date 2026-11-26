@@ -276,6 +276,9 @@ class NotebookRun(TeamScopedRootMixin, UUIDModel):
     # The cells to run, as [{node_id, cell_type, dataframe_name}] in document order, frozen at
     # start. An edit during the run does not add or remove cells from it.
     cell_plan: JSONField = JSONField(default=list, blank=True)
+    # Resources whose `posthog.*` tables the credential that started this may not read, though its user
+    # may (a scoped key). Every query the run makes later, without that request, is denied them too.
+    credential_denied_scopes: JSONField = JSONField(default=None, null=True, blank=True)
     # How far through `cell_plan` the orchestrator is; the status endpoint reads it.
     current_index = models.IntegerField(default=0, db_default=0)
     failed_node_id = models.CharField(max_length=128, null=True, blank=True)
@@ -377,6 +380,9 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # are transient (starting/stopped/discarded/error) and run history must not be coupled
     # to their churn.
     kernel_runtime_id = models.UUIDField(null=True, blank=True)
+    # Resources whose `posthog.*` tables the credential that started this may not read, though its user
+    # may (a scoped key). Every query the run makes later, without that request, is denied them too.
+    credential_denied_scopes: JSONField = JSONField(default=None, null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

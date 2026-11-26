@@ -697,6 +697,7 @@ class KernelRuntimeService:
             user=user if isinstance(user, User) else None,
             status=KernelRuntime.Status.STARTING,
             backend=backend,
+            read_scopes=[],
         )
 
     def _discard_active_runtime(self, notebook: Notebook, user: User | None, backend: str) -> None:
