@@ -35,8 +35,18 @@ describe('dashboardFromJson', () => {
         ])
     })
 
-    it('gives no dashboard for a document without the shape of one', () => {
-        const { dashboard, problems } = dashboardFromJson({ version: 2, title: 'No tabs' }, SPECS)
+    it.each([
+        ['no tabs', { version: 2, title: 'No tabs' }],
+        [
+            'a section without tiles',
+            {
+                version: 2,
+                title: 'Empty section',
+                tabs: [{ id: 'tab', title: 'Tab', tiles: [tile('s', { type: 'section', title: 'S' })] }],
+            },
+        ],
+    ])('gives no dashboard for a document with %s', (_, json) => {
+        const { dashboard, problems } = dashboardFromJson(json, SPECS)
 
         expect(dashboard).toBeNull()
         expect(problems).not.toEqual([])
