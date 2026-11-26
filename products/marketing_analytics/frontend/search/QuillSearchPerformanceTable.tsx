@@ -1,0 +1,101 @@
+import { useMemo } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+import { DataTable, type DataTableProps, Skeleton, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+
+import { MarketingAnalyticsSearchRow } from '~/queries/schema/schema-general'
+
+import { searchPerformanceRowKey } from './searchPerformance'
+
+export interface SearchPerformanceColumn {
+    key: string
+    title: string
+    tooltip?: string
+    width: number
+    numeric?: boolean
+    sortValue?: (row: MarketingAnalyticsSearchRow) => number
+    render: (row: MarketingAnalyticsSearchRow) => JSX.Element
+}
+
+type QuillColumns = DataTableProps<MarketingAnalyticsSearchRow, unknown>['columns']
+
+const PAGE_SIZE = 10
+
+export function QuillSearchPerformanceTable({
+    columns,
+    rows,
+    loading,
+    emptyState,
+}: {
+    columns: SearchPerformanceColumn[]
+    rows: MarketingAnalyticsSearchRow[]
+    loading: boolean
+    emptyState: React.ReactNode
+}): JSX.Element {
+    const quillColumns = useMemo<QuillColumns>(
+        () =>
+            columns.map((column, index) => {
+                const base = {
+                    id: column.key,
+                    header: () =>
+                        column.tooltip ? (
+                            <Tooltip>
+                                <TooltipTrigger render={<span className="inline-flex items-center gap-1" />}>
+                                    {column.title}
+                                    <IconInfo className="size-3" />
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-80">{column.tooltip}</TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            column.title
+                        ),
+                    cell: ({ row }: { row: { original: MarketingAnalyticsSearchRow } }) => column.render(row.original),
+                    meta: {
+                        align: column.numeric ? ('right' as const) : undefined,
+                        sticky: index === 0 ? ('left' as const) : undefined,
+                    },
+                }
+                return column.sortValue
+                    ? { ...base, accessorFn: column.sortValue, sortDescFirst: false }
+                    : { ...base, enableSorting: false }
+            }),
+        [columns]
+    )
+
+    // The table stays mounted while loading so a reload keeps the sort.
+    const empty = useMemo(
+        () =>
+            loading ? (
+                <div className="flex flex-col gap-2" role="status" aria-label="Loading">
+                    {Array.from({ length: PAGE_SIZE }, (_, index) => (
+                        <Skeleton key={index} className="h-10" />
+                    ))}
+                </div>
+            ) : (
+                <div className="flex flex-col items-center gap-2 py-4 text-center">
+                    {typeof emptyState === 'string' ? (
+                        <Text size="xs" variant="muted" render={<span className="m-0" />}>
+                            {emptyState}
+                        </Text>
+                    ) : (
+                        emptyState
+                    )}
+                </div>
+            ),
+        [loading, emptyState]
+    )
+    const data = useMemo(() => (loading ? [] : rows), [loading, rows])
+
+    return (
+        <DataTable
+            columns={quillColumns}
+            data={data}
+            getRowId={searchPerformanceRowKey}
+            pageSize={data.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+            size="sm"
+            fullWidth
+            className="SearchPerformanceTable"
+            empty={empty}
+        />
+    )
+}

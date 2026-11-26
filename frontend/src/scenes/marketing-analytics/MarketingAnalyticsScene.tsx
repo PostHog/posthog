@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -526,9 +527,12 @@ export function MarketingAnalyticsScene(): JSX.Element {
                             )
                         }
                     />
-                    <MarketingAnalyticsAIToolWrapper>
-                        <MarketingAnalyticsContent />
-                    </MarketingAnalyticsAIToolWrapper>
+                    {/* Shared components here (settings blocks, insight errors, copy buttons) pick quill from the surface, not the flag. */}
+                    <QuillSurfaceContext.Provider value={todayRailNav}>
+                        <MarketingAnalyticsAIToolWrapper>
+                            <MarketingAnalyticsContent />
+                        </MarketingAnalyticsAIToolWrapper>
+                    </QuillSurfaceContext.Provider>
                 </SceneContent>
             </BindLogic>
         </BindLogic>

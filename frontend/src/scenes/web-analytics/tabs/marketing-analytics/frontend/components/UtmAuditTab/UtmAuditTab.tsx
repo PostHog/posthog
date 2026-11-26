@@ -15,6 +15,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 
 import {
@@ -38,6 +39,9 @@ import { CampaignFieldPreferencesConfiguration } from '../settings/CampaignField
 import { CampaignNameMappingsConfiguration } from '../settings/CampaignNameMappingsConfiguration'
 import { CustomSourceMappingsConfiguration } from '../settings/CustomSourceMappingsConfiguration'
 import { IntegrationSettingsModal } from '../settings/IntegrationSettingsModal'
+import { QuillUtmAuditCampaignTab } from './QuillUtmAuditCampaignTab'
+import { QuillUtmAuditSourceTab } from './QuillUtmAuditSourceTab'
+import { QuillUtmAuditTab } from './QuillUtmAuditTab'
 
 const SOURCE_TO_INTEGRATION: Record<string, NativeMarketingSource> = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [MARKETING_INTEGRATION_CONFIGS[source].primarySource, source])
@@ -62,7 +66,7 @@ const DISPLAY_NAMES: Record<string, string> = {
     PinterestAds: 'Pinterest Ads',
 }
 
-function sourceLabel(source: string): string {
+export function sourceLabel(source: string): string {
     return DISPLAY_NAMES[source] || source
 }
 
@@ -76,6 +80,8 @@ const ISSUE_LABELS: Record<UtmIssueKind, string> = {
     unknown_source: 'Source mismatch',
 }
 
+const ALL_INTEGRATIONS = '__all__'
+
 function joinSources(sources: string[]): string {
     if (sources.length < 2) {
         return sources[0] ?? ''
@@ -85,7 +91,7 @@ function joinSources(sources: string[]): string {
 
 // Compose scoped, honest text for a campaign's status pill. The pill label is intentionally
 // terse; this explains what the audit actually found for this specific campaign.
-function issueTooltip(record: CampaignAuditResult): string {
+export function issueTooltip(record: CampaignAuditResult): string {
     const issue = record.issues[0]
     if (!issue) {
         return ''
@@ -121,12 +127,12 @@ function issueTooltip(record: CampaignAuditResult): string {
 }
 
 // Short pill label reflecting the issue kind. The tooltip carries the full explanation.
-function issueLabel(record: CampaignAuditResult): string {
+export function issueLabel(record: CampaignAuditResult): string {
     const kind = record.issues[0]?.kind
     return (kind && ISSUE_LABELS[kind]) || 'Source mismatch'
 }
 
-function formatNumber(value: number): string {
+export function formatNumber(value: number): string {
     return new Intl.NumberFormat('en-US').format(value)
 }
 
@@ -184,35 +190,49 @@ function CampaignTabContent(): JSX.Element {
     const { setSelectedCampaign, setSelectedUtmCampaign, setCampaignSearch, setUtmSearch } = useActions(utmAuditLogic)
     const { openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const canMap = selectedCampaign !== null && selectedUtmCampaign !== null && selectedCampaignData !== null
+    const mapPrompt = canMap
+        ? `Map "${selectedUtmCampaign}" → "${selectedCampaign}"`
+        : 'Select a campaign on the left and a UTM campaign on the right to create a mapping'
+    const mapCampaign = (): void => {
+        if (canMap && selectedCampaignData) {
+            const integration = SOURCE_TO_INTEGRATION[selectedCampaignData.source_name.toLowerCase()]
+            if (integration) {
+                openIntegrationSettingsModal(integration, 'mappings', selectedUtmCampaign!, selectedCampaign!)
+            }
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillUtmAuditCampaignTab
+                loading={auditDataLoading}
+                campaigns={filteredCampaigns}
+                utmCampaigns={sortedUtmCampaigns}
+                selectedCampaign={selectedCampaign}
+                selectedUtmCampaign={selectedUtmCampaign}
+                onSelectCampaign={setSelectedCampaign}
+                onSelectUtmCampaign={setSelectedUtmCampaign}
+                campaignSearch={campaignSearch}
+                onCampaignSearchChange={setCampaignSearch}
+                utmSearch={utmSearch}
+                onUtmSearchChange={setUtmSearch}
+                baseCurrency={baseCurrency}
+                canMap={canMap}
+                mapPrompt={mapPrompt}
+                onMapCampaign={mapCampaign}
+            />
+        )
+    }
 
     return (
         <>
             {/* Map campaigns action bar */}
             <div className="flex items-center justify-between p-3 rounded border mb-4">
-                <div className="text-sm text-secondary">
-                    {canMap
-                        ? `Map "${selectedUtmCampaign}" → "${selectedCampaign}"`
-                        : 'Select a campaign on the left and a UTM campaign on the right to create a mapping'}
-                </div>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    disabled={!canMap}
-                    onClick={() => {
-                        if (canMap && selectedCampaignData) {
-                            const integration = SOURCE_TO_INTEGRATION[selectedCampaignData.source_name.toLowerCase()]
-                            if (integration) {
-                                openIntegrationSettingsModal(
-                                    integration,
-                                    'mappings',
-                                    selectedUtmCampaign!,
-                                    selectedCampaign!
-                                )
-                            }
-                        }
-                    }}
-                >
+                <div className="text-sm text-secondary">{mapPrompt}</div>
+                <LemonButton type="primary" size="small" disabled={!canMap} onClick={mapCampaign}>
                     Map campaign
                 </LemonButton>
             </div>
@@ -375,6 +395,18 @@ function CampaignTabContent(): JSX.Element {
 function SourceTabContent(): JSX.Element {
     const { auditDataLoading, aggregatedUtmSources, utmSearch } = useValues(utmAuditLogic)
     const { setUtmSearch } = useActions(utmAuditLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillUtmAuditSourceTab
+                loading={auditDataLoading}
+                sources={aggregatedUtmSources}
+                utmSearch={utmSearch}
+                onUtmSearchChange={setUtmSearch}
+            />
+        )
+    }
 
     return (
         <div>
@@ -502,8 +534,38 @@ export function UtmAuditTab(): JSX.Element {
     const { setActiveTab, setSourceFilter, loadAuditData } = useActions(utmAuditLogic)
     const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const integrationFilter = sourceFilter ? SOURCE_TO_INTEGRATION[sourceFilter] : undefined
+    const sourceFilterOptions = [
+        { value: ALL_INTEGRATIONS, label: 'All integrations' },
+        ...availableSources.map((s) => ({ value: s, label: sourceLabel(s) })),
+    ]
+    const onSourceFilterChange = (value: string): void => setSourceFilter(value === ALL_INTEGRATIONS ? null : value)
+
+    if (todayRailNav) {
+        return (
+            <QuillUtmAuditTab
+                loading={auditDataLoading}
+                failed={!!auditDataFailure}
+                onReload={() => loadAuditData()}
+                sourceFilterValue={sourceFilter ?? ALL_INTEGRATIONS}
+                sourceFilterOptions={sourceFilterOptions}
+                onSourceFilterChange={onSourceFilterChange}
+                stats={[
+                    { label: 'Campaigns', value: auditData?.total_campaigns ?? 0 },
+                    { label: 'Not linked', value: campaignsWithoutUtmCount, alert: campaignsWithoutUtmCount > 0 },
+                    { label: 'UTM sources', value: totalUtmSourcesCount },
+                    { label: 'Unmapped sources', value: unmappedSourcesCount, alert: unmappedSourcesCount > 0 },
+                ]}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                campaignContent={<CampaignTabContent />}
+                sourceContent={<SourceTabContent />}
+                integrationFilter={integrationFilter}
+            />
+        )
+    }
 
     return (
         <div className="mt-4 mb-8 space-y-4">
@@ -516,12 +578,9 @@ export function UtmAuditTab(): JSX.Element {
                 </div>
                 <LemonSelect
                     size="small"
-                    value={sourceFilter ?? '__all__'}
-                    onChange={(value) => setSourceFilter(value === '__all__' ? null : value)}
-                    options={[
-                        { value: '__all__', label: 'All integrations' },
-                        ...availableSources.map((s) => ({ value: s, label: sourceLabel(s) })),
-                    ]}
+                    value={sourceFilter ?? ALL_INTEGRATIONS}
+                    onChange={onSourceFilterChange}
+                    options={sourceFilterOptions}
                 />
             </div>
 

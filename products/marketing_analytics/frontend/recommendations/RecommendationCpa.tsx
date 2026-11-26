@@ -6,11 +6,7 @@ import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-genera
 
 import { BENCHMARK_SOURCE_DESCRIPTIONS, BENCHMARK_SOURCE_LABELS } from './recommendations'
 
-export function RecommendationCpa({
-    recommendation,
-}: {
-    recommendation: MarketingAnalyticsRecommendation
-}): JSX.Element | null {
+export function recommendationCpaBenchmarkTooltip(recommendation: MarketingAnalyticsRecommendation): string | null {
     const { cpa, currency } = recommendation
     if (!cpa || cpa.benchmark == null || !cpa.benchmarkSource) {
         return null
@@ -20,10 +16,24 @@ export function RecommendationCpa({
         cpa.bestCampaign != null && cpa.worstCampaign != null && cpa.bestCampaign !== cpa.worstCampaign
             ? ` Non-brand CPA across your non-brand Search campaigns ranges from ${money(cpa.bestCampaign)} to ${money(cpa.worstCampaign)}.`
             : ''
+    return `${BENCHMARK_SOURCE_DESCRIPTIONS[cpa.benchmarkSource]}${range}`
+}
+
+export function RecommendationCpa({
+    recommendation,
+}: {
+    recommendation: MarketingAnalyticsRecommendation
+}): JSX.Element | null {
+    const { cpa, currency } = recommendation
+    const tooltip = recommendationCpaBenchmarkTooltip(recommendation)
+    if (!cpa || cpa.benchmark == null || !cpa.benchmarkSource || tooltip === null) {
+        return null
+    }
+    const money = (amount: number): string => formatMarketingMoney(amount, currency)
     return (
         <span className="flex flex-wrap items-center gap-x-2 text-xs text-secondary">
             {cpa.value != null && <span className="tabular-nums" translate="no">{`CPA ${money(cpa.value)}`}</span>}
-            <Tooltip title={`${BENCHMARK_SOURCE_DESCRIPTIONS[cpa.benchmarkSource]}${range}`}>
+            <Tooltip title={tooltip}>
                 <span className="cursor-help underline decoration-dotted underline-offset-2">
                     <span className="tabular-nums" translate="no">{`Benchmark ${money(cpa.benchmark)}`}</span>
                     <span>{`, ${BENCHMARK_SOURCE_LABELS[cpa.benchmarkSource]}`}</span>

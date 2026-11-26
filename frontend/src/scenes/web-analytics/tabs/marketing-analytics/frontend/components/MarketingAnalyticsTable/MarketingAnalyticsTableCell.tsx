@@ -1,6 +1,9 @@
 import { ComponentProps, createContext, useContext } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import {
     ConversionGoalFilter,
@@ -33,6 +36,7 @@ const GROUPING_ALIASES: string[] = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_
 // component. A render function built per render remounts every cell and detaches the old cell DOM.
 export function MarketingAnalyticsTableCell(props: ComponentProps<QueryContextColumnComponent>): JSX.Element | null {
     const options = useContext(MarketingAnalyticsTableCellContext)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const cell = (
         <MarketingAnalyticsCell
             {...props}
@@ -57,6 +61,28 @@ export function MarketingAnalyticsTableCell(props: ComponentProps<QueryContextCo
         return cell
     }
 
+    const openRecordings = (): void =>
+        options.setConversionRecordings({
+            tableKey: options.tableKey,
+            request,
+            goalName: goal.conversion_goal_name,
+        })
+
+    if (todayRailNav) {
+        return (
+            <Button
+                size="row"
+                left
+                className="h-auto [&_.cursor-default]:cursor-pointer"
+                data-attr="marketing-analytics-conversion-recordings"
+                tooltip="View recordings of these conversion sessions"
+                onClick={openRecordings}
+            >
+                {cell}
+            </Button>
+        )
+    }
+
     return (
         <LemonButton
             type="tertiary"
@@ -64,13 +90,7 @@ export function MarketingAnalyticsTableCell(props: ComponentProps<QueryContextCo
             className="[&_.cursor-default]:cursor-pointer"
             data-attr="marketing-analytics-conversion-recordings"
             tooltip="View recordings of these conversion sessions"
-            onClick={() =>
-                options.setConversionRecordings({
-                    tableKey: options.tableKey,
-                    request,
-                    goalName: goal.conversion_goal_name,
-                })
-            }
+            onClick={openRecordings}
         >
             {cell}
         </LemonButton>

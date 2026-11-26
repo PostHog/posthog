@@ -6,6 +6,17 @@ import { urls } from 'scenes/urls'
 
 import { recommendationsLogic } from './recommendationsLogic'
 
+export function recommendationsConnectGoogleAdsUrl(): string {
+    // pinned: entry_point on the source connect events, renaming it splits the attribution
+    return urls.dataWarehouseSourceNew(
+        'GoogleAds',
+        urls.marketingAnalyticsApp(),
+        'Marketing analytics',
+        undefined,
+        'marketing_analytics_recommendations'
+    )
+}
+
 export function RecommendationsConnectGoogleAdsButton({
     type,
     location,
@@ -19,14 +30,7 @@ export function RecommendationsConnectGoogleAdsButton({
         <LemonButton
             type={type}
             size="small"
-            // pinned: entry_point on the source connect events, renaming it splits the attribution
-            to={urls.dataWarehouseSourceNew(
-                'GoogleAds',
-                urls.marketingAnalyticsApp(),
-                'Marketing analytics',
-                undefined,
-                'marketing_analytics_recommendations'
-            )}
+            to={recommendationsConnectGoogleAdsUrl()}
             data-attr="marketing-recommendations-connect-google-ads"
             sideIcon={null}
             onClick={() => reportRecommendationsActionClicked('connect_google_ads', location)}

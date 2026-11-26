@@ -5,6 +5,7 @@ import { IconArrowRight, IconCheckCircle, IconExternal, IconInfo } from '@postho
 import { LemonButton, LemonCard, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -22,6 +23,8 @@ import {
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+
+import { QuillSourceCatalog } from './QuillSourceCatalog'
 
 const HedgehogMoney = pngHoggie(moneyPng)
 
@@ -44,6 +47,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportMarketingAnalyticsDataSourceConnected } = useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const enabledNativeSources = getEnabledNativeMarketingSourcesInDisplayOrder(featureFlags)
 
@@ -89,6 +93,40 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
     const fileSources = matchingSources.filter((s) => s.category === 'file')
 
     const totalConnected = validNativeSources.length + validExternalTables.length
+
+    if (todayRailNav) {
+        const toChips = (sources: MarketingSource[]): { id: string; label: string; isConnected: boolean }[] =>
+            sources.map((source) => ({
+                id: source.id,
+                label: marketingSourceDisplayLabel(source.id),
+                isConnected: source.isConnected,
+            }))
+        return (
+            <QuillSourceCatalog
+                hasSources={hasSources}
+                totalConnected={totalConnected}
+                search={manualSourceSearch}
+                onSearchChange={setManualSourceSearch}
+                groups={[
+                    { title: 'Native integrations (recommended)', sources: toChips(nativeSources) },
+                    {
+                        title: 'Data warehouse',
+                        tooltip: 'Import marketing data you already have in a data warehouse like BigQuery.',
+                        sources: toChips(externalSources),
+                    },
+                    {
+                        title: 'Files',
+                        tooltip:
+                            'Import spend data from CSV, JSON, or Parquet files in a storage bucket, or upload a file.',
+                        sources: toChips(fileSources),
+                    },
+                ]}
+                onSelect={handleSourceSelect}
+                onBack={onBack}
+                onContinue={onContinue}
+            />
+        )
+    }
 
     return (
         <LemonCard hoverEffect={false} className="w-full mt-6 p-0 overflow-hidden">

@@ -3,10 +3,12 @@ import { useValues } from 'kea'
 import { IconMinus, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 import type { ApplyOp, Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
 import { buildApplyDiff, type DiffLine } from './applyDiff'
+import { QuillSuggestionModal } from './QuillSuggestionModal'
 import { usePlatformLogo } from './SuggestionIcon'
 
 /** Navigate-only ops change no config, so there's no diff to preview — the modal says
@@ -107,17 +109,25 @@ function DiffBlock({ lines }: { lines: DiffLine[] }): JSX.Element {
     )
 }
 
+function urlFixSnippet(fix: ApplyOp): string {
+    return `utm_source=${String(fix.expected_utm_source)}${
+        fix.expected_utm_campaign ? `&utm_campaign=${String(fix.expected_utm_campaign)}` : ''
+    }`
+}
+
 function UrlFixBanner({ fix }: { fix: ApplyOp }): JSX.Element {
     return (
         <LemonBanner type="warning">
             A mapping works around the tagging, it doesn't fix it. The lasting fix is to tag the ad URLs with{' '}
-            <code className="font-mono">
-                utm_source={String(fix.expected_utm_source)}
-                {fix.expected_utm_campaign ? `&utm_campaign=${String(fix.expected_utm_campaign)}` : ''}
-            </code>{' '}
-            in the platform.
+            <code className="font-mono">{urlFixSnippet(fix)}</code> in the platform.
         </LemonBanner>
     )
+}
+
+const CHANGE_LABELS: Record<DiffLine['change'], string> = {
+    add: CHANGE_VERB.add.label,
+    remove: CHANGE_VERB.remove.label,
+    update: CHANGE_VERB.update.label,
 }
 
 /** Review-then-apply. The before/after is computed from the same op the server will
@@ -141,11 +151,34 @@ export function SuggestionModal({
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     // Above the early returns below — hook order has to match on every render.
     const logo = usePlatformLogo(suggestion?.integration ?? null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (batch.length) {
         const lines = batch.flatMap((item) =>
             item.apply ? buildApplyDiff(item.apply, marketingAnalyticsConfig).lines : []
         )
+        if (todayRailNav) {
+            return (
+                <QuillSuggestionModal
+                    title={`Apply ${batch.length} safe change${batch.length === 1 ? '' : 's'}`}
+                    logo={null}
+                    description="High-confidence, reversible changes only. Anything needing a judgement call was left out."
+                    explanation={null}
+                    noopMessage={lines.length ? null : 'These are already applied — nothing would change.'}
+                    lines={lines}
+                    changeLabels={CHANGE_LABELS}
+                    batchTitles={batch.map((item) => ({ id: item.id, title: item.title }))}
+                    urlFixSnippet={null}
+                    confirmLabel={
+                        lines.length ? `Apply ${lines.length} change${lines.length === 1 ? '' : 's'}` : 'Close'
+                    }
+                    confirmDestructive={false}
+                    isApplying={isApplying}
+                    onConfirm={() => (lines.length ? onConfirmBatch(batch) : onClose())}
+                    onClose={onClose}
+                />
+            )
+        }
         return (
             <LemonModal
                 isOpen
@@ -191,6 +224,31 @@ export function SuggestionModal({
     const explain = explanationFor(op)
     const diff = explain ? null : buildApplyDiff(op, marketingAnalyticsConfig)
     const urlFix = suggestion.also_recommended.find((candidate) => candidate.op === 'fix_platform_urls')
+
+    if (todayRailNav) {
+        return (
+            <QuillSuggestionModal
+                title={suggestion.title}
+                logo={logo}
+                description={suggestion.evidence}
+                explanation={explain ? explain(op) : null}
+                noopMessage={
+                    diff?.isNoop
+                        ? "This is already applied — nothing would change. It'll disappear from the list on the next scan."
+                        : null
+                }
+                lines={diff?.lines ?? []}
+                changeLabels={CHANGE_LABELS}
+                batchTitles={[]}
+                urlFixSnippet={urlFix ? urlFixSnippet(urlFix) : null}
+                confirmLabel={explain ? 'Continue' : diff?.isNoop ? 'Close' : (APPLY_LABEL[op.op] ?? 'Apply change')}
+                confirmDestructive={suggestion.kind === 'remove_mapping' || op.op === 'delete_conversion_goal'}
+                isApplying={isApplying}
+                onConfirm={() => (diff?.isNoop && !explain ? onClose() : onConfirm(suggestion))}
+                onClose={onClose}
+            />
+        )
+    }
 
     return (
         <LemonModal
