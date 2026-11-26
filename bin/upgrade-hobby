@@ -2,6 +2,11 @@
 
 set -e
 
+# docker-compose reads its settings from .env, but a variable set in the calling shell wins over .env.
+# A shell set up for another compose project, such as the PostHog dev stack, can carry these.
+# COMPOSE_PROJECT_NAME would point this upgrade at that project's containers and volumes.
+unset COMPOSE_PROJECT_NAME COMPOSE_FILE COMPOSE_PROFILES CADDY_HOST CADDY_TLS_BLOCK
+
 echo "Upgrading PostHog. This will cause a few minutes of downtime."
 read -r -p "Do you want to upgrade PostHog? [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]

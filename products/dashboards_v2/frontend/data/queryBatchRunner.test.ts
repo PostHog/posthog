@@ -21,7 +21,7 @@ const LATENCY: QueryRequest = {
 }
 const DAY_1 = Date.UTC(2026, 10, 1)
 
-interface OpenStream {
+type OpenStream = {
     body: any
     push: (text: string) => void
     close: () => void

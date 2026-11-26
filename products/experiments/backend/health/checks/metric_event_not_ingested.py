@@ -13,6 +13,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.events_received import joined, not_received_severity, quoted
 from products.experiments.backend.health.context import HealthContext, MetricEvents
 from products.experiments.backend.health.skips import (
+    NEEDS_METRIC_EVENT,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     CheckOutcome,
@@ -44,7 +45,7 @@ def metric_event_not_ingested(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NOT_AFTER_END)
     names = {event for metric in ctx.metric_events for event in metric.events}
     if not names:
-        return not_applicable("Runs once a metric uses an event")
+        return not_applicable(NEEDS_METRIC_EVENT)
     if not names & ctx.events_received.keys():
         return not_checked("Couldn't check because PostHog keeps no record of these event names")
     affected = [

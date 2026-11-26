@@ -26,6 +26,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = "error_tracking_issue_fingerprint_o
 ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = "error_tracking_fingerprint_issue_state"
 TICKET_TAGS = "ticket_tags"
 DEFINITION_TAGS = "definition_tags"
+DEFINITION_METADATA = "definition_metadata"
 TICKET_ASSIGNMENT = "ticket_assignment"
 TASK_LATEST_RUN = "task_latest_run"
 ENDPOINT_CURRENT_VERSION = "endpoint_current_version"

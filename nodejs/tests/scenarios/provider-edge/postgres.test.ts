@@ -15,6 +15,29 @@ const CONNECTION_LOST = 'connection lost'
 
 const codeOf = (error: unknown): string => (error instanceof DatabaseError && error.code ? error.code : CONNECTION_LOST)
 
+const frame = (type: string, ...parts: Buffer[]): Buffer => {
+    const body = Buffer.concat(parts)
+    const header = Buffer.alloc(5)
+    header.write(type, 0)
+    header.writeInt32BE(body.length + 4, 1)
+    return Buffer.concat([header, body])
+}
+const text = (value: string): Buffer => Buffer.from(`${value}\0`)
+const int16 = (value: number): Buffer => Buffer.from([value >> 8, value & 0xff])
+const int32 = (value: number): Buffer => {
+    const bytes = Buffer.alloc(4)
+    bytes.writeInt32BE(value)
+    return bytes
+}
+const wire = {
+    parse: (statement: string) => frame('P', text(''), text(statement), int16(0)),
+    bind: () => frame('B', text(''), text(''), int16(0), int16(0), int16(0)),
+    execute: () => frame('E', text(''), int32(0)),
+    sync: () => frame('S'),
+    flush: () => frame('H'),
+    query: (statement: string) => frame('Q', text(statement)),
+}
+
 const listening = async (server: net.Server, host = '127.0.0.1'): Promise<number> => {
     await new Promise<void>((resolve) => server.listen(0, host, resolve))
     return (server.address() as net.AddressInfo).port
@@ -161,6 +184,147 @@ describe('the edge in front of Cyclotron', () => {
             await cutEdge.close()
             relay.close()
         }
+    })
+
+    describe('with a commit reply lost', () => {
+        let direct: Client
+        let schema: string
+        let opened: Client[]
+
+        const rowsOf = async (): Promise<number[]> =>
+            (await direct.query(`SELECT id FROM ${schema}.cyclotron_jobs ORDER BY id`)).rows.map(({ id }) => id)
+
+        const proxied = async (): Promise<Client> => {
+            const next = new Client({ connectionString: await edge.pgProxyOf(UPSTREAM) })
+            next.on('error', () => undefined)
+            opened.push(next)
+            await next.connect()
+            await next.query(`SET search_path TO ${schema}`)
+            return next
+        }
+
+        // Signs in with pg, then takes over its socket, so a test can send frames pg never sends in this order.
+        const raw = async (): Promise<{
+            send(...frames: Buffer[]): void
+            replies(): string
+            closed: Promise<void>
+        }> => {
+            const socket = (
+                (await proxied()) as unknown as {
+                    connection: { stream: net.Socket }
+                }
+            ).connection.stream
+            socket.removeAllListeners('data')
+            let pending = Buffer.alloc(0)
+            let types = ''
+            socket.on('data', (chunk: Buffer) => {
+                pending = Buffer.concat([pending, chunk])
+                while (pending.length >= 5 && pending.length >= pending.readInt32BE(1) + 1) {
+                    types += String.fromCharCode(pending[0])
+                    pending = pending.subarray(pending.readInt32BE(1) + 1)
+                }
+            })
+            return {
+                send: (...frames) => socket.write(Buffer.concat(frames)),
+                replies: () => types,
+                closed: new Promise((resolve) => socket.once('close', () => resolve())),
+            }
+        }
+
+        beforeEach(async () => {
+            opened = []
+            schema = `edge_commit_${Math.random().toString(36).slice(2)}`
+            direct = new Client({ connectionString: UPSTREAM })
+            await direct.connect()
+            await direct.query(`CREATE SCHEMA ${schema}`)
+            await direct.query(`CREATE TABLE ${schema}.cyclotron_jobs (id int)`)
+        })
+
+        afterEach(async () => {
+            await Promise.all(opened.map((each) => each.end().catch(() => undefined)))
+            await direct.query(`DROP SCHEMA ${schema} CASCADE`)
+            await direct.end()
+        })
+
+        test.each<[string, [string, unknown[]][]]>([
+            ['with parameters', [['INSERT INTO cyclotron_jobs VALUES ($1)', [1]]]],
+            ['as a simple query', [['INSERT INTO cyclotron_jobs VALUES (1)', []]]],
+            [
+                'in a transaction, at its commit',
+                [
+                    ['BEGIN', []],
+                    ['INSERT INTO cyclotron_jobs VALUES ($1)', [1]],
+                    ['COMMIT', []],
+                ],
+            ],
+        ])('commits an enqueue %s and cuts the client before its reply', async (_, statements) => {
+            const faultId = edge.addFault(ruleOf({ name: 'pg.commit_reply_lost', dose: { count: 1 } }))
+            const faulted = await proxied()
+            const answers: string[] = []
+            for (const [statement, values] of statements) {
+                answers.push(await faulted.query(statement, values).then(() => 'answered', codeOf))
+            }
+            await (await proxied()).query('INSERT INTO cyclotron_jobs VALUES (2)')
+
+            expect(answers.at(-1)).toBe(CONNECTION_LOST)
+            expect(answers.slice(0, -1).every((answer) => answer === 'answered')).toBe(true)
+            expect(edge.firstAppliedAt(faultId)).toEqual(expect.any(Number))
+            expect(await rowsOf()).toEqual([1, 2])
+        })
+
+        test('keeps its dose through enqueues that do not commit', async () => {
+            const faultId = edge.addFault(ruleOf({ name: 'pg.commit_reply_lost', dose: { count: 1 } }))
+            const faulted = await proxied()
+
+            const nothingInserted = await faulted
+                .query('INSERT INTO cyclotron_jobs SELECT $1 WHERE false', [1])
+                .then(() => 'answered', codeOf)
+            await faulted.query('BEGIN')
+            await faulted.query('INSERT INTO cyclotron_jobs VALUES ($1)', [1])
+            const rolledBack = await faulted.query('ROLLBACK').then(() => 'answered', codeOf)
+            const failed = await faulted
+                .query('INSERT INTO cyclotron_jobs VALUES ($1)', ['one'])
+                .then(() => 'answered', codeOf)
+            const observedBeforeCommit = edge.firstAppliedAt(faultId)
+            const committed = await faulted
+                .query('INSERT INTO cyclotron_jobs VALUES ($1)', [3])
+                .then(() => 'answered', codeOf)
+
+            expect([nothingInserted, rolledBack, failed, observedBeforeCommit, committed]).toEqual([
+                'answered',
+                'answered',
+                '22P02',
+                undefined,
+                CONNECTION_LOST,
+            ])
+            expect(await rowsOf()).toEqual([3])
+        })
+
+        test('passes the answers a client reads before it syncs', async () => {
+            edge.addFault(ruleOf({ name: 'pg.commit_reply_lost', dose: { count: 1 } }))
+            const session = await raw()
+
+            session.send(wire.parse('INSERT INTO cyclotron_jobs VALUES (1)'), wire.flush())
+            await waitForExpect(() => expect(session.replies()).toBe('1'))
+            session.send(wire.bind(), wire.execute(), wire.sync())
+            await session.closed
+
+            expect(session.replies()).toBe('1')
+            expect(await rowsOf()).toEqual([1])
+        })
+
+        test('spends its dose on the cycle that inserted, not on the cycles around it', async () => {
+            edge.addFault(ruleOf({ name: 'pg.commit_reply_lost', dose: { count: 1 } }))
+            const session = await raw()
+
+            session.send(wire.parse('INSERT INTO cyclotron_jobs VALUES (1)'), wire.sync())
+            await waitForExpect(() => expect(session.replies()).toBe('1Z'))
+            session.send(wire.query('SELECT 1'), wire.query('INSERT INTO cyclotron_jobs VALUES (2)'))
+            await session.closed
+
+            expect(session.replies()).toBe('1ZTDCZ')
+            expect(await rowsOf()).toEqual([2])
+        })
     })
 
     test('closes a connection whose startup declares a length it cannot have, and keeps serving the others', async () => {

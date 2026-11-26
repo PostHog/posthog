@@ -8,10 +8,12 @@ import { initKeaTests } from '~/test/init'
 import type { IssueTagState, IssueTagsFilter } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueTagSelect } from './IssueTagSelect'
 
-const DEFINITIONS = [{ key: 'cause_in_trace', label: 'Cause in trace', description: 'The cause is in the trace.' }]
+const DEFINITIONS = [
+    { key: 'cause_in_trace', label: 'Cause in trace', description: 'The cause is in the trace.', color: null },
+]
 const TWO_DEFINITIONS = [
     ...DEFINITIONS,
-    { key: 'third_party', label: 'Third party', description: 'The error comes from third-party code.' },
+    { key: 'third_party', label: 'Third party', description: 'The error comes from third-party code.', color: null },
 ]
 
 function tagSelect(

@@ -14,7 +14,7 @@ import { openCreateScorerVersionDialog } from './openCreateScorerVersionDialog'
 import { scorerLogic } from './scorerLogic'
 
 export function QuillAIObservabilityScorerActions(): JSX.Element {
-    const { definition, isNew, hasChanges, saving } = useValues(scorerLogic)
+    const { definition, isNew, hasChanges, saving, parentBreadcrumb } = useValues(scorerLogic)
     const { createVersion, toggleArchive } = useActions(scorerLogic)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmAnalytics,
@@ -74,7 +74,7 @@ export function QuillAIObservabilityScorerActions(): JSX.Element {
             )}
             <Button
                 variant="outline"
-                render={<LinkPrimitive to={urls.aiObservabilityScorers()} />}
+                render={<LinkPrimitive to={parentBreadcrumb.path} />}
                 disabledReason={saving ? 'Saving scorer' : undefined}
                 data-attr="llma-scorer-cancel"
             >

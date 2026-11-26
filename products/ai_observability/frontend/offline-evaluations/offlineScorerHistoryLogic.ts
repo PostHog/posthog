@@ -531,7 +531,7 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
         query: [
             (s) => [s.filters],
             (filters: OfflineHistoryFilters): AiObservabilityOfflineScorersHistoryListParams => ({
-                scorer_version_ids: filters.version,
+                scorer_version_ids: filters.version || undefined,
                 breakdown: filters.breakdown || undefined,
                 limit: 50,
                 statuses: filters.statuses,
@@ -601,8 +601,8 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
     sharedListeners(({ actions, values, props }) => ({
         loadFilteredHistory: () => {
             saveTagFilters('experiments', cleanTagFilters(values.filters), props.teamId)
-            if (values.filters.version) {
-                if (values.selectedVersion?.id !== values.filters.version) {
+            if (values.filters.version || values.definition?.scope === 'experiment') {
+                if (values.filters.version && values.selectedVersion?.id !== values.filters.version) {
                     actions.loadOfflineHistoryVersion()
                 }
                 if (!values.windows.error) {
@@ -614,14 +614,18 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
     })),
     listeners(({ actions, values, sharedListeners }) => ({
         loadOfflineHistoryDefinitionSuccess: ({ definition }) => {
-            if (!values.filters.version && definition.current_version_id) {
-                actions.setFilters({ version: definition.current_version_id })
+            if (!values.filters.version) {
+                if (definition.scope === 'experiment') {
+                    actions.refreshHistory()
+                } else if (definition.current_version_id) {
+                    actions.setFilters({ version: definition.current_version_id })
+                }
             }
         },
         setFilters: sharedListeners.loadFilteredHistory,
         replaceFilters: sharedListeners.loadFilteredHistory,
         refreshHistory: () => {
-            if (values.filters.version && !values.windows.error) {
+            if ((values.filters.version || values.definition?.scope === 'experiment') && !values.windows.error) {
                 actions.loadOfflineHistoryPrimaryPage()
                 actions.loadOfflineHistoryComparisonPage()
             }
@@ -651,7 +655,11 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
         [urls.aiObservabilityOfflineScorerHistory(':scorerId', false)]: ({ scorerId }, search) => {
             if (scorerId === props.scorerId) {
                 const filters = readFilters({ ...search, ...restoreTagFilters('experiments', search, props.teamId) })
-                if (!filters.version && values.definition?.current_version_id) {
+                if (
+                    !filters.version &&
+                    values.definition?.scope !== 'experiment' &&
+                    values.definition?.current_version_id
+                ) {
                     filters.version = values.definition.current_version_id
                 }
                 if (!objectsEqual(filters, values.filters)) {

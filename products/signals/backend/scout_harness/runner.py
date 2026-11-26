@@ -989,16 +989,21 @@ def _memory_upkeep_is_live(team: Team) -> bool:
     upkeep run that wrote nothing leaves the section off. The enabled check matters because the
     scout's cursor never expires: without it, every other scout keeps reading learnings that stopped
     changing when the upkeep scout was switched off. Every scout run reads the team's whole
-    scratchpad, so there is no per-user access to check. A failed read is False: the section is
-    optional steering.
+    scratchpad, so there is no per-user access to check. The runner sets no ambient team scope and
+    the scratchpad manager is fail-closed, so the read opens its own scope on the canonical team,
+    where scratchpad rows are stored. A failed read is False: the section is optional steering.
     """
     try:
+        canonical_team_id = team.parent_team_id or team.id
         enabled = (
-            SignalScoutConfig.objects.for_team(team.parent_team_id or team.id, canonical=True)
+            SignalScoutConfig.objects.for_team(canonical_team_id, canonical=True)
             .filter(skill_name=MEMORY_UPKEEP_SCOUT, status__in=SignalScoutConfig.RUNNABLE_STATUSES)
             .exists()
         )
-        return enabled and has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+        if not enabled:
+            return False
+        with team_scope(canonical_team_id, canonical=True):
+            return has_live_entry_created_by(team_id=canonical_team_id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
         return False

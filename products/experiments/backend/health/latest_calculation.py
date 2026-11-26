@@ -28,7 +28,8 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_validation import event_last_seen, metric_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.recalculation import entries_of_current_configs, get_latest_recalculation
+from products.experiments.backend.recalculation.payloads import RUN_ENTRY_HIDDEN_MESSAGE, entries_of_current_configs
+from products.experiments.backend.recalculation.runs import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 
 # The calculation doesn't apply the reader's warehouse access, so the names that HogQL suggests in its message can name
@@ -213,8 +214,14 @@ def _shown_failure(
     if error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE and row is not None:
         error = {}
     message = error.get("message")
-    if not isinstance(message, str):
-        message = row.error_message if row is not None and row.status == ExperimentMetricResult.Status.FAILED else None
+    failed_row_message = (
+        row.error_message if row is not None and row.status == ExperimentMetricResult.Status.FAILED else None
+    )
+    # The page shows `RUN_ENTRY_HIDDEN_MESSAGE` for an entry stored before entries carried a calculation key, because
+    # such an entry can come from an earlier config. The failed row matches a key of the current config, the same rule
+    # that a keyed entry passes, and the run's results serve its text. So the check words the failure from that text.
+    if not isinstance(message, str) or (message == RUN_ENTRY_HIDDEN_MESSAGE and failed_row_message):
+        message = failed_row_message
     if not message:
         return None
     error_type = error.get("error_type")

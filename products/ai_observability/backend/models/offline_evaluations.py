@@ -47,6 +47,14 @@ class OfflineExperiment(Taggable):
     expected_result_count = models.PositiveBigIntegerField(null=True, blank=True)
     submission_fingerprint = models.CharField(max_length=64)
     suite_key = models.CharField(max_length=255, null=True, blank=True)
+    experiment_scorer_version = models.ForeignKey(
+        "ai_observability.ScoreDefinitionVersion",
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=False,
+    )
     dataset_source = models.CharField(max_length=255, null=True, blank=True)
     dataset_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_revision_identifier = models.CharField(max_length=255, null=True, blank=True)
@@ -91,6 +99,11 @@ class OfflineExperiment(Taggable):
         ]
         indexes = [
             models.Index(fields=["team", "-started_at", "id"], name="aio_offline_exp_list_idx"),
+            models.Index(
+                fields=["experiment_scorer_version", "team", "-started_at", "id"],
+                condition=Q(experiment_scorer_version__isnull=False),
+                name="aio_exp_score_history_idx",
+            ),
         ]
 
 
