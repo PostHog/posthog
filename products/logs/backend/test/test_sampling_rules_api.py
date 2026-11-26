@@ -419,6 +419,12 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
             ("spans", {"source": "spans"}, status.HTTP_400_BAD_REQUEST, "rule_type"),
             ("config", {"config": {"patterns": ["/healthz"]}}, status.HTTP_400_BAD_REQUEST, "config"),
             ("service scope", {"scope_service": "api"}, status.HTTP_400_BAD_REQUEST, "scope_service"),
+            (
+                "attribute filters",
+                {"scope_attribute_filters": [{"key": "http.route", "op": "eq", "value": "/api"}]},
+                status.HTTP_400_BAD_REQUEST,
+                "scope_attribute_filters",
+            ),
         ]
     )
     def test_require_secret_key_rule_validation(self, _label, overrides, expected_status, error_attr):

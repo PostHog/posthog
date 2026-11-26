@@ -154,10 +154,10 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                 return getattr(self.instance, field)
 
             # The rule acts on the whole message, so a filter would suggest a narrower drop than it does.
-            for field in ("scope_service", "scope_path_pattern"):
+            for field in ("scope_service", "scope_path_pattern", "scope_attribute_filters"):
                 if effective(field):
                     raise ValidationError({field: "require_secret_key rules take no scope."})
-            if effective("config") or effective("scope_attribute_filters"):
+            if effective("config"):
                 raise ValidationError({"config": "require_secret_key rules take no config."})
             return attrs
 
