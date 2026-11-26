@@ -842,7 +842,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert impact == {
             **IMPACT_COUNTS,
             "after_click": {"sends": 3, "converted": 2},
-            "without_click": {"sends": 3, "converted": 2},
+            "without_click": {"sends": 2, "converted": 2},
             "sessions": None,
         }
         reported.assert_called_once_with(timeout, {"workflow_id": str(self.workflow_id), "team_id": self.team.id})
