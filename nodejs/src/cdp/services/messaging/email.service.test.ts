@@ -2787,57 +2787,75 @@ describe('EmailService', () => {
                     expect(deliveredTo(ses, recipient)).toHaveLength(1)
                 })
 
-                const failsTheFirstTry: [string, (emailService: EmailService) => void][] = [
-                    [
-                        'a download that fails',
-                        (): void => {
-                            bucket.answer = 'refuse'
-                        },
-                    ],
-                    ['SES refusing the first connection', (emailService) => sesRefusesTheFirstConnection(emailService)],
-                    [
-                        'SES throttling the first request',
-                        (): void => {
-                            ses.failOnce(sesThrottles)
-                        },
-                    ],
-                ]
+                type FailTheTry = (emailService: EmailService) => void
+                const downloadFails: FailTheTry = () => {
+                    bucket.answer = 'refuse'
+                }
+                const sesRefusesItsFirstConnection: FailTheTry = (emailService) =>
+                    sesRefusesTheFirstConnection(emailService)
+                const sesThrottlesOnce: FailTheTry = () => ses.failOnce(sesThrottles)
+                const ownershipCheckFails: FailTheTry = (emailService) =>
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        Promise.reject(new Error('Connection terminated unexpectedly'))
+                    )
 
-                it.each(failsTheFirstTry)(
+                const sendAfterFailedTries = async (
+                    emailService: EmailService,
+                    failedTries: FailTheTry[]
+                ): Promise<Awaited<ReturnType<EmailService['executeSendEmail']>>> => {
+                    let next = invocation
+                    for (const failTheTry of failedTries) {
+                        failTheTry(emailService)
+                        const tried = await emailService.executeSendEmail(next)
+                        expect(tried.finished).toBe(false)
+                        bucket.answer = 'pass'
+                        emailService.checkJobOwnershipBeforeSend(() => Promise.resolve(true))
+                        next = tried.invocation
+                    }
+                    return emailService.executeSendEmail(next)
+                }
+
+                it.each<[string, FailTheTry[]]>([
+                    ['a download that fails', [downloadFails]],
+                    ['SES refusing the first connection', [sesRefusesItsFirstConnection]],
+                    ['SES throttling the first request', [sesThrottlesOnce]],
+                    [
+                        'a failed ownership check and then a refused connection',
+                        [ownershipCheckFails, sesRefusesItsFirstConnection],
+                    ],
+                ])(
                     'claims the workflow limit again for the retry after %s, so the retry waits for its own slot',
-                    async (_cause, failTheFirstTry) => {
+                    async (_cause, failedTries) => {
                         const emailService = sender()
                         invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
-                        failTheFirstTry(emailService)
 
-                        const retried = await emailService.executeSendEmail(invocation)
-                        bucket.answer = 'pass'
-                        const result = await emailService.executeSendEmail(retried.invocation)
+                        const result = await sendAfterFailedTries(emailService, failedTries)
 
                         expect({
-                            retried: retried.finished,
                             finished: result.finished,
                             delivered: deliveredTo(ses, recipient),
-                        }).toEqual({ retried: false, finished: false, delivered: [] })
+                            waitsForItsSlot:
+                                (result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now() + 30 * 60 * 1000,
+                        }).toEqual({ finished: false, delivered: [], waitsForItsSlot: true })
                     }
                 )
 
-                it.each([
-                    ['a download that fails', 1],
-                    ['SES refusing the first connection', 0],
-                    ['SES throttling the first request', 0],
-                ] as const)(
+                it.each<[string, number, FailTheTry[]]>([
+                    ['a download that fails', 1, [downloadFails]],
+                    ['SES refusing the first connection', 0, [sesRefusesItsFirstConnection]],
+                    ['SES throttling the first request', 0, [sesThrottlesOnce]],
+                    [
+                        'a failed download and then a refused connection',
+                        0,
+                        [downloadFails, sesRefusesItsFirstConnection],
+                    ],
+                ])(
                     'sends the retry after %s once, with %s sends left in a team budget of two',
-                    async (cause, sendsLeftInTheBudget) => {
+                    async (_cause, sendsLeftInTheBudget, failedTries) => {
                         const emailService = sender({ teamDailyCap: 2 })
-                        const failTheFirstTry = failsTheFirstTry.find(([name]) => name === cause)![1]
-                        failTheFirstTry(emailService)
 
-                        const retried = await emailService.executeSendEmail(invocation)
-                        bucket.answer = 'pass'
-                        const result = await emailService.executeSendEmail(retried.invocation)
+                        const result = await sendAfterFailedTries(emailService, failedTries)
 
-                        expect(retried.finished).toBe(false)
                         expect(deliveredTo(ses, recipient)).toEqual([
                             {
                                 to: [expect.stringContaining(recipient)],

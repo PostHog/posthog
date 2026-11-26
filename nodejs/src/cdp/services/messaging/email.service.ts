@@ -217,6 +217,11 @@ const isAttachmentLoadFailure = (error: unknown): boolean =>
 const isRetryableBeforeSes = (error: unknown): boolean =>
     isAttachmentLoadFailure(error) || error instanceof SesNotReachedError
 
+const withoutSendClaims = (metadata: CyclotronJobInvocationHogFunction['queueMetadata']): Record<string, any> => {
+    const { teamBudgetClaimed: _teamBudget, workflowRateClaimed: _workflowRate, ...unclaimed } = metadata ?? {}
+    return unclaimed
+}
+
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
 
@@ -1003,11 +1008,13 @@ export class EmailService {
                 rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = {
-                    ...invocation.queueMetadata,
-                    attachmentLoadRetries: retries,
-                    ...(teamBudgetCharged && isAttachmentLoadFailure(error) ? { teamBudgetClaimed: true } : {}),
-                }
+                result.invocation.queueMetadata = isAttachmentLoadFailure(error)
+                    ? {
+                          ...invocation.queueMetadata,
+                          attachmentLoadRetries: retries,
+                          ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                      }
+                    : { ...withoutSendClaims(invocation.queueMetadata), attachmentLoadRetries: retries }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
                     'warn',
