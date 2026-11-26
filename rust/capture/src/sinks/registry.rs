@@ -120,9 +120,7 @@ impl Destination {
 /// the producer handle once setup resolves it.
 #[derive(Clone, Debug)]
 pub struct OutputTarget<R = ProducerName> {
-    /// The `<OUTPUT>` in its `CAPTURE_OUTPUT_<OUTPUT>_*` variables.
     pub(crate) name: &'static str,
-    // `Arc<str>` so the per-record lookup, metric labels and produce record never allocate.
     pub(crate) topic: Arc<str>,
     pub(crate) producer: R,
 }
