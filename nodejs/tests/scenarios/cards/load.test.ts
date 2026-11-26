@@ -465,6 +465,22 @@ describe('load', () => {
             'profile.traffic.event_email: ',
         ],
         [
+            'a synthetic padding label without a backlog',
+            card,
+            { ...profile, synthetic: ['backlog_padding'] },
+            'profile.synthetic: backlog_padding requires a backlog',
+        ],
+        [
+            'a synthetic transactional parks label without parks',
+            card,
+            {
+                ...profile,
+                traffic: { ...profile.traffic, transactional_email: { ratePerSecond: 1 } },
+                synthetic: ['transactional_email_parks'],
+            },
+            'profile.synthetic: transactional_email_parks requires positive transactional email parks',
+        ],
+        [
             'a profile the repository does not ship',
             { ...card, profile: 'prod-shape' },
             undefined,
@@ -1028,8 +1044,11 @@ describe('load', () => {
         ])
     })
 
-    it("derives the profile's own targets for a card that drives its full traffic", () => {
-        const { admission } = loadCard(
+    it.each([
+        ['keeps', undefined, 1],
+        ['scales', 0.25, 0.25],
+    ] as const)('%s the offered rates and targets for a card that drives the full profile', (_, scale, factor) => {
+        const { admission, profile } = loadCard(
             {
                 ...card,
                 drive: {
@@ -1038,13 +1057,28 @@ describe('load', () => {
                 },
                 invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
             },
-            fullTraffic
+            scale === undefined ? fullTraffic : { ...fullTraffic, scale }
         )
 
-        expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
+        expect(profile.traffic).toEqual(
+            Object.fromEntries(
+                Object.entries(fullTraffic.traffic).map(([kind, shape]) => [
+                    kind,
+                    { ...shape, ratePerSecond: shape.ratePerSecond * factor },
+                ])
+            )
+        )
+        const {
+            claimsPerSecond: { hogflow, email },
+            newJobsPerSecond,
+        } = fullTraffic.load.targets
+        expect(admission.load?.targets).toEqual({
+            claimsPerSecond: { hogflow: hogflow * factor, email: email * factor },
+            newJobsPerSecond: newJobsPerSecond * factor,
+        })
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay'])(
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay', 'chaos-under-load'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {
