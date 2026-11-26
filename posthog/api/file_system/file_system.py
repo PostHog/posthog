@@ -573,15 +573,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return list(locked.defer("meta") if without_meta else locked)
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        # The serializer creates the parent folders before the file, so a failed file insert must take them back.
         with transaction.atomic():
             super().perform_create(serializer)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         instance = cast(FileSystem, serializer.instance)
         with transaction.atomic():
-            # Saving the copy read before the lock would bring back a row a concurrent delete removed,
-            # or undo a concurrent move.
+            # Saving the copy read before the lock would recreate a row that a concurrent delete removed.
             locked = self._lock_file_rows(Q(pk=instance.pk))
             if not locked:
                 raise NotFound()
