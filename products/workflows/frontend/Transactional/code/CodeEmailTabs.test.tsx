@@ -43,6 +43,7 @@ describe('CodeEmailTabs', () => {
 
     let sendRequests: Record<string, string>[]
     let sends: Record<string, string>[]
+    let trendRows: [string[], string, number[]][]
 
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
@@ -78,10 +79,7 @@ describe('CodeEmailTabs', () => {
                                   [3, 'email-step', 'email_bounced_transient'],
                               ]
                             : isTrends
-                              ? [
-                                    [['2026-03-14'], 'email_delivered', [2]],
-                                    [['2026-03-14'], 'email_sandbox_delivered', [3]],
-                                ]
+                              ? trendRows
                               : [],
                     },
                 ]
@@ -105,8 +103,18 @@ describe('CodeEmailTabs', () => {
         sendLinks = true,
         quillFilters = false,
         impact = false,
-    }: { sendLinks?: boolean; quillFilters?: boolean; impact?: boolean } = {}): void => {
+        trendRows: rows,
+    }: {
+        sendLinks?: boolean
+        quillFilters?: boolean
+        impact?: boolean
+        trendRows?: [string[], string, number[]][]
+    } = {}): void => {
         sendRequests = []
+        trendRows = rows ?? [
+            [['2026-03-14'], 'email_delivered', [2]],
+            [['2026-03-14'], 'email_sandbox_delivered', [3]],
+        ]
         sends = [
             {
                 message_id: 'msg-1',
@@ -182,11 +190,21 @@ describe('CodeEmailTabs', () => {
         expect(screen.queryByText(BANNER)).not.toBeInTheDocument()
     })
 
-    it('shows email outcome cards instead of workflow run cards, counting test sender deliveries as delivered', async () => {
+    it.each([
+        ['counting test sender deliveries as delivered', undefined],
+        [
+            'counting sent minus bounced as delivered before any receipt, like the Email steps table',
+            [
+                [['2026-03-14'], 'email_sent', [7]],
+                [['2026-03-14'], 'email_bounced', [2]],
+            ] as [string[], string, number[]][],
+        ],
+    ])('shows email outcome cards instead of workflow run cards, %s', async (_, rows) => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
-        renderTabs()
+        renderTabs({ trendRows: rows })
 
         expect(await screen.findByText('vs. 5 prior')).toBeInTheDocument()
+        expect(screen.getByText('5')).toBeInTheDocument()
         expect(screen.queryByText('Workflows in progress')).not.toBeInTheDocument()
     })
 

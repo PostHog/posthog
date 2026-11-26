@@ -21,6 +21,7 @@ import {
     METRIC_COLORS,
     type PushMetricRow,
     SANDBOX_EMAIL_METRICS,
+    subtractSeries,
     sumSeries,
     WORKFLOW_EMAIL_METRICS,
     WORKFLOW_SUMMARY_METRICS,
@@ -30,6 +31,11 @@ import {
 } from './workflowMetricsSummaryLogic'
 
 const TRANSACTIONAL_METRIC_KEYS: EmailMetric[] = ['email_sent', 'email_delivered', 'email_opened', 'email_link_clicked']
+
+const DELIVERY_SENDERS = [
+    ['email_delivered', 'email_sent', 'email_bounced'],
+    ['email_sandbox_delivered', 'email_sandbox_sent', 'email_sandbox_bounced'],
+] as const
 
 const TRACKED_SENDS_TOOLTIP =
     'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
@@ -91,22 +97,37 @@ export function WorkflowMetricsSummary({
         sentSummaryLabel,
         getSentSummarySeries,
         appMetricsTrends,
+        appMetricsTrendsLoading,
     } = useValues(workflowMetricsSummaryLogic(props))
     const { getDateRangeAbsolute } = useValues(appMetricsLogic({ logicKey: props.logicKey }))
     const { dateFrom, dateTo } = getDateRangeAbsolute()
 
+    // A sender with no delivery receipts in the range counts sent minus bounced, as the Email steps table does.
+    const senderDelivered = (
+        [delivered, sent, bounced]: (typeof DELIVERY_SENDERS)[number],
+        previous: boolean
+    ): ReturnType<typeof getSingleTrendSeries> => {
+        const receipts = getSingleTrendSeries(delivered, previous)
+        return receipts?.series[0]?.values.some(Boolean)
+            ? receipts
+            : subtractSeries(getSingleTrendSeries(sent, previous), getSingleTrendSeries(bounced, previous), delivered)
+    }
     // PostHog test sender sends record their own metric names, so each card adds them in.
     const transactionalSeries = (key: EmailMetric, previous = false): ReturnType<typeof getSingleTrendSeries> =>
         sumSeries(
-            [key, ...Object.keys(SANDBOX_EMAIL_METRICS).filter((name) => SANDBOX_EMAIL_METRICS[name] === key)].map(
-                (name) => getSingleTrendSeries(name, previous)
-            ),
+            key === 'email_delivered'
+                ? DELIVERY_SENDERS.map((sender) => senderDelivered(sender, previous))
+                : [
+                      key,
+                      ...Object.keys(SANDBOX_EMAIL_METRICS).filter((name) => SANDBOX_EMAIL_METRICS[name] === key),
+                  ].map((name) => getSingleTrendSeries(name, previous)),
             WORKFLOW_EMAIL_METRICS[key].name
         )
-    const transactionalTrends = appMetricsTrends && {
-        ...appMetricsTrends,
-        series: TRANSACTIONAL_METRIC_KEYS.flatMap((key) => transactionalSeries(key)?.series ?? []),
-    }
+    const transactionalTrends = transactional &&
+        appMetricsTrends && {
+            ...appMetricsTrends,
+            series: TRANSACTIONAL_METRIC_KEYS.flatMap((key) => transactionalSeries(key)?.series ?? []),
+        }
 
     // Email and push don't share a funnel, so each channel gets its own table with the columns that
     // actually apply — email keeps the delivery→open→click funnel, push surfaces skipped/failed as
@@ -305,7 +326,7 @@ export function WorkflowMetricsSummary({
                                 key={key}
                                 name={metric.name}
                                 description={metric.description}
-                                loading={loading}
+                                loading={appMetricsTrendsLoading}
                                 timeSeries={transactionalSeries(key)}
                                 previousPeriodTimeSeries={transactionalSeries(key, true)}
                                 color={metric.color}
@@ -446,7 +467,7 @@ export function WorkflowMetricsSummary({
 
             <AppMetricsTrends
                 appMetricsTrends={transactional ? transactionalTrends : workflowSummaryTrends}
-                loading={loading}
+                loading={transactional ? appMetricsTrendsLoading : loading}
                 seriesColors={METRIC_COLORS}
                 className={transactional ? 'h-96' : undefined}
             />
