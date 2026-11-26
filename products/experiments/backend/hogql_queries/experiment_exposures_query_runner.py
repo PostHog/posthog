@@ -683,7 +683,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         try:
             left_out = self._run_in_warehouse(builder.build_exposure_rows_left_out(), connection_id)
         except ExposedHogQLError as error:
-            logger.warning("warehouse_native_rows_left_out_failed", experiment_id=self.experiment.id, error=str(error))
+            # The type, not the message: BigQuery can put a row's contents into an error message.
+            logger.warning(
+                "warehouse_native_rows_left_out_failed",
+                experiment_id=self.experiment.id,
+                error_type=type(error).__name__,
+            )
             self._rows_left_out = None
         else:
             self._rows_left_out = _exposure_rows_left_out(left_out.results or [])
