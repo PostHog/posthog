@@ -27,7 +27,7 @@ from posthog.models.organization_notification_lock import notification_locks_for
 from posthog.slack.channels import clip_text
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DestinationRefused
+from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import SourceAlertCreator, SourceKind
 from products.alerts_platform.backend.logic import source_access
@@ -49,7 +49,7 @@ logger = structlog.get_logger(__name__)
 
 _creators: dict[SourceKind, SourceAlertCreator] = {}
 
-_Channel = Callable[[int, User, str, AlertMessage, DestinationRefused], None]
+_Channel = Callable[[int, User, str, AlertMessage, DestinationMisconfigured], None]
 
 
 def register_creator(source: SourceKind, lookup: SourceAlertCreator) -> None:
@@ -64,7 +64,7 @@ def notify_refused(
     team_id: int,
     message: AlertMessage,
     destination: str,
-    refusal: DestinationRefused,
+    refusal: DestinationMisconfigured,
     now: datetime | None = None,
 ) -> None:
     """Notices one refused send. `destination` is where the send went, and changes when it is repointed.
@@ -116,7 +116,7 @@ def _creator(team_id: int, message: AlertMessage) -> User | None:
 
 
 def _try(
-    channel: _Channel, team_id: int, creator: User, key: str, message: AlertMessage, refusal: DestinationRefused
+    channel: _Channel, team_id: int, creator: User, key: str, message: AlertMessage, refusal: DestinationMisconfigured
 ) -> bool:
     try:
         channel(team_id, creator, key, message, refusal)
@@ -131,7 +131,7 @@ def _try(
     return True
 
 
-def _notify(team_id: int, creator: User, key: str, message: AlertMessage, refusal: DestinationRefused) -> None:
+def _notify(team_id: int, creator: User, key: str, message: AlertMessage, refusal: DestinationMisconfigured) -> None:
     url = urlsplit(message.alert_url)
     create_notification(
         NotificationData(
@@ -151,7 +151,7 @@ def _notify(team_id: int, creator: User, key: str, message: AlertMessage, refusa
     )
 
 
-def _email(team_id: int, creator: User, key: str, message: AlertMessage, refusal: DestinationRefused) -> None:
+def _email(team_id: int, creator: User, key: str, message: AlertMessage, refusal: DestinationMisconfigured) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
     if not _wants_pipeline_error_emails(team_id, creator):

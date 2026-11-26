@@ -300,7 +300,7 @@ class TestDeliverEvaluation(APIBaseTest):
             ),
             (
                 "bot_left_the_channel",
-                DestinationMisconfigured("Slack refused the edit: not_in_channel"),
+                DestinationMisconfigured("Slack refused the edit: not_in_channel", remedy=""),
                 LateImageResult(edited=0, waiting=0),
             ),
         ]
