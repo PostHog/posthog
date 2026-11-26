@@ -1016,11 +1016,12 @@ describe('load', () => {
         ])
         expect(loaded.card.pair).toBe(true)
         expect(pairProblemsOf(loaded, true)).toEqual([])
+        expect(loaded.card.valves.map(({ valve }) => valve)).toContain('pg.commit_reply_lost')
         expect(loaded.card.measure.map(({ name }) => name)).toContain('counter_drift')
         expect(loaded.card.bars).toEqual([])
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'chaos-under-load'])(
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay', 'chaos-under-load'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {

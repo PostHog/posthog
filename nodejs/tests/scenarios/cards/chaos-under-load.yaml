@@ -47,6 +47,12 @@ valves:
           count: 1
       at: 345s
       for: 8s
+    - valve: pg.commit_reply_lost
+      target: cyclotron
+      dose:
+          count: 1
+      at: 365s
+      for: 10s
     - valve: role.kill
       target: cdp-cyclotron-worker-email
       dose: {}
