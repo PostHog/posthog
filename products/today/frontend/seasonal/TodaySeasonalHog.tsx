@@ -28,6 +28,7 @@ export function TodaySeasonalHog({
     const { isOpen, dismissed, allDone, doneCount } = useValues(todaySeasonalChecklistLogic)
     const { openChecklist } = useActions(todaySeasonalChecklistLogic)
     const [sprites, setSprites] = useState<HogSprites | null>(null)
+    const [canDraw, setCanDraw] = useState(true)
     const anchorRef = useRef<HTMLDivElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const buttonRef = useRef<HTMLButtonElement>(null)
@@ -66,7 +67,11 @@ export function TodaySeasonalHog({
     useEffect(() => {
         const canvas = canvasRef.current
         const context = canvas?.getContext('2d')
-        if (!sprites || !canvas || !context) {
+        if (!sprites || !canvas) {
+            return
+        }
+        if (!context) {
+            setCanDraw(false)
             return
         }
         const reducedMotion = prefersReducedMotion()
@@ -144,7 +149,7 @@ export function TodaySeasonalHog({
         }
     }, [sprites, checklist.accessories, cardRef])
 
-    if (!sprites) {
+    if (!sprites || !canDraw) {
         return <TodaySeasonalOpenButton label={checklist.bubble} />
     }
 
