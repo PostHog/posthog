@@ -585,7 +585,6 @@ export function createRunner(
             let probed: Probed = { writer: [], queue: [] }
             let alerting: Alerts | undefined
             let alerted: AlertsRead | undefined
-            let driveFrom: { startedAt: number } | undefined
             const judging = new AbortController()
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
@@ -664,7 +663,6 @@ export function createRunner(
                 probes = await opened.probes(seeded.teamIds)
                 const offers = await opened.offers()
                 const driveStartedAt = Date.now()
-                driveFrom = { startedAt: driveStartedAt }
                 enter('drive', driveStartedAt, durationMs(card.drive.for))
                 const sampling = { sampler, probes }
                 void live.follow({
@@ -863,10 +861,7 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
-                if (alerting) {
-                    alerted ??= await alerting.finish(driveFrom ?? { startedAt: Date.now() }, valves.timeline())
-                    outcome = { ...outcome, alerts: alerted.coverage }
-                }
+                await alerting?.close()
                 dependencies = (await health?.stop()) ?? dependencies
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled

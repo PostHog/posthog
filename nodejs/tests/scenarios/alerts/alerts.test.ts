@@ -235,8 +235,8 @@ describe('alerts on a scenario run', () => {
         ENGINE_MS
     )
 
-    it('keeps the transitions it recorded when the final read fails', async () => {
-        const at = new Date().toISOString()
+    it('dates a firing first seen late by the evaluation grid, and keeps it when the final read fails', async () => {
+        const activeAt = Date.now() - 5000
         const firing = {
             data: {
                 groups: [
@@ -247,10 +247,18 @@ describe('alerts on a scenario run', () => {
                                 id: '1',
                                 name: 'SyntheticQueueDeep',
                                 query: 'synthetic_queue_depth > 10',
-                                duration: 0,
+                                duration: 2,
                                 lastError: '',
-                                lastEvaluation: at,
-                                alerts: [{ id: '2', state: 'firing', activeAt: at, value: '50', labels: {} }],
+                                lastEvaluation: new Date(activeAt + 3000).toISOString(),
+                                alerts: [
+                                    {
+                                        id: '2',
+                                        state: 'firing',
+                                        activeAt: new Date(activeAt).toISOString(),
+                                        value: '50',
+                                        labels: {},
+                                    },
+                                ],
                             },
                         ],
                     },
@@ -260,7 +268,8 @@ describe('alerts on a scenario run', () => {
         let reads = 0
         const engine: Engine = {
             alerting: () => (reads++ === 0 ? Promise.resolve(firing) : Promise.reject(new Error('vmalert went away'))),
-            metrics: () => Promise.reject(new Error('vmalert went away')),
+            metrics: (endpoint, { query }) =>
+                Promise.resolve(endpoint === '/expand-with-exprs' ? { expr: query } : { data: [{}] }),
             stop: () => Promise.resolve(),
         }
         const transitions = transitionsSeen()
@@ -272,12 +281,32 @@ describe('alerts on a scenario run', () => {
         })
         await transitions.reach('firing')
 
-        const { lines, coverage } = await alerts.finish({ startedAt: Date.parse(at) }, [])
+        const { lines, coverage } = await alerts.finish({ startedAt: activeAt }, [])
 
         expect(lines).toEqual([
-            expect.objectContaining({ type: 'transition', rule: 'SyntheticQueueDeep', state: 'firing', value: 50 }),
+            expect.objectContaining({ state: 'pending', at: activeAt, value: null }),
+            expect.objectContaining({ state: 'firing', at: activeAt + 2000, value: 50 }),
         ])
         expect(coverage).toEqual({ unread: 'the alert read failed: vmalert went away' })
+    })
+
+    it('refuses a rules file that names an alert twice before any container starts', async () => {
+        const files = writeFiles([
+            { name: 'first', interval: '1s', rules: [{ alert: 'SyntheticTwice', expr: 'synthetic_queue_depth > 1' }] },
+            { name: 'second', interval: '1s', rules: [{ alert: 'SyntheticTwice', expr: 'synthetic_queue_depth > 2' }] },
+        ])
+        const alerts = await startAlerts({
+            alerts: { ...files, exclude: [] },
+            targets: [],
+            onTransition: () => undefined,
+        })
+
+        await expect(alerts.finish({ startedAt: Date.now() }, [])).resolves.toEqual({
+            lines: [],
+            coverage: {
+                unread: 'the alert engine did not start: the rules file names the alert SyntheticTwice more than once',
+            },
+        })
     })
 })
 

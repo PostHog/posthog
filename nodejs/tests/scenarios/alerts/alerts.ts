@@ -93,6 +93,11 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 
 function withoutExcluded(file: string, exclude: string[]): { rules: string; excluded: string[] } {
     const { groups } = parse(readFileSync(file, 'utf8')) as { groups: { rules: { alert?: string }[] }[] }
+    const names = groups.flatMap(({ rules }) => rules.flatMap(({ alert }) => (alert === undefined ? [] : [alert])))
+    const repeated = names.find((name, index) => names.indexOf(name) !== index)
+    if (repeated !== undefined) {
+        throw new Error(`the rules file names the alert ${repeated} more than once`)
+    }
     const left = (alert?: string): boolean => alert !== undefined && exclude.includes(alert)
     return {
         rules: stringify({
@@ -180,6 +185,9 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
     const read = async (): Promise<void> => {
         const { data } = VmRules.parse(await engine.alerting('/api/v1/rules', { type: 'alert' }))
         rules = data.groups.flatMap((group) => group.rules)
+        const intervalOf = new Map(
+            data.groups.flatMap(({ interval, rules }) => rules.map(({ id }): [string, number] => [id, interval]))
+        )
         const shortestMs = Math.min(...data.groups.map(({ interval }) => interval * 1000))
         pollMs = options.pollMs ?? Math.min(POLL_MS, shortestMs / POLLS_PER_INTERVAL)
         const seen = new Set<string>()
@@ -193,11 +201,22 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
                 const key = JSON.stringify([rule.id, alert.id])
                 const was = open.get(key)?.alert.state
                 seen.add(key)
+                const activeAt = Date.parse(alert.activeAt)
                 if (was === undefined && (alert.state === 'pending' || rule.duration > 0)) {
-                    record(transitionOf(rule, alert, 'pending', Date.parse(alert.activeAt)))
+                    const pending = transitionOf(rule, alert, 'pending', activeAt)
+                    record(alert.state === 'pending' ? pending : { ...pending, value: null })
                 }
                 if (alert.state === 'firing' && was !== 'firing') {
-                    record(transitionOf(rule, alert, 'firing', Date.parse(rule.lastEvaluation)))
+                    // vmalert evaluates on its group's grid from activeAt, and fires at the first evaluation past `for:`.
+                    const intervalS = intervalOf.get(rule.id)!
+                    record(
+                        transitionOf(
+                            rule,
+                            alert,
+                            'firing',
+                            activeAt + Math.ceil(rule.duration / intervalS) * intervalS * 1000
+                        )
+                    )
                 }
                 open.set(key, { rule, alert })
             }
