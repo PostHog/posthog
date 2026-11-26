@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
     BRAZE_PROBE_TARGETS,
     DATA_SERIES_LOOKBACK_SECONDS,
+    DATE_RANGE_ENDPOINTS,
     DEFAULT_PROBE_TARGET,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -188,7 +189,7 @@ Your REST endpoint must match your Braze dashboard's region — see [Braze's API
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = build_endpoint_schemas(
-            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(BRAZE_DATA_SERIES_ENDPOINTS)
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=(*BRAZE_DATA_SERIES_ENDPOINTS, *DATE_RANGE_ENDPOINTS)
         )
         for schema in schemas:
             if schema.name in BRAZE_DATA_SERIES_ENDPOINTS:

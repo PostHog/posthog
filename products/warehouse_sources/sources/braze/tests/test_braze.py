@@ -211,20 +211,20 @@ class TestEmailListRequests:
         assert result.saved_states == [BrazeResumeConfig(cursor=1000, end_date="2026-03-10")]
 
     @pytest.mark.parametrize(
-        "value, expected",
+        "endpoint, field, value, expected",
         [
-            ("2019-01-15 12:00:00 +0000", "2019-01-15T12:00:00Z"),
-            ("2019-01-15 14:00:00 +0200", "2019-01-15T12:00:00Z"),
-            ("not a time", "not a time"),
-            (None, None),
+            ("email_hard_bounces", "hard_bounced_at", "2019-01-15 12:00:00 +0000", "2019-01-15T12:00:00Z"),
+            ("email_hard_bounces", "hard_bounced_at", "2019-01-15 14:00:00 +0200", "2019-01-15T12:00:00Z"),
+            ("email_hard_bounces", "hard_bounced_at", "not a time", "not a time"),
+            ("email_hard_bounces", "hard_bounced_at", None, None),
+            ("email_unsubscribes", "unsubscribed_at", "2016-08-25 15:24:32 +0000", "2016-08-25T15:24:32Z"),
+            ("email_unsubscribes", "unsubscribed_at", "2020-01-28T17:45:00Z", "2020-01-28T17:45:00Z"),
         ],
     )
-    def test_hard_bounce_times_are_rewritten_to_iso(self, value, expected):
-        rows = _normalize_items(
-            BRAZE_ENDPOINTS["email_hard_bounces"], [{"email": "a@example.com", "hard_bounced_at": value}, "stray"]
-        )
+    def test_email_times_are_rewritten_to_iso(self, endpoint, field, value, expected):
+        rows = _normalize_items(BRAZE_ENDPOINTS[endpoint], [{"email": "a@example.com", field: value}, "stray"])
 
-        assert rows == [{"email": "a@example.com", "hard_bounced_at": expected}]
+        assert rows == [{"email": "a@example.com", field: expected}]
 
 
 class TestBrazeSourceResponse:

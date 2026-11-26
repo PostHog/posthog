@@ -25,6 +25,10 @@ class TestBrazeSource:
             # Braze restates recent days, so appending them would duplicate rather than correct.
             assert schemas[name].supports_append is False
             assert schemas[name].default_incremental_lookback_seconds == DATA_SERIES_LOOKBACK_SECONDS
+        # The email list queries re-read the watermark day, so appending would duplicate it too.
+        for name in ("email_unsubscribes", "email_hard_bounces"):
+            assert schemas[name].supports_incremental is True
+            assert schemas[name].supports_append is False
         assert schemas["email_templates"].supports_append is True
         assert schemas["email_templates"].default_incremental_lookback_seconds is None
 

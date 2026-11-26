@@ -129,6 +129,8 @@ BRAZE_ENDPOINTS: dict[str, BrazeEndpointConfig] = {
         date_range=True,
         # The default is newest first, which shifts offsets as new unsubscribes land in range.
         params={"sort_direction": "asc"},
+        # Documented as ISO 8601, but older Braze docs show the `+0000` form the bounces use.
+        timestamp_field="unsubscribed_at",
     ),
     "email_hard_bounces": BrazeEndpointConfig(
         name="email_hard_bounces",
@@ -142,6 +144,9 @@ BRAZE_ENDPOINTS: dict[str, BrazeEndpointConfig] = {
         timestamp_field="hard_bounced_at",
     ),
 }
+
+# The email list queries re-read the watermark day on every run, so appending would duplicate it.
+DATE_RANGE_ENDPOINTS = tuple(name for name, config in BRAZE_ENDPOINTS.items() if config.date_range)
 
 # Braze launched (as Appboy) in 2011, so no workspace has an unsubscribe or hard bounce before it.
 EMAIL_HISTORY_START = date(2011, 1, 1)
