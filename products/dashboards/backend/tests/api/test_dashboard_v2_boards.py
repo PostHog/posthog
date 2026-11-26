@@ -155,15 +155,22 @@ class TestDashboardV2Boards(APIBaseTest):
     def test_an_object_rule_of_none_hides_a_board_from_other_members(self) -> None:
         shown = self._create(_board("Shown")).json()
         hidden = self._create(_board("Hidden")).json()
-        AccessControl.objects.create(
-            team=self.team, resource="dashboard", resource_id=hidden["id"], access_level="none"
+        member = self._member()
+        restricted = self.client.put(
+            f"{self._url(hidden['uid'])}access_controls/", {"access_level": "none"}, format="json"
         )
-        self.client.force_login(self._member())
+        assert restricted.status_code == status.HTTP_200_OK, restricted.json()
+        self.client.force_login(member)
 
         assert [row["uid"] for row in self.client.get(self._url()).json()["results"]] == [shown["uid"]]
         assert self.client.get(self._url(hidden["uid"])).status_code in (403, 404)
         patched = self.client.patch(self._url(hidden["uid"]), {"spec": _board("x")}, format="json")
         assert patched.status_code in (403, 404)
+
+        admin = User.objects.create_and_join(self.organization, "admin@posthog.com", "password")
+        OrganizationMembership.objects.filter(user=admin).update(level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin)
+        assert {row["uid"] for row in self.client.get(self._url()).json()["results"]} == {shown["uid"], hidden["uid"]}
 
     def test_without_dashboard_access_a_member_sees_only_granted_and_own_boards(self) -> None:
         granted = self._create(_board("Granted")).json()
