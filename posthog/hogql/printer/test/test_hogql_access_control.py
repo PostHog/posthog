@@ -730,6 +730,26 @@ class TestDeniedTableError(BaseTest):
                 True,
             ),
             (
+                "display_tag_in_a_saved_expression",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "<a href='https://example.com'>link</a>",
+                False,
+                False,
+            ),
+            (
+                "trace_read_through_a_joined_view_sharing_a_read_table_name",
+                "none",
+                "SELECT event AS name FROM posthog.events",
+                False,
+                [("posthog.events", "models.events")],
+                None,
+                False,
+                True,
+            ),
+            (
                 "join_deleted_after_build",
                 "none",
                 "SELECT event AS name FROM events",
@@ -805,6 +825,14 @@ class TestDeniedTableError(BaseTest):
             )
             for source, target in joins
         ]
+        for _source, target in joins:
+            if target.startswith("models."):
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team,
+                    name=target.removeprefix("models."),
+                    query={"query": "SELECT name FROM posthog.trace_spans"},
+                    columns={"name": "String"},
+                )
         expression = None
         if events_expression is not None:
             with team_scope(self.team.id, canonical=True):

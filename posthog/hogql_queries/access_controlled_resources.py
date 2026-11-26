@@ -111,6 +111,7 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
+    virtual_fields: dict[str, object] = field(default_factory=dict)
 
     def for_next_fingerprint(self) -> "_WarehouseCatalog":
         """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
@@ -122,6 +123,7 @@ class _WarehouseCatalog:
             looked_up_table_names=self.looked_up_table_names,
             view_queries=self.view_queries,
             looked_up_names=self.looked_up_names,
+            virtual_fields=self.virtual_fields,
         )
 
     def has_table(self, names: set[str]) -> bool:

@@ -840,7 +840,14 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
         view_query = catalog.view_queries.get(name)
         if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
             definitions.append(view_query["query"])
-    if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team):
+    if _reads_tables_the_walk_cannot_name(
+        definitions,
+        catalog.looked_up_names,
+        catalog.walked_views,
+        frozenset(gated_tables),
+        team,
+        catalog.virtual_fields,
+    ):
         return gated
     if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team):
         return gated
@@ -848,7 +855,12 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
 
 
 def _reads_tables_the_walk_cannot_name(
-    definitions: Sequence[str], read_names: Collection[str], gated_tables: frozenset[str], team: Team
+    definitions: Sequence[str],
+    read_names: Collection[str],
+    walked_views: Collection[str],
+    gated_tables: frozenset[str],
+    team: Team,
+    cache: dict[str, Any],
 ) -> bool:
     """True when a definition may read a table through a field its text doesn't name, which the name walk misses.
 
@@ -857,6 +869,7 @@ def _reads_tables_the_walk_cannot_name(
     last segment, case-insensitively, so every queryable form of a table (`posthog.events`, `models.x`) matches.
     """
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS  # noqa: PLC0415
     from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
@@ -877,7 +890,9 @@ def _reads_tables_the_walk_cannot_name(
             self.found = True
 
         def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
-            self.found = True
+            if node.kind not in HOGQLX_TAGS and node.kind not in HOGQLX_COMPONENTS:
+                self.found = True
+            super().visit_hogqlx_tag(node)
 
     names = {key(name) for name in read_names}
     for definition in definitions:
@@ -896,24 +911,28 @@ def _reads_tables_the_walk_cannot_name(
             return True
         return finder.found
 
-    joins: dict[str, set[str]] = defaultdict(set)
-    reading_expressions: set[str] = set()
-    for source, target, source_key, target_key in (
-        DataWarehouseJoin.objects.filter(team_id=team.pk)
-        .exclude(deleted=True)
-        .values_list("source_table_name", "joining_table_name", "source_table_key", "joining_table_key")
-    ):
-        joins[key(source)].add(key(target))
-        # Join keys are HogQL expressions too, evaluated whenever the joined field is read.
-        if selects(source_key) or selects(target_key):
-            reading_expressions.add(key(source))
-    for table_name, expression in (
-        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
-        .exclude(deleted=True)
-        .values_list("table_name", "expression")
-    ):
-        if selects(expression):
-            reading_expressions.add(key(table_name))
+    if "graph" not in cache:
+        join_targets: dict[str, set[str]] = defaultdict(set)
+        reading: set[str] = set()
+        for source, target, source_key, target_key in (
+            DataWarehouseJoin.objects.filter(team_id=team.pk)
+            .exclude(deleted=True)
+            .values_list("source_table_name", "joining_table_name", "source_table_key", "joining_table_key")
+        ):
+            join_targets[key(source)].add(key(target))
+            # Join keys are HogQL expressions too, evaluated whenever the joined field is read.
+            if selects(source_key) or selects(target_key):
+                reading.add(key(source))
+        for table_name, expression in (
+            DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+            .exclude(deleted=True)
+            .values_list("table_name", "expression")
+        ):
+            if selects(expression):
+                reading.add(key(table_name))
+        cache["graph"] = (dict(join_targets), frozenset(reading))
+    joins: dict[str, set[str]] = cache["graph"][0]
+    reading_expressions: frozenset[str] = cache["graph"][1]
     if not joins and not reading_expressions:
         return False
 
@@ -922,6 +941,7 @@ def _reads_tables_the_walk_cannot_name(
     # is reachable from all of them.
     builtin = {key(name) for name in build_database_root_node().children["posthog"].children}
     reached: set[str] = set()
+    joined: set[str] = set()
     frontier = list(names)
     while frontier:
         name = frontier.pop()
@@ -935,16 +955,19 @@ def _reads_tables_the_walk_cannot_name(
         for target in joins.get(name, ()):
             if target in gated:
                 return True
+            joined.add(target)
             frontier.append(target)
-    joined = reached - names
     if not joined:
         return False
-    # A joined view can read a gated table itself, so it fails closed instead of being walked too.
+    if "views" not in cache:
+        cache["views"] = list(
+            DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True).values_list("name", flat=True)
+        )
+    # A joined view can read a gated table itself, so it fails closed unless the name walk read it.
+    walked = {name.lower() for name in walked_views}
     return any(
-        key(name) in joined
-        for name in DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-        .exclude(deleted=True)
-        .values_list("name", flat=True)
+        key(name) in joined and name.lower() not in walked and f"models.{name}".lower() not in walked
+        for name in cache["views"]
     )
 
 
