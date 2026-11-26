@@ -1512,7 +1512,7 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('records the warm-up its drive started its traffic in, and the baseline it admitted after it', async () => {
+    it('records the warm-up, the baseline it admitted after it, and a first step scheduled at the drive start', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
             NEVER_ABORTED

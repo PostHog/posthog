@@ -305,26 +305,32 @@ const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase):
 const inside = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] =>
     series.filter(({ at }) => within(phase, at))
 
-type Opened<T> = { window: T[]; from: number; since: number; before: (read: (sample: T) => number) => number }
+type Opened<T> = { window: T[]; from: number; fromOpening: boolean; before: (read: (sample: T) => number) => number }
 
 // A baseline rate opens at the baseline's own start, the warm-up's end included, not at the scrape before it: that
 // scrape can fall in a quiet warm-up and dilute the rate. A counter's value at the start is estimated by linear
-// interpolation between the two scrapes. Across a restart nothing can be estimated, so the rate opens at the first scrape,
-// counting that scrape's lifetime from its value there: a start time rounded to the second can read as inside the window.
+// interpolation between the two scrapes. Across a restart nothing can be estimated, so the rate opens at the first scrape.
 function openedAt<T extends { at: number; startedAt?: number }>(series: readonly T[], phase: Phase): Opened<T> {
     const window = spanning(series, phase)
     const [reference, first] = window
     if (first === undefined || reference.at >= phase.from) {
-        const from = reference?.at ?? phase.from
-        return { window, from, since: from, before: () => 0 }
+        return { window, from: reference?.at ?? phase.from, fromOpening: false, before: () => 0 }
     }
     if (reference.startedAt !== first.startedAt) {
-        const since = Math.max(first.at, (first.startedAt ?? 0) * 1000) + 1
-        return { window: window.slice(1), from: first.at, since, before: () => 0 }
+        return { window: window.slice(1), from: first.at, fromOpening: true, before: () => 0 }
     }
     const share = (phase.from - reference.at) / (first.at - reference.at)
-    return { window, from: phase.from, since: reference.at, before: (read) => (read(first) - read(reference)) * share }
+    return { window, from: phase.from, fromOpening: true, before: (read) => (read(first) - read(reference)) * share }
 }
+
+// The lifetime a window opens on counts from its value at the opening scrape, and every later one from zero. Start times
+// are whole seconds, so comparing one with the opening scrape can misjudge a lifetime that starts within a second of it.
+const increaseFromOpening = (window: readonly MetricSample[], read: Counter): number =>
+    [...Map.groupBy(window, ({ startedAt }) => startedAt)].reduce(
+        (sum, [startedAt, lifetime]) =>
+            sum + read(lifetime.at(-1)!) - (startedAt === window[0].startedAt ? read(lifetime[0]) : 0),
+        0
+    )
 
 const openedSpanOf = ({ window, from }: Opened<{ at: number }>): number =>
     window.length < 2 ? 0 : window.at(-1)!.at - from
@@ -376,7 +382,12 @@ function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase
         const span = openedSpanOf(opened)
         return span <= 0
             ? sum
-            : sum + (increaseOf(opened.window, read, opened.since) - opened.before(read)) / seconds(span)
+            : sum +
+                  ((opened.fromOpening
+                      ? increaseFromOpening(opened.window, read)
+                      : increaseOf(opened.window, read, opened.from)) -
+                      opened.before(read)) /
+                      seconds(span)
     }, 0)
 }
 
