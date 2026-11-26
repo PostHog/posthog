@@ -106,6 +106,7 @@ class DestinationMisconfigured(DeliveryError):
 
 # What an HTTP destination's owner checks. A provider whose fix lies elsewhere names its own.
 CHECK_THE_URL = "Check the destination's URL and the format it accepts, then update the destination on the alert."
+
 ADD_RECIPIENTS = "Add recipients to the destination on the alert, or remove the destination."
 
 
