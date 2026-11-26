@@ -3621,7 +3621,7 @@ def _insight_detail(request: HttpRequest, project_id: int, pk: int) -> HttpRespo
 
 
 def _dashboard_detail(request: HttpRequest, project_id: int, pk: int) -> HttpResponse:
-    request._pg_queries_labels = {"dashboard_v2": "true", "sql_tiles": "21-50"}  # type: ignore[attr-defined]
+    request._pg_queries_labels = {"dashboard_v2": "true", "omit_results": "true", "sql_tiles": "21-50"}  # type: ignore[attr-defined]
     return HttpResponse()
 
 
@@ -3672,6 +3672,7 @@ class TestQueryTimeCountingMiddlewarePgQueryMetric(SimpleTestCase):
                 "method": "GET",
                 "status_class": "2xx",
                 "dashboard_v2": "true",
+                "omit_results": "true",
                 "sql_tiles": "21-50",
             },
         )

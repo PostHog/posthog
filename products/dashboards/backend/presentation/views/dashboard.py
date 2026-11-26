@@ -3266,11 +3266,16 @@ class DashboardActivitySummarySerializer(serializers.Serializer):
 
 def _sql_tile_bucket(data: Any) -> str:
     """Bucket the board's SQL-backed tile count so it can label a metric without unbounded cardinality."""
+
+    def as_dict(value: Any) -> dict:
+        # Error-fallback tiles keep whatever malformed query was saved, so any level may be a non-dict.
+        return value if isinstance(value, dict) else {}
+
     count = 0
-    for tile in (data.get("tiles") or []) if hasattr(data, "get") else []:
-        query = ((tile or {}).get("insight") or {}).get("query") or {}
-        source = query.get("source") or {}
-        if query.get("kind") == "HogQLQuery" or source.get("kind") == "HogQLQuery":
+    tiles = as_dict(data).get("tiles")
+    for tile in tiles if isinstance(tiles, list) else []:
+        query = as_dict(as_dict(as_dict(tile).get("insight")).get("query"))
+        if query.get("kind") == "HogQLQuery" or as_dict(query.get("source")).get("kind") == "HogQLQuery":
             count += 1
     if count == 0:
         return "0"
@@ -3602,14 +3607,17 @@ class DashboardsViewSet(
             _record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
-        v2_path = str_to_bool(request.query_params.get("omit_tile_results")) and self._dashboard_v2_enabled(request)
-        if v2_path:
+        v2_enabled = self._dashboard_v2_enabled(request)
+        omit_results = str_to_bool(request.query_params.get("omit_tile_results")) and v2_enabled
+        if omit_results:
             serializer_context["omit_insight_results"] = True
         serializer = DashboardSerializer(dashboard, context=serializer_context)
         data = serializer.data
         # The middleware reads this off the underlying Django request, not the DRF wrapper.
         request._request._pg_queries_labels = {  # type: ignore[attr-defined]
-            "dashboard_v2": "true" if v2_path else "false",
+            # The gate alone switches on batched tile work, so it is labelled apart from result omission.
+            "dashboard_v2": "true" if v2_enabled else "false",
+            "omit_results": "true" if omit_results else "false",
             "sql_tiles": _sql_tile_bucket(data),
         }
 
