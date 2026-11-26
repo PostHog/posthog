@@ -402,11 +402,12 @@ class TestApproveRunAPI:
                 run_id=create_result.run_id,
                 user_id=user.id,
                 snapshots=[ApproveSnapshotInput(identifier="Button", new_hash="new_hash")],
-            )
+            ),
+            team_id=repo.team_id,
         )
 
-        assert result.approved is False  # Run not finalized
-        assert result.approved_at is None
+        assert result.run.approved is False  # Run not finalized
+        assert result.run.approved_at is None
 
         # Snapshot-level approval fields were set, result preserved
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots

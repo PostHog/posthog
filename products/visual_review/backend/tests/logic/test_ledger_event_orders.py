@@ -6,6 +6,7 @@ import pytest
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.models import User
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import NoRunNeededInput
@@ -13,12 +14,27 @@ from products.visual_review.backend.facade.enums import (
     BaselineApprovalState,
     BaselineEntrySource,
     BaselineMode,
+    DecisionAction,
+    DecisionChannel,
     RunPurpose,
     RunType,
 )
-from products.visual_review.backend.logic import approvals, commit_status, gating, ledger, ledger_advance
+from products.visual_review.backend.logic import (
+    approvals,
+    commit_status,
+    errors,
+    gating,
+    ledger,
+    ledger_advance,
+    quarantine,
+    repos,
+    retention,
+    review_decisions,
+    toleration,
+)
 from products.visual_review.backend.logic.baseline_record import record_for_run
-from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo, Run
+from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo, Run, RunSnapshot
+from products.visual_review.backend.tasks.tasks import process_run_diffs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ci_workflow import (
     FIXED_WORKFLOW,
@@ -34,11 +50,21 @@ from products.visual_review.backend.tests.logic.event_orders import (
     CI_GAP_SCENARIOS,
     CI_SCENARIOS,
     CLOSE_SCENARIOS,
+    DECISION_BASELINE,
+    DECISION_SCENARIOS,
     SCENARIOS,
+    DecisionScenario,
     Layer,
     Scenario,
 )
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeActions, FakeGit, LedgerFlow, seeded_repo
+from products.visual_review.backend.tests.logic.ledger_fakes import (
+    SEED,
+    FakeActions,
+    FakeGit,
+    LedgerFlow,
+    seeded_repo,
+    set_baseline_mode,
+)
 
 COLORS = {
     "b0": (255, 0, 0, 255),
@@ -854,3 +880,404 @@ def test_the_model_finds_each_known_green_head_gap(gap, team, user, mocker, djan
     assert player.green_head_breaks, f"expected a green head without a passing run because {gap.reason}\n" + describe(
         gap.order, player
     )
+
+
+DECISION_COLORS = {
+    "x0": (255, 0, 0, 255),
+    "x1": (0, 0, 255, 255),
+    "y0": (0, 255, 0, 255),
+    "y1": (255, 255, 0, 255),
+    "y2": (0, 255, 255, 255),
+    "z0": (255, 0, 255, 255),
+    "w0": (128, 128, 128, 255),
+}
+
+GUARANTEE_DECISION_RULES = (
+    "A decision is refused exactly when the pull request's head run is finalized, an agent would change a "
+    "person's decision, or a person would accept over someone else's rejection without an override"
+)
+GUARANTEE_FINALIZE = (
+    "Finalize passes exactly when no pair of the head run is rejected, no rejected story is missing from a partial "
+    "head, and every other changed pair is accepted, tolerated, quarantined or a removal"
+)
+GUARANTEE_GREEN_HEAD_DECIDED = (
+    "The head's gate is green exactly when the head run is finalized, or when nothing on it is rejected and every "
+    "changed pair is tolerated or quarantined"
+)
+GUARANTEE_LEDGER_GAINS_ACCEPTED = (
+    "Finalize records an approval for exactly the changed pairs whose newest decision is an accept"
+)
+GUARANTEE_DECIDED_RUNS_KEPT = "Retention keeps every run that holds a decision while its branch is active"
+GUARANTEE_FROZEN_RUN = "A redelivered diff task leaves the pairs of a completed run alone"
+
+Key = tuple[str, str, str]
+
+
+@frozen
+class OracleDecision:
+    person: str
+    agent: bool
+    action: DecisionAction
+
+
+class DecisionOracle:
+    """What each person decided on which pair of pictures, kept apart from the code under test."""
+
+    def __init__(self) -> None:
+        self.book: dict[Key, list[OracleDecision]] = {}
+        self.tolerated: set[Key] = set()
+        self.quarantined: set[str] = set()
+
+    def newest(self, key: Key) -> OracleDecision | None:
+        decisions = self.book.get(key, [])
+        return decisions[-1] if decisions else None
+
+    def record(self, key: Key, decision: OracleDecision) -> None:
+        self.book.setdefault(key, []).append(decision)
+
+    def decision_outcome(self, key: Key, decision: OracleDecision, *, head_finalized: bool, override: bool) -> str:
+        if head_finalized:
+            return "refused"
+        current = self.newest(key)
+        if decision.action == DecisionAction.ACCEPT and current is not None and current.action == DecisionAction.ACCEPT:
+            return "unchanged"
+        if decision.action == DecisionAction.CLEAR and (current is None or current.action == DecisionAction.CLEAR):
+            return "unchanged"
+        if decision.agent and current is not None and not current.agent:
+            return "refused"
+        over_rejection = (
+            decision.action == DecisionAction.ACCEPT
+            and current is not None
+            and current.action == DecisionAction.REJECT
+            and current.person != decision.person
+        )
+        if over_rejection and (decision.agent or not override):
+            return "refused"
+        return "written"
+
+    def rejected(self, key: Key) -> bool:
+        newest = self.newest(key)
+        return newest is not None and newest.action == DecisionAction.REJECT
+
+    def accepted(self, key: Key) -> bool:
+        newest = self.newest(key)
+        return newest is not None and newest.action == DecisionAction.ACCEPT
+
+    def _unrendered_rejection(self, rendered: set[str], partial: bool) -> bool:
+        return partial and any(self.rejected(key) and key[0] not in rendered for key in self.book)
+
+    def gate_passes(self, changed: dict[str, Key], rendered: set[str], partial: bool, finalized: bool) -> bool:
+        if finalized:
+            return True
+        if self._unrendered_rejection(rendered, partial):
+            return False
+        return all(
+            not self.rejected(key) and (identifier in self.quarantined or key in self.tolerated)
+            for identifier, key in changed.items()
+        )
+
+    def finalize_fills(
+        self, changed: dict[str, Key], rendered: set[str], partial: bool, approve_all: bool
+    ) -> list[Key] | None:
+        """The pairs finalize accepts by itself, or None when finalize must refuse."""
+        fills: list[Key] = []
+        for identifier, key in changed.items():
+            if self.rejected(key):
+                return None
+            if self.accepted(key):
+                continue
+            if key[2] == "":
+                fills.append(key)
+            elif identifier in self.quarantined or key in self.tolerated:
+                continue
+            elif approve_all:
+                fills.append(key)
+            else:
+                return None
+        if self._unrendered_rejection(rendered, partial):
+            return None
+        return fills
+
+
+@frozen
+class DecisionRun:
+    number: int
+    sha: str
+    renders: dict[str, str]
+    partial: bool
+    run: Run
+
+
+class DecisionPlayer:
+    def __init__(self, scenario: DecisionScenario, repo: Repo, git: FakeGit, flow: LedgerFlow, people, capture) -> None:
+        self.scenario = scenario
+        self.repo = repo
+        self.git = git
+        self.flow = flow
+        self.people = people
+        self.capture = capture
+        self.oracle = DecisionOracle()
+        self.runs: dict[int, DecisionRun] = {}
+        self.finalized: set[int] = set()
+        self.breaks: list[str] = []
+        self.trace: list[str] = []
+        self.commits = 0
+        for picture, color in DECISION_COLORS.items():
+            flow.picture(picture, color)
+        self.renders = dict(scenario.first_head)
+        self.head = self._commit(SEED)
+
+    def _commit(self, parent: str) -> str:
+        self.commits += 1
+        sha = self.git.commit(f"F-{self.commits}", parent)
+        self.git.open_pull_request(1, sha)
+        return sha
+
+    def _changed(self, decision_run: DecisionRun) -> dict[str, Key]:
+        changed: dict[str, Key] = {}
+        for identifier, base in DECISION_BASELINE.items():
+            if identifier in decision_run.renders:
+                if decision_run.renders[identifier] != base:
+                    changed[identifier] = (identifier, base, decision_run.renders[identifier])
+            elif not decision_run.partial:
+                changed[identifier] = (identifier, base, "")
+        return changed
+
+    def _latest(self) -> DecisionRun | None:
+        return self.runs[max(self.runs)] if self.runs else None
+
+    def _broken(self, guarantee: str, event: str, detail: str) -> None:
+        self.breaks.append(f"{guarantee}: after '{event}', {detail}")
+
+    def ci(self, partial: bool) -> str:
+        number = len(self.runs) + 1
+        renders = {"X": self.renders["X"]} if partial else dict(self.renders)
+        with self.capture(using=WRITER_DB, execute=True):
+            run = self.flow.run(self.head, renders, branch="F", pr_number=1, is_partial=partial)
+        self.runs[number] = DecisionRun(number=number, sha=self.head, renders=renders, partial=partial, run=run)
+        return f"run {number} on {self.head} renders {renders}"
+
+    def push(self, change: str | None) -> str:
+        if change is not None:
+            identifier, picture = change.split("=")
+            self.renders[identifier] = picture
+        self.head = self._commit(self.head)
+        return f"head {self.head} renders {self.renders}"
+
+    def decide(self, event: str, verb: str, target: str, actor: str | None) -> str:
+        identifier, number = target.split("@")
+        decision_run = self.runs[int(number)]
+        key = self._changed(decision_run)[identifier]
+        agent = verb == "agent-accept"
+        action = {
+            "accept": DecisionAction.ACCEPT,
+            "agent-accept": DecisionAction.ACCEPT,
+            "accept-anyway": DecisionAction.ACCEPT,
+            "reject": DecisionAction.REJECT,
+            "clear": DecisionAction.CLEAR,
+        }[verb]
+        person = "h1" if agent else actor or "h1"
+        decision = OracleDecision(person=person, agent=agent, action=action)
+        latest = self._latest()
+        expected = self.oracle.decision_outcome(
+            key,
+            decision,
+            head_finalized=latest is not None and latest.number in self.finalized,
+            override=verb == "accept-anyway",
+        )
+        request = approvals.DecisionRequest(identifier=identifier, new_hash=key[2] or None, reason="looks wrong")
+        try:
+            with self.capture(using=WRITER_DB, execute=True):
+                outcome = approvals.decide(
+                    decision_run.run.id,
+                    self.people[person].id,
+                    action,
+                    [request],
+                    via=DecisionChannel.MCP if agent else DecisionChannel.WEB,
+                    team_id=self.repo.team_id,
+                    override_rejection=verb == "accept-anyway",
+                )
+            actual = "unchanged" if identifier in outcome.already_decided else "written"
+        except errors.DecisionRefusedError as error:
+            actual = f"refused"
+            self.trace.append(f"  refused: {error.code}")
+        if actual != expected:
+            self._broken(GUARANTEE_DECISION_RULES, event, f"expected {expected}, got {actual}")
+        if actual == "written":
+            self.oracle.record(key, decision)
+        return actual
+
+    def tolerate(self, event: str, target: str) -> str:
+        identifier, number = target.split("@")
+        decision_run = self.runs[int(number)]
+        key = self._changed(decision_run)[identifier]
+        snapshot = decision_run.run.snapshots.get(identifier=identifier)
+        expected = "refused" if self.oracle.rejected(key) else "tolerated"
+        try:
+            with self.capture(using=WRITER_DB, execute=True):
+                toleration.mark_snapshot_as_tolerated(
+                    decision_run.run.id, snapshot.id, self.people["h1"].id, self.repo.team_id
+                )
+            actual = "tolerated"
+        except errors.SnapshotRejectedError:
+            actual = "refused"
+        if actual != expected:
+            self._broken(GUARANTEE_DECISION_RULES, event, f"toleration expected {expected}, got {actual}")
+        if actual == "tolerated":
+            self.oracle.tolerated.add(key)
+        return actual
+
+    def quarantine(self, identifier: str) -> str:
+        with self.capture(using=WRITER_DB, execute=True):
+            quarantine.quarantine_identifier(
+                repo_id=self.repo.id,
+                identifier=identifier,
+                run_type=RunType.STORYBOOK,
+                reason="flaky",
+                user_id=self.people["h1"].id,
+                team_id=self.repo.team_id,
+            )
+        self.oracle.quarantined.add(identifier)
+        return f"{identifier} quarantined"
+
+    def finalize(self, event: str, approve_all: bool) -> str:
+        latest = self._latest()
+        assert latest is not None
+        changed = self._changed(latest)
+        fills = self.oracle.finalize_fills(changed, set(latest.renders), latest.partial, approve_all)
+        try:
+            with self.capture(using=WRITER_DB, execute=True):
+                approvals.finalize_run(run_id=latest.run.id, user_id=self.people["h1"].id, approve_all=approve_all)
+            passed = True
+        except errors.RunNotFullyResolvedError as error:
+            passed = False
+            self.trace.append(f"  refused: {error}")
+        if passed != (fills is not None):
+            self._broken(GUARANTEE_FINALIZE, event, f"finalize passed={passed}, expected {fills is not None}")
+        if not passed:
+            return "refused"
+        for key in fills or []:
+            self.oracle.record(key, OracleDecision(person="h1", agent=False, action=DecisionAction.ACCEPT))
+        self.finalized.add(latest.number)
+        expected_rows = {(key[0], key[2]) for key in changed.values() if self.oracle.accepted(key)}
+        rows = set(
+            BaselineApproval.objects.using(WRITER_DB)
+            .filter(repo=self.repo, state=BaselineApprovalState.OPEN)
+            .values_list("identifier", "content_hash")
+        )
+        if rows != expected_rows:
+            self._broken(
+                GUARANTEE_LEDGER_GAINS_ACCEPTED, event, f"rows {sorted(rows)}, expected {sorted(expected_rows)}"
+            )
+        return f"finalized run {latest.number}, rows {sorted(rows)}"
+
+    def redeliver(self, event: str, number: int) -> str:
+        run = self.runs[number].run
+
+        def pairs() -> list[tuple[str, str, str, str]]:
+            return list(
+                RunSnapshot.objects.using(WRITER_DB)
+                .filter(run_id=run.id)
+                .order_by("identifier")
+                .values_list("identifier", "result", "baseline_hash", "current_hash")
+            )
+
+        before = pairs()
+        process_run_diffs(self.repo.team_id, str(run.id))
+        if pairs() != before:
+            self._broken(GUARANTEE_FROZEN_RUN, event, f"pairs {before} became {pairs()}")
+        return "redelivered"
+
+    def retain(self, event: str) -> str:
+        decided = set(
+            RunSnapshot.objects.using(WRITER_DB)
+            .filter(review_decisions.has_decisions(), run__repo=self.repo)
+            .values_list("run_id", flat=True)
+        )
+        retention.sweep_repo_runs(self.repo, now=timezone.now() + timedelta(days=4))
+        kept = set(Run.objects.using(WRITER_DB).filter(id__in=decided).values_list("id", flat=True))
+        if kept != decided:
+            self._broken(GUARANTEE_DECIDED_RUNS_KEPT, event, f"deleted {sorted(map(str, decided - kept))}")
+        return f"kept {len(kept)} decided runs"
+
+    def check_gate(self, event: str) -> None:
+        latest = self._latest()
+        if latest is None or latest.sha != self.head:
+            return
+        posts = [
+            call.kwargs
+            for call in self.flow.statuses.call_args_list
+            if call.args[1] == latest.sha and call.kwargs["context"] == GATE
+        ]
+        state = posts[-1]["state"] if posts else "none"
+        expected = self.oracle.gate_passes(
+            self._changed(latest), set(latest.renders), latest.partial, latest.number in self.finalized
+        )
+        if (state == "success") != expected:
+            self._broken(
+                GUARANTEE_GREEN_HEAD_DECIDED,
+                event,
+                f"run {latest.number} gate {state} '{posts[-1]['description'] if posts else ''}'",
+            )
+
+    def play(self, event: str) -> None:
+        verb, *rest = event.split(" ")
+        if verb == "ci":
+            outcome = self.ci(partial=rest[-1] == "partial")
+        elif verb == "push":
+            outcome = self.push(rest[1] if len(rest) > 1 else None)
+        elif verb in ("accept", "agent-accept", "accept-anyway", "reject", "clear"):
+            outcome = self.decide(event, verb, rest[0], rest[1] if len(rest) > 1 else None)
+        elif verb == "tolerate":
+            outcome = self.tolerate(event, rest[0])
+        elif verb == "quarantine":
+            outcome = self.quarantine(rest[0])
+        elif verb in ("finalize", "finalize-all"):
+            outcome = self.finalize(event, approve_all=verb == "finalize-all")
+        elif verb == "redeliver":
+            outcome = self.redeliver(event, int(rest[0]))
+        elif verb == "retain":
+            outcome = self.retain(event)
+        else:
+            raise ValueError(f"Unknown event {event!r}")
+        self.trace.append(f"{event}: {outcome}")
+        self.check_gate(event)
+
+
+def decision_repo(team_id: int) -> Repo:
+    repo = repos.create_repo(team_id=team_id, repo_external_id=67000, repo_full_name="org/decisions")
+    ledger.seed(repo, SEED, {RunType.STORYBOOK: DECISION_BASELINE})
+    set_baseline_mode(repo, BaselineMode.LEDGER)
+    return repo
+
+
+DECISION_CASES = [
+    pytest.param(scenario, order, id=f"{scenario.key}-{index:03d}")
+    for scenario in DECISION_SCENARIOS
+    for index, order in enumerate(scenario.every_order())
+]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("scenario,order", DECISION_CASES)
+def test_every_order_of_review_decisions_keeps_the_decision_guarantees(
+    scenario, order, team, user, mocker, django_capture_on_commit_callbacks
+) -> None:
+    repo = decision_repo(team.id)
+    mocker.patch("products.visual_review.backend.tasks.tasks.sync_rejection_comment.delay")
+    second = User.objects.create_and_join(team.organization, "second-reviewer@example.com", None, first_name="h2")
+    player = DecisionPlayer(
+        scenario,
+        repo,
+        FakeGit(mocker, SEED),
+        LedgerFlow(repo, mocker),
+        {"h1": user, "h2": second},
+        django_capture_on_commit_callbacks,
+    )
+    for event in order:
+        try:
+            player.play(event)
+        except Exception as error:
+            raise AssertionError(f"{event!r} raised {error!r}\n" + "\n".join(player.trace)) from error
+
+    assert not player.breaks, "\n".join([*player.breaks, f"order: {', '.join(order)}", *player.trace])

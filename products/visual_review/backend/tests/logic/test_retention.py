@@ -159,6 +159,26 @@ class TestRetentionSweep:
 
         assert Run.objects.filter(id=superseded.id).exists() is survives
 
+    @pytest.mark.parametrize(("successor_age_days", "survive"), [(4, True), (31, False)])
+    def test_superseded_runs_with_a_decision_wait_for_the_branch_to_go_quiet(
+        self, successor_age_days, survive, repo, now
+    ):
+        latest = self._run(repo, now, age_days=successor_age_days)
+        decided = [self._run(repo, now, age_days=age, superseded_by=latest) for age in (40, 35)]
+        undecided = self._run(repo, now, age_days=33, superseded_by=latest)
+        for run in decided:
+            RunSnapshot.objects.create(
+                run=run,
+                team_id=repo.team_id,
+                identifier="Button",
+                metadata={"review_decisions": [{"action": "accept", "seq": 1}]},
+            )
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert [Run.objects.filter(id=run.id).exists() for run in decided] == [survive, survive]
+        assert Run.objects.filter(id=undecided.id).exists() is False
+
     def test_default_branch_latest_run_survives_any_age(self, repo, now):
         latest = self._run(repo, now, age_days=400, branch="master", pr_number=None)
 

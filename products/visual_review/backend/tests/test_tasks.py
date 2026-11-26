@@ -142,6 +142,25 @@ class TestProcessRunDiffs:
         assert run.status == RunStatus.COMPLETED
         assert run.completed_at is not None
 
+    def test_a_redelivered_task_leaves_a_completed_run_alone(self, repo):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash1")],
+            ),
+            team_id=repo.team_id,
+        )
+        process_run_diffs(repo.team_id, str(create_result.run_id))
+
+        with patch("products.visual_review.backend.diffing.process_diffs") as process:
+            process_run_diffs(repo.team_id, str(create_result.run_id))
+
+        assert process.called is False
+        assert api.get_run(create_result.run_id).status == RunStatus.COMPLETED
+
     def test_process_run_diffs_handles_error(self, repo):
         create_result = api.create_run(
             CreateRunInput(

@@ -398,3 +398,110 @@ CI_GAP_SCENARIOS = (
         },
     ),
 )
+
+
+@frozen
+class DecisionScenario:
+    """One pull request whose stories a reviewer decides on, run by run.
+
+    The first head renders `first_head`, which the decision model compares against the seeded baseline.
+    """
+
+    key: str
+    first_head: dict[str, str]
+    after: dict[str, tuple[str, ...]]
+
+    def every_order(self) -> list[tuple[str, ...]]:
+        return Scenario(key=self.key, layers=(FRONTEND_LAYER,), pictures={}, after=self.after).every_order()
+
+
+# Stories X and Y change in the pull request, Z can be removed by it, and W never changes.
+DECISION_BASELINE = {"X": "x0", "Y": "y0", "Z": "z0", "W": "w0"}
+
+# Event names: "ci F" is CI finishing on the current head of F, as the run with the next number ("ci F 2"), and
+# "partial" renders X only. "push F" moves the head to a new commit with the same pictures, "push F Y=y2" changes
+# one picture. "accept X@1 h1" is person h1 accepting the pair X shows on run 1, "reject", "clear" and
+# "accept-anyway" (an accept over someone else's rejection) work the same way, and "agent-accept" is an agent
+# through MCP for h1. "tolerate Y@1" and "quarantine Y" are h1 tolerating the pair or quarantining the story.
+# "finalize F" finalizes the newest run, and "finalize-all F" accepts everything nobody decided on first.
+# "redeliver 1" runs the diff task of run 1 again, and "retain" sweeps runs 4 days later.
+DECISION_SCENARIOS = (
+    DecisionScenario(
+        key="partial_review_then_fix",
+        first_head={"X": "x1", "Y": "y1", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "accept X@1 h1": ("ci F",),
+            "redeliver 1": ("ci F",),
+            "push F Y=y2": ("ci F",),
+            "ci F 2": ("push F Y=y2",),
+            "accept Y@2 h1": ("ci F 2",),
+            "finalize F": ("accept X@1 h1", "accept Y@2 h1", "redeliver 1"),
+        },
+    ),
+    DecisionScenario(
+        key="reject_then_tolerate_or_quarantine",
+        first_head={"X": "x0", "Y": "y1", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "reject Y@1 h2": ("ci F",),
+            "tolerate Y@1": ("ci F",),
+            "quarantine Y": (),
+            "finalize-all F": ("reject Y@1 h2", "tolerate Y@1", "quarantine Y"),
+        },
+    ),
+    DecisionScenario(
+        key="agent_over_person",
+        first_head={"X": "x0", "Y": "y1", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "reject Y@1 h2": ("ci F",),
+            "agent-accept Y@1": ("ci F",),
+            "accept-anyway Y@1 h1": ("reject Y@1 h2",),
+            "finalize F": ("agent-accept Y@1", "accept-anyway Y@1 h1"),
+        },
+    ),
+    DecisionScenario(
+        key="removal_only_head",
+        first_head={"X": "x0", "Y": "y0", "W": "w0"},
+        after={
+            "ci F": (),
+            "reject Z@1 h2": ("ci F",),
+            "finalize F": ("ci F",),
+        },
+    ),
+    DecisionScenario(
+        key="retention_keeps_a_decided_run",
+        first_head={"X": "x1", "Y": "y0", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "accept X@1 h1": ("ci F",),
+            "push F": ("ci F",),
+            "ci F 2": ("push F",),
+            "retain": ("ci F 2", "accept X@1 h1"),
+            "finalize F": ("retain",),
+        },
+    ),
+    DecisionScenario(
+        key="partial_head_omits_a_rejected_story",
+        first_head={"X": "x1", "Y": "y1", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "reject Y@1 h2": ("ci F",),
+            "accept X@1 h1": ("ci F",),
+            "push F": ("ci F",),
+            "ci F 2 partial": ("push F",),
+            "finalize-all F": ("ci F 2 partial", "reject Y@1 h2", "accept X@1 h1"),
+        },
+    ),
+    DecisionScenario(
+        key="two_reviewers_accept_and_undo",
+        first_head={"X": "x1", "Y": "y0", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "accept X@1 h1": ("ci F",),
+            "clear X@1 h2": ("ci F",),
+            "finalize F": ("accept X@1 h1", "clear X@1 h2"),
+        },
+    ),
+)

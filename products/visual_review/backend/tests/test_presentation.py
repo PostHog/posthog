@@ -513,7 +513,55 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Per-snapshot approval is DB only — run not finalized
-        self.assertFalse(response.json()["approved"])
+        self.assertFalse(response.json()["run"]["approved"])
+        self.assertEqual(response.json()["head_run"]["id"], str(create_result.run_id))
+
+    def test_reject_list_and_undo_a_decision_through_the_api(self):
+        Repo.objects.filter(id=self.vr_project.id).update(baseline_mode=BaselineMode.LEDGER)
+        run = Run.objects.create(
+            repo_id=self.vr_project.id,
+            team_id=self.team.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="p1a",
+            branch="feat",
+            pr_number=1,
+            status=RunStatus.COMPLETED,
+        )
+        RunSnapshot.objects.create(
+            run=run,
+            team_id=self.team.id,
+            identifier="Button",
+            result=SnapshotResult.CHANGED,
+            baseline_hash="b0",
+            current_hash="b1",
+            review_state=ReviewState.PENDING,
+        )
+        runs_url = f"/api/projects/{self.team.id}/visual_review/runs/{run.id}"
+        button = {"identifier": "Button", "new_hash": "b1"}
+
+        with patch.object(github_api, "pull_request_state", return_value=None):
+            no_reason = self.client.post(f"{runs_url}/reject/", {"snapshots": [button]}, format="json")
+            rejected = self.client.post(
+                f"{runs_url}/reject/", {"snapshots": [{**button, "reason": "Too blue"}]}, format="json"
+            )
+            wrong_hash = self.client.post(
+                f"{runs_url}/approve/", {"snapshots": [{**button, "new_hash": "b2"}]}, format="json"
+            )
+            listed = self.client.get(f"{runs_url}/snapshots/?review_state=rejected")
+            cleared = self.client.post(f"{runs_url}/clear/", {"identifiers": ["Button"]}, format="json")
+
+        self.assertEqual(no_reason.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(rejected.status_code, status.HTTP_200_OK)
+        self.assertEqual((rejected.json()["head_run"]["id"], rejected.json()["progress"]["rejected"]), (str(run.id), 1))
+        self.assertEqual(wrong_hash.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            (wrong_hash.json()["code"], [s["identifier"] for s in wrong_hash.json()["snapshots"]]),
+            ("hash_mismatch", ["Button"]),
+        )
+        decision = listed.json()["results"][0]["decision"]
+        self.assertEqual((decision["state"], decision["via"], decision["reason"]), ("rejected", "web", "Too blue"))
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertEqual(cleared.json()["progress"]["needs_review"], 1)
 
     def test_finalize_run(self):
         artifact_store.get_or_create_artifact(
