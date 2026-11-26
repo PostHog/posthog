@@ -70,6 +70,7 @@ class SeriesValuesFeature(StrEnum):
     """Something a Trends query asks for, which the stored path must either reproduce or refuse."""
 
     EVENT_PROPERTY_FILTERS = "event_property_filters"
+    PERSON_PROPERTY_FILTERS = "person_property_filters"
     MULTIPLE_SERIES = "multiple_series"
     ACTION_SERIES = "actions_node"
     DATA_WAREHOUSE_SERIES = "data_warehouse_node"
@@ -92,6 +93,7 @@ class SeriesValuesFeature(StrEnum):
     ALL_TIME_RANGE = "all_time_range"
     PROPERTY_GROUP = "property_group"
     OTHER_PROPERTY_TYPE = "property_type"
+    OTHER_TEST_ACCOUNT_FILTER_TYPE = "test_account_property_type"
 
 
 class SeriesValuesBlocker(StrEnum):

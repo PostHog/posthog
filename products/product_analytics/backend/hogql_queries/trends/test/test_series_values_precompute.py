@@ -15,6 +15,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     ChartDisplayType,
+    CohortPropertyFilter,
     CompareFilter,
     DataWarehouseNode,
     DateRange,
@@ -23,6 +24,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -51,6 +53,11 @@ _NOW = "2024-01-15T12:00:00Z"
 
 _PRO = EventPropertyFilter(key="plan", value="pro", operator=PropertyOperator.EXACT)
 
+_TEST_ACCOUNT_FILTERS: dict[str, dict[str, Any]] = {
+    "test_account_event": {"key": "plan", "value": "pro", "operator": "exact", "type": "event"},
+    "test_account_person": {"key": "tier", "value": "pro", "operator": "exact", "type": "person"},
+}
+
 
 def _query(**overrides: Any) -> TrendsQuery:
     fields: dict[str, Any] = {
@@ -75,6 +82,11 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = timezone
         self.team.save()
 
+    def _set_test_account_filters(self, filters: list[dict[str, Any]], persons_mode: PersonsOnEventsMode) -> None:
+        self.team.test_account_filters = filters
+        self.team.modifiers = {"personsOnEventsMode": persons_mode.value}
+        self.team.save()
+
     def _seed(self) -> None:
         for timestamp, plan in (
             ("2024-01-09T05:00:00Z", "pro"),
@@ -90,7 +102,12 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("2024-01-15T11:00:00Z", "pro"),
         ):
             _create_event(
-                team=self.team, event="signed_up", distinct_id="p1", timestamp=timestamp, properties={"plan": plan}
+                team=self.team,
+                event="signed_up",
+                distinct_id="p1",
+                timestamp=timestamp,
+                properties={"plan": plan},
+                person_properties={"tier": plan},
             )
         _create_event(team=self.team, event="other", distinct_id="p1", timestamp="2024-01-14T10:00:00Z")
         flush_persons_and_events()
@@ -111,6 +128,15 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "query",
             ),
             ("hour_utc_past_relative_range", IntervalType.HOUR, "UTC", "-3d", "-1d", "series"),
+            ("day_utc_event_test_account_filter", IntervalType.DAY, "UTC", "-7d", None, "test_account_event"),
+            (
+                "hour_los_angeles_person_test_account_filter",
+                IntervalType.HOUR,
+                "America/Los_Angeles",
+                "-3d",
+                None,
+                "test_account_person",
+            ),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
@@ -125,12 +151,17 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         self._set_timezone(timezone)
         self._seed()
+        if filter_level in _TEST_ACCOUNT_FILTERS:
+            self._set_test_account_filters(
+                [_TEST_ACCOUNT_FILTERS[filter_level]], PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            )
         series = EventsNode(event="signed_up", math="total", properties=[_PRO] if filter_level == "series" else None)
         query = _query(
             series=[series],
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             interval=interval,
             properties=[_PRO] if filter_level == "query" else None,
+            filterTestAccounts=filter_level in _TEST_ACCOUNT_FILTERS,
         )
 
         live = TrendsQueryRunner(team=self.team, query=query).calculate().results
@@ -269,12 +300,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
                 None,
             ),
             (SeriesValuesFeature.OTHER_INTERVAL, {"interval": IntervalType.WEEK}, None),
-            (SeriesValuesFeature.TEST_ACCOUNT_FILTERS, {"filterTestAccounts": True}, None),
-            (
-                SeriesValuesFeature.OTHER_PROPERTY_TYPE,
-                {"properties": [PersonPropertyFilter(key="email", value="x", operator="exact")]},
-                None,
-            ),
+            (SeriesValuesFeature.OTHER_PROPERTY_TYPE, {"properties": [CohortPropertyFilter(key="id", value=1)]}, None),
             (SeriesValuesBlocker.TIMEZONE, {}, "Asia/Kolkata"),
             (
                 SeriesValuesBlocker.DST_TRANSITION,
@@ -362,6 +388,70 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert result is None
         assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "cohort_test_account_filter",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                [{"key": "id", "value": 1, "type": "cohort"}],
+                None,
+                SeriesValuesFeature.OTHER_TEST_ACCOUNT_FILTER_TYPE,
+            ),
+            (
+                "person_test_account_filter_with_joined_persons",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                [_TEST_ACCOUNT_FILTERS["test_account_person"]],
+                None,
+                SeriesValuesFeature.OTHER_TEST_ACCOUNT_FILTER_TYPE,
+            ),
+            (
+                "virtual_person_test_account_filter",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                [{"key": "$virt_revenue", "value": 100, "operator": "gt", "type": "person"}],
+                None,
+                SeriesValuesFeature.OTHER_TEST_ACCOUNT_FILTER_TYPE,
+            ),
+            (
+                "person_query_filter_with_joined_persons",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                [],
+                [PersonPropertyFilter(key="tier", value="pro", operator=PropertyOperator.EXACT)],
+                SeriesValuesFeature.OTHER_PROPERTY_TYPE,
+            ),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    def test_refuses_filters_whose_value_can_change_after_ingestion(
+        self,
+        _name: str,
+        persons_mode: PersonsOnEventsMode,
+        test_account_filters: list[dict[str, Any]],
+        properties: list[PersonPropertyFilter] | None,
+        reason: SeriesValuesFeature,
+    ) -> None:
+        self._set_test_account_filters(test_account_filters, persons_mode)
+        query = _query(filterTestAccounts=True, properties=properties)
+
+        precomputed = precomputed_series_values(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+
+        assert precomputed == SeriesValuesUnavailable(reason=reason)
+        assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_reports_test_account_and_person_filters_as_features(self) -> None:
+        self._set_test_account_filters(
+            [_TEST_ACCOUNT_FILTERS["test_account_person"]], PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        )
+        query = _query(filterTestAccounts=True)
+
+        precomputed = precomputed_series_values(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+
+        assert isinstance(precomputed, PrecomputedSeriesValues)
+        assert precomputed.features == {
+            SeriesValuesFeature.TEST_ACCOUNT_FILTERS,
+            SeriesValuesFeature.PERSON_PROPERTY_FILTERS,
+        }
 
     @parameterized.expand(
         [

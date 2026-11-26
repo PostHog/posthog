@@ -13,12 +13,13 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     IntervalType,
+    PersonsOnEventsMode,
     PropertyGroupFilter,
     TrendsFilter,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.property import get_property_key, get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.clickhouse.client import sync_execute
@@ -104,6 +105,11 @@ _READ_SETTINGS = {
     "optimize_skip_unused_shards": 1,
 }
 
+_PERSON_PROPERTIES_ON_EVENTS_MODES = {
+    PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+}
+
 
 def _interval(runner: TrendsQueryRunner) -> str:
     return (runner.query.interval or IntervalType.DAY).value
@@ -111,6 +117,28 @@ def _interval(runner: TrendsQueryRunner) -> str:
 
 def _properties(runner: TrendsQueryRunner, series: EventsNode) -> list[Any]:
     return [*(runner.query.properties or []), *(series.properties or [])]
+
+
+def _test_account_filters(runner: TrendsQueryRunner) -> list[Any]:
+    filters = runner.team.test_account_filters
+    if not runner.query.filterTestAccounts or not isinstance(filters, list):
+        return []
+    return filters
+
+
+def _filter_type(prop: Any) -> str:
+    return get_property_type(prop) or "event"
+
+
+def _is_fixed_at_ingestion(runner: TrendsQueryRunner, prop: Any) -> bool:
+    if _filter_type(prop) == "event":
+        return True
+    # A virtual person property joins revenue data, so its value can change after the count is stored.
+    return (
+        _filter_type(prop) == "person"
+        and runner.modifiers.personsOnEventsMode in _PERSON_PROPERTIES_ON_EVENTS_MODES
+        and not str(get_property_key(prop)).startswith("$virt_")
+    )
 
 
 def _trends_filter(runner: TrendsQueryRunner) -> TrendsFilter:
@@ -127,7 +155,13 @@ _Uses = Callable[[TrendsQueryRunner, EventsNode], bool]
 # Features in shadow. A query that uses them still gets stored values, and its comparison is reported
 # for each feature it used. A new feature starts here.
 _SHADOW_FEATURES: dict[Feature, _Uses] = {
-    Feature.EVENT_PROPERTY_FILTERS: lambda runner, series: bool(_properties(runner, series)),
+    Feature.EVENT_PROPERTY_FILTERS: lambda runner, series: any(
+        _filter_type(prop) == "event" for prop in _properties(runner, series)
+    ),
+    Feature.PERSON_PROPERTY_FILTERS: lambda runner, series: any(
+        _filter_type(prop) == "person" for prop in [*_properties(runner, series), *_test_account_filters(runner)]
+    ),
+    Feature.TEST_ACCOUNT_FILTERS: lambda runner, series: bool(_test_account_filters(runner)),
     Feature.MULTIPLE_SERIES: lambda runner, series: len(runner.query.series) > 1,
 }
 
@@ -150,7 +184,6 @@ _REFUSED_FEATURES: dict[Feature, _Uses] = {
     Feature.OTHER_DISPLAY: lambda runner, series: _trends_filter(runner).display not in (None, *_TIME_SERIES_DISPLAYS),
     Feature.SMOOTHING: lambda runner, series: (_trends_filter(runner).smoothingIntervals or 1) > 1,
     Feature.OTHER_INTERVAL: lambda runner, series: _interval(runner) not in _BUCKET_EXPRS,
-    Feature.TEST_ACCOUNT_FILTERS: lambda runner, series: bool(runner.query.filterTestAccounts),
     Feature.EXPLICIT_DATE: lambda runner, series: bool(runner.query.dateRange and runner.query.dateRange.explicitDate),
     Feature.DAYS_OF_WEEK: lambda runner, series: bool(runner.query.dateRange and runner.query.dateRange.daysOfWeek),
     # Live Trends starts an all-time range at the first event of the series, not of the project.
@@ -158,8 +191,11 @@ _REFUSED_FEATURES: dict[Feature, _Uses] = {
         runner.query.dateRange and runner.query.dateRange.date_from == "all"
     ),
     Feature.PROPERTY_GROUP: lambda runner, series: isinstance(runner.query.properties, PropertyGroupFilter),
-    Feature.OTHER_PROPERTY_TYPE: lambda runner, series: any(
-        get_property_type(prop) != "event" for prop in _properties(runner, series)
+    Feature.OTHER_PROPERTY_TYPE: lambda runner, series: (
+        not all(_is_fixed_at_ingestion(runner, prop) for prop in _properties(runner, series))
+    ),
+    Feature.OTHER_TEST_ACCOUNT_FILTER_TYPE: lambda runner, series: (
+        not all(_is_fixed_at_ingestion(runner, prop) for prop in _test_account_filters(runner))
     ),
 }
 
@@ -244,7 +280,7 @@ def _ensure(
     wait_timeout_seconds: float | None = None,
     deadline: float | None = None,
 ) -> LazyComputationResult:
-    properties = _properties(runner, series)
+    properties = [*_properties(runner, series), *_test_account_filters(runner)]
     return ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
