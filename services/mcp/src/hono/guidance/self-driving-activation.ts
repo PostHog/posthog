@@ -7,6 +7,7 @@ import { resolveScopePreset } from '@/lib/scope-preset'
 import { formatPrompt } from '@/lib/utils'
 import WITHOUT_GITHUB_OFFER from '@/templates/guidance/self-driving-activation-without-github.md'
 import ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation.md'
+import type { Context } from '@/tools/types'
 
 import type { RedisLike } from '../cache/RedisCache'
 import type { ResolvedState } from '../request-state-resolver'
@@ -32,6 +33,28 @@ const onboardingSchema = z.object({
     draft: z.record(z.string(), z.unknown()).nullable(),
     github_optional_available: z.boolean().optional().default(false),
 })
+
+type InboxOnboarding = z.infer<typeof onboardingSchema>
+
+/** Undefined when the response does not parse. A failed request throws. */
+export async function fetchInboxOnboarding(
+    context: Context,
+    projectId: string,
+    signal: AbortSignal
+): Promise<InboxOnboarding | undefined> {
+    const onboarding = onboardingSchema.safeParse(
+        await context.api.request<Schemas.InboxOnboardingState>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(projectId)}/signals/onboarding/`,
+            signal,
+        })
+    )
+    return onboarding.success ? onboarding.data : undefined
+}
+
+export function isSelfDrivingActivated(onboarding: InboxOnboarding): boolean {
+    return onboarding.completed_at !== null
+}
 
 // Mirrors EVAL_INTERACTION_ORIGIN in products/tasks/backend/constants.py. The eval harness runs the agent as a
 // sandboxed task, so its token and headers fail the customer-caller checks below. The caller can set this header
@@ -125,17 +148,11 @@ async function lookupActivationGuidance(
     if (ineligible || !productState.hasBudgetLeft()) {
         return undefined
     }
-    const onboarding = onboardingSchema.safeParse(
-        await state.context.api.request<Schemas.InboxOnboardingState>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
-            signal: AbortSignal.timeout(1000),
-        })
-    )
-    if (!onboarding.success || !productState.hasBudgetLeft()) {
+    const onboarding = await fetchInboxOnboarding(state.context, String(projectId), AbortSignal.timeout(1000))
+    if (!onboarding || !productState.hasBudgetLeft()) {
         return undefined
     }
-    if (onboarding.data.completed_at !== null || onboarding.data.draft !== null) {
+    if (isSelfDrivingActivated(onboarding) || onboarding.draft !== null) {
         await redis.set(negativeKey, '1', 'EX', INELIGIBLE_TTL_SECONDS)
         return undefined
     }
@@ -173,9 +190,7 @@ async function lookupActivationGuidance(
         const notice: GuidanceNotice = {
             ruleId: RULE_ID,
             outcome,
-            ...(outcome === 'shown'
-                ? { text: activationText(projectUrl, onboarding.data.github_optional_available) }
-                : {}),
+            ...(outcome === 'shown' ? { text: activationText(projectUrl, onboarding.github_optional_available) } : {}),
         }
         keepReservation = true
         return notice

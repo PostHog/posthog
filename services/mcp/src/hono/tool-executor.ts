@@ -225,8 +225,9 @@ export class ToolExecutor {
             return [...this.instructionsBuilder.buildExecToolEntries(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
-        const nameSet = new Set(state.allTools.map((t) => t.name))
-        const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
+        // The resolver can rewrite a description for this request, so it wins over the catalog's static entry.
+        const descriptions = new Map(state.allTools.map((t) => [t.name, t.description]))
+        const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => descriptions.has(e.name))
 
         const tools = filteredTools.map((entry) => {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
@@ -235,7 +236,8 @@ export class ToolExecutor {
                     description: this.instructionsBuilder.formatExecuteSqlDescription(state, { inlineReference: true }),
                 }
             }
-            return entry
+            const description = descriptions.get(entry.name)
+            return description === undefined || description === entry.description ? entry : { ...entry, description }
         })
         return this.instructionsBuilder.isLearnToolEnabled(state)
             ? [...tools, this.instructionsBuilder.buildLearnToolEntry()]
