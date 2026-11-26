@@ -1,7 +1,7 @@
 import './SectionTile.css'
 
 import clsx from 'clsx'
-import { type ReactNode, useCallback, useState } from 'react'
+import { type ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
@@ -12,7 +12,7 @@ import type { OnSectionRows } from '../grid/TileGrid'
 import { showsBorder } from '../presentation/tileAppearance'
 import { AddTileMenu } from './menu/AddTileMenu'
 import { TileActions } from './menu/TileActions'
-import { TileContextMenu, hasTileMenu, useSectionActions } from './menu/TileContextMenu'
+import { TileContextMenu, hasTileMenu, useSectionActions, useSectionDashboardActions } from './menu/TileContextMenu'
 
 export type SectionGridProps = {
     gridId: string
@@ -43,7 +43,9 @@ export function SectionTile({
     const { onEdit, onSectionFoldedChange, can } = useDashboard()
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
-    const actions = useSectionActions(id, widget, () => setDraft(widget.title))
+    const ownActions = useSectionActions(id, widget, () => setDraft(widget.title))
+    const dashboardActions = useSectionDashboardActions(id, widget)
+    const actions = useMemo(() => [...ownActions, ...dashboardActions], [ownActions, dashboardActions])
     const hasMenu = hasTileMenu(actions)
     const showAdd = can('addTile')
 

@@ -37,13 +37,14 @@ return (
 )
 ```
 
-Event handlers, `history` and `refresh` can be written inline. Keep `dashboard`, `widgets`, `filters`, `timeRange`, `disabledReasonFor`, `tileActions` and `dashboardActions` the same between renders, such as from a logic, a hook or a module constant. A new one re-renders every tile.
+Event handlers, `history` and `refresh` can be written inline. Keep `dashboard`, `widgets`, `filters`, `timeRange`, `disabledReasonFor`, `tileActions`, `tileDashboardActions` and `dashboardActions` the same between renders, such as from a logic, a hook or a module constant. A new one re-renders every tile.
 
 Leave out what you do not need. With no `filters`, `timeRange`, `refresh` or `history`, the dashboard shows no filter bar, picker, refresh button or undo.
 
 ### One tile on its own
 
 Render `WidgetCard` with the widget and the widget types that can draw it. No dashboard, grid or controller is needed.
+A tile's menu takes two lists: `actions` for what the tile does to itself, and `dashboardActions` for where it sits, such as moving or removing it. A tile on its own passes only `actions`, or neither for no menu.
 Wrap it in `FiltersContext` or `WidgetHostContext` only when the page has filters, a refresh or sample data to pass down.
 
 ```tsx
