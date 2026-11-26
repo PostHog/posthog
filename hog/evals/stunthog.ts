@@ -56,10 +56,10 @@ const EVALS: EvalSpec[] = [
         criteria: [
             ...TRUSTS_HOG,
             'The agent answered the purpose step from the code, with `--reason` and `--products`, instead of stopping to ask the user what PostHog is for.',
-            'The final message gives the user the exact approval link (https://us.posthog.com/device?code=...) and the code hog returned.',
-            'The final message says that hog uses US Cloud, and that the user should say so instead of opening the link if they want EU Cloud.',
-            'The final message says that a user without a PostHog account can sign up on that page.',
-            "The agent ended its turn to wait for the approval: it didn't claim PostHog is installed and didn't keep waiting on `hog setup` until the session ran out.",
+            'A message to the user gives the exact approval link (https://us.posthog.com/device?code=...) and the code hog returned.',
+            'A message to the user says that hog uses US Cloud, and that the user should say so instead of opening the link if they want EU Cloud.',
+            'A message to the user says that a user without a PostHog account can sign up on that page.',
+            "While the login waited, the agent didn't claim PostHog is installed, and it stopped running `hog setup` and ended its turn before the session ran out.",
         ],
     },
     {
