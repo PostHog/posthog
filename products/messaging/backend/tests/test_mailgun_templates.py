@@ -218,6 +218,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "can't convert %tag_name%, so the email shows it as written",
             ),
             (
+                "unknown_variable_right_after_a_known_one",
+                {"template": "<p>%recipient.a%%tag_name%</p>"},
+                "can't convert %tag_name%, so the email shows it as written",
+            ),
+            (
                 "unknown_variable_in_a_go_subject",
                 {"template": "{{.x}}", "engine": "go", "headers": {"Subject": "Hi %first%"}},
                 "can't convert %first%, so the email shows it as written",
@@ -225,12 +230,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             (
                 "browser_link_by_text",
                 {"template": '<a href="https://example.com/e/{{id}}"><b>View this email in your browser</b></a>'},
-                "no view in browser link, so https://example.com/e/{{id}} still points where it did in Mailgun",
+                "no view in browser link, so the link to https://example.com/e/{{id}} isn't a PostHog page",
             ),
             (
                 "browser_link_by_variable",
                 {"template": "<a href=%recipient.web_version_url%>Here</a>", "engine": "go"},
-                "no view in browser link, so %recipient.web_version_url% still points",
+                "no view in browser link, so the link to %recipient.web_version_url% isn't a PostHog page",
             ),
         ]
     )
@@ -239,13 +244,19 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("encoded_characters_in_a_link", '<a href="https://example.com/caf%C3%A9%20bar">x</a>'),
-            ("percent_signs_in_text", "100% of 50%off% today"),
-            ("other_link_with_online_in_it", '<a href="https://example.com">Browse our online store</a>'),
+            ("encoded_characters_in_a_link", "handlebars", '<a href="https://example.com/caf%C3%A9%20bar">x</a>'),
+            ("percent_signs_in_text", "handlebars", "100% of 50%off% today"),
+            ("link_to_a_website", "handlebars", '<a href="https://example.com">See our website</a>'),
+            ("link_to_something_online", "handlebars", '<a href="https://example.com/o/1">View your order online</a>'),
+            ("printf_verbs_in_a_go_template", "go", '{{printf "%s%d" .x}}'),
         ]
     )
-    def test_text_that_only_looks_like_a_tag_or_browser_link_gets_no_note(self, _name: str, template: str) -> None:
-        assert convert_version({"template": template, "headers": {"Subject": "Hi"}}).notes == ()
+    def test_text_that_only_looks_like_a_tag_or_browser_link_gets_no_note(
+        self, _name: str, engine: str, template: str
+    ) -> None:
+        notes = convert_version({"template": template, "engine": engine, "headers": {"Subject": "Hi"}}).notes
+
+        assert not any("as written" in note or "view in browser" in note for note in notes)
 
     def test_a_go_value_prints_lists_and_maps_the_go_way(self) -> None:
         converted = convert_text("<p>{{.x}}</p>", engine="go").text
