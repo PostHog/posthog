@@ -59,7 +59,7 @@ export type AlertsOptions = {
 }
 
 export interface Alerts {
-    finish(drive: { startedAt: number }, timeline: readonly ValveTimelineEntry[]): Promise<AlertsRead>
+    finish(drive: { startedAt: number }, timeline: readonly ValveTimelineEntry[], judgedAt: number): Promise<AlertsRead>
     close(): Promise<void>
 }
 
@@ -185,8 +185,10 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
     const read = async (): Promise<void> => {
         const { data } = VmRules.parse(await engine.alerting('/api/v1/rules', { type: 'alert' }))
         rules = data.groups.flatMap((group) => group.rules)
-        const intervalOf = new Map(
-            data.groups.flatMap(({ interval, rules }) => rules.map(({ id }): [string, number] => [id, interval]))
+        const intervalMsOf = new Map(
+            data.groups.flatMap(({ interval, rules }) =>
+                rules.map(({ id }): [string, number] => [id, Math.round(interval * 1000)])
+            )
         )
         const shortestMs = Math.min(...data.groups.map(({ interval }) => interval * 1000))
         pollMs = options.pollMs ?? Math.min(POLL_MS, shortestMs / POLLS_PER_INTERVAL)
@@ -199,7 +201,8 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
             }
             for (const alert of rule.alerts ?? []) {
                 const key = JSON.stringify([rule.id, alert.id])
-                const was = open.get(key)?.alert.state
+                const previous = open.get(key)
+                const was = previous?.alert.state
                 seen.add(key)
                 const activeAt = Date.parse(alert.activeAt)
                 if (was === undefined && (alert.state === 'pending' || rule.duration > 0)) {
@@ -207,16 +210,13 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
                     record(alert.state === 'pending' ? pending : { ...pending, value: null })
                 }
                 if (alert.state === 'firing' && was !== 'firing') {
-                    // vmalert evaluates on its group's grid from activeAt, and fires at the first evaluation past `for:`.
-                    const intervalS = intervalOf.get(rule.id)!
-                    record(
-                        transitionOf(
-                            rule,
-                            alert,
-                            'firing',
-                            activeAt + Math.ceil(rule.duration / intervalS) * intervalS * 1000
-                        )
-                    )
+                    // vmalert evaluates on its group's grid from activeAt and fires at the first evaluation past `for:`,
+                    // unless an evaluation this recorder saw still pending pushed it later.
+                    const intervalMs = intervalMsOf.get(rule.id)!
+                    const grid = activeAt + Math.ceil(Math.round(rule.duration * 1000) / intervalMs) * intervalMs
+                    const afterPending =
+                        was === 'pending' ? Date.parse(previous!.rule.lastEvaluation) + intervalMs : grid
+                    record(transitionOf(rule, alert, 'firing', Math.max(grid, afterPending)))
                 }
                 open.set(key, { rule, alert })
             }
@@ -251,12 +251,15 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
         })())
     const finish = async (
         drive: { startedAt: number },
-        timeline: readonly ValveTimelineEntry[]
+        timeline: readonly ValveTimelineEntry[],
+        judgedAt: number
     ): Promise<AlertsRead> => {
         stopped.abort()
         await polling
         await read()
-        const fired = transitions.filter(({ state, at }) => state === 'firing' && at >= drive.startedAt)
+        const fired = transitions.filter(
+            ({ state, at }) => state === 'firing' && at >= drive.startedAt && at <= judgedAt
+        )
         const ruleLines: RuleLine[] = []
         for (const { name: rule, query, lastEvaluation } of rules) {
             const selectors = await missingSelectorsOf(engine, query, since)
@@ -274,8 +277,8 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
         }
     }
     return {
-        finish: (drive, timeline) =>
-            finish(drive, timeline)
+        finish: (drive, timeline, judgedAt) =>
+            finish(drive, timeline, judgedAt)
                 .catch((error: unknown) => ({
                     lines: transitionLines(drive, timeline),
                     coverage: { unread: `the alert read failed: ${messageOf(error)}` },

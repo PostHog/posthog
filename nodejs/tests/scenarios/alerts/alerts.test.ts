@@ -124,9 +124,11 @@ describe('alerts on a scenario run', () => {
                 const appliedAt = new Date().toISOString()
                 metrics.set(0)
                 await transitions.reach('resolved')
-                const { lines, coverage } = await alerts.finish({ startedAt: driveStartedAt }, [
-                    { valve: 'role.freeze', target: 'synthetic-role', requestedAt: appliedAt, appliedAt },
-                ])
+                const { lines, coverage } = await alerts.finish(
+                    { startedAt: driveStartedAt },
+                    [{ valve: 'role.freeze', target: 'synthetic-role', requestedAt: appliedAt, appliedAt }],
+                    Date.now()
+                )
 
                 const recorded = lines.filter((line) => line.type === 'transition')
                 expect(recorded.map(({ state }) => state)).toEqual(['pending', 'firing', 'resolved'])
@@ -197,7 +199,7 @@ describe('alerts on a scenario run', () => {
             })
             try {
                 await sleep(2 * GROUP_INTERVAL_MS)
-                const { lines, coverage } = await alerts.finish({ startedAt: Date.now() }, [])
+                const { lines, coverage } = await alerts.finish({ startedAt: Date.now() }, [], Date.now())
 
                 const neverEvaluated = 'vmalert did not evaluate it during the run'
                 expect(coverage).toEqual({
@@ -235,43 +237,50 @@ describe('alerts on a scenario run', () => {
         ENGINE_MS
     )
 
-    it('dates a firing first seen late by the evaluation grid, and keeps it when the final read fails', async () => {
-        const activeAt = Date.now() - 5000
-        const firing = {
-            data: {
-                groups: [
-                    {
-                        interval: 1,
-                        rules: [
-                            {
-                                id: '1',
-                                name: 'SyntheticQueueDeep',
-                                query: 'synthetic_queue_depth > 10',
-                                duration: 2,
-                                lastError: '',
-                                lastEvaluation: new Date(activeAt + 3000).toISOString(),
-                                alerts: [
-                                    {
-                                        id: '2',
-                                        state: 'firing',
-                                        activeAt: new Date(activeAt).toISOString(),
-                                        value: '50',
-                                        labels: {},
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
+    type Seen = { state: 'pending' | 'firing'; evaluatedAfterMs: number; value: string }
+    const snapshotOf = (activeAt: number, interval: number, duration: number, seen: Seen): unknown => ({
+        data: {
+            groups: [
+                {
+                    interval,
+                    rules: [
+                        {
+                            id: '1',
+                            name: 'SyntheticQueueDeep',
+                            query: 'synthetic_queue_depth > 10',
+                            duration,
+                            lastError: '',
+                            lastEvaluation: new Date(activeAt + seen.evaluatedAfterMs).toISOString(),
+                            alerts: [
+                                {
+                                    id: '2',
+                                    state: seen.state,
+                                    activeAt: new Date(activeAt).toISOString(),
+                                    value: seen.value,
+                                    labels: {},
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    })
+    const engineAnswering = (answers: unknown[], thenFail: boolean): Engine => {
         let reads = 0
-        const engine: Engine = {
-            alerting: () => (reads++ === 0 ? Promise.resolve(firing) : Promise.reject(new Error('vmalert went away'))),
+        return {
+            alerting: () =>
+                reads < answers.length
+                    ? Promise.resolve(answers[reads++])
+                    : thenFail
+                      ? Promise.reject(new Error('vmalert went away'))
+                      : Promise.resolve(answers.at(-1)),
             metrics: (endpoint, { query }) =>
                 Promise.resolve(endpoint === '/expand-with-exprs' ? { expr: query } : { data: [{}] }),
             stop: () => Promise.resolve(),
         }
+    }
+    const recordedFrom = (engine: Engine): { alerts: ReturnType<typeof recordAlerts>; firing: Promise<void> } => {
         const transitions = transitionsSeen()
         const alerts = recordAlerts(engine, Math.floor(Date.now() / 1000), [], {
             alerts: { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] },
@@ -279,14 +288,72 @@ describe('alerts on a scenario run', () => {
             onTransition: transitions.record,
             pollMs: 10,
         })
-        await transitions.reach('firing')
+        return { alerts, firing: transitions.reach('firing') }
+    }
+    const firstSeenFiring: Seen = { state: 'firing', evaluatedAfterMs: 3000, value: '50' }
 
-        const { lines, coverage } = await alerts.finish({ startedAt: activeAt }, [])
+    it.each<
+        [string, number, number, Seen[], number, { pendingValue: number | null; firedAfterMs: number; fired: string[] }]
+    >([
+        [
+            'a firing first seen two evaluations late',
+            1,
+            2,
+            [firstSeenFiring],
+            5000,
+            { pendingValue: null, firedAfterMs: 2000, fired: ['SyntheticQueueDeep'] },
+        ],
+        [
+            'an evaluation that stayed pending past the grid',
+            1,
+            2,
+            [{ state: 'pending', evaluatedAfterMs: 2000, value: '12' }, firstSeenFiring],
+            5000,
+            { pendingValue: 12, firedAfterMs: 3000, fired: ['SyntheticQueueDeep'] },
+        ],
+        [
+            'an interval that does not divide in floating point',
+            0.3,
+            2.1,
+            [firstSeenFiring],
+            5000,
+            { pendingValue: null, firedAfterMs: 2100, fired: ['SyntheticQueueDeep'] },
+        ],
+        [
+            'a firing after the judge started',
+            1,
+            2,
+            [firstSeenFiring],
+            1000,
+            { pendingValue: null, firedAfterMs: 2000, fired: [] },
+        ],
+    ])('dates %s by the evaluation it fired at', async (_, interval, duration, seen, judgedAfterMs, expected) => {
+        const activeAt = Date.now() - 5000
+        const { alerts, firing } = recordedFrom(
+            engineAnswering(
+                seen.map((answer) => snapshotOf(activeAt, interval, duration, answer)),
+                false
+            )
+        )
+        await firing
 
-        expect(lines).toEqual([
-            expect.objectContaining({ state: 'pending', at: activeAt, value: null }),
-            expect.objectContaining({ state: 'firing', at: activeAt + 2000, value: 50 }),
+        const { lines, coverage } = await alerts.finish({ startedAt: activeAt }, [], activeAt + judgedAfterMs)
+
+        expect(lines.filter((line) => line.type === 'transition')).toEqual([
+            expect.objectContaining({ state: 'pending', at: activeAt, value: expected.pendingValue }),
+            expect.objectContaining({ state: 'firing', at: activeAt + expected.firedAfterMs, value: 50 }),
         ])
+        expect(coverage).toMatchObject({ fired: expected.fired })
+    })
+
+    it('keeps the transitions it recorded when the final read fails', async () => {
+        const activeAt = Date.now() - 5000
+        const { alerts, firing } = recordedFrom(engineAnswering([snapshotOf(activeAt, 1, 0, firstSeenFiring)], true))
+        await firing
+
+        const { lines, coverage } = await alerts.finish({ startedAt: activeAt }, [], Date.now())
+
+        expect(lines).toEqual([expect.objectContaining({ type: 'transition', state: 'firing', at: activeAt })])
         expect(coverage).toEqual({ unread: 'the alert read failed: vmalert went away' })
     })
 
@@ -301,7 +368,7 @@ describe('alerts on a scenario run', () => {
             onTransition: () => undefined,
         })
 
-        await expect(alerts.finish({ startedAt: Date.now() }, [])).resolves.toEqual({
+        await expect(alerts.finish({ startedAt: Date.now() }, [], Date.now())).resolves.toEqual({
             lines: [],
             coverage: {
                 unread: 'the alert engine did not start: the rules file names the alert SyntheticTwice more than once',

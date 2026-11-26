@@ -54,17 +54,17 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 **Evidence** stays on the box, under `$XDG_CACHE_HOME/posthog-scenarios/<run id>/` (`~/.cache` when the variable is unset), outside the repository:
 
-| File              | Holds                                                                                                          |
-| ----------------- | -------------------------------------------------------------------------------------------------------------- |
-| `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects                                     |
-| `truth.json`      | Every request the provider edge took or answered, and its answer; a refused ambiguous request leaves none      |
-| `writer-cpu.json` | Each read of the Aurora writer's CPU for a writer CPU bar: its window, and a point a minute or why it has none |
-| `counters.json`   | For a `counter_drift` card, the email counters read from ClickHouse, or why they could not be read             |
-| `logs/<role>.log` | Each role's log lines from this run                                                                            |
-| `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it                              |
-| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second, and each alert transition           |
-| `alerts.jsonl`    | For a profile that names `alerts`, each alert transition and the state of each rule                            |
-| `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used                                       |
+| File              | Holds                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------- |
+| `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects                                      |
+| `truth.json`      | Every request the provider edge took or answered, and its answer; a refused ambiguous request leaves none       |
+| `writer-cpu.json` | Each read of the Aurora writer's CPU for a writer CPU bar: its window, and a point a minute or why it has none  |
+| `counters.json`   | For a `counter_drift` card, the email counters read from ClickHouse, or why they could not be read              |
+| `logs/<role>.log` | Each role's log lines from this run                                                                             |
+| `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it                               |
+| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second, and each alert transition            |
+| `alerts.jsonl`    | For a profile that names `alerts` and a run that reaches its judge, each alert transition and each rule's state |
+| `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used                                        |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 

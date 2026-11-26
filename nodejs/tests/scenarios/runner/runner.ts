@@ -741,11 +741,12 @@ export function createRunner(
                 await pendingJudgments()
                 const stop = watch?.stopped()
                 enter('judge')
+                const judgedAt = Date.now()
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 await live.stop()
                 dependencies = await health.stop()
-                alerted = await alerting?.finish(driveWindow, valves.timeline())
+                alerted = await alerting?.finish(driveWindow, valves.timeline(), judgedAt)
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const checked = await judge.check(
                     card.invariants,
