@@ -241,6 +241,7 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
         return []
     members = organization_member_ids(team_id)
     decisions: list[Decision] = []
+    newest_by_outsider: dict[tuple[int | None, DecisionKey], Decision] = {}
     for run_id, identifier, baseline_hash, current_hash, review_state, reviewed_by_id, reviewed_at, metadata in rows:
         commit_sha = commits_by_run[run_id]
         entries = (metadata or {}).get(METADATA_KEY) or []
@@ -254,11 +255,11 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
                     continue
                 if decision.by_id not in members:
                     logger.warning("visual_review.review_decision_untrusted", run_id=str(run_id), by_id=decision.by_id)
-                    # A rejection only blocks, and a person can still accept over it, so it stays. It
-                    # names nobody, because the ID may belong to a user outside the organization.
-                    if decision.action != DecisionAction.REJECT:
-                        continue
-                    decision = dataclasses.replace(decision, by_id=None)
+                    slot = (decision.by_id, decision.key)
+                    newest = newest_by_outsider.get(slot)
+                    if newest is None or (decision.seq, decision.at) > (newest.seq, newest.at):
+                        newest_by_outsider[slot] = decision
+                    continue
                 decisions.append(decision)
             continue
         if review_state == ReviewState.APPROVED:
@@ -279,6 +280,14 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
                     commit_sha=commit_sha,
                 )
             )
+    # A rejection only blocks, and a person can still accept over it, so a non-member's rejection
+    # stays while it is that person's newest decision on the pair. It names nobody, because the ID
+    # may belong to a user outside the organization.
+    decisions.extend(
+        dataclasses.replace(decision, by_id=None)
+        for decision in newest_by_outsider.values()
+        if decision.action == DecisionAction.REJECT
+    )
     return decisions
 
 

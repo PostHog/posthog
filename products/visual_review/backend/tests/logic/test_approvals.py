@@ -876,6 +876,25 @@ class TestReviewDecisions:
                 lambda outsider: {"review_state": ReviewState.APPROVED, "reviewed_by_id": outsider.id},
                 id="approval_by_someone_outside_the_organization",
             ),
+            pytest.param(
+                lambda outsider: {
+                    "metadata": {
+                        "review_decisions": [
+                            {
+                                "action": action,
+                                "old_hash": "b0",
+                                "new_hash": "b1",
+                                "by": outsider.id,
+                                "reason": "Too blue" if action == "reject" else "",
+                                "at": f"2026-01-0{seq}T00:00:00+00:00",
+                                "seq": seq,
+                            }
+                            for seq, action in enumerate(["reject", "clear"], start=1)
+                        ]
+                    }
+                },
+                id="rejection_retracted_by_someone_outside_the_organization",
+            ),
         ],
     )
     def test_an_unreadable_or_untrusted_decision_entry_is_skipped(self, ledger, team, user, row):
