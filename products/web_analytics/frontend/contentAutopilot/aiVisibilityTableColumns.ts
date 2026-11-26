@@ -15,13 +15,23 @@ export const columnValue = <T extends Record<string, any>>(column: AiVisibilityC
 export const forRow = <T, V>(value: V | ((record: T, index: number) => V), record: T, index: number): V =>
     typeof value === 'function' ? (value as (record: T, index: number) => V)(record, index) : value
 
+export const columnWidth = <T extends Record<string, any>>(
+    column: AiVisibilityColumn<T>
+): React.CSSProperties | undefined =>
+    column.width === undefined || column.width === 0 ? undefined : { width: column.width }
+
 export const cellParts = <T extends Record<string, any>>(
     column: AiVisibilityColumn<T>,
     record: T,
     index: number,
     rowCount: number
-): { className: string | undefined; content: React.ReactNode } => {
+): { className: string | undefined; style: React.CSSProperties | undefined; content: React.ReactNode } => {
     const value = columnValue(column, record)
     const className = typeof column.className === 'function' ? column.className(value, record, index) : column.className
-    return { className, content: column.render ? column.render(value, record, index, rowCount) : value }
+    const style = typeof column.style === 'function' ? column.style(value, record, index) : column.style
+    return {
+        className,
+        style: { ...columnWidth(column), ...style },
+        content: column.render ? column.render(value, record, index, rowCount) : value,
+    }
 }

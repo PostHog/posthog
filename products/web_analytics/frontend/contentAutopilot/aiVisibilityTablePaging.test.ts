@@ -9,4 +9,12 @@ describe('pagerState', () => {
         const state = pagerState({ pageSize: 5 }, autoPage, rowCount)
         expect({ page: state.page, slice: state.slice }).toEqual({ page, slice })
     })
+
+    test.each([
+        { name: 'shows a pager with a next page but no count', entryCount: undefined, onForward: () => {}, show: true },
+        { name: 'hides a single counted page', entryCount: 3, onForward: undefined, show: false },
+    ])('controlled: $name', ({ entryCount, onForward, show }) => {
+        const state = pagerState({ controlled: true, pageSize: 5, currentPage: 1, entryCount, onForward }, 1, 3)
+        expect(state.show).toBe(show)
+    })
 })

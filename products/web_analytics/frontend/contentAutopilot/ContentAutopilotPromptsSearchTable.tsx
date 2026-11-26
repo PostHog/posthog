@@ -38,11 +38,13 @@ export const ContentAutopilotPromptsSearchTable = ({
         {
             title: 'Search',
             key: 'query',
+            // The search takes the spare width and truncates, so the numbers never leave the card.
+            className: 'w-full max-w-0',
             render: (_, row) => (
                 <ContentAutopilotCitationsLink
                     lookup={{ kind: 'search', value: row.query, dateFrom, dateTo, branded }}
                     source="overview-searches"
-                    className="block min-w-32 max-w-120 break-words font-semibold"
+                    className="font-semibold"
                     title={row.query}
                 >
                     {row.query}
@@ -66,7 +68,7 @@ export const ContentAutopilotPromptsSearchTable = ({
             tooltip: 'How often the answers that ran this search linked to your site.',
             sorter: (a, b) => citedShare(a) - citedShare(b),
             render: (_, row) => (
-                <span className="tabular-nums">
+                <span className="whitespace-nowrap tabular-nums">
                     {percentage(citedShare(row), 0)}{' '}
                     <Text size="xs" variant="muted" render={<span />}>
                         of {row.answers}

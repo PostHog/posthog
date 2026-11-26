@@ -18,23 +18,29 @@ export const ContentAutopilotSiteLabel = ({
 }): JSX.Element => {
     const [faviconFailed, setFaviconFailed] = useState(false)
     return (
-        <span className="flex items-center gap-2 min-w-0">
-            {faviconFailed ? (
-                <span className="size-4 shrink-0 rounded-sm bg-fill-secondary" aria-hidden />
-            ) : (
-                <img
-                    src={faviconUrl(domain)}
-                    alt=""
-                    className="size-4 shrink-0 rounded-sm"
-                    loading="lazy"
-                    onError={() => setFaviconFailed(true)}
-                />
-            )}
-            <span className="min-w-0 truncate font-semibold">{children ?? domain}</span>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="flex min-w-0 max-w-full items-center gap-2">
+                {faviconFailed ? (
+                    <span className="size-4 shrink-0 rounded-sm bg-muted" aria-hidden />
+                ) : (
+                    <img
+                        src={faviconUrl(domain)}
+                        alt=""
+                        className="size-4 shrink-0 rounded-sm"
+                        loading="lazy"
+                        onError={() => setFaviconFailed(true)}
+                    />
+                )}
+                <span className="flex min-w-0 truncate font-semibold">{children ?? domain}</span>
+            </span>
             {isTarget ? (
-                <AiVisibilityTag type="success">Your site</AiVisibilityTag>
+                <AiVisibilityTag type="success" className="shrink-0">
+                    Your site
+                </AiVisibilityTag>
             ) : isCompetitor ? (
-                <AiVisibilityTag type="warning">Competitor</AiVisibilityTag>
+                <AiVisibilityTag type="warning" className="shrink-0">
+                    Competitor
+                </AiVisibilityTag>
             ) : null}
         </span>
     )

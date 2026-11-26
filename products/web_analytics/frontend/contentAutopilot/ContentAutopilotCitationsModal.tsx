@@ -1,6 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@posthog/quill'
+import {
+    Button,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    Text,
+} from '@posthog/quill'
 
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
@@ -50,7 +59,9 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
             ) : (
                 <>
                     {citations ? (
-                        <span className="text-xs text-muted-foreground">{pluralize(citations.count, 'answer')}</span>
+                        <Text size="xs" variant="muted" render={<span className="m-0" />}>
+                            {pluralize(citations.count, 'answer')}
+                        </Text>
                     ) : null}
                     <ContentAutopilotCitationsTable
                         citations={citations?.results ?? []}
@@ -70,9 +81,9 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
                         </div>
                     ) : null}
                     {citationsFailed && citations ? (
-                        <span className="text-xs text-destructive-foreground">
+                        <Text size="xs" variant="destructive" render={<span className="m-0" role="alert" />}>
                             Couldn't load more answers. Try again, and if it keeps happening contact support.
-                        </span>
+                        </Text>
                     ) : null}
                 </>
             )}

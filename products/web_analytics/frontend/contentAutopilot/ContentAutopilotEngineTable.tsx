@@ -7,7 +7,11 @@ import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { POSITION_DESCRIPTION, positionLabel } from './promptReport'
 
 const rateCell = (rate: number | null): JSX.Element =>
-    rate === null ? <span className="text-muted">-</span> : <span className="tabular-nums">{percentage(rate, 0)}</span>
+    rate === null ? (
+        <span className="text-muted-foreground">-</span>
+    ) : (
+        <span className="tabular-nums">{percentage(rate, 0)}</span>
+    )
 
 // The fields the prompt set overview and a single prompt's stats both carry per engine.
 type EngineRow = Pick<
@@ -22,10 +26,12 @@ export const ContentAutopilotEngineTable = ({ engines }: { engines: EngineRow[] 
         embedded
         dataSource={engines}
         rowKey="engine"
+        emptyState="No engine answered in this window."
         columns={[
             {
                 title: 'Engine',
                 key: 'engine',
+                className: 'w-full max-w-0',
                 render: (_, { engine }) => <ContentAutopilotEngineLabel engine={engine} />,
             },
             {
@@ -47,7 +53,7 @@ export const ContentAutopilotEngineTable = ({ engines }: { engines: EngineRow[] 
                 tooltip: POSITION_DESCRIPTION,
                 render: (_, { avg_position }) =>
                     avg_position === null ? (
-                        <span className="text-muted">-</span>
+                        <span className="text-muted-foreground">-</span>
                     ) : (
                         <span className="tabular-nums">{positionLabel(avg_position)}</span>
                     ),
@@ -56,8 +62,9 @@ export const ContentAutopilotEngineTable = ({ engines }: { engines: EngineRow[] 
                 title: 'Answers',
                 key: 'answers',
                 align: 'right',
+                className: 'hidden @md/ai-visibility-table:table-cell',
                 render: (_, { checks, failed }) => (
-                    <span className="tabular-nums text-secondary">{humanFriendlyNumber(checks - failed)}</span>
+                    <span className="tabular-nums text-muted-foreground">{humanFriendlyNumber(checks - failed)}</span>
                 ),
             },
         ]}

@@ -5,7 +5,7 @@ import { Skeleton, Table, TableBody, TableCell, TableEmpty, TableRow, Text, cn }
 import type { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
-import { type AiVisibilityColumn, columnKey, isGrouped } from './aiVisibilityTableColumns'
+import { type AiVisibilityColumn, columnKey, forRow, isGrouped } from './aiVisibilityTableColumns'
 import { AiVisibilityTableHeader } from './AiVisibilityTableHeader'
 import { AiVisibilityTablePager } from './AiVisibilityTablePager'
 import { pagerState } from './aiVisibilityTablePaging'
@@ -20,23 +20,39 @@ const EmptyState = ({ emptyState }: { emptyState: React.ReactNode }): JSX.Elemen
         <>{emptyState}</>
     )
 
-/** Draws a Lemon table's props in quill: the same columns, sorting, expansion and paging. */
+/**
+ * Draws a Lemon table's props in quill: the same columns, sorting, expansion and paging.
+ * The wrapper is the `ai-visibility-table` container, so a column's className can hide it with
+ * `hidden @lg/ai-visibility-table:table-cell` when the table has no room for it.
+ */
 export function AiVisibilityTable<T extends Record<string, any>>(props: LemonTableProps<T>): JSX.Element {
     const { columns, dataSource, rowKey, size, loading, loadingSkeletonRows = 1, emptyState, expandable } = props
-    const { pagination, defaultSorting = null, footer, 'data-attr': dataAttr } = props
-    const [sorting, setSorting] = useState<Sorting | null>(defaultSorting)
+    const { pagination, defaultSorting = null, footer, className, 'data-attr': dataAttr } = props
+    const [localSorting, setLocalSorting] = useState<Sorting | null>(defaultSorting)
     const [expanded, setExpanded] = useState<Set<string | number>>(new Set())
     const [autoPage, setAutoPage] = useState(1)
 
+    const sorting = props.sorting !== undefined ? props.sorting : localSorting
+    const setSorting = (next: Sorting | null): void => {
+        props.onSort?.(next)
+        if (props.sorting === undefined) {
+            setLocalSorting(next)
+        }
+    }
+
     const groups = isGrouped(columns) ? columns : null
-    const flat: AiVisibilityColumn<T>[] = groups
-        ? groups.flatMap((group) => group.children)
-        : (columns as AiVisibilityColumn<T>[])
-    const visible = flat.filter((column) => !column.isHidden)
+    const visible = useMemo(
+        () =>
+            (groups ? groups.flatMap((group) => group.children) : (columns as AiVisibilityColumn<T>[])).filter(
+                (column) => !column.isHidden
+            ),
+        [columns, groups]
+    )
     const columnCount = visible.length + (expandable ? 1 : 0)
 
     const sorted = useMemo(() => {
         const sorter = visible.find((column, index) => columnKey(column, index) === sorting?.columnKey)?.sorter
+        // `sorter: true` means the caller sorts on the server, so the rows already come in order.
         return sorting && typeof sorter === 'function'
             ? [...dataSource].sort((a, b) => sorter(a, b) * sorting.order)
             : dataSource
@@ -56,29 +72,43 @@ export function AiVisibilityTable<T extends Record<string, any>>(props: LemonTab
     const rowId = (record: T, index: number): string | number =>
         typeof rowKey === 'function' ? rowKey(record, index) : rowKey ? record[rowKey] : index
 
-    const toggleExpanded = (id: string | number): void =>
+    const isExpanded = (record: T, index: number, id: string | number): boolean => {
+        const override = expandable?.isRowExpanded?.(record, index)
+        return override === undefined || Number(override) < 0 ? expanded.has(id) : !!override
+    }
+
+    const toggleExpanded = (record: T, index: number, id: string | number): void => {
+        const opening = !isExpanded(record, index, id)
+        ;(opening ? expandable?.onRowExpand : expandable?.onRowCollapse)?.(record, index)
         setExpanded((current) => {
             const next = new Set(current)
-            if (next.has(id)) {
-                next.delete(id)
-            } else {
+            if (opening) {
                 next.add(id)
+            } else {
+                next.delete(id)
             }
             return next
         })
+    }
 
     return (
-        <div className="flex flex-col gap-2" data-attr={dataAttr}>
+        <div
+            className={cn('@container/ai-visibility-table flex min-w-0 flex-col gap-2', className)}
+            data-attr={dataAttr}
+        >
             <Table fullWidth size={size === 'small' ? 'sm' : 'default'}>
-                <AiVisibilityTableHeader<T>
-                    groups={groups}
-                    columns={visible}
-                    expandable={!!expandable}
-                    sorting={sorting}
-                    onSortingChange={setSorting}
-                />
+                {props.showHeader === false ? null : (
+                    <AiVisibilityTableHeader<T>
+                        groups={groups}
+                        columns={visible}
+                        expandable={!!expandable}
+                        sorting={sorting}
+                        noSortingCancellation={!!props.noSortingCancellation}
+                        onSortingChange={setSorting}
+                    />
+                )}
                 {loading && dataSource.length === 0 ? (
-                    <TableBody>
+                    <TableBody aria-busy>
                         {Array.from({ length: Math.max(loadingSkeletonRows, 3) }, (_, row) => (
                             <TableRow key={row}>
                                 <TableCell colSpan={columnCount}>
@@ -92,7 +122,7 @@ export function AiVisibilityTable<T extends Record<string, any>>(props: LemonTab
                         <EmptyState emptyState={emptyState} />
                     </TableEmpty>
                 ) : (
-                    <TableBody aria-busy={loading} className={cn(loading && 'opacity-50')}>
+                    <TableBody aria-busy={!!loading} className={cn(loading && 'opacity-50')}>
                         {rows.map((record, index) => {
                             const id = rowId(record, index)
                             return (
@@ -104,8 +134,15 @@ export function AiVisibilityTable<T extends Record<string, any>>(props: LemonTab
                                     columns={visible}
                                     columnCount={columnCount}
                                     props={props}
-                                    expanded={expanded.has(id)}
-                                    onToggleExpanded={() => toggleExpanded(id)}
+                                    expanded={isExpanded(record, index, id)}
+                                    onToggleExpanded={() => toggleExpanded(record, index, id)}
+                                    expandedRowClassName={
+                                        forRow<T, string | null | undefined>(
+                                            expandable?.expandedRowClassName,
+                                            record,
+                                            index
+                                        ) ?? undefined
+                                    }
                                 />
                             )
                         })}

@@ -3,7 +3,7 @@ import { Button, TableHead, Tooltip, TooltipContent, TooltipTrigger, cn } from '
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
-import type { AiVisibilityColumn } from './aiVisibilityTableColumns'
+import { type AiVisibilityColumn, columnWidth } from './aiVisibilityTableColumns'
 
 const HeaderLabel = ({ title, tooltip }: { title: React.ReactNode; tooltip?: string }): JSX.Element =>
     tooltip ? (
@@ -33,10 +33,13 @@ export function AiVisibilityTableHeadCell<T extends Record<string, any>>({
     return (
         <TableHead
             align={column.align}
+            expand={column.fullWidth}
+            aria-sort={order === 1 ? 'ascending' : order === -1 ? 'descending' : undefined}
+            style={columnWidth(column)}
             className={cn(column.width === 0 && 'w-0', typeof column.className === 'string' && column.className)}
         >
             {column.sorter ? (
-                <Button size="sm" className="-mx-2 uppercase" onClick={onSort}>
+                <Button size="sm" onClick={onSort}>
                     {label}
                     {order === 1 ? <IconArrowUp /> : order === -1 ? <IconArrowDown /> : <IconSort />}
                 </Button>

@@ -54,11 +54,7 @@ const UrlCell: QueryContextColumnComponent = ({ value, record }) => {
     const url = String(value ?? '')
     return (
         <span className="flex flex-wrap items-center gap-2 min-w-0">
-            <ContentAutopilotCitationsLink
-                lookup={lookupFor('url', url)}
-                source="prompt-citations-tile"
-                className="break-all"
-            >
+            <ContentAutopilotCitationsLink lookup={lookupFor('url', url)} source="prompt-citations-tile">
                 {url}
             </ContentAutopilotCitationsLink>
             {isWebUrl(url) ? (

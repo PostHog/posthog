@@ -42,7 +42,7 @@ export const ContentAutopilotPageMoversTable = ({
                                     lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded }}
                                     source="overview-movers"
                                     // A button sizes to its text, so it needs the cell's width to truncate.
-                                    className="block w-full truncate"
+                                    className="w-full"
                                 >
                                     {label}
                                 </ContentAutopilotCitationsLink>

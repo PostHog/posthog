@@ -11,19 +11,21 @@ export function AiVisibilityTableHeader<T extends Record<string, any>>({
     columns,
     expandable,
     sorting,
+    noSortingCancellation,
     onSortingChange,
 }: {
     groups: LemonTableColumnGroup<T>[] | null
     columns: AiVisibilityColumn<T>[]
     expandable: boolean
     sorting: Sorting | null
+    noSortingCancellation: boolean
     onSortingChange: (sorting: Sorting | null) => void
 }): JSX.Element {
     return (
         <TableHeader>
             {groups ? (
                 <TableRow>
-                    {expandable ? <TableHead aria-label="Expand" /> : null}
+                    {expandable ? <TableHead className="w-0" aria-label="Expand" /> : null}
                     {groups.map((group, index) => {
                         const span = group.children.filter((column) => !column.isHidden).length
                         return span > 0 ? (
@@ -43,7 +45,11 @@ export function AiVisibilityTableHeader<T extends Record<string, any>>({
                             key={key}
                             column={column}
                             order={sorting?.columnKey === key ? sorting.order : null}
-                            onSort={() => onSortingChange(getNextSorting(sorting, key, false, column.defaultSortOrder))}
+                            onSort={() =>
+                                onSortingChange(
+                                    getNextSorting(sorting, key, noSortingCancellation, column.defaultSortOrder)
+                                )
+                            }
                         />
                     )
                 })}

@@ -32,6 +32,7 @@ export const ContentAutopilotCitedSitesTable = ({
             {
                 title: 'Site',
                 key: 'domain',
+                className: 'w-full max-w-0',
                 render: (_, { domain, is_target }) => (
                     <ContentAutopilotSiteLabel domain={domain} isTarget={is_target}>
                         <ContentAutopilotCitationsLink
@@ -51,7 +52,7 @@ export const ContentAutopilotCitedSitesTable = ({
                 render: (_, { share_of_answers, answers }) => (
                     <span className="tabular-nums whitespace-nowrap">
                         {percentage(share_of_answers, 1)}{' '}
-                        <span className="text-secondary">({answers.toLocaleString()})</span>
+                        <span className="text-muted-foreground">({answers.toLocaleString()})</span>
                     </span>
                 ),
             },

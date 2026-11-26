@@ -1,5 +1,5 @@
 import { IconExternal } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -28,7 +28,9 @@ export const ContentAutopilotCitationsActions = ({
     return (
         <div className="flex flex-wrap items-center gap-2">
             {lookup.kind === 'url' ? (
-                <span className="min-w-0 break-all text-sm font-semibold">{lookup.value}</span>
+                <Text size="sm" weight="semibold" render={<span className="m-0 min-w-0 break-all" />}>
+                    {lookup.value}
+                </Text>
             ) : null}
             <Button
                 variant="outline"

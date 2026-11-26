@@ -16,6 +16,7 @@ export function AiVisibilityTableRow<T extends Record<string, any>>({
     props,
     expanded,
     onToggleExpanded,
+    expandedRowClassName,
 }: {
     record: T
     index: number
@@ -25,40 +26,51 @@ export function AiVisibilityTableRow<T extends Record<string, any>>({
     props: Pick<LemonTableProps<T>, 'rowStatus' | 'rowClassName' | 'onRow' | 'expandable'>
     expanded: boolean
     onToggleExpanded: () => void
+    expandedRowClassName?: string
 }): JSX.Element {
     const { expandable } = props
     const status = forRow(props.rowStatus, record, index)
-    const onClick = props.onRow?.(record, index)?.onClick
-    // As in the Lemon table, rowExpandable may return a number, and 0 means the row can't expand.
-    const canExpand = !expandable?.rowExpandable || !!expandable.rowExpandable(record, index)
+    // Lemon's onRow type allows a string ref, which a quill row can't take, so it's dropped.
+    const { className: rowPropsClassName, ref: _ref, ...rowProps } = props.onRow?.(record, index) ?? {}
+    // As in the Lemon table, rowExpandable may return a number, and 0 or less means the row can't expand.
+    const canExpand =
+        expandable?.showRowExpansionToggle !== false &&
+        (!expandable?.rowExpandable || Number(expandable.rowExpandable(record, index)) > 0)
     return (
         <Fragment>
             <TableRow
-                onClick={onClick}
+                {...rowProps}
+                data-state={status ? 'selected' : undefined}
                 className={cn(
-                    status && 'bg-fill-selected',
-                    onClick && 'cursor-pointer hover:bg-fill-hover',
-                    forRow(props.rowClassName, record, index)
+                    rowProps.onClick && 'cursor-pointer',
+                    forRow(props.rowClassName, record, index),
+                    rowPropsClassName
                 )}
             >
                 {expandable ? (
-                    <TableCell>
+                    <TableCell className="w-0">
                         {canExpand ? (
                             <AiVisibilityTableExpandButton expanded={expanded} onToggle={onToggleExpanded} />
                         ) : null}
                     </TableCell>
                 ) : null}
                 {columns.map((column, columnIndex) => {
-                    const { className, content } = cellParts(column, record, index, rowCount)
+                    const { className, style, content } = cellParts(column, record, index, rowCount)
                     return (
-                        <TableCell key={columnKey(column, columnIndex)} align={column.align} className={className}>
+                        <TableCell
+                            key={columnKey(column, columnIndex)}
+                            align={column.align}
+                            expand={column.fullWidth}
+                            className={cn(column.width === 0 && 'w-0', className)}
+                            style={style}
+                        >
                             {content}
                         </TableCell>
                     )
                 })}
             </TableRow>
             {expandable && expanded ? (
-                <TableRow>
+                <TableRow className={expandedRowClassName}>
                     <TableCell colSpan={columnCount}>{expandable.expandedRowRender(record, index)}</TableCell>
                 </TableRow>
             ) : null}

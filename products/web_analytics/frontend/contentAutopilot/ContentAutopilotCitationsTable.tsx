@@ -1,4 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -40,17 +40,25 @@ export const ContentAutopilotCitationsTable = ({
             {
                 title: 'Prompt',
                 key: 'prompt_text',
+                className: 'w-full max-w-0',
                 render: (_, citation) => (
-                    <span className="flex flex-col gap-0.5 min-w-0 max-w-120">
-                        <Link
+                    <span className="flex min-w-0 flex-col items-start gap-0.5">
+                        <Button
+                            variant="link-foreground"
+                            size="sm"
+                            left
                             onClick={() => onOpenPrompt(citation.prompt_id)}
-                            className="text-left"
+                            // Not the cell's direct child, so quill's cell rule doesn't pull it into line.
+                            className="-ms-2 max-w-full min-w-0 shrink"
+                            title={citation.prompt_text}
                             data-attr="content-autopilot-citations-prompt"
                         >
-                            {citation.prompt_text}
-                        </Link>
+                            <span className="truncate">{citation.prompt_text}</span>
+                        </Button>
                         {citation.prompt_topic ? (
-                            <span className="text-xs text-muted">{citation.prompt_topic}</span>
+                            <Text size="xs" variant="muted" render={<span className="m-0 max-w-full truncate" />}>
+                                {citation.prompt_topic}
+                            </Text>
                         ) : null}
                     </span>
                 ),
@@ -58,6 +66,7 @@ export const ContentAutopilotCitationsTable = ({
             {
                 title: 'Engine',
                 key: 'engine',
+                className: 'hidden @lg/ai-visibility-table:table-cell',
                 render: (_, citation) => <ContentAutopilotEngineLabel engine={citation.engine} />,
             },
             {
@@ -79,6 +88,7 @@ export const ContentAutopilotCitationsTable = ({
             {
                 title: 'Answered',
                 key: 'created_at',
+                className: 'hidden @md/ai-visibility-table:table-cell whitespace-nowrap',
                 render: (_, citation) => <TZLabel time={citation.created_at} />,
             },
         ]}

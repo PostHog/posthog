@@ -86,7 +86,6 @@ export const ContentAutopilotKeywordModifierTerms = ({
                                 <ContentAutopilotCitationsLink
                                     lookup={{ kind: 'search', value: search, dateFrom, dateTo, branded }}
                                     source="keyword-modifier-searches"
-                                    className="block truncate"
                                     title={search}
                                 >
                                     {search}
