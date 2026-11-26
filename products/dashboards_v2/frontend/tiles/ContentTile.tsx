@@ -1,32 +1,32 @@
 import { useCallback, useRef } from 'react'
 
-import type { ContentWidget } from '../dashboard/dashboardTypes'
+import type { ContentPanel } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { PanelCard } from './PanelCard'
 import { useContentTileActions } from './TileContextMenu'
-import { WidgetCard } from './WidgetCard'
 
-/** A widget card inside a dashboard, with the actions the dashboard allows on it. */
+/** A panel card inside a dashboard, with the actions the dashboard allows on it. */
 export function ContentTile({
     id,
-    widget,
+    panel,
     editable,
 }: {
     id: string
-    widget: ContentWidget
+    panel: ContentPanel
     editable: boolean
 }): JSX.Element {
-    const { widgets, disabledReasonFor, onEdit } = useDashboardV2()
-    const actions = useContentTileActions(id, widget)
-    const canSetConfig = !disabledReasonFor('setWidgetConfig')
-    // `onEdit` changes with every dashboard edit; a stable `setConfig` keeps `WidgetView`'s memo, so moving tiles
-    // doesn't re-render every widget.
+    const { panels, disabledReasonFor, onEdit } = useDashboardV2()
+    const actions = useContentTileActions(id, panel)
+    const canSetConfig = !disabledReasonFor('setPanelConfig')
+    // `onEdit` changes with every dashboard edit; a stable `setConfig` keeps `PanelView`'s memo, so moving tiles
+    // doesn't re-render every panel.
     const onEditRef = useRef(onEdit)
     onEditRef.current = onEdit
-    const setConfig = useCallback((config: unknown) => onEditRef.current({ edit: 'setWidgetConfig', id, config }), [id])
+    const setConfig = useCallback((config: unknown) => onEditRef.current({ edit: 'setPanelConfig', id, config }), [id])
     return (
-        <WidgetCard
-            widget={widget}
-            widgets={widgets}
+        <PanelCard
+            panel={panel}
+            panels={panels}
             actions={actions}
             editable={editable}
             setConfig={canSetConfig ? setConfig : undefined}

@@ -10,8 +10,8 @@ export interface AppliedFilter<Config = unknown, Value = unknown> {
 }
 
 /**
- * The filters that apply to the widgets inside it. `DashboardV2View` provides the dashboard's, and a host that renders
- * a widget on its own can provide its own, so widgets never read the dashboard to get them.
+ * The filters that apply to the panels inside it. `DashboardV2View` provides the dashboard's, and a host that renders
+ * a panel on its own can provide its own, so panels never read the dashboard to get them.
  */
 export const FiltersContext = createContext<AppliedFilter[]>([])
 

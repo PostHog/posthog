@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import type { QueryRequest } from '../widgets/chart/vizTypes'
+import type { QueryRequest } from '../panels/chart/vizTypes'
 import type { QueryBatchLine } from './queryBatchLines'
 
 export const QUERY_BATCH_TIMING_EVENT = 'dashboard v2 query batch loaded'

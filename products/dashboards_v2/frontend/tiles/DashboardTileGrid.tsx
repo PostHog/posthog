@@ -3,7 +3,7 @@ import './DashboardTileGrid.css'
 import clsx from 'clsx'
 import { type ComponentProps, memo, useCallback, useContext, useRef } from 'react'
 
-import { type Tile, type TilePlace, isSectionWidget } from '../dashboard/dashboardTypes'
+import { type Tile, type TilePlace, isSectionPanel } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import { findTile } from '../dashboard/tileTree'
 import type { DropTarget } from '../grid/dropTargets'
@@ -16,14 +16,14 @@ import { type SectionGridProps, SectionTile } from './SectionTile'
  * A content tile whose card mounts only near the scrolled view. The sentinel fills the cell, so the cell is observed
  * whether the card or the placeholder is showing.
  */
-function WindowedContentTile({ id, widget, editable }: ComponentProps<typeof ContentTile>): JSX.Element {
+function WindowedContentTile({ id, panel, editable }: ComponentProps<typeof ContentTile>): JSX.Element {
     const sentinel = useRef<HTMLSpanElement>(null)
     const mounted = useTileMounted(sentinel)
     return (
         <>
             <span ref={sentinel} aria-hidden className="DashboardTileGrid__sentinel" />
             {mounted ? (
-                <ContentTile id={id} widget={widget} editable={editable} />
+                <ContentTile id={id} panel={panel} editable={editable} />
             ) : (
                 <div className={clsx('DashboardTileGrid__placeholder', editable && 'TileGrid__handle')} />
             )}
@@ -40,12 +40,12 @@ interface TileFrameProps {
 
 /** What a grid cell holds. Memoised on the tile, so a drag in a grid re-renders none of its tiles. */
 const TileFrame = memo(function TileFrame({ tile, columnPx, editable, onSectionRows }: TileFrameProps): JSX.Element {
-    const { id, widget } = tile
+    const { id, panel } = tile
     const capturing = useContext(CapturingTileContext) === id
-    const content = isSectionWidget(widget) ? (
+    const content = isSectionPanel(panel) ? (
         <SectionTile
             id={id}
-            widget={widget}
+            panel={panel}
             columns={tile.place.w}
             columnPx={columnPx}
             editable={editable}
@@ -53,7 +53,7 @@ const TileFrame = memo(function TileFrame({ tile, columnPx, editable, onSectionR
             renderGrid={renderSectionGrid}
         />
     ) : (
-        <WindowedContentTile id={id} widget={widget} editable={editable} />
+        <WindowedContentTile id={id} panel={panel} editable={editable} />
     )
     return capturing ? <TileMountContext.Provider value={null}>{content}</TileMountContext.Provider> : content
 })

@@ -1,12 +1,12 @@
 import { z } from 'zod'
 
-import type { WidgetSpec } from '../widgetSpec'
+import type { PanelSpec } from '../panelSpec'
 
 export const markdownConfigSchema = z.strictObject({ text: z.string() })
 
 export type MarkdownConfig = z.infer<typeof markdownConfigSchema>
 
-export const markdownSpec: WidgetSpec<MarkdownConfig> = {
+export const markdownSpec: PanelSpec<MarkdownConfig> = {
     type: 'markdown',
     addMenuItems: [{ label: 'Text', create: () => ({ type: 'markdown', config: { text: '' } }) }],
     size: { w: 8, h: 8, minW: 3, minH: 4 },

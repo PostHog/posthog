@@ -6,17 +6,17 @@ import { linkTabSchema } from './dashboardSchema'
 import {
     type Dashboard,
     GRID,
-    type SectionWidget,
+    type SectionPanel,
     type SizeOf,
     type Tile,
     type TilePlace,
-    type Widget,
+    type Panel,
     gridTabs,
     isGridTab,
     isSection,
-    isSectionWidget,
-    widgetRef,
-    widgetSize,
+    isSectionPanel,
+    panelRef,
+    panelSize,
 } from './dashboardTypes'
 import { allTiles, changeTileEverywhere, changeTilesWhere, findTile } from './tileTree'
 
@@ -24,12 +24,12 @@ export type LayoutEdit =
     /** `resized` names the tile a person resized, so a section keeps the height they chose. */
     | { edit: 'placeTiles'; grid: string; places: Record<string, TilePlace>; resized?: string }
     | { edit: 'moveTile'; id: string; grid: string; x?: number; y?: number }
-    | { edit: 'addTile'; grid: string; widget: Widget }
+    | { edit: 'addTile'; grid: string; panel: Panel }
     | { edit: 'removeTile'; id: string }
-    /** Shows the tile's widget on another grid too. Both tiles then share its content, such as a chart's query. */
+    /** Shows the tile's panel on another grid too. Both tiles then share its content, such as a chart's query. */
     | { edit: 'addToGrid'; id: string; grid: string }
     | { edit: 'autoLayout'; grid: string; columns: number }
-    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
+    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionPanel, 'title'>> }
     /** With `href`, the new tab is a link elsewhere and holds no tiles. */
     | { edit: 'addTab'; title: string; href?: string }
     | { edit: 'renameTab'; id: string; title: string }
@@ -37,8 +37,8 @@ export type LayoutEdit =
     /** `before` is the tab it lands in front of; null puts it last. */
     | { edit: 'moveTab'; id: string; before: string | null }
 
-/** Edits to what a tile holds. A widget type sends these from its own menu actions, such as a chart switching kind. */
-export type ContentEdit = { edit: 'setWidgetConfig'; id: string; config: unknown }
+/** Edits to what a tile holds. A panel type sends these from its own menu actions, such as a chart switching kind. */
+export type ContentEdit = { edit: 'setPanelConfig'; id: string; config: unknown }
 
 export type DashboardEdit = LayoutEdit | ContentEdit | PresentationEdit | FilterEdit
 
@@ -51,7 +51,7 @@ export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>, 
     const folded = ids.reduce(
         (next, id) =>
             changeTileEverywhere(next, id, (tile) =>
-                isSection(tile) ? { ...tile, widget: { ...tile.widget, collapsed: folds[id] } } : tile
+                isSection(tile) ? { ...tile, panel: { ...tile.panel, collapsed: folds[id] } } : tile
             ),
         dashboard
     )
@@ -86,7 +86,7 @@ function findGrid(dashboard: Dashboard, gridId: string): { tiles: Tile[]; cols: 
         return { tiles: tab.tiles, cols: GRID.columns }
     }
     const section = findTile(dashboard, gridId)
-    return section && isSection(section) ? { tiles: section.widget.tiles, cols: section.place.w } : null
+    return section && isSection(section) ? { tiles: section.panel.tiles, cols: section.place.w } : null
 }
 
 function changeGrid(dashboard: Dashboard, gridId: string, change: (tiles: Tile[]) => Tile[]): Dashboard {
@@ -99,7 +99,7 @@ function changeGrid(dashboard: Dashboard, gridId: string, change: (tiles: Tile[]
         }
     }
     return changeTileEverywhere(dashboard, gridId, (tile) =>
-        isSection(tile) ? { ...tile, widget: { ...tile.widget, tiles: change(tile.widget.tiles) } } : tile
+        isSection(tile) ? { ...tile, panel: { ...tile.panel, tiles: change(tile.panel.tiles) } } : tile
     )
 }
 
@@ -152,11 +152,11 @@ function withConfig(tile: Tile, config: unknown, sizeOf: SizeOf): Tile {
     if (isSection(tile)) {
         return tile
     }
-    const widget = { ...tile.widget, config }
-    const { minW, minH } = widgetSize(widget, sizeOf)
+    const panel = { ...tile.panel, config }
+    const { minW, minH } = panelSize(panel, sizeOf)
     return {
         ...tile,
-        widget,
+        panel,
         place: { ...tile.place, w: Math.max(tile.place.w, minW), h: Math.max(tile.place.h, minH) },
     }
 }
@@ -166,35 +166,35 @@ function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'add
     if (!target) {
         return dashboard
     }
-    const size = widgetSize(edit.widget, sizeOf)
+    const size = panelSize(edit.panel, sizeOf)
     const tile: Tile = {
-        id: newId(dashboard, isSectionWidget(edit.widget) ? 'section' : 'tile'),
-        widget: edit.widget,
+        id: newId(dashboard, isSectionPanel(edit.panel) ? 'section' : 'tile'),
+        panel: edit.panel,
         place: bottomPlace(target, size.w, size.h),
     }
     return changeGrid(dashboard, edit.grid, (tiles) => [...tiles, tile])
 }
 
 function newRef(dashboard: Dashboard): string {
-    const taken = new Set(allTiles(dashboard).map(widgetRef))
+    const taken = new Set(allTiles(dashboard).map(panelRef))
     let n = 1
-    while (taken.has(`widget${n}`)) {
+    while (taken.has(`panel${n}`)) {
         n++
     }
-    return `widget${n}`
+    return `panel${n}`
 }
 
 function addToGrid(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addToGrid' }>): Dashboard {
     const tile = findTile(dashboard, edit.id)
     const target = findGrid(dashboard, edit.grid)
-    if (!tile || isSectionWidget(tile.widget) || !target) {
+    if (!tile || isSectionPanel(tile.panel) || !target) {
         return dashboard
     }
-    const widget = { ...tile.widget, ref: tile.widget.ref ?? newRef(dashboard) }
-    const shared = changeTileEverywhere(dashboard, edit.id, (original) => ({ ...original, widget }))
+    const panel = { ...tile.panel, ref: tile.panel.ref ?? newRef(dashboard) }
+    const shared = changeTileEverywhere(dashboard, edit.id, (original) => ({ ...original, panel }))
     const copy: Tile = {
         id: newId(dashboard, 'tile'),
-        widget,
+        panel,
         place: bottomPlace(target, tile.place.w, tile.place.h),
     }
     return changeGrid(shared, edit.grid, (tiles) => [...tiles, copy])
@@ -205,7 +205,7 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
         case 'placeTiles': {
             // A section the person opened for themselves is resized open, whatever the saved fold says.
             const shown = edit.resized ? findTile(view(dashboard), edit.resized) : null
-            const shownCollapsed = shown && isSection(shown) ? shown.widget.collapsed : undefined
+            const shownCollapsed = shown && isSection(shown) ? shown.panel.collapsed : undefined
             return changeGrid(dashboard, edit.grid, (tiles) =>
                 tiles.map((placed) => {
                     const place = edit.places[placed.id]
@@ -213,14 +213,14 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
                         return placed
                     }
                     const tile = resizeSection(placed, place.w, sizeOf)
-                    if (edit.resized !== tile.id || !isSection(tile) || (shownCollapsed ?? tile.widget.collapsed)) {
+                    if (edit.resized !== tile.id || !isSection(tile) || (shownCollapsed ?? tile.panel.collapsed)) {
                         return { ...tile, place }
                     }
                     // A section resized taller than its tiles need keeps that height. Resized back down to what they
                     // need, it goes back to following its tiles.
-                    const minRows = place.h > contentRows(tile.widget) ? place.h : undefined
-                    const { minRows: _previous, ...widget } = tile.widget
-                    return { ...tile, place, widget: minRows ? { ...widget, minRows } : widget }
+                    const minRows = place.h > contentRows(tile.panel) ? place.h : undefined
+                    const { minRows: _previous, ...panel } = tile.panel
+                    return { ...tile, place, panel: minRows ? { ...panel, minRows } : panel }
                 })
             )
         }
@@ -238,18 +238,18 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
                 ? changeGrid(dashboard, edit.grid, (tiles) => arrangeInColumns(tiles, grid.cols, edit.columns, sizeOf))
                 : dashboard
         }
-        case 'setWidgetConfig': {
+        case 'setPanelConfig': {
             const edited = findTile(dashboard, edit.id)
-            const ref = edited ? widgetRef(edited) : undefined
+            const ref = edited ? panelRef(edited) : undefined
             return changeTilesWhere(
                 dashboard,
-                (tile) => tile.id === edit.id || (!!ref && widgetRef(tile) === ref),
+                (tile) => tile.id === edit.id || (!!ref && panelRef(tile) === ref),
                 (tile) => withConfig(tile, edit.config, sizeOf)
             )
         }
         case 'updateSection':
             return changeTileEverywhere(dashboard, edit.id, (tile) =>
-                isSection(tile) ? { ...tile, widget: { ...tile.widget, ...edit.patch } } : tile
+                isSection(tile) ? { ...tile, panel: { ...tile.panel, ...edit.patch } } : tile
             )
         case 'addTab':
             // The same check a loaded document gets, so an edit cannot save a link that runs script.

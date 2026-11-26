@@ -16,14 +16,14 @@ import { AccessControlLevel } from '~/types'
  */
 
 /**
- * The query a data widget runs, in one of the languages the host's runner understands:
+ * The query a data panel runs, in one of the languages the host's runner understands:
  * - `hogql`: a HogQL `SELECT`.
  * - `metrics`: a `MetricsQuery` node, as the metrics product builds it.
  * - `traces`: a `TraceSpansQuery` or `TraceSpansAggregationQuery` node, as tracing and APM build them.
  * - `insight`: any query node `/query` runs, such as a `TrendsQuery`, for teams that already build their own nodes.
  * - `promql` and `logql`: an expression, run as a range query over the chart's time range.
  */
-export type WidgetQuery =
+export type PanelQuery =
     | { language: 'hogql'; query: string }
     | { language: 'metrics'; query: MetricsQuery }
     | { language: 'traces'; query: TraceSpansQuery | TraceSpansAggregationQuery }
@@ -36,7 +36,7 @@ const MAX_QUERY_TEXT = 200_000
 const MAX_TIME_END = 100
 
 // Only a node's kind is checked here. The node schemas are large, and PostHog checks the rest when it runs the query.
-export const widgetQuerySchema = z.union([
+export const panelQuerySchema = z.union([
     z.strictObject({ language: z.literal('hogql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
     z.strictObject({
         language: z.literal('metrics'),
@@ -51,7 +51,7 @@ export const widgetQuerySchema = z.union([
     z.strictObject({ language: z.literal('insight'), query: z.looseObject({ kind: z.string().min(1) }) }),
     z.strictObject({ language: z.literal('promql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
     z.strictObject({ language: z.literal('logql'), query: z.string().regex(/\S/).max(MAX_QUERY_TEXT) }),
-]) as unknown as z.ZodType<WidgetQuery>
+]) as unknown as z.ZodType<PanelQuery>
 
 /**
  * The time range a query runs over. Each end is an expression such as `now-7d` or `now`, or an ISO 8601 time. Keep
@@ -78,7 +78,7 @@ export const tilePlaceSchema = z.strictObject({
 })
 
 /** Which parts of a content tile show. A part that is missing shows. */
-export const contentWidgetPartsSchema = z.strictObject({
+export const contentPanelPartsSchema = z.strictObject({
     header: z.boolean().optional(),
     footer: z.boolean().optional(),
 })
@@ -92,30 +92,30 @@ export const tileAppearanceSchema = z.strictObject({
 })
 
 /**
- * The fields every content tile has. Everything specific to the widget type, such as a chart's query, sits in
+ * The fields every content tile has. Everything specific to the panel type, such as a chart's query, sits in
  * `config`, which is checked against the type's own `configSchema`.
  */
-export const contentWidgetSchema = z.strictObject({
-    /** Names the widget type that renders it. The host supplies the types, so this is open, except for `section`. */
+export const contentPanelSchema = z.strictObject({
+    /** Names the panel type that renders it. The host supplies the types, so this is open, except for `section`. */
     type: z.string().refine((type) => type !== 'section', 'A section needs a title and tiles'),
     title: z.string().optional(),
     description: z.string().optional(),
-    /** When the widget's data was last computed, as an ISO timestamp. */
+    /** When the panel's data was last computed, as an ISO timestamp. */
     refreshedAt: z.iso.datetime({ offset: true }).optional(),
-    parts: contentWidgetPartsSchema.optional(),
+    parts: contentPanelPartsSchema.optional(),
     appearance: tileAppearanceSchema.optional(),
     config: z.unknown(),
-    /** Set once the widget shows on more than one tile. Its content is then saved once, in the document's `widgets`. */
+    /** Set once the panel shows on more than one tile. Its content is then saved once, in the document's `panels`. */
     ref: z.string().min(1).optional(),
 })
 
-/** A widget shown on several tiles. Each tile chooses its own parts and appearance. */
-export const sharedWidgetSchema = contentWidgetSchema.omit({ parts: true, appearance: true, ref: true })
+/** A panel shown on several tiles. Each tile chooses its own parts and appearance. */
+export const sharedPanelSchema = contentPanelSchema.omit({ parts: true, appearance: true, ref: true })
 
-/** A tile's widget in a saved document when the widget is shared: its key in `widgets`, and how this tile shows it. */
-export const widgetRefSchema = z.strictObject({
+/** A tile's panel in a saved document when the panel is shared: its key in `panels`, and how this tile shows it. */
+export const panelRefSchema = z.strictObject({
     ref: z.string().min(1),
-    parts: contentWidgetPartsSchema.optional(),
+    parts: contentPanelPartsSchema.optional(),
     appearance: tileAppearanceSchema.optional(),
 })
 
@@ -123,7 +123,7 @@ export const widgetRefSchema = z.strictObject({
  * A grid inside a tile. Its cells line up with the cells of the grid it sits in: one row for the header, then its
  * own tiles. Its height always fits its tiles, so `place.h` of a section tile is worked out, never chosen.
  */
-export const sectionWidgetSchema = z.strictObject({
+export const sectionPanelSchema = z.strictObject({
     type: z.literal('section'),
     title: z.string(),
     collapsed: z.boolean().optional(),
@@ -138,8 +138,8 @@ export const sectionWidgetSchema = z.strictObject({
 export const tileSchema = z.strictObject({
     id: z.string().min(1),
     place: tilePlaceSchema,
-    get widget(): z.ZodUnion<[typeof sectionWidgetSchema, typeof contentWidgetSchema]> {
-        return z.union([sectionWidgetSchema, contentWidgetSchema])
+    get panel(): z.ZodUnion<[typeof sectionPanelSchema, typeof contentPanelSchema]> {
+        return z.union([sectionPanelSchema, contentPanelSchema])
     },
 })
 
@@ -184,7 +184,7 @@ export const dashboardSchema = z.strictObject({
     description: z.string().optional(),
     /** The viewer's access to this dashboard, as v1 dashboards carry it. Missing means the project-wide level. */
     user_access_level: z.enum(AccessControlLevel).optional(),
-    /** The time range of every widget that does not set its own. Missing means `DEFAULT_TIME_RANGE`. */
+    /** The time range of every panel that does not set its own. Missing means `DEFAULT_TIME_RANGE`. */
     time: timeRangeSchema.optional(),
     /** Whether viewers see a filter bar. Missing means no, so a dashboard shows filters only once an editor allows them. */
     allowFilters: z.boolean().optional(),
@@ -192,29 +192,27 @@ export const dashboardSchema = z.strictObject({
     tabs: z.array(dashboardTabSchema).refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
 
-/** A tile's own widget in a saved document. A shared widget is saved once in `widgets`, so its tiles carry no `ref` here. */
-export const documentContentWidgetSchema = contentWidgetSchema.omit({ ref: true })
+/** A tile's own panel in a saved document. A shared panel is saved once in `panels`, so its tiles carry no `ref` here. */
+export const documentContentPanelSchema = contentPanelSchema.omit({ ref: true })
 
-const documentSectionSchema = sectionWidgetSchema.extend({
+const documentSectionSchema = sectionPanelSchema.extend({
     get tiles(): z.ZodArray<typeof documentTileSchema> {
         return z.array(documentTileSchema)
     },
 })
 
 const documentTileSchema = tileSchema.extend({
-    get widget(): z.ZodUnion<
-        [typeof documentSectionSchema, typeof documentContentWidgetSchema, typeof widgetRefSchema]
-    > {
-        return z.union([documentSectionSchema, documentContentWidgetSchema, widgetRefSchema])
+    get panel(): z.ZodUnion<[typeof documentSectionSchema, typeof documentContentPanelSchema, typeof panelRefSchema]> {
+        return z.union([documentSectionSchema, documentContentPanelSchema, panelRefSchema])
     },
 })
 
 /**
- * The dashboard as it is saved. It is `dashboardSchema` with shared widgets stored once: a tile shows one through a
- * `widgetRefSchema`, and `loadDashboard` puts each back on its tiles.
+ * The dashboard as it is saved. It is `dashboardSchema` with shared panels stored once: a tile shows one through a
+ * `panelRefSchema`, and `loadDashboard` puts each back on its tiles.
  */
 export const dashboardDocumentSchema = dashboardSchema.extend({
-    widgets: z.record(z.string(), sharedWidgetSchema).optional(),
+    panels: z.record(z.string(), sharedPanelSchema).optional(),
     tabs: z
         .array(z.union([gridTabSchema.extend({ tiles: z.array(documentTileSchema) }), linkTabSchema]))
         .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),

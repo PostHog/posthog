@@ -1,20 +1,20 @@
-import { type ContentWidget, type SectionWidget, type Tile, isSectionWidget } from '../dashboard/dashboardTypes'
+import { type ContentPanel, type SectionPanel, type Tile, isSectionPanel } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
-import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
-import { type WidgetAppearanceOptions, findWidget } from '../widgets/widgetSpec'
+import { type PanelDefinition, panelSlots } from '../panels/panelDefinition'
+import { type PanelAppearanceOptions, findPanel } from '../panels/panelSpec'
 import type { PresentationEdit } from './presentationEdits'
 import { hasPart, showsPart } from './tileParts'
 
-export function showsBackground(widget: ContentWidget, options: WidgetAppearanceOptions): boolean {
-    return !options.background || widget.appearance?.background !== false
+export function showsBackground(panel: ContentPanel, options: PanelAppearanceOptions): boolean {
+    return !options.background || panel.appearance?.background !== false
 }
 
-export function showsBorder(widget: ContentWidget | SectionWidget): boolean {
-    return widget.appearance?.border !== false
+export function showsBorder(panel: ContentPanel | SectionPanel): boolean {
+    return panel.appearance?.border !== false
 }
 
-export function tileBackgroundColor(widget: ContentWidget, options: WidgetAppearanceOptions): string | null {
-    return (options.backgroundColor && widget.appearance?.backgroundColor) || null
+export function tileBackgroundColor(panel: ContentPanel, options: PanelAppearanceOptions): string | null {
+    return (options.backgroundColor && panel.appearance?.backgroundColor) || null
 }
 
 type TileSetting = 'header' | 'footer' | 'background' | 'border'
@@ -37,22 +37,18 @@ export const BACKGROUND_COLOR_PRESETS: { key: string; label: string; color: stri
 ]
 
 /** Null when the setting does not apply to the tile. */
-function settingOn(
-    { widget }: Pick<Tile, 'widget'>,
-    setting: TileSetting,
-    widgets: WidgetDefinition[]
-): boolean | null {
+function settingOn({ panel }: Pick<Tile, 'panel'>, setting: TileSetting, panels: PanelDefinition[]): boolean | null {
     if (setting === 'border') {
-        return showsBorder(widget)
+        return showsBorder(panel)
     }
-    if (isSectionWidget(widget)) {
+    if (isSectionPanel(panel)) {
         return null
     }
-    const definition = findWidget(widgets, widget.type)
+    const definition = findPanel(panels, panel.type)
     if (setting === 'background') {
-        return definition?.appearance?.background ? showsBackground(widget, definition.appearance) : null
+        return definition?.appearance?.background ? showsBackground(panel, definition.appearance) : null
     }
-    return hasPart(widget, setting, widgetSlots(definition)) ? showsPart(widget, setting) : null
+    return hasPart(panel, setting, panelSlots(definition)) ? showsPart(panel, setting) : null
 }
 
 function settingEdit(ids: string[], setting: TileSetting, shown: boolean): PresentationEdit {
@@ -65,14 +61,14 @@ function settingEdit(ids: string[], setting: TileSetting, shown: boolean): Prese
 /** Each setting is ticked while it is on for every tile it applies to. */
 export function showAction(
     menu: MenuHead,
-    tiles: Pick<Tile, 'id' | 'widget'>[],
-    widgets: WidgetDefinition[],
+    tiles: Pick<Tile, 'id' | 'panel'>[],
+    panels: PanelDefinition[],
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
 ): MenuAction | null {
     const submenu = SETTINGS.flatMap(({ setting, label }): MenuAction[] => {
         const applies = tiles.flatMap((tile) => {
-            const on = settingOn(tile, setting, widgets)
+            const on = settingOn(tile, setting, panels)
             return on === null ? [] : [{ id: tile.id, on }]
         })
         if (applies.length === 0) {
@@ -105,17 +101,17 @@ export function showAction(
 
 export function backgroundColorAction(
     menu: MenuHead,
-    tiles: Pick<Tile, 'id' | 'widget'>[],
-    widgets: WidgetDefinition[],
+    tiles: Pick<Tile, 'id' | 'panel'>[],
+    panels: PanelDefinition[],
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
 ): MenuAction | null {
-    const applies = tiles.flatMap(({ id, widget }) => {
-        if (isSectionWidget(widget)) {
+    const applies = tiles.flatMap(({ id, panel }) => {
+        if (isSectionPanel(panel)) {
             return []
         }
-        return findWidget(widgets, widget.type)?.appearance?.backgroundColor
-            ? [{ id, color: widget.appearance?.backgroundColor ?? null }]
+        return findPanel(panels, panel.type)?.appearance?.backgroundColor
+            ? [{ id, color: panel.appearance?.backgroundColor ?? null }]
             : []
     })
     if (applies.length === 0) {

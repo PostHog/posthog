@@ -9,7 +9,7 @@ export interface SelectFilterConfig {
     options: string[]
 }
 
-/** Picked values. A widget keeps rows whose `key` equals any of them. */
+/** Picked values. A panel keeps rows whose `key` equals any of them. */
 export type SelectFilterValue = string[]
 
 export interface SelectFilterField {
