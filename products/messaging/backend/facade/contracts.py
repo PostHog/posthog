@@ -424,7 +424,6 @@ class EmailStatus:
 class SentMessageMatch:
     # The Message-ID as the reply named it, which SES set on the wire in place of ours.
     wire_message_id: str
-    # The `message_id` that `send_code_email` returned for the send.
     send_id: str
 
 

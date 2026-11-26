@@ -156,13 +156,10 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     )
 
 
-# SES replaces our Message-ID with `<MessageId@email.amazonses.com>`, or `@<region>.amazonses.com` outside us-east-1,
-# and the sent row keeps only the MessageId its API returned.
-# The headers come from an inbound email anyone can send, and each extra id lets the bloom index skip fewer granules.
-# Sends cap References at 100 ids, so a real reply never needs more.
+# Anyone can send these headers, and each extra id weakens the bloom index. Sends cap References at 100.
 _MAX_WIRE_IDS = 100
+# SES writes `<MessageId@email.amazonses.com>` or `@<region>.amazonses.com`, and the sent row keeps only the MessageId.
 _SES_WIRE_MESSAGE_ID = re.compile(r"<([^<>@\s]+)@[a-z0-9-]+\.amazonses\.com>", re.IGNORECASE)
-# A reply carries no send time, so this reads every partition the retention keeps and skips granules by the index.
 _SENT_MESSAGE_QUERY = f"""
 SELECT provider_message_id, any(message_id)
 FROM {EMAIL_STATUS_EVENTS_TABLE}
@@ -191,7 +188,6 @@ def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMe
             {"team_id": team_id, "provider_message_ids": list(wire_ids)},
             # Without the index this reads every row the team sent in 31 days, so refuse to run rather than scan.
             settings={"force_data_skipping_indices": "provider_message_id_idx"},
-            # Inbound email processing asks, not a person on screen.
             workload=Workload.OFFLINE,
             team_id=team_id,
         ),
