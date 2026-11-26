@@ -57,6 +57,7 @@ import {
     ScenePanelInfoSection,
     ScenePanelLabel,
 } from '~/layout/scenes/SceneLayout'
+import { TodayFileScenePinButton } from '~/layout/today/TodayFileScenePinButton'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
@@ -300,6 +301,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 )}
                 <SceneTitleSection
                     name={earlyAccessFeature.name}
+                    nameAction={<TodayFileScenePinButton pane="release" dataAttrKey="early-access-feature" />}
                     description={earlyAccessFeature.description}
                     resourceType={{
                         type: 'early_access_feature',

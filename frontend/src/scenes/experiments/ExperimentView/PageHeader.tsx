@@ -16,6 +16,7 @@ import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
+import { TodayFileScenePinButton } from '~/layout/today/TodayFileScenePinButton'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
@@ -60,6 +61,7 @@ export function PageHeaderCustom(): JSX.Element {
             <ExperimentSceneMenuBar />
             <SceneTitleSection
                 name={experiment?.name}
+                nameAction={<TodayFileScenePinButton pane="release" dataAttrKey="experiment" />}
                 description={null}
                 resourceType={{
                     type: 'experiment',

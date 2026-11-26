@@ -7,7 +7,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -18,6 +17,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayFileScenePinButton } from '~/layout/today/TodayFileScenePinButton'
 import { isActorsQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
@@ -120,7 +120,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <SceneTitleSection
                 name={defaultInsightName || ''}
-                nameAction={<AnalyticsScenePinButton dataAttrKey="insight" />}
+                nameAction={<TodayFileScenePinButton pane="analytics" dataAttrKey="insight" />}
                 description={insight?.description || ''}
                 resourceType={{
                     type: getInsightIconTypeFromQuery(query),

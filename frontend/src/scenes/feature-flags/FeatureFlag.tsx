@@ -65,6 +65,7 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
+import { TodayFileScenePinButton } from '~/layout/today/TodayFileScenePinButton'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -827,6 +828,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     )}
                     <SceneTitleSection
                         name={featureFlag.key}
+                        nameAction={<TodayFileScenePinButton pane="release" dataAttrKey="feature-flag" />}
                         description={featureFlag.name}
                         resourceType={{
                             type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',

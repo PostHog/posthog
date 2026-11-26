@@ -35,6 +35,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { TodayDataRecent } from '~/layout/today/todayDataRecents'
 import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
@@ -283,6 +284,7 @@ export function SourceScene({ id }: SourceSceneProps): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={breadcrumbName}
+                nameAction={<TodayScenePinButton />}
                 resourceType={{ type: 'data_pipeline' }}
                 isLoading={breadcrumbName === SOURCE_PLACEHOLDER_NAME}
             />
