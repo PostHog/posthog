@@ -2065,6 +2065,7 @@ describe('EmailTrackingService', () => {
                 })
                 expect(result.error).toBeUndefined()
                 const [{ headers, tags }] = ses.sent
+                expect(headers[TRACKING_CODE_HEADER_NAME]).toEqual(expect.any(String))
                 mockInternalFetch.mockClear()
                 return {
                     hogFlowId: hogFlow.id,
