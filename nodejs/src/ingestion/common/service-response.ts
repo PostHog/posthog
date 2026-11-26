@@ -44,6 +44,12 @@ const serviceItemFailures = new Counter({
     labelNames: ['service', 'result', 'code'],
 })
 
+const serviceItemRetries = new Counter({
+    name: 'ingestion_service_item_retries_total',
+    help: 'Items a service asked to retry, whether they get another attempt or go to the DLQ',
+    labelNames: ['service', 'code'],
+})
+
 const serviceUnknownWarnings = new Counter({
     name: 'ingestion_service_unknown_warnings_total',
     help: 'Warnings from a service skipped because their type is not in the ingestion warnings registry',
@@ -126,6 +132,7 @@ export function toPipelineResults<T, O, R extends string = never>(
             case 'drop':
                 return drop(item.reason, [], warnings)
             case 'retry':
+                serviceItemRetries.labels({ service, code: item.error.code }).inc()
                 return onRetry?.(item.error, index, warnings) ?? toDlq(item, warnings)
             case 'fail':
                 return toDlq(item, warnings)
