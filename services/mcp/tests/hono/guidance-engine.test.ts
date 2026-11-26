@@ -1115,17 +1115,12 @@ describe('Inbox report match guidance', () => {
 describe('Inbox digest guidance', () => {
     const sqlCall: GuidanceCall = { toolName: 'execute-sql', args: { query: 'select 1' }, isError: false }
 
-    function digest(needsYou: number, newForYou = 0): Record<string, unknown> {
-        return {
-            needs_you: { count: needsYou, reports: [] },
-            new_for_you: { count: newForYou, reports: [] },
-            outcomes: { pull_requests_opened: 0, pull_requests_merged: 0, monitoring_periods_ended: 0 },
-            project: { actionable_unclaimed_count: 0 },
-        }
+    function countOnly(count: number): Record<string, unknown> {
+        return { count, next: null, previous: null, results: [] }
     }
 
-    function digestState(response: unknown = digest(3, 2), overrides: Partial<ResolvedState> = {}): ResolvedState {
-        const state = makeToolExecutorState([{ name: 'execute-sql' }, { name: 'inbox-digest-get' }], {
+    function digestState(response: unknown = countOnly(3), overrides: Partial<ResolvedState> = {}): ResolvedState {
+        const state = makeToolExecutorState([{ name: 'execute-sql' }, { name: 'inbox-reports-list' }], {
             suppressAnalytics: false,
             aiConsentGiven: true,
             carriedContextHandle: true,
@@ -1142,20 +1137,21 @@ describe('Inbox digest guidance', () => {
     })
 
     it.each([
-        [false, 'the `inbox-digest-get` tool'],
-        [true, '`call inbox-digest-get {}`'],
-    ])('points the agent at the digest in one line, with exec mode %s', async (useSingleExec, digestCall) => {
-        const state = digestState(digest(3, 2), { useSingleExec })
+        [false, 'the `inbox-reports-list` tool and `{"view":"for_you"}`'],
+        [true, '`call inbox-reports-list {"view":"for_you"}`'],
+    ])('points the agent at its own inbox list in one line, with exec mode %s', async (useSingleExec, listCall) => {
+        const state = digestState(countOnly(3), { useSingleExec })
         const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, sqlCall)
 
         expect(notice).toEqual({
             ruleId: 'inbox-digest',
             outcome: 'shown',
-            text: `The user's PostHog Inbox has reports for them. Waiting on them: 3. New in the last day: 2. Finish your current step, then tell the user and offer to go through them with ${digestCall}.`,
+            text: `Reports that need the user in their PostHog Inbox: 3. Finish your current step, then tell the user and offer to go through them with ${listCall}.`,
         })
         expect(state.context.api.request).toHaveBeenCalledWith({
             method: 'GET',
-            path: '/api/projects/2/signals/inbox_digest/',
+            path: '/api/projects/2/signals/reports/',
+            query: { view: 'for_you', count_only: true },
             signal: expect.any(AbortSignal),
         })
     })
@@ -1163,16 +1159,16 @@ describe('Inbox digest guidance', () => {
     it.each([
         [
             'nothing that needs the user',
-            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue(digest(0, 4)),
+            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue(countOnly(0)),
         ],
         [
-            'a missing route',
+            'a failed request',
             (state: ResolvedState) =>
-                vi.mocked(state.context.api.request).mockRejectedValue(new Error('404 Not Found')),
+                vi.mocked(state.context.api.request).mockRejectedValue(new Error('500 Internal Server Error')),
         ],
         [
-            'a malformed digest',
-            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue({ needs_you: 3 }),
+            'a malformed answer',
+            (state: ResolvedState) => vi.mocked(state.context.api.request).mockResolvedValue({ results: [] }),
         ],
     ] satisfies [string, (state: ResolvedState) => unknown][])(
         'shows nothing for %s and checks again after an hour',
@@ -1187,7 +1183,7 @@ describe('Inbox digest guidance', () => {
             expect(state.context.api.request).toHaveBeenCalledTimes(1)
 
             redis.advance(1)
-            vi.mocked(state.context.api.request).mockResolvedValue(digest(1))
+            vi.mocked(state.context.api.request).mockResolvedValue(countOnly(1))
             await expect(engine.evaluate(state, sqlCall)).resolves.toMatchObject({ outcome: 'shown' })
             expect(state.context.api.request).toHaveBeenCalledTimes(2)
         }
@@ -1199,7 +1195,7 @@ describe('Inbox digest guidance', () => {
         expect(await engine.evaluate(digestState(), sqlCall)).toMatchObject({ outcome: 'shown' })
 
         redis.advance(12 * 60 * 60 - 1)
-        const later = digestState(digest(3, 2), {
+        const later = digestState(countOnly(3), {
             carriedContextSessionKey: 'sess-2',
             requestContext: { ...digestState().requestContext, mcpSessionId: 'sess-2' },
         })
@@ -1212,10 +1208,10 @@ describe('Inbox digest guidance', () => {
     })
 
     it.each([
-        ['an Inbox tool call', {}, { ...sqlCall, toolName: 'inbox-reports-list' }],
+        ['an Inbox tool call', {}, { ...sqlCall, toolName: 'inbox-reports-retrieve' }],
         ['a failed call', {}, { ...sqlCall, isError: true }],
         [
-            'a caller without the digest tool',
+            'a caller without the list tool',
             { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] },
             sqlCall,
         ],
@@ -1224,28 +1220,32 @@ describe('Inbox digest guidance', () => {
         ['a sandbox task', { sandboxTaskId: 'synthetic-task' }, sqlCall],
         ['missing consent', { aiConsentGiven: false }, sqlCall],
     ] satisfies [string, Partial<ResolvedState>, GuidanceCall][])(
-        'does not fetch the digest for %s',
+        'does not count the reports for %s',
         async (_label, overrides, call) => {
-            const state = digestState(digest(3, 2), overrides)
+            const state = digestState(countOnly(3), overrides)
             expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)).toBeUndefined()
             expect(state.context.api.request).not.toHaveBeenCalled()
         }
     )
 
-    it('stays silent after the agent reads the digest itself', async () => {
+    it.each([
+        ['their own inbox', false, { view: 'for_you' }],
+        ['the whole project', true, {}],
+    ])('after the agent lists %s itself, the next call shows the notice: %s', async (_label, shown, args) => {
         const engine = new GuidanceEngine(makeGuidanceRedis())
         const state = digestState()
-        await engine.evaluate(state, { toolName: 'inbox-digest-get', args: {}, isError: false })
-        expect(await engine.evaluate(state, sqlCall)).toBeUndefined()
+
+        expect(await engine.evaluate(state, { toolName: 'inbox-reports-list', args, isError: false })).toBeUndefined()
         expect(state.context.api.request).not.toHaveBeenCalled()
+        expect((await engine.evaluate(state, sqlCall))?.outcome).toBe(shown ? 'shown' : undefined)
     })
 
     it.each([
         [true, 'test-rule:shown'],
         [false, 'test-rule:flag_off'],
     ])('leaves a call alone when another rule takes it, with that rule flag %s', async (enabled, expected) => {
-        const state = digestState(digest(3, 2), {
-            allTools: ['execute-sql', 'vision-scanners-inline-scan', 'vision-requests-get', 'inbox-digest-get'].map(
+        const state = digestState(countOnly(3), {
+            allTools: ['execute-sql', 'vision-scanners-inline-scan', 'vision-requests-get', 'inbox-reports-list'].map(
                 (name) => ({ name })
             ) as ResolvedState['allTools'],
             toolFeatureFlags: { [rule.flag]: enabled, [MCP_GUIDANCE_INBOX_DIGEST_FLAG]: true },
@@ -1260,7 +1260,7 @@ describe('Inbox digest guidance', () => {
         vi.useFakeTimers()
         const state = digestState()
         vi.mocked(state.context.api.request).mockImplementationOnce(
-            () => new Promise((resolve) => setTimeout(() => resolve(digest(3, 2)), 500))
+            () => new Promise((resolve) => setTimeout(() => resolve(countOnly(3)), 500))
         )
         const engine = new GuidanceEngine(makeGuidanceRedis())
         const pending = engine.evaluate(state, sqlCall)

@@ -1,1 +1,1 @@
-The user's PostHog Inbox has reports for them. Waiting on them: {needs_you}. New in the last day: {new_for_you}. Finish your current step, then tell the user and offer to go through them with {digest_call}.
+Reports that need the user in their PostHog Inbox: {count}. Finish your current step, then tell the user and offer to go through them with {list_call}.
