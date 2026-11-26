@@ -14627,6 +14627,14 @@ export namespace Schemas {
     }
 
     /**
+     * Returned when a Support AI run was started for a ticket.
+     */
+    export interface AiRerunResponse {
+      /** ID of the Support AI run that was started. */
+      workflow_id: string;
+    }
+
+    /**
      * * `persisted` - persisted
      * * `suggested` - suggested
      * * `escalated_with_findings` - escalated_with_findings
