@@ -1017,7 +1017,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.RunNotFullyResolvedError as e:
-            detail = NotFullyResolvedDetailSerializer(instance=api.not_fully_resolved_detail(e)).data
+            detail = NotFullyResolvedDetailSerializer(instance=api.not_fully_resolved_detail(e, self.team_id)).data
             return Response({"detail": str(e), "code": "not_fully_resolved", **detail}, status=status.HTTP_409_CONFLICT)
         except api.StaleRunError as e:
             return Response(

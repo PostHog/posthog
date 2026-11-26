@@ -10,7 +10,7 @@ from django.db import connections, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from posthog.models import User
+from posthog.models import Organization, User
 from posthog.models.user_integration import UserIntegration
 from posthog.paging import PageRequest
 
@@ -837,24 +837,67 @@ class TestReviewDecisions:
         assert [r.identifier for r in not_resolved.value.rejected] == ["Button"]
 
     @pytest.mark.parametrize(
-        "entries",
+        "row",
         [
-            pytest.param("accept", id="not_a_list"),
-            pytest.param(["accept"], id="entry_not_an_object"),
-            pytest.param([{"action": "accept", "seq": 1}], id="entry_without_a_time"),
-            pytest.param([{"action": "approve", "at": "2026-01-01T00:00:00+00:00", "seq": 1}], id="unknown_action"),
+            pytest.param(lambda _outsider: {"metadata": {"review_decisions": "accept"}}, id="not_a_list"),
+            pytest.param(lambda _outsider: {"metadata": {"review_decisions": ["accept"]}}, id="entry_not_an_object"),
+            pytest.param(
+                lambda _outsider: {"metadata": {"review_decisions": [{"action": "accept", "seq": 1}]}},
+                id="entry_without_a_time",
+            ),
+            pytest.param(
+                lambda _outsider: {
+                    "metadata": {
+                        "review_decisions": [{"action": "approve", "at": "2026-01-01T00:00:00+00:00", "seq": 1}]
+                    }
+                },
+                id="unknown_action",
+            ),
+            pytest.param(
+                lambda outsider: {
+                    "metadata": {
+                        "review_decisions": [
+                            {
+                                "action": "accept",
+                                "old_hash": "b0",
+                                "new_hash": "b1",
+                                "by": outsider.id,
+                                "at": "2026-01-01T00:00:00+00:00",
+                                "seq": 1,
+                            }
+                        ]
+                    }
+                },
+                id="entry_by_someone_outside_the_organization",
+            ),
+            pytest.param(
+                lambda outsider: {"review_state": ReviewState.APPROVED, "reviewed_by_id": outsider.id},
+                id="approval_by_someone_outside_the_organization",
+            ),
         ],
     )
-    def test_an_unreadable_decision_entry_is_skipped(self, ledger, team, user, entries):
+    def test_an_unreadable_or_untrusted_decision_entry_is_skipped(self, ledger, team, user, row):
         _repo, git, flow = ledger
         run = _changed_run(git, flow)
-        RunSnapshot.objects.filter(run=run, identifier="Button").update(metadata={"review_decisions": entries})
+        outsider = User.objects.create_and_join(
+            Organization.objects.create(name="Elsewhere"), "outsider@example.com", None
+        )
+        RunSnapshot.objects.filter(run=run, identifier="Button").update(**row(outsider))
 
         listed = api.get_run_snapshots(run.id, team_id=team.id).snapshots[0]
 
         assert (listed.review_state, listed.decision) == ("pending", None)
         _decide(run, user, ACCEPT, new_hash="b1")
         assert approvals.finalize_run(run_id=run.id, user_id=user.id).approved is True
+
+    def test_a_decider_resolves_only_within_the_organization(self, team, user):
+        outsider = User.objects.create_and_join(
+            Organization.objects.create(name="Elsewhere"), "outsider@example.com", None
+        )
+
+        infos = api._fetch_decider_infos({user.id, outsider.id}, team.id)
+
+        assert set(infos) == {user.id}
 
     @pytest.mark.parametrize(("card_accepted", "can_finalize"), [(True, True), (False, False)])
     def test_can_finalize_leaves_an_undecided_removal_to_finalize(

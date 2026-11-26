@@ -23,6 +23,8 @@ from django.db.models import Q
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 
 from ..db import WRITER_DB
 from ..facade.enums import (
@@ -192,6 +194,14 @@ def _pull_request_runs(run: Run) -> Q:
     )
 
 
+def organization_member_ids(team_id: int) -> set[int]:
+    """The users who belong to the organization of the team, the only ones whose decisions count."""
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return set()
+    return set(OrganizationMembership.objects.filter(organization_id=organization_id).values_list("user_id", flat=True))
+
+
 def has_decisions() -> Q:
     """Matches the rows that hold a decision, for queries over `RunSnapshot`.
 
@@ -206,8 +216,11 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
 
     A row that says approved but holds no entry was accepted before rows kept a history. It counts
     as an accept with seq 0, older than any entry, so an accept from before the history still holds.
+
+    Only a member of the team's organization can decide. Snapshot metadata came from the client
+    before uploads dropped this key, so a stored entry that names anyone else is not trusted.
     """
-    rows = (
+    rows = list(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(team_id=team_id, run_id__in=list(commits_by_run))
         .filter(has_decisions())
@@ -222,6 +235,9 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
             "metadata",
         )
     )
+    if not rows:
+        return []
+    members = organization_member_ids(team_id)
     decisions: list[Decision] = []
     for run_id, identifier, baseline_hash, current_hash, review_state, reviewed_by_id, reviewed_at, metadata in rows:
         commit_sha = commits_by_run[run_id]
@@ -232,10 +248,18 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
                 continue
             for entry in entries:
                 decision = _parse_entry(identifier, entry, run_id, commit_sha)
-                if decision is not None:
-                    decisions.append(decision)
+                if decision is None:
+                    continue
+                if decision.by_id not in members:
+                    logger.warning("visual_review.review_decision_untrusted", run_id=str(run_id), by_id=decision.by_id)
+                    continue
+                decisions.append(decision)
             continue
         if review_state == ReviewState.APPROVED:
+            # The server sets reviewed_by, and deleting the user empties it, so an empty one still counts.
+            if reviewed_by_id is not None and reviewed_by_id not in members:
+                logger.warning("visual_review.review_decision_untrusted", run_id=str(run_id), by_id=reviewed_by_id)
+                continue
             decisions.append(
                 Decision(
                     action=DecisionAction.ACCEPT,

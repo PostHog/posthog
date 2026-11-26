@@ -926,7 +926,7 @@ def get_run_snapshots(
 
     total_count = snapshots.count()
     page = list(snapshots[offset : offset + limit if limit is not None else None])
-    user_basic_infos = _fetch_user_basic_infos(_decision_user_ids(page, shown_decisions))
+    user_basic_infos = _fetch_decider_infos(_decision_user_ids(page, shown_decisions), run.team_id)
     return contracts.RunSnapshots(
         snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos, shown_decisions) for s in page],
         quarantined_count=quarantined_count,
@@ -1084,8 +1084,8 @@ def clear_snapshot_decisions(
     return _to_decision_result(outcome)
 
 
-def not_fully_resolved_detail(error: errors.RunNotFullyResolvedError) -> contracts.NotFullyResolvedDetail:
-    user_basic_infos = _fetch_user_basic_infos({r.by_id for r in error.rejected if r.by_id is not None})
+def not_fully_resolved_detail(error: errors.RunNotFullyResolvedError, team_id: int) -> contracts.NotFullyResolvedDetail:
+    user_basic_infos = _fetch_decider_infos({r.by_id for r in error.rejected if r.by_id is not None}, team_id)
     return contracts.NotFullyResolvedDetail(
         rejected=[
             contracts.RejectedSnapshotDetail(
@@ -1128,7 +1128,7 @@ def finalize_run(
     baseline_content = "" if commit_to_github else baselines.build_signed_baseline(run_id, team_id=team_id)
     review = review_decisions.review_run(run)
     groups = review_decisions.approver_groups(review)
-    user_basic_infos = _fetch_user_basic_infos({group.by_id for group in groups if group.by_id is not None})
+    user_basic_infos = _fetch_decider_infos({group.by_id for group in groups if group.by_id is not None}, run.team_id)
     return contracts.FinalizeResult(
         run=_to_run(run),
         baseline_content=baseline_content,
@@ -1161,6 +1161,17 @@ def _fetch_user_basic_infos(user_ids: set[int]) -> dict[int, contracts.UserBasic
         return {}
     users = User.objects.filter(id__in=user_ids).only("id", "first_name", "email")
     return {u.id: _to_user_basic(u) for u in users}
+
+
+def _fetch_decider_infos(user_ids: set[int], team_id: int) -> dict[int, contracts.UserBasicInfo]:
+    """The users that decisions name, resolved only within the team's organization.
+
+    A decision entry stored before uploads dropped the history key can name any user ID, and its
+    name and email must not reach a reader outside that user's organization.
+    """
+    if not user_ids:
+        return {}
+    return _fetch_user_basic_infos(user_ids & review_decisions.organization_member_ids(team_id))
 
 
 def _to_quarantine_source_run(run) -> contracts.QuarantineSourceRun | None:
