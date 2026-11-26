@@ -1,7 +1,7 @@
 import { type SavedWidget, type SectionWidget, type Tile, isSectionWidget } from '../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../menu/menuAction'
-import { type WidgetType, widgetSlots } from '../widgets/widgetDefinition'
-import { type WidgetAppearanceOptions, findWidget } from '../widgets/widgetSpec'
+import { type WidgetType, widgetSlots } from '../widgets/core/widgetDefinition'
+import { type TileCustomization, findWidget } from '../widgets/core/widgetSpec'
 import type { PresentationEdit } from './presentationEdits'
 import { hasPart, showsPart } from './tileParts'
 
@@ -12,8 +12,8 @@ export function showsBorder(widget: SavedWidget | SectionWidget): boolean {
 export const NO_BACKGROUND = 'transparent'
 
 /** The color the tile's widget type lets it show, or null for the card's own background. */
-export function tileBackgroundColor(widget: SavedWidget, options: WidgetAppearanceOptions): string | null {
-    return (options.backgroundColor && widget.appearance?.backgroundColor) || null
+export function tileBackgroundColor(widget: SavedWidget, customizations: TileCustomization[]): string | null {
+    return (customizations.includes('backgroundColor') && widget.appearance?.backgroundColor) || null
 }
 
 type TileSetting = 'header' | 'footer' | 'border'
@@ -105,7 +105,7 @@ export function backgroundColorAction(
         if (isSectionWidget(widget)) {
             return []
         }
-        return findWidget(widgets, widget.type)?.appearance?.backgroundColor
+        return findWidget(widgets, widget.type)?.allowedCustomizations?.includes('backgroundColor')
             ? [{ id, color: widget.appearance?.backgroundColor ?? null }]
             : []
     })

@@ -2,14 +2,15 @@ import { useMemo, useRef } from 'react'
 
 import { TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig } from 'lib/charts/hooks'
 
+import type { DataFrame } from '../../../../query/queryTypes'
 import { timeSeriesFromFrames, yAxisFor } from '../../data/timeSeriesFrames'
-import type { DataFrame } from '../../vizTypes'
+import { useSharedChartTheme } from '../../useSharedChartTheme'
 import type { BarOptions } from './barSpec'
 
 export function BarViz({ frames, options }: { frames: DataFrame[]; options: BarOptions }): JSX.Element {
-    const theme = useChartTheme()
+    const theme = useSharedChartTheme()
     const assignedColors = useRef(new Map<string, string>())
     const { labels, series, axes } = useMemo(
         () => timeSeriesFromFrames(frames, theme.colors, assignedColors.current),

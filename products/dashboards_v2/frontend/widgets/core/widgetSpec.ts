@@ -1,12 +1,10 @@
 import type { z } from 'zod'
 
-import type { ContentWidget, SavedWidget, SizeOf, WidgetSize } from '../dashboard/document/dashboardTypes'
-import { parseOnce } from '../schema/parseOnce'
+import type { ContentWidget, SavedWidget, SizeOf, WidgetSize } from '../../dashboard/document/dashboardTypes'
+import { parseOnce } from '../../schema/parseOnce'
 
-/** The appearance settings a widget type offers on its tiles. Each one left out is not offered. */
-export type WidgetAppearanceOptions = {
-    backgroundColor?: boolean
-}
+/** A way a person can customize a tile in its menu. The menu offers only the ones a widget type allows. */
+export type TileCustomization = 'backgroundColor'
 
 /**
  * Everything about a widget type except how it renders. It is plain data with no React, so code outside the browser
@@ -19,7 +17,7 @@ export type WidgetSpec<Config, Type extends string = string> = {
     sizeFor?(widget: ContentWidget<Config>): WidgetSize
     /** The shape of `config` on widgets of this type. Every saved config is checked against it before it is used. */
     configSchema: z.ZodType<Config>
-    appearance?: WidgetAppearanceOptions
+    allowedCustomizations?: TileCustomization[]
 }
 
 /**
@@ -32,7 +30,7 @@ export type WidgetTypeSpec<Type extends string = string> = {
     /** The size of one saved widget. A widget whose config does not match the schema gets `size`. */
     sizeOf: SizeOf
     configError(config: SavedWidget['config']): z.ZodError | null
-    appearance?: WidgetAppearanceOptions
+    allowedCustomizations?: TileCustomization[]
 }
 
 export function defineWidgetSpec<Config, const Type extends string>(
@@ -50,7 +48,7 @@ export function defineWidgetSpec<Config, const Type extends string>(
             const result = parseOnce(configSchema, config)
             return result.success ? null : result.error
         },
-        appearance: spec.appearance,
+        allowedCustomizations: spec.allowedCustomizations,
     }
 }
 

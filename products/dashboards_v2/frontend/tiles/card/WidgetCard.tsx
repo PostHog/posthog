@@ -19,18 +19,18 @@ import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from '../../presentation/tileAppearance'
 import { isPartShown } from '../../presentation/tileParts'
-import { type WidgetType, widgetSlots } from '../../widgets/widgetDefinition'
-import { WidgetErrorBoundary } from '../../widgets/WidgetErrorBoundary'
-import { type WidgetAppearanceOptions, findWidget } from '../../widgets/widgetSpec'
-import { WidgetView } from '../../widgets/WidgetView'
+import { type WidgetType, widgetSlots } from '../../widgets/core/widgetDefinition'
+import { WidgetErrorBoundary } from '../../widgets/core/WidgetErrorBoundary'
+import { type TileCustomization, findWidget } from '../../widgets/core/widgetSpec'
+import { WidgetView } from '../../widgets/core/WidgetView'
 import { TileActions } from '../menu/TileActions'
 import { TileContextMenu, hasTileMenu } from '../menu/TileContextMenu'
 
 function cardLook(
     widget: SavedWidget,
-    options: WidgetAppearanceOptions
+    customizations: TileCustomization[]
 ): { className: string; style: CSSProperties | undefined } {
-    const color = tileBackgroundColor(widget, options)
+    const color = tileBackgroundColor(widget, customizations)
     const tint = color === NO_BACKGROUND ? null : color
     return {
         className: clsx(
@@ -67,7 +67,7 @@ export function WidgetCard({
     const slots = widgetSlots(definition)
     const showHeader = isPartShown(widget, 'header', slots)
     const showFooter = isPartShown(widget, 'footer', slots)
-    const look = cardLook(widget, definition?.appearance ?? {})
+    const look = cardLook(widget, definition?.allowedCustomizations ?? [])
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
     const hasMenu = hasTileMenu(actions)

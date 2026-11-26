@@ -1,7 +1,7 @@
 # Dashboards v2 agent guide
 
 Dashboards v2 is a set of primitives that a host composes: grid, tiles, sections, tabs, widgets, filters and the time range picker.
-The `/dashboard-v2` scene, behind the `dashboard-v2` feature flag, is one host.
+The `/dashboard-v2` scene, behind the `dashboards-v2` feature flag, is one host.
 Other products, such as APM and web analytics, compose the same primitives on their own pages.
 
 ## Read the guide for your area first

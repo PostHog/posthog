@@ -44,7 +44,7 @@ Leave out what you do not need. With no `filters`, `timeRange`, `refresh` or `hi
 ### One tile on its own
 
 Render `WidgetCard` with the widget and the widget types that can draw it. No dashboard, grid or controller is needed.
-Wrap it in `FiltersContext` or `RefreshContext` only when the page has filters or a refresh to pass down.
+Wrap it in `FiltersContext` or `WidgetHostContext` only when the page has filters, a refresh or sample data to pass down.
 
 ```tsx
 <FiltersContext.Provider value={{ time: { from: 'now-30d', to: 'now' }, filters: [] }}>
@@ -55,5 +55,5 @@ Wrap it in `FiltersContext` or `RefreshContext` only when the page has filters o
 ## Tiles and widgets
 
 - A tile is the container. It owns what every tile shares: where it sits in the grid, dragging and resizing, the right-click menu, and its parts and appearance. Tile code lives in `frontend/tiles/`.
-- A widget is the content a tile shows, such as a chart or markdown. A team adds its own widget type through a `WidgetDefinition` and passes it to the dashboard. Widget code lives in `frontend/widgets/`.
+- A widget is the content a tile shows, such as a chart or markdown. A team adds its own widget type through a `WidgetDefinition` and passes it to the dashboard. Widget code lives in `frontend/widgets/`. To add or change a widget type, use the `/adding-dashboard-v2-widget-types` skill.
 - A tile does not know which widget it holds. Behavior that only one kind of content needs goes in that widget type, not in the tile.
