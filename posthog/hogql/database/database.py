@@ -918,6 +918,9 @@ def _reads_tables_the_walk_cannot_name(
         return False
 
     gated = {key(name) for name in gated_tables}
+    # Built-in tables reach each other through lazy fields such as `events.person`, so a join stored on one
+    # is reachable from all of them.
+    builtin = {key(name) for name in build_database_root_node().children["posthog"].children}
     reached: set[str] = set()
     frontier = list(names)
     while frontier:
@@ -925,6 +928,8 @@ def _reads_tables_the_walk_cannot_name(
         if name in reached:
             continue
         reached.add(name)
+        if name in builtin:
+            frontier.extend(builtin - reached)
         if name in reading_expressions:
             return True
         for target in joins.get(name, ()):
