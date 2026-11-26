@@ -31,6 +31,13 @@ def _auth_user_id(data: dict[str, Any]) -> int | None:
         return None
 
 
+def _split_carry(data: dict[str, Any]) -> tuple[dict[str, Any], object]:
+    """The session data to encode, and the carried binding that goes to the column instead."""
+    return {key: value for key, value in data.items() if key != DBSC_CARRY_SESSION_KEY}, data.get(
+        DBSC_CARRY_SESSION_KEY
+    )
+
+
 class SessionStore(DBStore):
     """Database session store that keeps `user_id` on the session row in sync with `_auth_user_id`.
 
@@ -87,8 +94,9 @@ class SessionStore(DBStore):
         await sync_to_async(self.cycle_key)()
 
     def _model_instance_for_save(self, data: dict[str, Any]) -> "Session":
-        obj = self.create_model_instance({key: value for key, value in data.items() if key != DBSC_CARRY_SESSION_KEY})
-        obj.dbsc_binding = data.get(DBSC_CARRY_SESSION_KEY)
+        stored, carried = _split_carry(data)
+        obj = self.create_model_instance(stored)
+        obj.dbsc_binding = carried
         return obj
 
     def save(self, must_create: bool = False) -> None:
@@ -120,10 +128,9 @@ class SessionStore(DBStore):
         if self.session_key is None:
             return await self.acreate()
         data = await self._aget_session(no_load=must_create)  # type: ignore[attr-defined]  # private SessionBase method, not in django-stubs
-        obj = await self.acreate_model_instance(
-            {key: value for key, value in data.items() if key != DBSC_CARRY_SESSION_KEY}
-        )
-        obj.dbsc_binding = data.get(DBSC_CARRY_SESSION_KEY)
+        stored, carried = _split_carry(data)
+        obj = await self.acreate_model_instance(stored)
+        obj.dbsc_binding = carried
         using = router.db_for_write(self.model, instance=obj)
 
         @sync_to_async

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from typing import cast
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
@@ -16,7 +17,7 @@ from posthog.session.dbsc import (
     challenges,
     protocol,
 )
-from posthog.session.dbsc.cookies import check_bound_cookie, cookie_name
+from posthog.session.dbsc.cookies import CookieCheck, check_bound_cookie, cookie_name
 from posthog.session.dbsc.decisions import Action, BoundRequest, decide
 from posthog.session.dbsc.events import RefusalReason, record_refusal
 from posthog.session.dbsc.owner import binding_mode
@@ -68,22 +69,36 @@ def _retry_later_response() -> HttpResponse:
     return response
 
 
-def _bound_request(request: HttpRequest, binding: bindings.Binding) -> BoundRequest:
-    refresh_skipped = protocol.SKIPPED_HEADER in request.headers
+def _started_elsewhere(request: HttpRequest, navigation: bool) -> bool:
+    """Whether the browser could not have refreshed for this request, because our own origin did not start it."""
+    if request.headers.get("Sec-Fetch-Site") in _CROSS_SITE_FETCH_SITES:
+        return True
+    # An extension's request carries its own origin, and Sec-Fetch-Site "none" outside a navigation.
+    origin = request.headers.get("Origin")
+    if origin is not None and urlsplit(origin).netloc != request.get_host():
+        return True
+    return not navigation and request.headers.get("Sec-Fetch-Site") == "none"
+
+
+def _bound_request(request: HttpRequest, binding: bindings.Binding, check: CookieCheck) -> BoundRequest:
+    navigation = request.method == "GET" and request.headers.get("Sec-Fetch-Mode") == "navigate"
     return BoundRequest(
-        check=check_bound_cookie(request.COOKIES.get(cookie_name()), binding.id),
+        check=check,
         mode=binding_mode(request),
         binding_age=timezone.now() - binding.bound_at,
-        cross_site=request.headers.get("Sec-Fetch-Site") in _CROSS_SITE_FETCH_SITES,
-        navigation=request.method == "GET" and request.headers.get("Sec-Fetch-Mode") == "navigate",
+        cross_site=_started_elsewhere(request, navigation),
+        navigation=navigation,
         bounced=BOUNCE_COOKIE in request.COOKIES,
-        refresh_skipped=refresh_skipped,
-        challenge_store_up=challenges.store_available() if refresh_skipped else True,
+        refresh_skipped=protocol.SKIPPED_HEADER in request.headers,
     )
 
 
 def _refusal(request: HttpRequest, user: User, binding: bindings.Binding) -> HttpResponse | None:
-    facts = _bound_request(request, binding)
+    check = check_bound_cookie(request.COOKIES.get(cookie_name()), binding.id)
+    # Most requests carry a valid cookie, so they skip the flag evaluation and the impersonation lookup.
+    if check == CookieCheck.VALID:
+        return None
+    facts = _bound_request(request, binding, check)
     action = decide(facts)
     if action == Action.ALLOW:
         return None

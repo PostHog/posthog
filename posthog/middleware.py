@@ -78,7 +78,7 @@ from posthog.models.event.new_events_schema import (
 )
 from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS
 from posthog.session.activity import session_activity_credential
-from posthog.session.dbsc.paths import ENDPOINT_PATHS as DBSC_ENDPOINT_PATHS
+from posthog.session.dbsc.paths import REFRESH_PATH as DBSC_REFRESH_PATH
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
@@ -316,7 +316,7 @@ class AllowIPMiddleware:
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
-        if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS or request.path in DBSC_ENDPOINT_PATHS:
+        if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS or request.path == DBSC_REFRESH_PATH:
             return response
         ip = self.extract_client_ip(request)
         if ip:
@@ -1271,7 +1271,7 @@ class SessionAgeMiddleware:
         # reset; once that reset is removed, those modifications would persist and cause spurious
         # session inserts on every anonymous request.
         # A sign-out on the DBSC refresh would answer a background fetch, so the request it held signs out instead.
-        if request.path in DBSC_ENDPOINT_PATHS or not request.user.is_authenticated:
+        if request.path == DBSC_REFRESH_PATH or not request.user.is_authenticated:
             return self.get_response(request)
 
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
@@ -1419,7 +1419,7 @@ class AutoLogoutImpersonateMiddleware:
             # 2. For /admin requests we want to restore the original login and continue to the intended page
             # 3. For any other endpoint we want to restore the original login and redirect to /admin/
 
-            if request.path.startswith("/static/") or request.path in DBSC_ENDPOINT_PATHS:
+            if request.path.startswith("/static/") or request.path == DBSC_REFRESH_PATH:
                 # Skip static files, and the DBSC refresh so that the request it held ends the impersonation
                 pass
             elif request.path.startswith("/api/"):
@@ -1847,7 +1847,7 @@ class IPRestrictionsMiddleware(MiddlewareMixin):
         view_kwargs: dict[str, object],
     ) -> HttpResponse | None:
         # A DBSC refresh only renews the bound cookie, and the request it unblocks meets this check itself.
-        if request.path in ("/logout", "/logout/") or request.path in DBSC_ENDPOINT_PATHS:
+        if request.path in ("/logout", "/logout/") or request.path == DBSC_REFRESH_PATH:
             return None
         try:
             enforce_ip_restrictions(request, getattr(request, "user", None))
@@ -1895,7 +1895,7 @@ class ActiveOrganizationMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         # Skip middleware for static assets, logout, and org switching endpoints
-        if request.path in DBSC_ENDPOINT_PATHS or any(request.path.startswith(path) for path in self._IGNORED_PATHS):
+        if request.path == DBSC_REFRESH_PATH or any(request.path.startswith(path) for path in self._IGNORED_PATHS):
             return self.get_response(request)
 
         if not request.user.is_authenticated or request.user.is_anonymous:

@@ -29,7 +29,6 @@ class BoundRequest:
     navigation: bool
     bounced: bool
     refresh_skipped: bool
-    challenge_store_up: bool
 
 
 def decide(request: BoundRequest) -> Action:
@@ -45,6 +44,6 @@ def decide(request: BoundRequest) -> Action:
     if request.cross_site and not request.bounced:
         return Action.BOUNCE
     # A browser skips the refresh when our refresh endpoint fails, which says nothing about the device.
-    if request.refresh_skipped and not request.challenge_store_up:
+    if request.refresh_skipped:
         return Action.RETRY_LATER
     return Action.END_SESSION

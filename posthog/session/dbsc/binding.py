@@ -95,7 +95,8 @@ def new_offer(request: HttpRequest) -> None:
         "id": secrets.token_urlsafe(16),
         "expires_at": time.time() + OFFER_TTL_SECONDS,
     }
-    setattr(request, _LOGIN_OFFER_ATTR, True)
+    # API logins pass DRF's Request, which forwards reads but not writes, and the middleware sees the HttpRequest.
+    setattr(getattr(request, "_request", request), _LOGIN_OFFER_ATTR, True)
 
 
 def offer_id(session: SessionBase) -> str | None:

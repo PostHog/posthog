@@ -1,5 +1,6 @@
 """Follows the W3C Device Bound Session Credentials editor's draft: https://w3c.github.io/webappsec-dbsc/"""
 
+import re
 from typing import Any, cast
 
 import jwt
@@ -19,6 +20,7 @@ SKIPPED_HEADER = "Secure-Session-Skipped"
 _PROOF_TYPE = "dbsc+jwt"
 # Only these members describe the key. Anything else the browser sends is not stored on the session row.
 _KEY_MEMBERS: dict[Algorithm, tuple[str, ...]] = {"ES256": ("kty", "crv", "x", "y"), "RS256": ("kty", "n", "e")}
+_BASE64URL = re.compile(r"[A-Za-z0-9_-]+")
 _MIN_RSA_KEY_BITS = 2048
 
 
@@ -86,9 +88,14 @@ def _public_key(alg: Algorithm, jwk: object) -> jwt.PyJWK:
         raise ProofError("wrong_key_type")
     if alg == "RS256" and jwk.get("kty") != "RSA":
         raise ProofError("wrong_key_type")
+    # pyjwt's base64 decoding skips characters outside the alphabet, so a NUL could reach the stored key.
+    for member in _KEY_MEMBERS[alg][1:]:
+        value = jwk.get(member)
+        if member != "crv" and not (isinstance(value, str) and _BASE64URL.fullmatch(value)):
+            raise ProofError("malformed_key")
     try:
         key = jwt.PyJWK(jwk, algorithm=alg)
-    except jwt.PyJWTError as error:
+    except (jwt.PyJWTError, TypeError, ValueError) as error:
         raise ProofError("malformed_key") from error
     if isinstance(key.key, RSAPublicKey) and key.key.key_size < _MIN_RSA_KEY_BITS:
         raise ProofError("weak_key")

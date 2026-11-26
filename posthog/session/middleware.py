@@ -4,7 +4,7 @@ from django.http import HttpRequest, HttpResponseRedirect
 
 from posthog.models import User
 from posthog.session.activity import sync_current_session_metadata
-from posthog.session.dbsc.paths import ENDPOINT_PATHS as DBSC_ENDPOINT_PATHS
+from posthog.session.dbsc.paths import REFRESH_PATH as DBSC_REFRESH_PATH
 from posthog.session.risk import RiskTier, evaluate_session_risk
 
 
@@ -40,7 +40,7 @@ class SessionRiskMiddleware:
         # evaluate_session_risk so the per-request feature-flag check doesn't run — and thus can't
         # pollute tests that assert posthoganalytics.feature_enabled call counts — when disabled.
         # A DBSC refresh runs before the request it held, so the held request gets the sign-out and its reason.
-        if not settings.SESSION_RISK_ENABLED or request.path in DBSC_ENDPOINT_PATHS:
+        if not settings.SESSION_RISK_ENABLED or request.path == DBSC_REFRESH_PATH:
             return self.get_response(request)
         if isinstance(request.user, User) and BACKEND_SESSION_KEY in request.session:
             if evaluate_session_risk(request) == RiskTier.HIGH:

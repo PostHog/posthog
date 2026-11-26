@@ -7,7 +7,6 @@ from django.core.cache import BaseCache, caches
 # A refresh that waited longer than this asks for a new challenge, so a captured proof goes stale.
 CHALLENGE_TTL_SECONDS = 5 * 60
 _CACHE_PREFIX = "dbsc_challenge:"
-_PROBE_KEY = "dbsc_challenge_probe"
 
 
 def _store() -> BaseCache:
@@ -47,11 +46,3 @@ def consume_challenge(subject: str, challenge: str) -> bool:
         return False
     # Only one of two concurrent requests with the same proof deletes the key.
     return bool(store.delete(key))
-
-
-def store_available() -> bool:
-    try:
-        _store().get(_PROBE_KEY)
-    except Exception:
-        return False
-    return True

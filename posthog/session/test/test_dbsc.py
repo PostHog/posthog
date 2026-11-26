@@ -99,6 +99,12 @@ class TestDbscProof(SimpleTestCase):
                 "weak_key",
             ),
             ("garbage", lambda key: "not-a-jwt", "malformed"),
+            ("non_string_coordinate", lambda key: _proof(key, "c", jwk={**_public_jwk(key), "x": 1}), "malformed_key"),
+            (
+                "nul_in_coordinate",
+                lambda key: _proof(key, "c", jwk={**_public_jwk(key), "x": _public_jwk(key)["x"] + "\u0000" * 4}),
+                "malformed_key",
+            ),
         ]
     )
     def test_registration_proof_that_does_not_prove_a_device_key_fails(self, _name, make_token, reason):
@@ -165,7 +171,6 @@ _BASE_FACTS = BoundRequest(
     navigation=False,
     bounced=False,
     refresh_skipped=False,
-    challenge_store_up=True,
 )
 
 
@@ -194,8 +199,7 @@ class TestRefusalDecision(SimpleTestCase):
                 Action.END_SESSION,
             ),
             ("cross_site_fetch", {"cross_site": True}, Action.REJECT),
-            ("skipped_while_store_down", {"refresh_skipped": True, "challenge_store_up": False}, Action.RETRY_LATER),
-            ("skipped_while_store_up", {"refresh_skipped": True}, Action.END_SESSION),
+            ("refresh_skipped", {"refresh_skipped": True}, Action.RETRY_LATER),
         ]
     )
     def test_decide(self, _name, overrides, expected):
@@ -239,6 +243,18 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
         assert row.dbsc_binding["id"] == binding_id
         assert row.dbsc_binding["jwk"] == _public_jwk(self.key)
         assert self.client.get("/api/users/@me/").status_code == 200
+
+    def test_password_login_response_carries_the_registration_offer(self):
+        self.client.logout()
+
+        response = self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert protocol.REGISTRATION_HEADER in response.headers
 
     def test_registration_offer_expires(self):
         with time_machine.travel(timezone.now() + timedelta(minutes=11), tick=False):
@@ -313,16 +329,21 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
         assert refused.status_code == 302
         assert not Session.objects.filter(session_key=session_key).exists()
 
-    def test_cross_site_fetch_is_rejected_without_ending_the_session(self):
+    @parameterized.expand(
+        [
+            ("cross_site_fetch", {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors"}),
+            ("extension", {"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "cors"}),
+            ("foreign_origin", {"Sec-Fetch-Mode": "cors", "Origin": "chrome-extension://abc"}),
+        ]
+    )
+    def test_request_started_elsewhere_is_rejected_without_ending_the_session(self, _name, headers):
         self._register()
         self.mode = "enforce"
         session_key = self.client.session.session_key
         del self.client.cookies[cookie_name()]
 
         with self._past_grace():
-            response = self.client.get(
-                "/api/users/@me/", headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors"}
-            )
+            response = self.client.get("/api/users/@me/", headers=headers)
 
         assert response.status_code == 401
         assert Session.objects.filter(session_key=session_key).exists()
