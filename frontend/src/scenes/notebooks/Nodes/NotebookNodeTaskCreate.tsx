@@ -29,7 +29,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeTaskCreateAttri
         const payload: TaskUpsertProps = {
             title: title,
             description: description,
-            origin_product: OriginProduct.SESSION_SUMMARIES,
+            origin_product: OriginProduct.USER_CREATED,
         }
         createTask({ data: payload })
     }

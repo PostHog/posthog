@@ -7920,8 +7920,8 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         [
             ("origin_omitted", {}, "user"),
             ("user_created", {"origin_product": "user_created"}, "user"),
-            ("error_tracking", {"origin_product": "error_tracking"}, "error_tracking"),
-            ("loop", {"origin_product": "loop"}, "loop"),
+            ("mcp_analytics", {"origin_product": "mcp_analytics"}, "mcp_analytics"),
+            ("hogdesk", {"origin_product": "hogdesk"}, "hogdesk"),
             ("posthog_ai", {"origin_product": "posthog_ai"}, "posthog_ai"),
         ]
     )
@@ -7935,8 +7935,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         self.assertEqual((task.profile, task.options, task.source_kind), (profile_key, None, None))
 
     def test_an_origin_only_create_without_a_public_profile_is_refused_like_a_reserved_origin(self) -> None:
-        with patch("products.tasks.backend.presentation.serializers.public_profile_for_origin", return_value=None):
-            response = self._create(origin_product="error_tracking")
+        response = self._create(origin_product="error_tracking")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["attr"], "origin_product")
