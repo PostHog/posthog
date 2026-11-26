@@ -1092,6 +1092,7 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
     from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
         DataModelingJob,
         DataModelingJobEngine,
+        DataModelingJobRunMode,
         DataModelingJobStatus,
         DataWarehouseSavedQuery,
     )
@@ -1104,6 +1105,8 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
             # Other engines build their own copy and leave the ClickHouse one as it was.
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
+        # An incremental run keeps the rows outside its window, so the copy is only as fresh as its last full build.
+        .exclude(run_mode=DataModelingJobRunMode.INCREMENTAL)
         .order_by("-last_run_at")
         .values_list("created_at", flat=True)
         .first()

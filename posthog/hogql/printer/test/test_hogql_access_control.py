@@ -810,6 +810,20 @@ class TestDeniedTableError(BaseTest):
                 True,
             ),
             (
+                "expression_edited_then_refreshed_incrementally",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "(SELECT any(name) FROM posthog.trace_spans)",
+                True,
+                True,
+                False,
+                "slow_spans",
+                False,
+                True,
+            ),
+            (
                 "edited_then_built_only_on_managed_warehouse",
                 "none",
                 "SELECT '' AS name",
@@ -860,6 +874,7 @@ class TestDeniedTableError(BaseTest):
         rebuilt_on_managed_warehouse: bool = False,
         read_name: str = "slow_spans",
         upstream_soft_deleted_after_build: bool = False,
+        refreshed_incrementally_after_change: bool = False,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
         from posthog.hogql.parser import parse_select
@@ -873,6 +888,7 @@ class TestDeniedTableError(BaseTest):
         from products.data_modeling.backend.facade.models import (
             DataModelingJob,
             DataModelingJobEngine,
+            DataModelingJobRunMode,
             DataModelingJobStatus,
             DataWarehouseSavedQuery,
         )
@@ -990,6 +1006,21 @@ class TestDeniedTableError(BaseTest):
                 DataModelingJob.objects.filter(id=job.id).update(created_at=run_at)
         if upstream_soft_deleted_after_build:
             upstream.soft_delete()
+        if refreshed_incrementally_after_change:
+            now = datetime.now(UTC)
+            for run_mode, run_at in [
+                (DataModelingJobRunMode.FULL_REFRESH, built_at),
+                (DataModelingJobRunMode.INCREMENTAL, now + timedelta(minutes=1)),
+            ]:
+                job = DataModelingJob.objects.create(
+                    team=self.team,
+                    saved_query=saved_query,
+                    status=DataModelingJobStatus.COMPLETED,
+                    engine=DataModelingJobEngine.CLICKHOUSE,
+                    run_mode=run_mode,
+                    last_run_at=run_at,
+                )
+                DataModelingJob.objects.filter(id=job.id).update(created_at=run_at)
         modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
         database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
         context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
