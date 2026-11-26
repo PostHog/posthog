@@ -408,10 +408,12 @@ def _is_off(choice: Any) -> bool:
 def _topic_categories(client: CustomerIOClient, team_id: int) -> dict[str, str]:
     """The category each topic imported as, by every name a person's preferences can use for the topic. A topic whose
     category someone deleted is left out."""
+    topics = client.get_subscription_topics()
     keys: dict[str, str] = {}
-    for topic in client.get_subscription_topics():
-        names = (topic_name_in_preferences(topic), f"topic_{topic.get('id')}", str(topic.get("id")))
-        keys |= dict.fromkeys(names, topic_category_key(topic))
+    # Customer.io keys a choice by `topic_<id>`, so that name wins over another topic's identifier or bare id.
+    for alias in (lambda t: f"topic_{t.get('id')}", topic_name_in_preferences, lambda t: str(t.get("id"))):
+        for topic in topics:
+            keys.setdefault(alias(topic), topic_category_key(topic))
     categories = MessageCategory.objects.filter(team_id=team_id, key__in=set(keys.values()), deleted=False)
     ids = {key: str(category_id) for key, category_id in categories.values_list("key", "id")}
     return {name: ids[key] for name, key in keys.items() if key in ids}

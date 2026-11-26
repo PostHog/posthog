@@ -143,8 +143,10 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
 
     def test_whoever_left_is_opted_out_and_joins_no_cohort(self) -> None:
         self.workspace.topics = [
-            {"id": 1, "identifier": "topic_1", "name": "News", "subscribed_by_default": True},
+            {"id": 1, "identifier": "news", "name": "News", "subscribed_by_default": True},
             {"id": 2, "identifier": "topic_2", "name": "Offers", "subscribed_by_default": False},
+            # An identifier that reads like another topic's key doesn't take that topic's choices.
+            {"id": 3, "identifier": "topic_1", "name": "Odd", "subscribed_by_default": True},
         ]
 
         def choices(**preferences: Any) -> dict[str, str]:
@@ -172,7 +174,7 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
             "bare@example.com",
         }
         everything = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"}
-        news = str(MessageCategory.objects.get(team_id=self.team.id, key="customerio_topic_1").id)
+        news = str(MessageCategory.objects.get(team_id=self.team.id, key="customerio_news").id)
         preferences = self._preferences()
         assert preferences["Topic@Example.com"] == {news: "OPTED_OUT"} == preferences["bare@example.com"]
         for left in ("channel@example.com", "one@example.com", "unreadable@example.com", "malformed@example.com"):
