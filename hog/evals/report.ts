@@ -36,8 +36,12 @@ interface Session {
 }
 
 interface SessionEvent {
+    sequence: number
     event: { type: string; toolName?: string; args?: { command?: string } }
 }
+
+// StuntHog answers at most this many events at a time, after the sequence number in `after`.
+const EVENT_PAGE = 500
 
 async function get<T>(path: string): Promise<T> {
     const response = await fetch(new URL(path, values.url))
@@ -53,9 +57,21 @@ function decisionsOf(session: Session): Decision[] {
     return (typeof decisions === 'string' ? parseJsonOrUndefined(decisions, Decisions) : decisions) ?? []
 }
 
+async function sessionEvents(id: string): Promise<SessionEvent[]> {
+    const events: SessionEvent[] = []
+    for (let after = 0; ; ) {
+        const page = await get<SessionEvent[]>(`/api/sessions/${id}/events?after=${after}`)
+        events.push(...page)
+        const last = page.at(-1)
+        if (page.length < EVENT_PAGE || last === undefined) {
+            return events
+        }
+        after = last.sequence
+    }
+}
+
 if (values.session) {
-    const events = await get<SessionEvent[]>(`/api/sessions/${values.session}/events`)
-    for (const { event } of events) {
+    for (const { event } of await sessionEvents(values.session)) {
         if (event.type === 'tool_execution_start' && event.args?.command) {
             console.info(`$ ${event.args.command}`)
         }
