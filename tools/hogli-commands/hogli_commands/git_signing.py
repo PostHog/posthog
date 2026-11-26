@@ -86,6 +86,7 @@ def secure_enclave_key_hash(public_key_line: str) -> str:
         fields.append(blob[offset + 4 : offset + 4 + length])
         offset += 4 + length
     # An sk-ecdsa public key holds the key type, the curve, the EC point and the application.
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 (matches the identifier sc_auth prints, not a signature)
     return hashlib.sha1(fields[2], usedforsecurity=False).hexdigest().upper()
 
 
