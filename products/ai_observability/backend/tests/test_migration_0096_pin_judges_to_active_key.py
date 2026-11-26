@@ -4,6 +4,8 @@ from posthog.test.base import NonAtomicTestMigrations
 
 from posthog.models import Team
 
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+
 
 class TestPinJudgesToActiveKey(NonAtomicTestMigrations):
     app = "ai_observability"
@@ -78,7 +80,7 @@ class TestPinJudgesToActiveKey(NonAtomicTestMigrations):
         }
 
         assert pinned == {
-            "no_config": ("openai", "gpt-6-luna", self.active_key.id),
+            "no_config": ("openai", DEFAULT_MODEL_BY_PROVIDER["openai"], self.active_key.id),
             "same_provider_no_key": ("openai", "gpt-5-mini", self.active_key.id),
             "other_provider_no_key": ("anthropic", "claude-haiku-4-5", None),
             "pinned_elsewhere": ("openai", "gpt-5-mini", self.other_key.id),

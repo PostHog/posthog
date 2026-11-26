@@ -1,13 +1,5 @@
 from django.db import migrations
 
-# The default model per provider when this migration was written. A judge with no model configuration
-# runs on this model today, so pinning it to the same model keeps its results unchanged.
-DEFAULT_MODEL_BY_PROVIDER = {
-    "openai": "gpt-6-luna",
-    "anthropic": "claude-haiku-4-5",
-    "gemini": "gemini-2.5-flash",
-}
-
 BATCH_SIZE = 500
 
 
@@ -17,6 +9,9 @@ def pin_judges_to_active_key(apps, schema_editor):
     A judge resolves to the active key when it has no model configuration, or when its configuration
     has no key and the same provider as the active key. Judges that cannot resolve today stay as they are.
     """
+    # A judge with no model configuration runs on the provider's current default, so it gets pinned to that model.
+    from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+
     EvaluationConfig = apps.get_model("ai_observability", "EvaluationConfig")
     Evaluation = apps.get_model("ai_observability", "Evaluation")
     LLMModelConfiguration = apps.get_model("ai_observability", "LLMModelConfiguration")
