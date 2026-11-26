@@ -27,7 +27,8 @@ class GitLabEndpointConfig:
     # that day in the instance's time zone), so the request sends two days before the watermark's
     # UTC date, which covers every UTC offset.
     incremental_filter_is_date: bool = False
-    # The endpoint is a licensed feature, and GitLab answers 403 on a Free-tier project.
+    # The endpoint is a licensed feature: GitLab answers 403 on a Free-tier project, and 404 on
+    # Community Edition, which has no route for it.
     requires_paid_tier: bool = False
     # Whether the list endpoint accepts order_by=<field>&sort=<dir>. When it does we pin the order
     # to a stable column so offset pages don't shift while we paginate.

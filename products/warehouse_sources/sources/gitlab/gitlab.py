@@ -430,8 +430,11 @@ def get_rows(
         if allow_not_found and response.status_code == 404:
             return None
 
-        if response.status_code == 403 and config.requires_paid_tier:
-            raise GitLabPaidTierRequiredError(f"{PAID_TIER_REQUIRED_ERROR}: status=403, endpoint={endpoint}")
+        # Premium answers 403 on a Free project; Community Edition has no route and answers 404.
+        if response.status_code in (403, 404) and config.requires_paid_tier:
+            raise GitLabPaidTierRequiredError(
+                f"{PAID_TIER_REQUIRED_ERROR}: status={response.status_code}, endpoint={endpoint}"
+            )
 
         if not response.ok:
             logger.error(f"GitLab API error: status={response.status_code}, body={response.text}, url={page_url}")

@@ -563,14 +563,16 @@ class TestGetRows:
         assert [row["id"] for row in _rows(result)] == [1]
 
     @pytest.mark.parametrize(
-        "endpoint, expected_message",
+        "endpoint, status, expected_message",
         [
-            ("iterations", "Premium or Ultimate"),
-            ("issues", "read_api"),
+            ("iterations", 403, "Premium or Ultimate"),
+            ("iterations", 404, "Premium or Ultimate"),
+            ("issues", 403, "read_api"),
+            ("issues", 404, "Project not found"),
         ],
     )
-    def test_403_maps_to_one_endpoint_specific_message(self, endpoint, expected_message):
-        result = _driver().run(endpoint, [ScriptedResponse(status=403, json={"message": "403 Forbidden"})])
+    def test_refusal_maps_to_one_endpoint_specific_message(self, endpoint, status, expected_message):
+        result = _driver().run(endpoint, [ScriptedResponse(status=status, json={"message": f"{status} Not allowed"})])
 
         assert result.raised is not None
         messages = [

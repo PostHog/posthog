@@ -116,7 +116,7 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             "404 Client Error": "Project not found. Please verify the project id/path and the token's access.",
             HOST_NOT_ALLOWED_ERROR: "The GitLab host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The GitLab host must use HTTPS. Please update the instance URL to use https://.",
-            PAID_TIER_REQUIRED_ERROR: "This table needs GitLab Premium or Ultimate. Deselect it, or check that your token has the `read_api` scope.",
+            PAID_TIER_REQUIRED_ERROR: "This table needs GitLab Premium or Ultimate on GitLab.com or Enterprise Edition. Deselect it, or check the project and that your token has the `read_api` scope.",
         }
 
     def get_retryable_errors(self) -> set[str]:
