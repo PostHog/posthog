@@ -3542,6 +3542,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         with transaction.atomic():
             receipt = CohortSelectionSubmission.objects.select_for_update().get(**lookup)
             if not receipt.completed_at:
+                if receipt.cohort_id is None:
+                    raise Conflict("The cohort created by this submission was deleted.")
                 cohort = Cohort.objects.filter(team_id=self.team_id, id=receipt.cohort_id, deleted=False).first()
                 if not cohort:
                     raise Conflict("The cohort created by this submission was deleted.")
