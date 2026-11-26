@@ -59,7 +59,10 @@ pub fn parse_check(raw: Option<&str>) -> anyhow::Result<CheckMode> {
     }
 }
 
-pub fn secondary_table(primary: &OutputTable, config: &SecondaryOutputsConfig) -> OutputTable {
+pub fn secondary_table(
+    primary: &OutputTable,
+    secondary_config: &SecondaryOutputsConfig,
+) -> OutputTable {
     let target =
         |primary: &OutputTarget, topic: &Option<String>, producer: Option<ProducerName>| {
             OutputTarget {
@@ -72,45 +75,58 @@ pub fn secondary_table(primary: &OutputTable, config: &SecondaryOutputsConfig) -
                 producer: producer.unwrap_or(ProducerName::Fallback),
             }
         };
-    let c = config;
     OutputTable {
         analytics_main: target(
             &primary.analytics_main,
-            &c.analytics_main_topic,
-            c.analytics_main_producer,
+            &secondary_config.analytics_main_topic,
+            secondary_config.analytics_main_producer,
         ),
         analytics_overflow: target(
             &primary.analytics_overflow,
-            &c.analytics_overflow_topic,
-            c.analytics_overflow_producer,
+            &secondary_config.analytics_overflow_topic,
+            secondary_config.analytics_overflow_producer,
         ),
         analytics_historical: target(
             &primary.analytics_historical,
-            &c.analytics_historical_topic,
-            c.analytics_historical_producer,
+            &secondary_config.analytics_historical_topic,
+            secondary_config.analytics_historical_producer,
         ),
         session_replay_main: target(&primary.session_replay_main, &None, None),
         session_replay_overflow: target(&primary.session_replay_overflow, &None, None),
         client_warnings: target(
             &primary.client_warnings,
-            &c.client_warnings_topic,
-            c.client_warnings_producer,
+            &secondary_config.client_warnings_topic,
+            secondary_config.client_warnings_producer,
         ),
-        heatmaps: target(&primary.heatmaps, &c.heatmaps_topic, c.heatmaps_producer),
-        dlq: target(&primary.dlq, &c.dlq_topic, c.dlq_producer),
+        heatmaps: target(
+            &primary.heatmaps,
+            &secondary_config.heatmaps_topic,
+            secondary_config.heatmaps_producer,
+        ),
+        dlq: target(
+            &primary.dlq,
+            &secondary_config.dlq_topic,
+            secondary_config.dlq_producer,
+        ),
         error_tracking: target(
             &primary.error_tracking,
-            &c.error_tracking_topic,
-            c.error_tracking_producer,
+            &secondary_config.error_tracking_topic,
+            secondary_config.error_tracking_producer,
         ),
-        ai_main: target(&primary.ai_main, &c.ai_main_topic, c.ai_main_producer),
+        ai_main: target(
+            &primary.ai_main,
+            &secondary_config.ai_main_topic,
+            secondary_config.ai_main_producer,
+        ),
         ai_overflow: target(
             &primary.ai_overflow,
-            &c.ai_overflow_topic,
-            c.ai_overflow_producer,
+            &secondary_config.ai_overflow_topic,
+            secondary_config.ai_overflow_producer,
         ),
         has_ai_overflow_lane: primary.has_ai_overflow_lane,
-        custom_producer: c.custom_producer.unwrap_or(ProducerName::Fallback),
+        custom_producer: secondary_config
+            .custom_producer
+            .unwrap_or(ProducerName::Fallback),
     }
 }
 
