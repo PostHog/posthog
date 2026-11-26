@@ -3634,7 +3634,7 @@ class TestExperimentService(APIBaseTest):
             **self._DEFAULT_METRIC,
             "source": {"kind": "EventsNode", "event": "$pageview", "properties": [cohort_filter]},
         }
-        kwargs: dict[str, Any] = {
+        kwargs_by_place: dict[str, dict[str, Any]] = {
             "metric": {"metrics": [metric]},
             "secondary_metric": {"metrics_secondary": [{**metric, "uuid": "m2"}]},
             "exposure_criteria": {
@@ -3647,7 +3647,8 @@ class TestExperimentService(APIBaseTest):
                 }
             },
             "shared_metric": {},
-        }[place]
+        }
+        kwargs = kwargs_by_place[place]
         create = self._create_launchable_experiment if path.startswith("launch") else self._create_ended_experiment
         experiment = create(name="Retired cohort test", feature_flag_key="retired-cohort-flag", **kwargs)
         if place == "shared_metric":
