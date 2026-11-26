@@ -8,7 +8,7 @@ import posthoganalytics
 from clickhouse_driver.errors import Error as ClickHouseDriverError
 from prometheus_client import Histogram
 from pydantic import BaseModel
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 
 from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
 
@@ -183,8 +183,8 @@ class QueryStatusManager:
 def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Optional["User"]:
     """Rebuild the anonymous viewer of a public share so an async recalculation runs as the same
     principal the request did. None if the share was disabled, expired, or deleted, or the
-    organization turned off public sharing, in the meantime - the query then runs userless and is
-    denied, which is the correct outcome for a revoked share."""
+    organization turned off public sharing, in the meantime - the caller must then refuse to run
+    the query, since a userless run reads tables the share never could."""
     from posthog.models.sharing_configuration import SharingConfiguration  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
@@ -274,6 +274,7 @@ def execute_process_query(
     is_staff_user = False
 
     user: Optional[User] = None
+    share_revoked = False
     if user_id:
         user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
         if staff_rights_withheld:
@@ -285,6 +286,7 @@ def execute_process_query(
         # ("You don't have access to table `X`.") and fingerprints the cache differently than the
         # request that enqueued it.
         user = _shared_link_user_for(sharing_configuration_id, team)
+        share_revoked = user is None
     elif project_secret_api_key_id:
         user = _project_secret_api_key_user_for(project_secret_api_key_id, team)
 
@@ -315,6 +317,8 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
+        if share_revoked:
+            raise PermissionDenied("The shared link is no longer active.")
         results = process_query_dict(
             team=team,
             query_json=query_json,

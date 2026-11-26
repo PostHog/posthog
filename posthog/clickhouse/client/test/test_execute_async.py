@@ -421,12 +421,14 @@ class TestExecuteProcessQuery(TestCase):
             sharing_configuration_id=sharing_configuration.id,
         )
 
-        user = mock_process_query_dict.call_args.kwargs["user"]
         if expect_viewer:
+            user = mock_process_query_dict.call_args.kwargs["user"]
             assert isinstance(user, SharedLinkUser)
             assert user.sharing_configuration.id == sharing_configuration.id
         else:
-            assert user is None
+            mock_process_query_dict.assert_not_called()
+            stored = json.loads(mock_redis.set.call_args.args[1])
+            assert stored["error"] is True
 
     @parameterized.expand([("live_key", True), ("deleted_key", False)])
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")

@@ -210,6 +210,16 @@ class TestQueriedAccessControlledResources(BaseTest):
             *extra_scopes,
         }
 
+    @parameterized.expand(
+        [
+            ("math_hogql", "sum(1) + (select count() from posthog.trace_spans)", {"tracing"}),
+            ("reads_no_scoped_table", "sum(1) + (select count() from events)", set()),
+        ]
+    )
+    def test_structured_query_embedded_hogql_reads_are_detected(self, _name, math_hogql, expected):
+        query = TrendsQuery(series=[EventsNode(event="$pageview", math="hogql", math_hogql=math_hogql)])
+        assert queried_access_controlled_resources(query, self.team) == expected
+
     def test_nested_data_warehouse_node_is_detected(self):
         # The node is two levels deep (actors query -> source insight -> series), so a shallow
         # series-only check would miss it; the recursive walk must catch it (else the cache leaks).

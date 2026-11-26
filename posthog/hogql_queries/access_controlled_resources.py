@@ -249,8 +249,6 @@ def queried_access_controlled_resources(
     later path to it adds nothing, and views that reference each other end."""
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
-    from posthog.hogql.database.database import access_controlled_posthog_tables  # noqa: PLC0415
-    from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
@@ -295,10 +293,7 @@ def queried_access_controlled_resources(
             return None  # the table is unknown until the placeholder expands -> fail closed
 
         table_names = set(get_table_names(select))
-        system_scopes = {
-            **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
-            **access_controlled_posthog_tables(),
-        }
+        system_scopes = _table_scopes()
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
         scopes_from_system_tables = set(scopes)
 
@@ -385,13 +380,21 @@ def queried_access_controlled_resources(
 
         return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
 
+    # HogQL embedded in a structured query (a `math_hogql` expression, a nested HogQLQuery) reads tables too.
+    # A system table's scope stays even when bypassed on warehouse objects, as for tables a HogQL query names.
+    scoped_tables = _table_scopes()
+    embedded_scopes: set[str] = set()
+    for name in _embedded_hogql_table_names(query):
+        if name in scoped_tables:
+            embedded_scopes.add(scoped_tables[name])
+        embedded_scopes |= _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(name, frozenset())
+
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     if not _references_data_warehouse(query):
-        return set()
+        return _with_fallback_parents(embedded_scopes, bypassed_scopes) - (bypassed_scopes - embedded_scopes)
     table_names = set(_data_warehouse_table_names(query))
-    # Its scope is kept even when bypassed on warehouse objects, as for tables a HogQL query names.
-    table_scopes: set[str] = {
-        scope for name in table_names if (scope := access_controlled_posthog_tables().get(name)) is not None
+    table_scopes: set[str] = embedded_scopes | {
+        scope for name in table_names if (scope := scoped_tables.get(name)) is not None
     }
     # A cache hit skips resolving a saved view, so the tables its definition reads must key the cache too.
     view_scopes: set[str] = set()
@@ -424,6 +427,45 @@ def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) ->
     return scopes | {
         parent for child, parent in RESOURCE_FALLBACK_MAP.items() if child in scopes and child not in bypassed_scopes
     }
+
+
+def _table_scopes() -> dict[str, str]:
+    """Qualified table name -> the resource that gates it, for system tables and `posthog.*` product tables."""
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql.database.database import access_controlled_posthog_tables  # noqa: PLC0415
+    from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
+
+    return {
+        **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
+        **access_controlled_posthog_tables(),
+    }
+
+
+def _embedded_hogql_table_names(value) -> Iterator[str]:
+    """Table names read by HogQL strings anywhere in a structured query's tree."""
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
+
+    if isinstance(value, str):
+        if "select" not in value.lower():
+            return
+        for parse in (parse_expr, parse_select):
+            try:
+                yield from get_table_names(parse(value))
+                return
+            except BaseHogQLError:
+                continue
+    elif isinstance(value, BaseModel):
+        for item in value.__dict__.values():
+            yield from _embedded_hogql_table_names(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _embedded_hogql_table_names(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _embedded_hogql_table_names(item)
 
 
 def _has_placeholder_table(select) -> bool:
