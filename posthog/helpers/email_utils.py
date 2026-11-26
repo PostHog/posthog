@@ -227,16 +227,27 @@ def sanitize_email_string(value: str) -> str:
 def sanitize_email_fragment(value: str) -> str:
     """`sanitize_email_string` for one piece of rendered markup, such as a markdown text node. A domain can span two
     pieces (`**evil**.com`), where neither looks like a URL, so every `.` and `:` is broken."""
-    return _break_separators(html.escape(_clean(value)))
+    return _break_separators(html.escape(_clean_fragment(value)))
 
 
 def defang_text(value: str) -> str:
     """`sanitize_email_fragment` without the HTML-escaping, for plain-text surfaces such as a Slack header."""
-    return _break_separators(_clean(value))
+    return _break_separators(_clean_fragment(value))
 
 
 def _clean(value: str) -> str:
     return _INVISIBLE_CHAR_RE.sub("", unicodedata.normalize("NFKC", value))
+
+
+# Fullwidth and small forms read as ASCII markup or separators (`＜`, `．`). Full NFKC would also fold superscripts
+# and fractions, so `10³` would read as `103` in prose.
+_LOOKALIKES = {
+    code: unicodedata.normalize("NFKC", chr(code)) for code in [*range(0xFF01, 0xFF5F), *range(0xFE50, 0xFE6C)]
+}
+
+
+def _clean_fragment(value: str) -> str:
+    return _INVISIBLE_CHAR_RE.sub("", value.translate(_LOOKALIKES))
 
 
 def _defang(value: str) -> str:

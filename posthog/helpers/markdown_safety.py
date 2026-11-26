@@ -6,6 +6,7 @@ configured instance origin so self-hosted PostHog works without trusting report-
 """
 
 import re
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 from markdown_it import MarkdownIt
@@ -30,7 +31,8 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\[\]]*)\]\([^()]*\)")
 # A malformed link the rule above can't span (e.g. `[x](url\nmore)`) leaves its URL after `](`, which
 # the bare-URL rule skips — defang it here as a safety net.
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
-_AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
+# An autolink cannot contain `<`, so a run of unclosed `<http://` cannot rescan the suffix.
+_AUTOLINK_RE = re.compile(r"<(https?://[^\s<>]+)>", re.IGNORECASE)
 _BARE_URL_RE = re.compile(r"(?<!\]\()(?<![<`@])((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 
 
@@ -79,16 +81,16 @@ def _neutralize_bare_url(match: re.Match[str]) -> str:
     return _neutralize_url(url)
 
 
-def _strip_inline_links(markdown: str, additional_allowed_origin: str | None) -> str:
+def _strip_inline_links(markdown: str, allowed: Callable[[str], bool]) -> str:
     md = _MARKDOWN_IMAGE_RE.sub(lambda m: m.group(1) or "", markdown)
     md = _MARKDOWN_LINK_RE.sub(
-        lambda m: m.group(0) if is_allowed_link_url(m.group(2), additional_allowed_origin) else m.group(1),
+        lambda m: m.group(0) if allowed(m.group(2)) else m.group(1),
         md,
     )
     # Backtick-wrap a non-PostHog orphan destination so the bare-URL rule's lookbehind keeps it inert.
     # Wrap only the URL, not the `](`/`)` — the source's own `)` balances it (appending one would dangle).
     md = _ORPHAN_DEST_RE.sub(
-        lambda m: m.group(0) if is_allowed_link_url(m.group(1), additional_allowed_origin) else f"](`{m.group(1)}`",
+        lambda m: m.group(0) if allowed(m.group(1)) else f"](`{m.group(1)}`",
         md,
     )
     md = _AUTOLINK_RE.sub(lambda m: _neutralize_url(m.group(1), keep_as=m.group(0)), md)
@@ -101,20 +103,17 @@ def _literal_markdown(markdown: str) -> str:
     return f"\n{fence}\n{markdown}\n{fence}\n\n"
 
 
-def _is_unsafe_inline(token: Token, additional_allowed_origin: str | None) -> bool:
-    return token.type == "image" or (
-        token.type == "link_open"
-        and not is_allowed_link_url(str(token.attrGet("href") or ""), additional_allowed_origin)
-    )
+def _is_unsafe_inline(token: Token, allowed: Callable[[str], bool]) -> bool:
+    return token.type == "image" or (token.type == "link_open" and not allowed(str(token.attrGet("href") or "")))
 
 
-def _validate_parsed_links(markdown: str, additional_allowed_origin: str | None) -> str:
+def _validate_parsed_links(markdown: str, allowed: Callable[[str], bool]) -> str:
     parser = MarkdownIt("commonmark", {"html": False})
     env: EnvType = {}
     parser.parse(markdown, env)
     lines = re.findall(r"[^\n]*\n|[^\n]+$", markdown)
     for reference in [*env.get("references", {}).values(), *env.get("duplicate_refs", [])]:
-        if not is_allowed_link_url(reference["href"], additional_allowed_origin):
+        if not allowed(reference["href"]):
             start, end = reference["map"]
             lines[start:end] = ["\n"] * (end - start)
     markdown = "".join(lines)
@@ -122,8 +121,7 @@ def _validate_parsed_links(markdown: str, additional_allowed_origin: str | None)
         {
             tuple(token.map)
             for token in parser.parse(markdown)
-            if token.map is not None
-            and any(_is_unsafe_inline(child, additional_allowed_origin) for child in token.children or [])
+            if token.map is not None and any(_is_unsafe_inline(child, allowed) for child in token.children or [])
         }
     )
     if not unsafe_ranges:
@@ -138,17 +136,22 @@ def _validate_parsed_links(markdown: str, additional_allowed_origin: str | None)
         cursor = end
     parts.append("".join(lines[cursor:]))
     result = "".join(parts)
-    if any(
-        _is_unsafe_inline(child, additional_allowed_origin)
-        for token in parser.parse(result)
-        for child in token.children or []
-    ):
+    if any(_is_unsafe_inline(child, allowed) for token in parser.parse(result) for child in token.children or []):
         return _literal_markdown(markdown)
     return result
 
 
-def strip_external_links_markdown(markdown: str, *, additional_allowed_origin: str | None = None) -> str:
-    """The extra origin must come from trusted instance configuration, never report content."""
+def strip_external_links_markdown(
+    markdown: str, *, additional_allowed_origin: str | None = None, keep_links: bool = True
+) -> str:
+    """The extra origin must come from trusted instance configuration, never report content.
+
+    With `keep_links=False`, every markdown link collapses to its label, for callers that add their own links later.
+    """
+
+    def allowed(url: str) -> bool:
+        return keep_links and is_allowed_link_url(url, additional_allowed_origin)
+
     markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
     env: EnvType = {}
     MarkdownIt("commonmark", {"html": False}).parse(markdown, env)
@@ -161,11 +164,11 @@ def strip_external_links_markdown(markdown: str, *, additional_allowed_origin: s
     cursor = 0
     for reference in references:
         start, end = reference["map"]
-        parts.append(_strip_inline_links("".join(lines[cursor:start]), additional_allowed_origin))
-        if is_allowed_link_url(reference["href"], additional_allowed_origin):
+        parts.append(_strip_inline_links("".join(lines[cursor:start]), allowed))
+        if allowed(reference["href"]):
             parts.append("".join(lines[start:end]))
         else:
             parts.append("\n" * (end - start))
         cursor = end
-    parts.append(_strip_inline_links("".join(lines[cursor:]), additional_allowed_origin))
-    return _validate_parsed_links("".join(parts), additional_allowed_origin)
+    parts.append(_strip_inline_links("".join(lines[cursor:]), allowed))
+    return _validate_parsed_links("".join(parts), allowed)

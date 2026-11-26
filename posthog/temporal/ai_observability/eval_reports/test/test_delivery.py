@@ -16,6 +16,7 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _format_period_for_display,
     _inline_email_styles,
     _linkify_citations,
+    _make_citation_link,
     _render_metrics_block_html,
     _render_metrics_slack_blocks,
     _render_section_html,
@@ -225,8 +226,21 @@ class TestRenderSectionHtml(SimpleTestCase):
             project_id=42,
             citation_map=citation_map,
         )
-        self.assertIn("/project/42/ai-observability/traces/trace-abc", html)
-        self.assertIn("12345678...", html.replace("\u200b", ""))
+        link = _make_citation_link(42, citation_map["12345678-1234-1234-1234-123456789abc"])
+        self.assertIn(f'<a href="{link}">12345678.\u200b.\u200b.\u200b</a>', html)
+
+    def test_collapses_links_to_their_label(self):
+        content = "See [docs](https://posthog.com/docs/llm)."
+        self.assertIn("<p>See docs.", _render_section_html("Summary", content, project_id=1, citation_map={}))
+        self.assertIn("\nSee docs.", _render_section_mrkdwn("Summary", content, project_id=1, citation_map={}))
+
+    def test_cuts_long_sections_before_rendering(self):
+        html = _render_section_html("Summary", "word " * 20_000, project_id=1, citation_map={})
+        self.assertLess(len(html), 21_000)
+
+    def test_keeps_superscripts_and_breaks_separators(self):
+        html = _render_section_html("Summary", "10³ runs, R² = 0.9", project_id=1, citation_map={})
+        self.assertIn("10³ runs, R² = 0.\u200b9", html)
 
     def test_renders_lists(self):
         html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
@@ -295,6 +309,18 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
             "Failures", "Failed: `12345678-1234-1234-1234-123456789abc`", project_id=42, citation_map=citation_map
         )
         self.assertRegex(result, r"<http[^|>]+/project/42/ai-observability/traces/trace-abc[^|>]*\|12345678\.\.\.>")
+
+    @parameterized.expand(
+        [
+            ("ampersand_trace", Citation(trace_id="user=1&session=2", reason="example"), "See `user=1&session=2`."),
+            ("colon_session", Citation(session_id="sess:1", reason="example"), "Session <sess:1> failed."),
+        ]
+    )
+    def test_links_ids_with_markup_characters(self, _name: str, citation: Citation, content: str):
+        citation_map = _build_citation_map([citation])
+        link = _make_citation_link(1, next(iter(citation_map.values())))
+        self.assertIn(f'<a href="{link}">', _render_section_html("S", content, project_id=1, citation_map=citation_map))
+        self.assertIn(f"<{link}|", _render_section_mrkdwn("S", content, project_id=1, citation_map=citation_map))
 
     def test_converts_bold(self):
         result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})

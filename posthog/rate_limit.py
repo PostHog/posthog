@@ -781,16 +781,19 @@ class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """One bucket per credential (personal API key hash, else user) even on team-scoped views, for
+    """One bucket per credential (personal API key hash, unless `bucket_per_api_key` is off, else user) even on team-scoped views, for
     endpoints where one user must not be able to drain the whole team's budget.
 
     The parent's cache key idents a session-authenticated request on a team view by team id, which
     would collapse every member of the team into one bucket.
     """
 
+    # Off where rolling a personal API key must not start a fresh budget.
+    bucket_per_api_key = True
+
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
+            ident = (self.bucket_per_api_key and hashed_personal_api_key_for_throttling(request)) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -1248,17 +1251,11 @@ class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class _TranslationMemberRateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """One bucket per member, so one member translating a lot cannot lock the rest of the team out.
+class _TranslationMemberRateThrottle(_UserBucketRateThrottle):
+    """One bucket per member, so one member translating a lot cannot lock the rest of the team out. A team-wide
+    bucket would also count the requests these refuse, so one member could still drain it in seconds."""
 
-    Keyed on the user rather than the credential, because rolling a personal API key would otherwise
-    start a fresh budget. A team-wide bucket would also count the requests these refuse, so one member
-    could still drain it in seconds.
-    """
-
-    def get_cache_key(self, request: "Request", view: "APIView") -> str:
-        ident = request.user.pk if request.user.is_authenticated else self.get_ident(request)
-        return self.cache_format % {"scope": self.scope, "ident": ident}
+    bucket_per_api_key = False
 
 
 class AIObservabilityTranslationBurstThrottle(_TranslationMemberRateThrottle):
