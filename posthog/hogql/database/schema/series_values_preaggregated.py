@@ -46,7 +46,7 @@ class SeriesValuesPreaggregatedTable(Table):
         from products.access_control.backend.facade.api import team_has_property_access_rules  # noqa: PLC0415
 
         # The values are counted without a user, so they cannot honor one user's property restrictions.
-        if context.team_id is not None and team_has_property_access_rules(team_id=context.team_id):
+        if context.team_id is None or team_has_property_access_rules(team_id=context.team_id):
             raise QueryError(
                 "The table series_values_preaggregated is not available in a project that has property access rules."
             )

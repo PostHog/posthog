@@ -311,10 +311,11 @@ def _hour_start(instant: datetime) -> datetime:
     return instant.replace(minute=0, second=0, microsecond=0)
 
 
-def _has_whole_hour_offsets(timezone: str) -> bool:
-    # Checked in January and in July, because one zone is a whole hour from UTC for only half the year.
-    year = datetime.now(UTC).year
-    offsets = [datetime(year, month, 1, tzinfo=ZoneInfo(timezone)).utcoffset() for month in (1, 7)]
+def _has_whole_hour_offsets(timezone: str, years: set[int]) -> bool:
+    # Checked in January and in July of each year the range touches, because one zone is a whole hour
+    # from UTC for only half the year.
+    zone = ZoneInfo(timezone)
+    offsets = [datetime(year, month, 1, tzinfo=zone).utcoffset() for year in years for month in (1, 7)]
     return all(offset is not None and offset.total_seconds() % 3600 == 0 for offset in offsets)
 
 
@@ -417,7 +418,10 @@ class _Rewriter(CloningVisitor):
         if isinstance(query, Blocker):
             return self._decline(query, cloned)
         modifiers = self.context.modifiers
-        if not _has_whole_hour_offsets(team.timezone) or (modifiers and modifiers.convertToProjectTimezone is False):
+        years = {query.lower.year, query.upper.year}
+        if not _has_whole_hour_offsets(team.timezone, years) or (
+            modifiers and modifiers.convertToProjectTimezone is False
+        ):
             return self._decline(Blocker.TIMEZONE, cloned)
         if team_has_property_access_rules(team_id=team.pk):
             return self._decline(Blocker.PROPERTY_ACCESS_RULES, cloned)
@@ -439,25 +443,30 @@ class _Rewriter(CloningVisitor):
         if seconds_left is not None and seconds_left <= 0:
             return self._decline(Blocker.NOT_READY, cloned)
         filters = [clone_expr(condition) for condition in query.filters]
-        result = ensure_precomputed(
-            team=team,
-            insert_query=INSERT_QUERY_TEMPLATE,
-            time_range_start=jobs_start,
-            time_range_end=jobs_end,
-            ttl_seconds=parse_ttl_schedule(
-                TTL_SECONDS,
-                team.timezone,
-                max_window_days=MAX_WINDOW_DAYS,
-                settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
-            ),
-            table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
-            placeholders={"filters": ast.And(exprs=filters) if filters else ast.Constant(value=True)},
-            query_type="series_values_insert",
-            run_inserts=True,
-            wait_timeout_seconds=seconds_left,
-            read_after_write=True,
-            cache_key_context={"engine": "series_values_v1"},
-        )
+        # The build compiles queries of its own, which must reach ClickHouse as the executor wrote them.
+        hook = hogql_select_rewrite.set(None)
+        try:
+            result = ensure_precomputed(
+                team=team,
+                insert_query=INSERT_QUERY_TEMPLATE,
+                time_range_start=jobs_start,
+                time_range_end=jobs_end,
+                ttl_seconds=parse_ttl_schedule(
+                    TTL_SECONDS,
+                    team.timezone,
+                    max_window_days=MAX_WINDOW_DAYS,
+                    settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
+                ),
+                table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
+                placeholders={"filters": ast.And(exprs=filters) if filters else ast.Constant(value=True)},
+                query_type="series_values_insert",
+                run_inserts=True,
+                wait_timeout_seconds=seconds_left,
+                read_after_write=True,
+                cache_key_context={"engine": "series_values_v1"},
+            )
+        finally:
+            hogql_select_rewrite.reset(hook)
         # A job can expire while the executor collects its result. A day that no returned job covers would
         # read as zero.
         if not result.ready or not result.job_ids or not _covers(result.served_windows, jobs_start, jobs_end):
