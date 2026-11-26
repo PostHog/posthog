@@ -8,8 +8,9 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -59,6 +60,18 @@ describe('<ProjectSecretAPIKeys />', () => {
         cleanup()
         logic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it.each([
+        { flagOn: false, offered: false },
+        { flagOn: true, offered: true },
+    ])('offers the push notification preset only with the push flag on: $flagOn', ({ flagOn, offered }) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_PUSH_API]: flagOn })
+
+        const presets = logic.values.availablePresets.map(({ value }) => value)
+
+        expect(presets.includes('transactional_push')).toBe(offered)
+        expect(presets).toContain('transactional_email')
     })
 
     it.each([
