@@ -143,10 +143,12 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                # An incremental fan-out re-emits every child of a re-fanned parent, which append
-                # would duplicate; merge dedupes them on the primary key.
+                # An incremental fan-out re-emits every child of a re-fanned parent, and a date
+                # filter re-reads the watermark's whole day, which append would duplicate; merge
+                # dedupes them on the primary key.
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint))
-                and GITLAB_ENDPOINTS[endpoint].fan_out_parent is None,
+                and GITLAB_ENDPOINTS[endpoint].fan_out_parent is None
+                and not GITLAB_ENDPOINTS[endpoint].incremental_filter_is_date,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS

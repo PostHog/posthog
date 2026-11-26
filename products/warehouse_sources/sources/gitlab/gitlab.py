@@ -2,7 +2,7 @@ import re
 import time
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlparse
 
@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     _is_host_safe,
+    coerce_date,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -133,6 +134,13 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+def _format_date_filter_value(value: Any) -> str:
+    watermark_date = coerce_date(value)
+    if watermark_date is None:
+        raise ValueError(f"Cannot read GitLab incremental value {value!r} as a date")
+    return (watermark_date - timedelta(days=1)).isoformat()
+
+
 def _active_incremental_field(
     config: GitLabEndpointConfig,
     should_use_incremental_field: bool,
@@ -164,7 +172,10 @@ def _build_initial_params(
     )
     if active_field is not None:
         filter_param = config.incremental_filter_params[active_field]
-        params[filter_param] = _format_incremental_value(db_incremental_field_last_value)
+        if config.incremental_filter_is_date:
+            params[filter_param] = _format_date_filter_value(db_incremental_field_last_value)
+        else:
+            params[filter_param] = _format_incremental_value(db_incremental_field_last_value)
 
     if config.supports_order_by:
         order_by = active_field or config.stable_order_by
