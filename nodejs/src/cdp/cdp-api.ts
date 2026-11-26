@@ -80,6 +80,7 @@ import {
 import {
     BATCH_PUBLISH_DEADLINE_MS,
     BatchCapacity,
+    BatchSlot,
     BatchSlotRequestSchema,
     CODE_SEND_BATCH_TOKEN_CLAIMS,
     CodeSendBatchRequestSchema,
@@ -1633,7 +1634,7 @@ export class CdpApi {
                 })
             }
             stages.start('auth')
-            let release: (() => void) | null = null
+            let slot: BatchSlot | null = null
             try {
                 if (
                     !this.verifyScopedWorkflowJwt(
@@ -1647,18 +1648,8 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                const endLookup = this.transactionalEmailBatchCapacity.beginLookup()
-                if (!endLookup) {
-                    return refuse('over_capacity', 503, { error: 'over_capacity' })
-                }
-                stages.start('load')
-                const teamId = parseInt(req.params.team_id)
-                const team = await this.deps.teamManager.getTeam(teamId).finally(endLookup)
-                if (!team) {
-                    return refuse('not_found', 404, { error: 'Team not found' })
-                }
-                release = this.transactionalEmailBatchCapacity.admit(team.organization_id)
-                if (!release) {
+                slot = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
+                if (!slot) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
                 stages.start('validate')
@@ -1675,14 +1666,22 @@ export class CdpApi {
                 if (exceedsCopyLimits(batch)) {
                     return refuse('too_large', 413, { error: 'too_large' })
                 }
+                const teamId = parseInt(req.params.team_id)
 
                 stages.start('load')
-                const [hogFlow, integration] = await Promise.all([
+                const [team, hogFlow, integration] = await Promise.all([
+                    this.deps.teamManager.getTeam(teamId),
                     this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id),
                     batch.send?.from
                         ? this.deps.integrationManager.getCheckingPrimaryOnMiss(batch.send.from.integrationId)
                         : Promise.resolve(null),
                 ])
+                if (!team) {
+                    return refuse('not_found', 404, { error: 'Team not found' })
+                }
+                if (!slot.claimFor(team.organization_id)) {
+                    return refuse('over_capacity', 503, { error: 'over_capacity' })
+                }
                 // A single send answers 404 here, which Django retries. A batch refuses for good: the workflow is gone
                 // for every recipient.
                 if (!hogFlow || hogFlow.team_id !== team.id || hogFlow.trigger?.type !== 'api') {
@@ -1734,7 +1733,7 @@ export class CdpApi {
                 return refuse('error', 500, { error: 'internal_error' })
             } finally {
                 stages.finish()
-                release?.()
+                slot?.release()
             }
         }
 

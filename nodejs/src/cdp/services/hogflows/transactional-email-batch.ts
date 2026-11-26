@@ -139,64 +139,78 @@ export const slotRequestOf = (batch: TransactionalEmailBatchRequest, recipient: 
 
 export const transactionalEmailBatchRequestsTotal = new Counter({
     name: 'cdp_transactional_email_batch_requests_total',
-    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod is full, the organization on this pod already runs its share of batches, or only the slots kept for organizations running none are left), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
+    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod is full, the team or the organization on this pod already runs its share of batches, or only the slots kept for organizations running none are left), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
     labelNames: ['outcome'],
 })
 
+export type BatchSlot = {
+    claimFor(organizationId: string): boolean
+    release(): void
+}
+
 export class BatchCapacity {
     private admitted = 0
-    private lookingUp = 0
-    private readonly admittedByOrganization = new Map<string, number>()
-    private readonly maxRequestsPerOrganization: number
+    private claimed = 0
+    private readonly admittedByTeam = new Map<number, number>()
+    private readonly claimedByOrganization = new Map<string, number>()
+    private readonly maxRequestsPerTenant: number
     private readonly reserved: number
 
     constructor(private readonly maxRequests: number) {
-        this.maxRequestsPerOrganization = Math.max(1, Math.floor(maxRequests / 2))
+        this.maxRequestsPerTenant = Math.max(1, Math.floor(maxRequests / 2))
         this.reserved = Math.max(1, Math.floor(maxRequests / 4))
     }
 
-    beginLookup(): (() => void) | null {
-        if (this.admitted >= this.maxRequests || this.lookingUp >= this.maxRequests) {
-            return null
-        }
-        this.lookingUp++
-        let ended = false
-        return () => {
-            if (!ended) {
-                ended = true
-                this.lookingUp--
-            }
-        }
-    }
-
-    admit(organizationId: string): (() => void) | null {
-        const held = this.admittedByOrganization.get(organizationId) ?? 0
-        if (
-            this.admitted >= this.maxRequests ||
-            held >= this.maxRequestsPerOrganization ||
-            (held > 0 && this.admitted >= this.maxRequests - this.reserved)
-        ) {
+    admit(teamId: number): BatchSlot | null {
+        const admittedForTeam = this.admittedByTeam.get(teamId) ?? 0
+        if (this.admitted >= this.maxRequests || admittedForTeam >= this.maxRequestsPerTenant) {
             return null
         }
         this.admitted++
-        this.admittedByOrganization.set(organizationId, held + 1)
+        increment(this.admittedByTeam, teamId)
+        let claimedFor: string | null = null
         let released = false
-        return () => {
-            if (released) {
-                return
-            }
-            released = true
-            this.admitted--
-            this.releaseFor(organizationId)
+        return {
+            claimFor: (organizationId) => {
+                const held = this.claimedByOrganization.get(organizationId) ?? 0
+                if (
+                    released ||
+                    claimedFor !== null ||
+                    held >= this.maxRequestsPerTenant ||
+                    (held > 0 && this.claimed >= this.maxRequests - this.reserved)
+                ) {
+                    return false
+                }
+                claimedFor = organizationId
+                this.claimed++
+                increment(this.claimedByOrganization, organizationId)
+                return true
+            },
+            release: () => {
+                if (released) {
+                    return
+                }
+                released = true
+                this.admitted--
+                decrement(this.admittedByTeam, teamId)
+                if (claimedFor !== null) {
+                    this.claimed--
+                    decrement(this.claimedByOrganization, claimedFor)
+                }
+            },
         }
     }
+}
 
-    private releaseFor(organizationId: string): void {
-        const left = (this.admittedByOrganization.get(organizationId) ?? 1) - 1
-        if (left > 0) {
-            this.admittedByOrganization.set(organizationId, left)
-        } else {
-            this.admittedByOrganization.delete(organizationId)
-        }
+function increment<K>(counts: Map<K, number>, key: K): void {
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+}
+
+function decrement<K>(counts: Map<K, number>, key: K): void {
+    const left = (counts.get(key) ?? 1) - 1
+    if (left > 0) {
+        counts.set(key, left)
+    } else {
+        counts.delete(key)
     }
 }

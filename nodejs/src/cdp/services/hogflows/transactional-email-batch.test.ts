@@ -13,37 +13,58 @@ import {
 
 describe('transactional email batch', () => {
     describe('BatchCapacity', () => {
+        let nextTeamId = 0
+        const admitFor = (
+            capacity: BatchCapacity,
+            organizationId: string,
+            teamId = ++nextTeamId
+        ): (() => void) | null => {
+            const slot = capacity.admit(teamId)
+            if (slot?.claimFor(organizationId)) {
+                return slot.release
+            }
+            slot?.release()
+            return null
+        }
+
         it('refuses a request over the cap until an admitted one releases', () => {
             const capacity = new BatchCapacity(1)
-            const release = capacity.admit('org-a')
+            const release = admitFor(capacity, 'org-a')
 
             expect(release).not.toBeNull()
-            expect(capacity.beginLookup()).toBeNull()
-            expect(capacity.admit('org-b')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).toBeNull()
 
             release!()
             release!()
 
-            expect(capacity.beginLookup()).not.toBeNull()
-            expect(capacity.admit('org-b')).not.toBeNull()
-            expect(capacity.admit('org-a')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).not.toBeNull()
+            expect(admitFor(capacity, 'org-a')).toBeNull()
+        })
+
+        it('holds a team to its share before its organization is known', () => {
+            const capacity = new BatchCapacity(4)
+            const pending = [capacity.admit(1), capacity.admit(1)]
+
+            expect(pending).not.toContain(null)
+            expect(capacity.admit(1)).toBeNull()
+            expect(admitFor(capacity, 'org-b')).not.toBeNull()
         })
 
         it.each([
             [3, 1],
             [4, 2],
             [8, 4],
-        ])('admits another organization while one holds its share of a cap of %i', (cap, share) => {
+        ])('admits another organization while one holds its share of a cap of %i across its teams', (cap, share) => {
             const capacity = new BatchCapacity(cap)
-            const held = Array.from({ length: share }, () => capacity.admit('org-a'))
+            const held = Array.from({ length: share }, () => admitFor(capacity, 'org-a'))
 
             expect(held).not.toContain(null)
-            expect(capacity.admit('org-a')).toBeNull()
-            expect(capacity.admit('org-b')).not.toBeNull()
+            expect(admitFor(capacity, 'org-a')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).not.toBeNull()
 
             held[0]!()
 
-            expect(capacity.admit('org-a')).not.toBeNull()
+            expect(admitFor(capacity, 'org-a')).not.toBeNull()
         })
 
         it.each([
@@ -53,28 +74,28 @@ describe('transactional email batch', () => {
         ])('keeps the last slots of a cap of %i for organizations holding none', (cap, reserve) => {
             const capacity = new BatchCapacity(cap)
             const share = Math.floor(cap / 2)
-            Array.from({ length: share }, () => capacity.admit('org-a'))
-            const heldByB = Array.from({ length: cap - share - reserve }, () => capacity.admit('org-b'))
+            Array.from({ length: share }, () => admitFor(capacity, 'org-a'))
+            const heldByB = Array.from({ length: cap - share - reserve }, () => admitFor(capacity, 'org-b'))
 
             expect(heldByB).not.toContain(null)
-            expect(capacity.admit('org-b')).toBeNull()
-            expect(Array.from({ length: reserve }, (_, i) => capacity.admit(`fresh-${i}`))).not.toContain(null)
-            expect(capacity.admit('fresh-last')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).toBeNull()
+            expect(Array.from({ length: reserve }, (_, i) => admitFor(capacity, `fresh-${i}`))).not.toContain(null)
+            expect(admitFor(capacity, 'fresh-last')).toBeNull()
         })
 
-        it('bounds pending lookups at the cap without taking a batch slot', () => {
+        it('claims a slot once, and frees a slot whose claim it refused', () => {
             const capacity = new BatchCapacity(2)
-            const lookups = [capacity.beginLookup(), capacity.beginLookup()]
+            const slot = capacity.admit(1)!
 
-            expect(lookups).not.toContain(null)
-            expect(capacity.beginLookup()).toBeNull()
-            expect(capacity.admit('org-a')).not.toBeNull()
+            expect(slot.claimFor('org-a')).toBe(true)
+            expect(slot.claimFor('org-b')).toBe(false)
+            expect(admitFor(capacity, 'org-a')).toBeNull()
+            expect(admitFor(capacity, 'org-b')).not.toBeNull()
+            expect(capacity.admit(3)).toBeNull()
 
-            lookups[0]!()
-            lookups[0]!()
+            slot.release()
 
-            expect(capacity.beginLookup()).not.toBeNull()
-            expect(capacity.beginLookup()).toBeNull()
+            expect(admitFor(capacity, 'org-c')).not.toBeNull()
         })
     })
 

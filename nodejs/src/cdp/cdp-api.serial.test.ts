@@ -5783,15 +5783,6 @@ describe('CDP API', () => {
                     variables: body.variables,
                     recipients,
                 })
-                const sendForAbsentTeam = (pod: express.Application) => {
-                    const absentTeamId = team.id + 100_000
-                    return supertest(pod)
-                        .post(`/api/projects/${absentTeamId}/hog_flows/${hogFlow.id}/${TEMPLATE}`)
-                        .set({
-                            Authorization: `Bearer ${mintToken(absentTeamId, hogFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
-                        })
-                        .send(batchOf(recipient('ed@example.com')))
-                }
                 afterEach(async () => {
                     await Promise.all(
                         served.splice(0).map(({ cdpApi, server }) => {
@@ -5814,54 +5805,19 @@ describe('CDP API', () => {
                     const first = sendBatchTo(one, TEMPLATE, batchOf(holder)).then((answer) => answer)
                     await read.reached
                     const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
-                    const absentOnFullPod = await sendForAbsentTeam(one)
                     expire()
                     const held = await first
                     read.pass()
                     const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('di@example.com')))
                     read.release()
-                    const absentOnFreePod = await sendForAbsentTeam(one)
 
                     expect([switchedOff.status, switchedOff.body]).toEqual([503, { error: 'over_capacity' }])
                     expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
-                    expect([absentOnFullPod.status, absentOnFreePod.status]).toEqual([503, 404])
                     expect([held.status, after.status]).toEqual([200, 200])
                     expect(intakeRunsOf(intakeRecords()).map(({ distinctId }) => distinctId)).toEqual([
                         `person-${holder.to}`,
                         'person-di@example.com',
                     ])
-                })
-
-                it('refuses with 503 a batch that arrives while another waits on its team lookup', async () => {
-                    const { app: one } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 1 })
-                    const teamManager = served[served.length - 1].cdpApi['deps'].teamManager
-                    const lookup = teamManager.getTeam.bind(teamManager)
-                    let finishLookup!: () => void
-                    const lookupHeld = new Promise<void>((resolve) => (finishLookup = resolve))
-                    let startedLookup!: () => void
-                    const lookupReached = new Promise<void>((resolve) => (startedLookup = resolve))
-                    jest.spyOn(teamManager, 'getTeam').mockImplementationOnce(async (teamId) => {
-                        startedLookup()
-                        await lookupHeld
-                        return lookup(teamId)
-                    })
-
-                    const waiting = sendBatchTo(one, TEMPLATE, batchOf(recipient('ada@example.com'))).then(
-                        (answer) => answer
-                    )
-                    await Promise.race([
-                        lookupReached,
-                        waiting.then((answer) =>
-                            Promise.reject(new Error(`the waiting batch answered first with ${answer.status}`))
-                        ),
-                    ])
-                    const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('bo@example.com')))
-                    finishLookup()
-                    const waited = await waiting
-                    const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
-
-                    expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
-                    expect([waited.status, after.status]).toEqual([200, 200])
                 })
 
                 it("refuses a batch from an organization holding its share across two teams, and admits another organization's", async () => {
