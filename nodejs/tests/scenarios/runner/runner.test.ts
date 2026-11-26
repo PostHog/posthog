@@ -1516,14 +1516,18 @@ describe('runner through seed, drive and judge', () => {
         const journal = evidenceOf(result, 'journal.json') as JournalEntry[]
         const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
         const saved = evidenceOf(result, 'scorecard.json') as { warmUp: RunWindow; baseline: RunWindow }
-        const warmUpFrom = Date.parse(saved.warmUp.from)
+        const [warmUpFrom, warmUpTo] = [Date.parse(saved.warmUp.from), Date.parse(saved.warmUp.to)]
         expect({
-            warmUpMs: Date.parse(saved.warmUp.to) - warmUpFrom,
-            offeredBeforeWarmUp: journal.filter(({ offeredAt }) => offeredAt < warmUpFrom).length,
+            warmUp: [warmUpFrom - drive.startedAt, warmUpTo - drive.startedAt],
+            offered: {
+                before: journal.filter(({ offeredAt }) => offeredAt < warmUpFrom).length,
+                during: journal.filter(({ offeredAt }) => offeredAt >= warmUpFrom && offeredAt < warmUpTo).length,
+                after: journal.filter(({ offeredAt }) => offeredAt >= warmUpTo).length,
+            },
             baseline: saved.baseline,
         }).toEqual({
-            warmUpMs: 1000,
-            offeredBeforeWarmUp: 0,
+            warmUp: [0, 1000],
+            offered: { before: 0, during: 2, after: 4 },
             baseline: { from: saved.warmUp.to, to: new Date(drive.endedAt).toISOString() },
         })
     }, 30_000)

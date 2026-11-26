@@ -680,6 +680,7 @@ export function createRunner(
                 const units = await drive(loaded, seeded, recorder, AbortSignal.any([signal, valves.refusal]), {
                     ...offers,
                     runId,
+                    startedAt: driveStartedAt,
                     halt: watch?.halt,
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
