@@ -1740,8 +1740,9 @@ describe('buildResponseFilter', () => {
             response: { include: ['id'] },
         }
         const result = buildResponseFilter(config, 'Schemas.Thing[]')
-        expect(result.code).toContain("const filtered = result.map((item: any) => pickResponseFields(item, ['id']))")
-        expect(result.code).not.toContain('result.results')
+        expect(result.code).toContain(
+            "Array.isArray(result) ? result.map((item: any) => pickResponseFields(item, ['id']))"
+        )
     })
 
     it('wraps the exclude expression in stripNullFields for response.strip_nulls', () => {

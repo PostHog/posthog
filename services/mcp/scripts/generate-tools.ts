@@ -996,10 +996,11 @@ function buildResponseFilter(
         return { code: '', helperImports: [] }
     }
 
-    // A list endpoint with `pagination_class = None` returns its rows as a bare array, not a page.
+    // A list endpoint with `pagination_class = None` returns its rows as a bare array, not a page. The page
+    // branch stays as a fallback so the compiled tool shapes a response the way the CLI catalog executor does.
     if (config.list && responseType?.endsWith('[]')) {
         return {
-            code: `        const filtered = result.map((item: any) => ${shapeItem('item')}) as typeof result\n`,
+            code: `        const filtered = (Array.isArray(result) ? result.map((item: any) => ${shapeItem('item')}) : { ...(result as any), results: ((result as any).results ?? []).map((item: any) => ${shapeItem('item')}) }) as typeof result\n`,
             helperImports,
         }
     }

@@ -370,7 +370,7 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         _make_run(self.team, skill_name="signals-scout-general", summary="checkout funnel looked fine")
         _make_run(self.team, skill_name="signals-scout-general", summary="checkout again, nothing new")
         response = self.client.get(
-            self._list_url(), {"text": "checkout", "exclude_skill_name": "signals-scout-general", "limit": 1}
+            self._list_url(), {"text": "checkout", "exclude_skill_name": "signals-scout-general", "limit": "1"}
         )
         assert response.status_code == status.HTTP_200_OK
         assert [row["run_id"] for row in response.json()] == [str(sibling.id)]
@@ -2719,7 +2719,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def test_search_pages_long_content(
         self,
         _name: str,
-        query: dict[str, object],
+        query: dict[str, str | int],
         content: str,
         total_length: int | None,
         next_offset: int | None,

@@ -1922,24 +1922,49 @@ const scoutConfigList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        const filtered = result.map((item: any) =>
-            pickResponseFields(item, [
-                'id',
-                'skill_name',
-                'display_name',
-                'description',
-                'scout_origin',
-                'scout_role',
-                'enabled',
-                'status',
-                'pause_reason',
-                'emit',
-                'run_interval_minutes',
-                'run_cron_schedule',
-                'last_run_at',
-                'tags',
-                'source_product',
-            ])
+        const filtered = (
+            Array.isArray(result)
+                ? result.map((item: any) =>
+                      pickResponseFields(item, [
+                          'id',
+                          'skill_name',
+                          'display_name',
+                          'description',
+                          'scout_origin',
+                          'scout_role',
+                          'enabled',
+                          'status',
+                          'pause_reason',
+                          'emit',
+                          'run_interval_minutes',
+                          'run_cron_schedule',
+                          'last_run_at',
+                          'tags',
+                          'source_product',
+                      ])
+                  )
+                : {
+                      ...(result as any),
+                      results: ((result as any).results ?? []).map((item: any) =>
+                          pickResponseFields(item, [
+                              'id',
+                              'skill_name',
+                              'display_name',
+                              'description',
+                              'scout_origin',
+                              'scout_role',
+                              'enabled',
+                              'status',
+                              'pause_reason',
+                              'emit',
+                              'run_interval_minutes',
+                              'run_cron_schedule',
+                              'last_run_at',
+                              'tags',
+                              'source_product',
+                          ])
+                      ),
+                  }
         ) as typeof result
         return await withPostHogUrl(context, filtered, '/inbox')
     },
@@ -2996,22 +3021,45 @@ const scoutRunsList = (): ToolBase<
                 text: params.text,
             },
         })
-        const filtered = result.map((item: any) =>
-            pickResponseFields(item, [
-                'run_id',
-                'skill_name',
-                'skill_version',
-                'status',
-                'created_at',
-                'started_at',
-                'completed_at',
-                'summary_lead',
-                'failure_reason',
-                'emitted_count',
-                'emitted_finding_ids',
-                'emitted_report_ids',
-                'edited_report_ids',
-            ])
+        const filtered = (
+            Array.isArray(result)
+                ? result.map((item: any) =>
+                      pickResponseFields(item, [
+                          'run_id',
+                          'skill_name',
+                          'skill_version',
+                          'status',
+                          'created_at',
+                          'started_at',
+                          'completed_at',
+                          'summary_lead',
+                          'failure_reason',
+                          'emitted_count',
+                          'emitted_finding_ids',
+                          'emitted_report_ids',
+                          'edited_report_ids',
+                      ])
+                  )
+                : {
+                      ...(result as any),
+                      results: ((result as any).results ?? []).map((item: any) =>
+                          pickResponseFields(item, [
+                              'run_id',
+                              'skill_name',
+                              'skill_version',
+                              'status',
+                              'created_at',
+                              'started_at',
+                              'completed_at',
+                              'summary_lead',
+                              'failure_reason',
+                              'emitted_count',
+                              'emitted_finding_ids',
+                              'emitted_report_ids',
+                              'edited_report_ids',
+                          ])
+                      ),
+                  }
         ) as typeof result
         return await withPostHogUrl(context, filtered, '/inbox')
     },
