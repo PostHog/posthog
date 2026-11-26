@@ -139,17 +139,17 @@ def run_credential_denied_scopes(team_id: int, run_id: str | None) -> frozenset[
 
 
 def kernel_read_scopes(team_id: int, kernel_runtime_id: UUID | None) -> list[str]:
+    gated: list[str] = sorted(set(access_controlled_posthog_tables().values()))
     if kernel_runtime_id is None:
-        return []
+        # Only dispatch names the kernel, so a callback for a run without one has unknown provenance.
+        return gated
     rows = list(
         # nosemgrep: idor-lookup-without-user-and-team (internal data-plane path; a user filter would skip a kernel another user owns and lift its gate)
         KernelRuntime.objects.filter(id=kernel_runtime_id, team_id=team_id).values_list("read_scopes", flat=True)[:1]
     )
-    if not rows:
-        return []
-    if rows[0] is None:
-        # A kernel started before reads were recorded may hold any gated rows in its cache.
-        return sorted(set(access_controlled_posthog_tables().values()))
+    if not rows or rows[0] is None:
+        # A kernel row that is gone, or that started before reads were recorded, may have held any gated rows.
+        return gated
     return sorted(rows[0])
 
 

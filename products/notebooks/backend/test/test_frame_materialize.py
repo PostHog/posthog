@@ -17,7 +17,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.schema import QueryStatus
 
-from posthog.hogql.database.database import Database, record_posthog_table_scopes
+from posthog.hogql.database.database import Database, record_posthog_table_read
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client import connection
@@ -538,9 +538,11 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
         assert ("toString" in printed.sql) is (expected_passes == 2)
 
     def test_status_carries_the_scopes_the_query_read(self):
-        # A materialized view over trace tables records its scopes while it resolves; stand in for that.
+        # This lane refuses trace tables before printing, so stand in for a resolved read of one.
+        trace_spans = Database.create_for(team=self.team).get_table("posthog.trace_spans")
+
         def print_passes(*_args, **_kwargs):
-            record_posthog_table_scopes({"tracing"})
+            record_posthog_table_read(trace_spans)
             return _printed_sql()
 
         with patch.object(frame_materialize, "_print_clickhouse_sql_passes", side_effect=print_passes):

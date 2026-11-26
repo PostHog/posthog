@@ -1733,8 +1733,15 @@ class TestSQLV2RunResult(APIBaseTest):
             self.assertEqual(callback.status_code, 200)
             self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
 
-    @parameterized.expand([("none", 403), ("viewer", 200)])
-    def test_kernel_started_before_reads_were_recorded_gates_its_output(self, access_level, expected):
+    @parameterized.expand(
+        [
+            ("pre_tracking_none", "pre_tracking", "none", 403),
+            ("pre_tracking_viewer", "pre_tracking", "viewer", 200),
+            ("missing_kernel_none", "missing", "none", 403),
+            ("unnamed_kernel_none", "unnamed", "none", 403),
+        ]
+    )
+    def test_kernel_with_unknown_reads_gates_its_output(self, _name, kernel, access_level, expected):
         _set_tracing_access(self, access_level)
         # read_scopes is None: the kernel predates read recording, so its cache may hold anything.
         runtime = KernelRuntime.objects.create(
@@ -1742,8 +1749,10 @@ class TestSQLV2RunResult(APIBaseTest):
         )
         run = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=NotebookNodeRun.NodeType.PYTHON)
         with team_scope(self.team.id):
-            run.kernel_runtime_id = runtime.id
+            run.kernel_runtime_id = None if kernel == "unnamed" else runtime.id
             run.save(update_fields=["kernel_runtime_id"])
+        if kernel == "missing":
+            runtime.delete()
         callback = self.client.post(
             f"/internal/notebooks/runs/{run.id}/result/",
             data=json.dumps({"envelope": {"status": "ok", "first_page": [["GET /api"]]}}),
@@ -2459,6 +2468,24 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         mock_status.return_value = _TRACE_STATUS
         token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id if with_user else None)
         self.assertEqual(self._get_status("q1", token=token).status_code, expected)
+
+    @parameterized.expand(
+        [
+            ("unmarked_object", [], 403),
+            ("trace_object", ["read-scopes-recorded", "read-scope:tracing"], 403),
+            ("plain_object", ["read-scopes-recorded"], 302),
+        ]
+    )
+    @patch(
+        "products.notebooks.backend.sql_v2_data_plane.frame_store.presign_get", return_value="https://s3.example.com/f"
+    )
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status")
+    def test_object_status_is_served_only_on_recorded_scopes(self, _name, labels, expected, mock_status, _presign):
+        _set_tracing_access(self, "none")
+        mock_status.return_value = SimpleNamespace(
+            complete=True, error=False, error_message=None, labels=labels, results={"object_key": "k"}
+        )
+        self.assertEqual(self._get_status("q1").status_code, expected)
 
     def test_status_is_team_scoped(self):
         # A leaked query_id plus a token for another team must not read the result.

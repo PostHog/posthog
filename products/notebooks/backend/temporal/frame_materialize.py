@@ -53,7 +53,11 @@ from posthog.schema import QueryStatus
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import READ_SCOPE_QUERY_STATUS_LABEL_PREFIX, read_posthog_table_scopes
+from posthog.hogql.database.database import (
+    READ_SCOPE_QUERY_STATUS_LABEL_PREFIX,
+    READ_SCOPES_RECORDED_QUERY_STATUS_LABEL,
+    read_posthog_table_scopes,
+)
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
@@ -777,10 +781,13 @@ def _finalize_status(
     status.error = error_message is not None
     status.error_message = error_message
     status.results = results
-    status.labels = [
-        *(status.labels or []),
-        *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
-    ]
+    if error_message is None:
+        # The poll serves the object only to a reader cleared for these, and holds an unmarked status to all.
+        status.labels = [
+            *(status.labels or []),
+            READ_SCOPES_RECORDED_QUERY_STATUS_LABEL,
+            *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
+        ]
     status.end_time = dt.datetime.now(dt.UTC)
     manager.store_query_status(status)
     manager.unregister_cache_key_mapping(inputs.cache_key)
