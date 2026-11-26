@@ -15,10 +15,7 @@ from products.workflows.backend.services.audience_v2 import (
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
 )
-from products.workflows.backend.services.batch_audience import (
-    get_batch_audience_person_ids,
-    get_batch_audience_person_ids_snapshot,
-)
+from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids_snapshot
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -203,7 +200,9 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=use_precalculated):
             result = get_person_audience_count_v2(self.team, filters)
-            sent_to = get_batch_audience_person_ids(self.team, filters)
+            sent_to = get_batch_audience_person_ids_snapshot(
+                self.team, filters, dedupe_key=None, limit=100, settings=bounded_memory_settings()
+            )
 
         assert (result.affected, result.total) == (2, 4)
         assert sorted(sent_to) == not_contacted_ids
@@ -213,7 +212,6 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
             ("preview", "preview", "cohort", "dynamic_uncalculated"),
             ("dedupe_preview", "dedupe_preview", "cohort", "dynamic_uncalculated"),
             ("send", "send", "cohort", "dynamic_uncalculated"),
-            ("snapshot_send", "snapshot_send", "cohort", "dynamic_uncalculated"),
             # The query compiler resolves these declared types to the same cohort, so they must not slip past.
             ("send_declared_static", "send", "static-cohort", "dynamic_uncalculated"),
             ("send_declared_precalculated", "send", "precalculated-cohort", "dynamic_uncalculated"),
@@ -228,8 +226,7 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         run = {
             "preview": lambda: get_person_audience_count_v2(self.team, filters),
             "dedupe_preview": lambda: get_dedupe_audience_count_v2(self.team, filters, "email"),
-            "send": lambda: get_batch_audience_person_ids(self.team, filters),
-            "snapshot_send": lambda: get_batch_audience_person_ids_snapshot(
+            "send": lambda: get_batch_audience_person_ids_snapshot(
                 self.team, filters, dedupe_key=None, limit=100, settings=bounded_memory_settings()
             ),
         }[path]
@@ -253,7 +250,11 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
+        sent_to = get_batch_audience_person_ids_snapshot(
+            self.team, FILTERS, dedupe_key="email", limit=100, settings=bounded_memory_settings()
+        )
+
+        assert result.affected == len(sent_to) == 4
         assert result.total == 5
 
     def test_dedupe_count_rejects_unsupported_dedupe_key(self):

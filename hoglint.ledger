@@ -2144,7 +2144,6 @@ facade-signature	products.workflows.backend.facade.batch_jobs	rate_limit_change_
 facade-signature	products.workflows.backend.facade.batch_jobs	rate_limit_change_unpaces_batch	param:new	builtins.object	1
 facade-signature	products.workflows.backend.facade.blast_radius	get_account_audience_ids_page	param:filters	builtins.dict	1
 facade-signature	products.workflows.backend.facade.blast_radius	get_account_audience_size	param:filters	builtins.dict	1
-facade-signature	products.workflows.backend.facade.blast_radius	get_audience_person_page	param:filters	builtins.dict	1
 facade-signature	products.workflows.backend.facade.blast_radius	get_audience_size	param:filters	builtins.dict	1
 facade-signature	products.workflows.backend.facade.blast_radius	is_account_audience	param:filters	builtins.dict	1
 facade-signature	products.workflows.backend.facade.blast_radius	parse_account_audience_filters	param:filters	builtins.dict	1
