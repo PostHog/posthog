@@ -114,7 +114,7 @@ export function QuillRecommendationsModal({
                         <div className="flex flex-col gap-4 @2xl:flex-row">
                             <nav
                                 ref={navRef}
-                                className="flex flex-col self-start @2xl:sticky @2xl:top-0 @2xl:w-60 @2xl:shrink-0 @2xl:border-r @2xl:border-border @2xl:pr-3"
+                                className="flex flex-col @2xl:sticky @2xl:self-start @2xl:top-0 @2xl:w-60 @2xl:shrink-0 @2xl:border-r @2xl:border-border @2xl:pr-3"
                             >
                                 {sections.map((section) => (
                                     <div
@@ -141,6 +141,7 @@ export function QuillRecommendationsModal({
                                                         count={group.activeCount}
                                                         maxDigits={2}
                                                         showZero
+                                                        variant={selected ? 'info' : 'default'}
                                                     />
                                                 </Button>
                                             )
@@ -207,7 +208,7 @@ export function QuillRecommendationsModal({
                                     {selectedGroup.recommendations.length > 0 ? (
                                         renderRows(selectedGroup.recommendations)
                                     ) : (
-                                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                                        <Text size="xs" variant="muted" render={<p className="m-0 text-center" />}>
                                             Every recommendation in this rule is dismissed or applied. Review them to
                                             see each one.
                                         </Text>

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Badge, Button, cn, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
@@ -9,8 +9,10 @@ import { recommendationsLogic } from './recommendationsLogic'
 
 export function QuillRecommendationResolutionButtons({
     recommendation,
+    stacked = false,
 }: {
     recommendation: MarketingAnalyticsRecommendation
+    stacked?: boolean
 }): JSX.Element {
     const { pendingKeys } = useValues(recommendationsLogic)
     const { resolveRecommendation, restoreRecommendation } = useActions(recommendationsLogic)
@@ -19,19 +21,22 @@ export function QuillRecommendationResolutionButtons({
 
     if (resolution) {
         return (
-            <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+            <div className={cn('flex flex-wrap items-center gap-1 whitespace-nowrap', !stacked && 'justify-end')}>
                 <Badge variant={resolution === 'applied' ? 'success' : 'default'}>
                     {resolution === 'applied' ? 'Applied' : 'Dismissed'}
                 </Badge>
                 <Button
                     size="sm"
-                    loading={loading}
+                    className={cn(stacked && '-ml-2')}
+                    disabled={loading}
+                    aria-busy={loading || undefined}
                     tooltip="Show this recommendation again for everyone in this project"
                     onClick={() => restoreRecommendation(recommendation)}
                     aria-label={`Restore ${recommendation.subject}`}
                     data-attr="marketing-recommendations-restore"
                 >
-                    Restore
+                    <span>Restore</span>
+                    {loading && <Spinner />}
                 </Button>
             </div>
         )
@@ -39,7 +44,7 @@ export function QuillRecommendationResolutionButtons({
 
     if (recommendation.detectedChange) {
         return (
-            <div className="flex items-center justify-end whitespace-nowrap">
+            <div className={cn('flex items-center whitespace-nowrap', !stacked && 'justify-end')}>
                 <Tooltip>
                     <TooltipTrigger render={<span tabIndex={0} className="inline-flex" />}>
                         <Badge variant="success">Applied</Badge>
@@ -53,28 +58,37 @@ export function QuillRecommendationResolutionButtons({
     }
 
     return (
-        <div className="flex flex-col items-end gap-0.5 whitespace-nowrap">
+        <div
+            className={cn(
+                'flex gap-0.5 whitespace-nowrap',
+                stacked ? '-ml-2 flex-row flex-wrap items-center' : 'flex-col items-end'
+            )}
+        >
             {recommendation.impactDirection !== 'keep' && (
                 <Button
                     size="sm"
-                    loading={loading}
+                    disabled={loading}
+                    aria-busy={loading || undefined}
                     tooltip="Mark that you made this change. It stays hidden for everyone in this project until someone restores it."
                     onClick={() => resolveRecommendation(recommendation, 'applied')}
                     aria-label={`Mark ${recommendation.subject} as applied`}
                     data-attr="marketing-recommendations-mark-applied"
                 >
-                    Mark as applied
+                    <span>Mark as applied</span>
+                    {loading && <Spinner />}
                 </Button>
             )}
             <Button
                 size="sm"
-                loading={loading}
+                disabled={loading}
+                aria-busy={loading || undefined}
                 tooltip="Hide this recommendation for everyone in this project, for any date range, until someone restores it."
                 onClick={() => resolveRecommendation(recommendation, 'dismissed')}
                 aria-label={`Dismiss ${recommendation.subject}`}
                 data-attr="marketing-recommendations-dismiss"
             >
-                Dismiss
+                <span>Dismiss</span>
+                {loading && <Spinner />}
             </Button>
         </div>
     )

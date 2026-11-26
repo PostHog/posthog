@@ -38,8 +38,9 @@ export function QuillConversionRecordingsModal({
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                 </DialogHeader>
-                <DialogBody>
-                    <div className="flex flex-col gap-4">
+                {/* A plain flex body, not the default scroll area, so the playlist shrinks to the space the dialog has. */}
+                <DialogBody render={<div />} className="flex flex-col py-4">
+                    <div className="flex min-h-0 flex-col gap-4">
                         <Text size="xs" variant="muted" render={<p className="m-0" />}>
                             Recordings from sessions where these conversions happened. Not every conversion has a
                             recording.
@@ -56,7 +57,7 @@ export function QuillConversionRecordingsModal({
                         )}
                         {queryError}
                         {page.session_ids.length > 0 ? (
-                            <div data-not-quill className="h-[60vh] overflow-auto">
+                            <div data-not-quill className="h-[60vh] min-h-0 shrink overflow-auto">
                                 {playlist}
                             </div>
                         ) : !pageLoading && !page.preparing && !page.errorMessage ? (
