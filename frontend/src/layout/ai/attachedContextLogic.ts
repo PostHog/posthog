@@ -1,7 +1,17 @@
-import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { type AttachedContextItem, NEW_CHAT_KEY, attachedContextItemKey } from '~/layout/ai/attachedContext'
 import { type ChatChipsByTask, addChatChips, removeChatChip, withRemovedGroup } from '~/layout/ai/chatContextChips'
+
+const SKILL_ITEM_TYPE = 'skill'
+
+function skillNames(items: AttachedContextItem[]): Set<string> {
+    return new Set(
+        items.flatMap((item) => (item.type === SKILL_ITEM_TYPE && item.key !== undefined ? [String(item.key)] : []))
+    )
+}
 
 function withoutPicks(
     pickedByChat: Record<string, AttachedContextItem[]>,
@@ -326,5 +336,32 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
             (s) => [s.contextItems],
             (contextItems: AttachedContextItem[]): boolean => contextItems.length > 0,
         ],
+    }),
+
+    listeners(({ selectors }) => ({
+        contextDelivered: ({ taskId, items, fromNewChat }, _, __, previousState) => {
+            // A send reports every item its chat holds, including items that dedupe pruned from the wire,
+            // so only the first delivery of a skill to a task counts.
+            const deliveredBefore = selectors.sentContextKeysByTask(previousState)[taskId] ?? []
+            const newItems = items.filter((item) => !deliveredBefore.includes(attachedContextItemKey(item)))
+            for (const skillName of skillNames(newItems)) {
+                posthog.capture('posthog ai context skill delivered', {
+                    skill_name: skillName,
+                    task_id: taskId,
+                    from_new_chat: fromNewChat,
+                })
+            }
+        },
+    })),
+
+    subscriptions({
+        contextItems: (contextItems: AttachedContextItem[], previousItems: AttachedContextItem[] | undefined) => {
+            const attachedBefore = skillNames(previousItems ?? [])
+            for (const skillName of skillNames(contextItems)) {
+                if (!attachedBefore.has(skillName)) {
+                    posthog.capture('posthog ai context skill attached', { skill_name: skillName })
+                }
+            }
+        },
     }),
 ])
