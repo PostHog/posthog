@@ -910,8 +910,9 @@ async fn item_results_reject_a_request_with_more_events_than_the_limit(db: PgPoo
 
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 
-    let (status, _) = harness.post_body(true, json!({}), |_| {}).await;
+    let (status, response) = harness.post_body(true, json!("echoed body"), |_| {}).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!response.to_string().contains("echoed body"));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
