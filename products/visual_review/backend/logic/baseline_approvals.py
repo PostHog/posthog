@@ -365,10 +365,13 @@ class LowerLayerWalk:
         visited = {(top.id, node.id) for top, node in steps}
         while steps:
             lower_ids = self._lower_layer_ids([node for _top, node in steps])
+            first = steps[0][1]
             lowers = {
                 lower.id: lower
                 for lower in BaselineApproval.objects.using(WRITER_DB).filter(
-                    id__in={lower_id for lower_id in lower_ids.values() if lower_id is not None}
+                    team_id=first.team_id,
+                    repo_id=first.repo_id,
+                    id__in={lower_id for lower_id in lower_ids.values() if lower_id is not None},
                 )
             }
             successors = self.successors([lower for lower in lowers.values() if _closed_without_entry(lower)])
