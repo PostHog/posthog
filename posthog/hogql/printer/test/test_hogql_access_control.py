@@ -662,13 +662,13 @@ class TestDeniedTableError(BaseTest):
 
     @parameterized.expand(
         [
-            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, [], None, True),
-            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, [], None, False),
-            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, [], None, True),
-            ("edited_after_build", "none", "SELECT '' AS name", True, [], None, True),
-            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, [], None, False),
-            ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, [], None, True),
-            ("trace_read_in_a_scalar_query_tag", "none", _SCALAR_TAG_TRACE_READ, False, [], None, True),
+            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, [], None, False, True),
+            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, [], None, False, False),
+            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, [], None, False, True),
+            ("edited_after_build", "none", "SELECT '' AS name", True, [], None, False, True),
+            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, [], None, False, False),
+            ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, [], None, False, True),
+            ("trace_read_in_a_scalar_query_tag", "none", _SCALAR_TAG_TRACE_READ, False, [], None, False, True),
             (
                 "trace_read_through_a_warehouse_join",
                 "none",
@@ -676,6 +676,7 @@ class TestDeniedTableError(BaseTest):
                 False,
                 [("events", "posthog.trace_spans")],
                 None,
+                False,
                 True,
             ),
             (
@@ -685,6 +686,7 @@ class TestDeniedTableError(BaseTest):
                 False,
                 [("events", "posthog.trace_spans")],
                 None,
+                False,
                 True,
             ),
             (
@@ -694,6 +696,7 @@ class TestDeniedTableError(BaseTest):
                 False,
                 [("events", "span_links"), ("span_links", "posthog.trace_spans")],
                 None,
+                False,
                 True,
             ),
             (
@@ -703,6 +706,17 @@ class TestDeniedTableError(BaseTest):
                 False,
                 [],
                 "(SELECT any(name) FROM posthog.trace_spans)",
+                False,
+                True,
+            ),
+            (
+                "join_deleted_after_build",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "posthog.trace_spans")],
+                None,
+                True,
                 True,
             ),
         ]
@@ -715,6 +729,7 @@ class TestDeniedTableError(BaseTest):
         edited_after_build: bool,
         joins: list[tuple[str, str]],
         events_expression: str | None,
+        joins_deleted_after_build: bool,
         denied: bool,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
@@ -745,7 +760,7 @@ class TestDeniedTableError(BaseTest):
             url_pattern="https://bucket.example.com/slow_spans/*",
             columns={"name": "String"},
         )
-        for source, target in joins:
+        created_joins = [
             DataWarehouseJoin.objects.create(
                 team=self.team,
                 source_table_name=source,
@@ -754,12 +769,14 @@ class TestDeniedTableError(BaseTest):
                 joining_table_key="name",
                 field_name=f"{target.rsplit('.', 1)[-1]}_join",
             )
+            for source, target in joins
+        ]
         if events_expression is not None:
             with team_scope(self.team.id, canonical=True):
                 DataWarehouseExpression.objects.create(
                     team=self.team, table_name="events", field_name="span_name", expression=events_expression
                 )
-        built_at = datetime.now(UTC)
+        built_at = datetime.now(UTC) - timedelta(minutes=5)
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="slow_spans",
@@ -771,6 +788,9 @@ class TestDeniedTableError(BaseTest):
             last_run_at=built_at,
             query_updated_at=built_at + timedelta(minutes=1) if edited_after_build else None,
         )
+        if joins_deleted_after_build:
+            for join in created_joins:
+                join.delete()
         modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
         database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
         context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
