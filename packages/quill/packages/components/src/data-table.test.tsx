@@ -159,6 +159,28 @@ describe('DataTable', () => {
         expect(onPageChange).toHaveBeenCalledWith(1, 2)
     })
 
+    it('shows every row once a mounted table drops its page size', () => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const rows = (count: number): TestRow[] => Array.from({ length: count }, (_, i) => ({ name: `Row ${i}` }))
+        const { container, rerender } = render(<DataTable columns={columns} data={rows(30)} pageSize={25} />)
+
+        rerender(<DataTable columns={columns} data={rows(20)} />)
+
+        expect(container.querySelectorAll('tbody tr')).toHaveLength(20)
+    })
+
+    it.each([
+        ['every row fits on one page', 3, 3, undefined, false],
+        ['the rows need a second page', 4, 3, undefined, true],
+        ['every row fits, but a smaller page size is on offer', 4, 10, [2, 10], true],
+    ])('shows the pager only when it is needed: %s', (_name, rowCount, pageSize, pageSizeOptions, pagerShown) => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const rows = Array.from({ length: rowCount }, (_, i) => ({ name: `Row ${i}` }))
+        render(<DataTable columns={columns} data={rows} pageSize={pageSize} pageSizeOptions={pageSizeOptions} />)
+
+        expect(screen.queryByLabelText('Go to page 1') !== null).toBe(pagerShown)
+    })
+
     describe('resizable columns', () => {
         afterEach(cleanup)
 

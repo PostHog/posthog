@@ -994,9 +994,8 @@ def _nudge_classifier_verdict(
     heuristics-only (the classifier refines the nudge, it must not be able to kill it); a
     completed call nudges only on an affirmative answer.
     """
-    # DEBUG/TEST default LLM_GATEWAY_URL to a dev value, so "gateway configured" is only a
-    # real signal outside tests, and unit tests must never depend on whether something is
-    # listening on that port. Classifier tests opt back in with override_settings(TEST=False).
+    # Unit tests must never depend on whether a gateway is listening. Classifier tests opt
+    # back in with override_settings(TEST=False).
     if settings.TEST:
         return "skipped"
     if not team.organization.is_ai_data_processing_approved:
@@ -1021,10 +1020,10 @@ def _nudge_classifier_verdict(
         content += f"\n\n[the message has {len(files)} file attachment(s)]"
     try:
         client = build_anthropic_client(
-            product="conversations",
             ai_product="conversations",
             team_id=team_id,
             distinct_id=f"team-{team_id}",
+            # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
             properties={
                 "team_id": str(team_id),
                 "feature": NUDGE_CLASSIFIER_FEATURE,
@@ -1039,13 +1038,6 @@ def _nudge_classifier_verdict(
             temperature=0,
             timeout=NUDGE_CLASSIFIER_TIMEOUT_SECONDS,
             metadata={"user_id": f"team-{team_id}"},
-            # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
-            extra_headers={
-                "x-posthog-property-feature": NUDGE_CLASSIFIER_FEATURE,
-                "x-posthog-property-$ai_span_name": NUDGE_CLASSIFIER_FEATURE,
-                "x-posthog-property-slack_channel_id": channel,
-                "x-posthog-property-slack_thread_ts": message_ts,
-            },
             system=NUDGE_CLASSIFIER_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
         )

@@ -2,6 +2,7 @@ import { ItemCheckbox, ItemContent, ItemDescription, ItemTitle, ToggleGroup, Tog
 
 import type { ErrorTrackingIssueTagDefinitionApi } from '../../generated/api.schemas'
 import type { IssueTagState } from '../IssueQueryOptions/issueQueryOptionsLogic'
+import { IssueTag } from '../IssueTag/IssueTag'
 
 const TAG_STATE_OPTIONS: { value: IssueTagState; label: string; dataAttr: string }[] = [
     { value: 'has', label: 'Has', dataAttr: 'error-tracking-issue-tag-filter-has' },
@@ -13,7 +14,7 @@ export function IssueTagRow({
     state,
     onChange,
 }: {
-    definition: Pick<ErrorTrackingIssueTagDefinitionApi, 'label' | 'description'>
+    definition: Pick<ErrorTrackingIssueTagDefinitionApi, 'label' | 'description' | 'color'>
     state: IssueTagState | null
     onChange: (state: IssueTagState | null) => void
 }): JSX.Element {
@@ -27,7 +28,9 @@ export function IssueTagRow({
                 onClick={() => onChange(state ? null : 'has')}
             >
                 <ItemContent variant="menuItem" className="min-w-0 gap-0.5">
-                    <ItemTitle className="block w-full min-w-0 truncate font-normal">{definition.label}</ItemTitle>
+                    <ItemTitle className="block w-full min-w-0 font-normal">
+                        <IssueTag className="max-w-full" label={definition.label} color={definition.color} />
+                    </ItemTitle>
                     {definition.description && (
                         <ItemDescription className="line-clamp-1" title={definition.description}>
                             {definition.description}

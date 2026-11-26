@@ -45,7 +45,7 @@ export function ScoutSettingsModal({
             <ScoutConfigForm
                 config={config}
                 onUpdate={updateScoutConfig}
-                onDelete={(configId) => deleteScout(configId, surface)}
+                onDelete={(configId) => deleteScout(configId, surface, 'settings')}
                 deleting={deletingScoutIds.includes(config.id)}
                 updating={updatingScoutIds.includes(config.id)}
                 onUnsavedChange={setHasUnsavedInput}

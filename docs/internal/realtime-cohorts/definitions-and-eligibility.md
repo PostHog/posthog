@@ -92,6 +92,8 @@ A hash that is not exactly 16 bytes makes its leaf unusable.
 The API serializer sets `cohort_type = 'realtime'` when all of the following hold:
 
 - every leaf compiled to bytecode without an error,
+  and a call to a function outside the Hog standard library counts as an error,
+  because the realtime evaluator would count that call as `false` without raising one,
 - no leaf is `person_metadata`,
 - every cohort reference points to a cohort that is itself realtime at the moment of this save,
 - the cohort does not use `filterTestAccounts`, because the test-account filters are added at query time and the realtime evaluator cannot see them,
@@ -99,6 +101,8 @@ The API serializer sets `cohort_type = 'realtime'` when all of the following hol
 - on edits, the last known person count is under a size cap.
 
 The cohort API reports which of these kept a `daily` cohort off realtime, as its `realtime.reason` ([what readiness unlocks](completion-and-readiness.md#in-django)).
+The decision does not cover the processor's time range rules, so a cohort can be typed realtime and still have a criterion the pipeline drops for its window.
+The cohort API reports that case as `realtime.reason: unsupported_time_range` on an `off` or `needs_attention` cohort, and a turn-on of an `off` cohort refuses it.
 
 A sliding window counts by its length, with a month as 30 days and a year as 365, the same lengths the Rust evaluator uses.
 An absolute start date counts from its written date to the team's current day, and a range with only an end date always counts as too long.
@@ -368,6 +372,8 @@ Leaves are evaluated with the Rust HogVM, configured the same way in every proce
   Event properties keep both texts, because cloud reads an event property without a `mat_` column through its property group, which keeps them too.
 - A program that fails at runtime, calls an unknown function, or returns a non-boolean counts as `false`.
   Failures are counted by reason.
+  The save path refuses a leaf that calls a function outside the Hog standard library, so an unknown function reaches the evaluator only in bytecode stored before that check.
+  A function name typed in another case, such as `NOT (x)` or `COALESCE(a, b)`, compiles to its lowercase library function when HogQL reads both spellings as the same function.
 - An event with malformed `properties` JSON skips only the behavioral side.
   Malformed `person_properties` skips the whole event when the person side has to evaluate.
   An event with an unparseable timestamp is skipped.

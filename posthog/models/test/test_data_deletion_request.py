@@ -825,16 +825,33 @@ def test_verify_queued_query_backed_request_counts_pending_queue_rows(team):
     assert params == {"team_id": team.pk, "request_id": str(request.pk)}
 
 
-def test_query_backed_deletion_stats_are_rejected():
+@pytest.mark.parametrize("has_creator", [True, False], ids=["counts_selected_uuids", "refuses_without_creator"])
+def test_query_backed_deletion_stats_count_what_the_query_selects(team, has_creator):
+    creator = User.objects.create_and_join(team.organization, "creator@example.com", None)
     request = DataDeletionRequest(
-        team_id=TEAM_ID,
+        team_id=team.id,
         request_type=RequestType.HOGQL_EVENT_REMOVAL,
-        hogql_query="SELECT uuid FROM events",
+        hogql_query="SELECT uuid FROM events WHERE event = '$pageview'",
+        hogql_variables={},
         execution_mode="deferred",
+        created_by=creator if has_creator else None,
     )
+    now = timezone.now()
+    rows = [(team.id, event, uuid_lib.uuid4(), now) for event in ["$pageview", "$pageview", "$autocapture"]]
+    sync_execute("INSERT INTO writable_events (team_id, event, uuid, timestamp) VALUES", rows)
 
-    with pytest.raises(ValueError, match="Stats are not available"):
-        ddr.fetch_deletion_stats(request)
+    if not has_creator:
+        with pytest.raises(ValueError, match="no creator"):
+            ddr.fetch_deletion_stats(request)
+        return
+    assert ddr.fetch_deletion_stats(request) == {
+        "count": 2,
+        "min_timestamp": None,
+        "max_timestamp": None,
+        "part_count": None,
+        "parts_size": None,
+        "parts_row_count": None,
+    }
 
 
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)

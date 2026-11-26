@@ -1920,7 +1920,7 @@ export const getInternalHogFlowsBatchJobsAudiencePageCreateUrl = (teamId: string
 
 /**
  * Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
- * like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+ * in person id order. Requires Bearer token authentication via INTERNAL_API_SECRET.
  */
 export const internalHogFlowsBatchJobsAudiencePageCreate = async (
     teamId: string,
@@ -1988,24 +1988,6 @@ export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
  */
 export const internalHogFlowsUserBlastRadiusCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsUserBlastRadiusCreateUrl(teamId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getInternalHogFlowsUserBlastRadiusPersonsCreateUrl = (teamId: string) => {
-    return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius_persons`
-}
-
-/**
- * Internal endpoint for Node.js services to query user blast radius persons with pagination.
- * Requires Bearer token authentication via INTERNAL_API_SECRET.
- */
-export const internalHogFlowsUserBlastRadiusPersonsCreate = async (
-    teamId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInternalHogFlowsUserBlastRadiusPersonsCreateUrl(teamId), {
         ...options,
         method: 'POST',
     })

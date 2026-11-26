@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal, get_args
 
 from posthog.enums import LabeledStrEnum
 
@@ -16,6 +17,16 @@ MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
 
+# Flag config keys of the deprecated `parameters` surface. The linked flag stores them: a write copies them onto the
+# flag and strips them from the column, and a read projects the flag's config back into `parameters`.
+FEATURE_FLAG_CONFIG_KEYS: tuple[str, ...] = (
+    "feature_flag_variants",
+    "rollout_percentage",
+    "aggregation_group_type_index",
+    "feature_flag_payloads",
+    "ensure_experience_continuity",
+)
+
 
 class ExposuresPath(StrEnum):
     """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a
@@ -23,6 +34,25 @@ class ExposuresPath(StrEnum):
 
     PRECOMPUTED = "precomputed"
     DIRECT_SCAN = "direct_scan"
+
+
+# Replaces $feature_flag_called as the default exposure event for experiments that start at or after
+# settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF.
+EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
+
+RunningTimeMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg", "ratio", "retention"]
+RUNNING_TIME_METRIC_TYPES: tuple[str, ...] = get_args(RunningTimeMetricType)
+
+
+class MetricSourceRole(StrEnum):
+    """What one source node means to its metric, so a hit can say which side of the metric fired."""
+
+    SOURCE = "source"
+    STEP = "step"
+    NUMERATOR = "numerator"
+    DENOMINATOR = "denominator"
+    RETENTION_START = "retention_start"
+    RETENTION_COMPLETION = "retention_completion"
 
 
 class PrecomputeSkipReason(StrEnum):

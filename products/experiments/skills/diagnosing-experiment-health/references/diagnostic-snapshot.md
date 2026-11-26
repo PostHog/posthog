@@ -160,9 +160,10 @@ Every query in this skill follows them.
 | Any other event                             | That event                                                        | `` `$feature/<flag-key>` ``                                   |
 | An action                                   | Every event that the action matches: read the action's definition | `` `$feature/<flag-key>` ``                                   |
 
-The default event depends on two conditions.
-It is `$experiment_exposure` when the experiment started on or after 2026-09-01 (UTC) **and** the project is in the rollout of that event.
+The default event depends on the experiment's start date.
+On PostHog Cloud it is `$experiment_exposure` when the experiment started on or after 2026-09-01 (UTC).
 Otherwise it is `$feature_flag_called`.
+A self-hosted instance stays on `$feature_flag_called` unless its operator sets a cutoff.
 `resolved_exposure_event` already holds the answer: read it, do not derive it.
 
 When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.

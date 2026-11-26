@@ -169,15 +169,16 @@ class TestTaggedItemGenericColumns(BaseTest):
         assert by_type["event_definition"].content_type == ContentType.objects.get_for_model(EventDefinition)
         assert all(item.team_id == tag.team_id for item in by_type.values())
 
-    def test_bulk_create_loads_uncached_tags_once(self):
-        dashboards = [Dashboard.objects.create(team_id=self.team.id, name=f"dashboard {i}") for i in range(3)]
+    @parameterized.expand([1, 3])
+    def test_bulk_create_locks_uncached_tags_in_constant_queries(self, item_count: int):
+        dashboards = [Dashboard.objects.create(team_id=self.team.id, name=f"dashboard {i}") for i in range(item_count)]
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
         content_type = ContentType.objects.get_for_model(Dashboard)
         rows = [
             TaggedItem(tag_id=tag.id, content_type=content_type, object_id=dashboard.id) for dashboard in dashboards
         ]
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(6):
             TaggedItem.objects.bulk_create(rows)
 
         assert all(row.team_id == tag.team_id for row in rows)

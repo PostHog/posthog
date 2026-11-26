@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command, Option } from "commander";
+import type { GatewayEnv } from "../adapters/claude/session/options";
 import { DEFAULT_CODEX_MODEL, DEFAULT_GATEWAY_MODEL } from "../gateway-models";
 import { buildGatewayEnv } from "../server/gateway-env";
 import { Logger } from "../utils/logger";
@@ -44,21 +45,13 @@ const logger = new Logger({
       `[${level}] ${message} ${data === undefined ? "" : JSON.stringify(data)}\n`,
     ),
 });
-const gatewayEnv = buildGatewayEnv(
-  {
-    apiKey: "",
-    apiUrl: process.env.POSTHOG_API_URL || "https://us.posthog.com",
-    projectId: Number(process.env.POSTHOG_PROJECT_ID) || 0,
-  },
-  { runtimeAdapter: runtime },
-  logger,
-);
+let gatewayUrl: string | null = null;
 
 function report(result: SmokeResult, fields: Record<string, unknown>): never {
   const line = JSON.stringify({
     runtime,
     model,
-    gateway: gatewayEnv.anthropicBaseUrl,
+    gateway: gatewayUrl,
     result,
     ...fields,
   });
@@ -68,12 +61,22 @@ function report(result: SmokeResult, fields: Record<string, unknown>): never {
   process.exit(EXIT_CODES[result]);
 }
 
-if (!token || gatewayEnv.anthropicAuthToken !== token) {
+let gatewayEnv: GatewayEnv;
+try {
+  gatewayEnv = buildGatewayEnv(
+    {
+      apiUrl: process.env.POSTHOG_API_URL || "https://us.posthog.com",
+      projectId: Number(process.env.POSTHOG_PROJECT_ID) || 0,
+    },
+    { runtimeAdapter: runtime },
+    logger,
+  );
+} catch (error) {
   report("infra", {
-    error:
-      "the agent did not route to the Go gateway: set AI_GATEWAY_URL, AI_GATEWAY_TOKEN, AI_GATEWAY_PRODUCT and AI_GATEWAY_PRODUCTS",
+    error: `${error instanceof Error ? error.message : String(error)}; set AI_GATEWAY_URL, AI_GATEWAY_TOKEN, AI_GATEWAY_PRODUCT and AI_GATEWAY_PRODUCTS`,
   });
 }
+gatewayUrl = gatewayEnv.anthropicBaseUrl;
 
 try {
   const outcome = await runTurn({

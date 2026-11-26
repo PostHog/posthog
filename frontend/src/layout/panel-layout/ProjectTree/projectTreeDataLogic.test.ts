@@ -1,12 +1,15 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -149,6 +152,28 @@ describe('projectTreeDataLogic', () => {
 
         expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(expectedNames)
         expect(logic.values.shortcutData).toHaveLength(3)
+    })
+
+    it.each<[OrganizationMembershipLevel | null, boolean, boolean]>([
+        [OrganizationMembershipLevel.Member, true, false],
+        [OrganizationMembershipLevel.Admin, true, true],
+        [OrganizationMembershipLevel.Owner, true, true],
+        [OrganizationMembershipLevel.Admin, false, false],
+        [null, true, false],
+    ])('shows Tags and its shortcut for role=%s and flag=%s: %s', (membershipLevel, enabled, visible) => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess(
+            membershipLevel === null ? null : { ...MOCK_DEFAULT_ORGANIZATION, membership_level: membershipLevel }
+        )
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAG_MANAGEMENT]: enabled })
+        logic.actions.loadShortcutsSuccess([
+            { id: 'star-tags', path: 'Tags', type: 'product', href: urls.tagDefinitions() },
+        ])
+
+        const dataItems =
+            logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')?.children ?? []
+        expect(dataItems.some((item) => item.name === 'Tags')).toBe(visible)
+        expect(logic.values.getShortcutTreeItems('', false).some((item) => item.name === 'Tags')).toBe(visible)
+        expect(logic.values.shortcutData).toHaveLength(1)
     })
 
     it('reloads starred folders after a move, preserving custom labels and untouched environments', async () => {

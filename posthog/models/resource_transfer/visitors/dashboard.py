@@ -10,7 +10,6 @@ class DashboardVisitor(
     excluded_fields=[
         "data_color_theme_id",
         "data_color_theme",
-        "analytics_dashboards",
         "last_refresh",
         "last_accessed_at",
         "share_token",
