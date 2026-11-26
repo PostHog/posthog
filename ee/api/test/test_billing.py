@@ -1371,7 +1371,7 @@ class TestActivateBillingAPI(APILicensedTest):
     def test_organization_route_leaves_usage_and_spend_to_organization_billing(self, path: str) -> None:
         match = resolve(f"/api/organizations/{self.organization.id}/billing/{path}")
 
-        assert match.func.cls is OrganizationBillingViewSet
+        assert getattr(match.func, "cls", None) is OrganizationBillingViewSet
 
     @parameterized.expand(
         [
