@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertEvents,
     PlatformAlertHistory,
     PlatformAlertListHistory,
+    PlatformAlertReader,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
     PlatformCheckEntry,
@@ -40,13 +41,14 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformControlHistory,
     PlatformLastCheck,
     RuleMetadata,
+    SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
     PlatformAlertOwner,
     PlatformAlertState,
 )
-from products.alerts_platform.backend.logic import platform_alert_events
+from products.alerts_platform.backend.logic import platform_alert_events, source_configs
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
@@ -111,19 +113,40 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
 _HELD = Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM)
 
 
-def _readable(team_id: int, source_kinds: Sequence[str]) -> QuerySet[PlatformAlertConfiguration]:
+def _readable(
+    team_id: int, source_kinds: Sequence[str], reader: PlatformAlertReader | None = None
+) -> QuerySet[PlatformAlertConfiguration]:
     """Configurations of the given kinds belonging to `team_id`, instances prefetched.
 
     The caller resolves which kinds it may read, because that depends on the caller's grants
-    rather than on anything this product knows.
+    rather than on anything this product knows. A kind with `object_access` also needs access to
+    each alert's object, which only its source can check, so a `reader` asks the source.
     """
     instances = PlatformAlert.objects.for_team(team_id, canonical=True).order_by("grouping_key")
-    return (
-        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
-        .filter(source_kind__in=list(source_kinds))
-        .prefetch_related(Prefetch("alerts", queryset=instances))
-        .order_by("-created_at", "-id")
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind__in=list(source_kinds)
     )
+    if reader is not None:
+        rows = rows.filter(_viewable_objects(team_id, source_kinds, reader))
+    return rows.prefetch_related(Prefetch("alerts", queryset=instances)).order_by("-created_at", "-id")
+
+
+def _viewable_objects(team_id: int, source_kinds: Sequence[str], reader: PlatformAlertReader) -> Q:
+    viewable = Q()
+    for source_kind in source_kinds:
+        registered = source_configs.spec(SourceKind(source_kind))
+        access = registered.object_access if registered is not None else None
+        if access is None:
+            continue
+        key = f"source_config__{access.source_config_key}"
+        watched = set(
+            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+            .filter(source_kind=source_kind)
+            .values_list(key, flat=True)
+        )
+        allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader)
+        viewable &= ~Q(source_kind=source_kind) | Q(**{f"{key}__in": list(allowed)})
+    return viewable
 
 
 def list_configurations(
@@ -136,6 +159,7 @@ def list_configurations(
     configuration_ids: Collection[UUID] | None = None,
     created_by_uuid: UUID | None = None,
     held_only: bool = False,
+    reader: PlatformAlertReader | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
@@ -146,7 +170,7 @@ def list_configurations(
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
     page's rows alone.
     """
-    readable = _readable(team_id, source_kinds)
+    readable = _readable(team_id, source_kinds, reader)
     if legacy_configuration_id is not None:
         readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
@@ -553,13 +577,18 @@ def _configurations_matching(
 
 
 def get_configuration(
-    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    lock: bool = False,
+    reader: PlatformAlertReader | None = None,
 ) -> PlatformAlertConfigurationView | None:
-    """One configuration, or None when it does not exist or the caller may not read its kind.
+    """One configuration, or None when it does not exist or the caller may not read it.
 
     With `lock`, the row stays locked until the caller's transaction ends, so a delete waits for it.
     """
-    rows = _readable(team_id, source_kinds).filter(id=configuration_id)
+    rows = _readable(team_id, source_kinds, reader).filter(id=configuration_id)
     if lock:
         rows = rows.select_for_update(no_key=True)
     row = rows.first()

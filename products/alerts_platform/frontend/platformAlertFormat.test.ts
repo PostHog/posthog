@@ -208,6 +208,7 @@ describe('platformAlertFormat', () => {
         ],
         ['a source alert with no source row', { owner: 'source', legacy_configuration_id: null }, false],
         ['a source alert', { owner: 'source', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' }, false],
+        ['an insight alert the platform owns', { owner: 'platform', source_kind: 'insight' }, false],
     ])('canChangeFromList: %s', (_, overrides, expected) => {
         expect(canChangeFromList(makeConfiguration(overrides))).toEqual(expected)
     })

@@ -1469,6 +1469,33 @@ class NativeAlertRemoveDestinations(Protocol):
 
 
 @frozen
+class PlatformAlertReader:
+    """A person, or a person's API key, that reads alerts through the platform API."""
+
+    user_id: int
+    # The API key's scopes, or None for a session, which carries no scopes.
+    key_scopes: frozenset[str] | None
+
+
+class ViewableSourceObjects(Protocol):
+    """Which of `object_ids` the reader may view. The ids are the values alerts of the kind store under
+    the `source_config` key that names what they watch. Ids the reader may not view are left out."""
+
+    def __call__(
+        self, *, team_id: int, object_ids: Collection[int | str], reader: PlatformAlertReader
+    ) -> Collection[int | str]: ...
+
+
+@frozen
+class SourceObjectAccess:
+    """For a kind whose alerts each show one object of the source product: access to the kind does not
+    give access to every object, so a read checks the object of each alert."""
+
+    source_config_key: str
+    viewable: ViewableSourceObjects
+
+
+@frozen
 class NativeAlertLifecycle:
     """How the platform creates and deletes alerts of a kind whose source keeps no row for them.
 
@@ -1558,6 +1585,9 @@ class SourceConfigSpec:
     kept_source_config_keys: frozenset[str] = frozenset()
     # What an alert watches, by team and `source_config`, for its activity log entries.
     activity_source: ActivitySourceLookup | None = None
+    # Narrows a read through the platform API to the alerts whose watched object the reader may view.
+    # None when read access to the kind is enough.
+    object_access: SourceObjectAccess | None = None
 
     @property
     def creatable(self) -> bool:

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         LegacyEventEmission,
         MessageImage,
         MessageLink,
+        PlatformAlertReader,
         SlackMessageContent,
     )
 
@@ -118,6 +119,35 @@ def insight_alert_destination_edit_refusal(
         if alert.insight.alertable_query_kind == NodeKind.METRICS_QUERY and key_scopes_lack_metrics(key_scopes):
             return "Editing this alert destination requires the 'metrics:read' scope, because its insight is a metrics one."
     return None
+
+
+def viewable_alert_insights(
+    *, team_id: int, object_ids: Collection[int | str], reader: PlatformAlertReader
+) -> Collection[int | str]:
+    """The insights of `object_ids` whose alerts the reader may read through the platform API. It
+    applies the insight alert API's read gates: viewer access to the insight, and a metrics scope for
+    a token when the insight is a metrics one."""
+    from django.db.models import Q  # noqa: PLC0415
+
+    from posthog.models import Team, User  # noqa: PLC0415
+    from posthog.schema_enums import NodeKind  # noqa: PLC0415
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
+    from products.product_analytics.backend.facade.models import Insight  # noqa: PLC0415
+
+    user = User.objects.filter(id=reader.user_id).first()
+    if user is None:
+        return set()
+    access = UserAccessControl(user, team=Team.objects.get(id=team_id))
+    insights = access.filter_queryset_by_access_level(Insight.objects.filter(team_id=team_id, id__in=list(object_ids)))
+    if key_scopes_lack_metrics(reader.key_scopes):
+        # Filter, then exclude by id, because NOT over a JSON path also drops rows that lack the key.
+        insights = insights.exclude(
+            id__in=insights.filter(
+                Q(query__kind=NodeKind.METRICS_QUERY) | Q(query__source__kind=NodeKind.METRICS_QUERY)
+            ).values("id")
+        )
+    return set(insights.values_list("id", flat=True))
 
 
 def key_scopes_lack_metrics(key_scopes: Collection[str] | None) -> bool:
