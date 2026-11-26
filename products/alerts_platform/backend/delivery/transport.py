@@ -63,7 +63,7 @@ FAILURE_OWNERS: Final[dict[FailureReason, FailureOwner]] = {
 
 
 class DeliveryError(Exception):
-    """A send that failed, with `reason` saying why. The caller decides whether to retry."""
+    """The caller decides whether to retry."""
 
     reason: FailureReason = "unexpected"
 
