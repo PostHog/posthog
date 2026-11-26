@@ -18,9 +18,14 @@ import { INBOX_CLIENT } from '../inboxAnalytics'
 import { monitoringTabLogic } from './monitoringTabLogic'
 
 export const PR_MONITORING_NOTE_MAX_CHARS = 4000
+export const PR_IN_PROGRESS_POLL_INTERVAL_MS = 5000
 
 export type PRMonitoringFilter = 'all' | 'unmonitored' | 'monitored'
 export type PRStateFilter = 'all' | 'open' | 'merged'
+
+function hasInProgressPR(page: PRBrowserPageApi | null): boolean {
+    return Boolean(page?.results.some((pr) => pr.report?.status === 'in_progress'))
+}
 
 // pinned: analytics event name and property keys — renaming breaks dashboards
 export function capturePRAction(
@@ -232,46 +237,84 @@ export const pullRequestsLogic = kea<pullRequestsLogicType>([
                 }),
         ],
     }),
-    listeners(({ actions, cache, values }) => ({
-        openComposer: () => {
-            capturePRAction('open_composer')
-        },
-        monitorPR: async ({ url, note }) => {
-            cache.inFlightUrls ??= new Set<string>()
-            if (cache.inFlightUrls.has(url)) {
+    listeners(({ actions, cache, selectors, values }) => {
+        const syncInProgressPoll = (): void => {
+            const shouldPoll = values.panelOpen && hasInProgressPR(values.page)
+            if (!shouldPoll) {
+                cache.inProgressPollArmed = false
+                cache.disposables.dispose('inProgressPoll')
                 return
             }
-            const projectId = resolveProjectId(values.currentProjectId)
-            if (!projectId) {
-                actions.monitorPRDone(url, null)
+            if (cache.inProgressPollArmed) {
                 return
             }
-            cache.inFlightUrls.add(url)
-            const trimmedNote = (note ?? values.draftNotes[url] ?? '').trim()
-            capturePRAction('submit_monitor', { has_note: Boolean(trimmedNote) })
-            try {
-                const result = await signalsMonitorPrCreate(
-                    projectId,
-                    trimmedNote ? { pr_url: url, note: trimmedNote } : { pr_url: url }
-                )
-                actions.monitorPRDone(url, result)
-                monitoringTabLogic.findMounted()?.actions.loadReports()
-            } catch (err: any) {
-                lemonToast.error(
-                    err?.data?.detail || err?.detail || 'Could not start monitoring for this pull request.'
-                )
-                actions.monitorPRDone(url, null)
-            } finally {
-                cache.inFlightUrls.delete(url)
-            }
-        },
-        setPanelOpen: ({ open }) => {
-            capturePRAction(open ? 'open_panel' : 'close_panel')
-            if (open && !values.page && !values.pageLoading) {
-                actions.loadPullRequests()
-            }
-        },
-    })),
+            cache.inProgressPollArmed = true
+            cache.disposables.add(() => {
+                const interval = setInterval(() => {
+                    if (!values.pageLoading) {
+                        actions.loadPullRequests()
+                    }
+                }, PR_IN_PROGRESS_POLL_INTERVAL_MS)
+                return () => clearInterval(interval)
+            }, 'inProgressPoll')
+        }
+
+        return {
+            loadPullRequestsSuccess: (_, __, ___, previousState) => {
+                const previousResults = selectors.page(previousState)?.results ?? []
+                const settledFromInProgress = (values.page?.results ?? []).some((pr) => {
+                    const priorStatus = previousResults.find((row) => row.url === pr.url)?.report?.status
+                    return priorStatus === 'in_progress' && pr.report?.status !== 'in_progress'
+                })
+                if (settledFromInProgress) {
+                    monitoringTabLogic.findMounted()?.actions.loadReports()
+                }
+                syncInProgressPoll()
+            },
+            monitorPRDone: () => {
+                syncInProgressPoll()
+            },
+            openComposer: () => {
+                capturePRAction('open_composer')
+            },
+            monitorPR: async ({ url, note }) => {
+                cache.inFlightUrls ??= new Set<string>()
+                if (cache.inFlightUrls.has(url)) {
+                    return
+                }
+                const projectId = resolveProjectId(values.currentProjectId)
+                if (!projectId) {
+                    actions.monitorPRDone(url, null)
+                    return
+                }
+                cache.inFlightUrls.add(url)
+                const trimmedNote = (note ?? values.draftNotes[url] ?? '').trim()
+                capturePRAction('submit_monitor', { has_note: Boolean(trimmedNote) })
+                try {
+                    const result = await signalsMonitorPrCreate(
+                        projectId,
+                        trimmedNote ? { pr_url: url, note: trimmedNote } : { pr_url: url }
+                    )
+                    actions.monitorPRDone(url, result)
+                    monitoringTabLogic.findMounted()?.actions.loadReports()
+                } catch (err: any) {
+                    lemonToast.error(
+                        err?.data?.detail || err?.detail || 'Could not start monitoring for this pull request.'
+                    )
+                    actions.monitorPRDone(url, null)
+                } finally {
+                    cache.inFlightUrls.delete(url)
+                }
+            },
+            setPanelOpen: ({ open }) => {
+                capturePRAction(open ? 'open_panel' : 'close_panel')
+                if (open && !values.page && !values.pageLoading) {
+                    actions.loadPullRequests()
+                }
+                syncInProgressPoll()
+            },
+        }
+    }),
     afterMount(({ actions, values }) => {
         if (values.panelOpen) {
             actions.loadPullRequests()

@@ -7,7 +7,7 @@ import { initKeaTests } from '~/test/init'
 import type { PRBrowserItemApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { monitoringTabLogic } from './monitoringTabLogic'
-import { pullRequestsLogic } from './pullRequestsLogic'
+import { PR_IN_PROGRESS_POLL_INTERVAL_MS, pullRequestsLogic } from './pullRequestsLogic'
 
 const PULL_REQUESTS_URL = '/api/projects/:team_id/signals/pull_requests/'
 const MONITOR_PR_URL = '/api/projects/:team_id/signals/monitor_pr/'
@@ -234,5 +234,60 @@ describe('pullRequestsLogic', () => {
         logic.actions.loadPullRequests()
         await expectLogic(logic).toDispatchActions(['loadPullRequestsFailure'])
         expect(logic.values.listError).toBe(true)
+    })
+
+    it('polls while a PR research pass is in progress and stops once it settles', async () => {
+        jest.useFakeTimers({
+            doNotFake: ['Date', 'performance', 'queueMicrotask', 'setTimeout', 'clearTimeout'],
+        })
+        const monitoringLogic = monitoringTabLogic()
+        try {
+            let pollCount = 0
+            useMocks({
+                get: {
+                    [PULL_REQUESTS_URL]: () => {
+                        pollCount += 1
+                        return [
+                            200,
+                            {
+                                results: [
+                                    makePR(1, {
+                                        report: {
+                                            id: 'rep-1',
+                                            status: pollCount < 2 ? 'in_progress' : 'pending_input',
+                                        },
+                                    }),
+                                ],
+                                github_login: 'example-author',
+                                has_integration: true,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            monitoringLogic.mount()
+            await expectLogic(monitoringLogic).toFinishAllListeners()
+            const loadsBeforeSettle = reportLoads
+
+            logic = pullRequestsLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
+            expect(logic.values.page?.results[0].report?.status).toBe('in_progress')
+
+            jest.advanceTimersByTime(PR_IN_PROGRESS_POLL_INTERVAL_MS)
+            await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
+            expect(logic.values.page?.results[0].report?.status).toBe('pending_input')
+            await expectLogic(monitoringLogic).toFinishAllListeners()
+            expect(reportLoads).toBeGreaterThan(loadsBeforeSettle)
+
+            const pollsAfterSettle = pollCount
+            jest.advanceTimersByTime(PR_IN_PROGRESS_POLL_INTERVAL_MS * 3)
+            await Promise.resolve()
+            expect(pollCount).toBe(pollsAfterSettle)
+        } finally {
+            monitoringLogic.unmount()
+            jest.useRealTimers()
+        }
     })
 })

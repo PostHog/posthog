@@ -20,6 +20,7 @@ import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { prMonitoringGuidanceLogic } from '../../logics/prMonitoringGuidanceLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { inboxReportBackLabel } from '../../utils/inboxReportUrls'
@@ -38,7 +39,7 @@ import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ReportSpendSection } from '../spend/ReportSpendSection'
-import { CommitContent } from './artefactTypes'
+import { CommitContent, isPrMonitoringReport } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { ImplementButton } from './ImplementButton'
 import { OpenPullRequestButton } from './OpenPullRequestButton'
@@ -60,6 +61,7 @@ import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportNotesSection } from './ReportNotesSection'
 import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { PrMonitoringSetupStatus, ReportPrMonitoringCard } from './ReportPrMonitoringCard'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
@@ -111,6 +113,36 @@ function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
                 </div>
             ))}
         </div>
+    )
+}
+
+function PrMonitoringGuidanceSection({
+    report,
+    prUrl,
+    status,
+    disabledReason,
+}: {
+    report: SignalReport
+    prUrl: string
+    status: PrMonitoringSetupStatus
+    disabledReason?: string
+}): JSX.Element {
+    const logic = prMonitoringGuidanceLogic({ reportId: report.id, report })
+    const { draftNote, guidanceQuestion, latestResearchTask, reportArtefactsLoading, submitting } = useValues(logic)
+    const { openLatestResearchRun, setDraftNote, submitGuidance } = useActions(logic)
+    return (
+        <ReportPrMonitoringCard
+            status={status}
+            guidanceQuestion={guidanceQuestion}
+            artefactsLoading={reportArtefactsLoading}
+            draftNote={draftNote}
+            submitting={submitting}
+            disabledReason={disabledReason}
+            hasResearchRun={Boolean(latestResearchTask?.task.latest_run)}
+            onChangeNote={setDraftNote}
+            onSubmit={() => submitGuidance(prUrl)}
+            onViewResearchRun={openLatestResearchRun}
+        />
     )
 }
 
@@ -254,6 +286,7 @@ export function InboxDetailFrame({
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
+        reportArtefacts,
         selectedPullRequest,
     } = useValues(inboxReportDetailLogic(logicProps))
     const {
@@ -278,8 +311,9 @@ export function InboxDetailFrame({
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
+    const activeReport = currentReport ?? report
     const summaryPending =
-        report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
+        activeReport.status === SignalReportStatus.IN_PROGRESS || activeReport.status === SignalReportStatus.CANDIDATE
 
     // Reading depth on the report body: which supporting sections a reader actually opened.
     const captureSectionToggle = (section: string) => (collapsed: boolean) =>
@@ -336,21 +370,42 @@ export function InboxDetailFrame({
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
+    const prMonitoringEnabled = useFeatureFlag('SIGNALS_MONITOR_PR')
     const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
-    const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
+    const primaryMetric = metricsEnabled ? activeReport.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
-        ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
+        ? (activeReport.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
     const hasMeasurements = reportChecks?.some(
         (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
     )
+    const prMonitoringSetupStatus: PrMonitoringSetupStatus | null =
+        activeReport.status === SignalReportStatus.IN_PROGRESS ||
+        activeReport.status === SignalReportStatus.PENDING_INPUT ||
+        activeReport.status === SignalReportStatus.FAILED
+            ? activeReport.status
+            : null
+    const showPrMonitoringCard = Boolean(
+        prMonitoringEnabled &&
+        pullRequest?.prUrl &&
+        prMonitoringSetupStatus &&
+        !hasMeasurements &&
+        isPrMonitoringReport(activeReport, reportArtefacts, true)
+    )
     const expectedImpact =
-        monitoringEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
-            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
+        !showPrMonitoringCard &&
+        monitoringEnabled &&
+        !summaryPending &&
+        (reportChecks === null || reportChecksError || hasMeasurements) ? (
+            <ReportExpectedImpact report={activeReport} reportUrl={reportUrl} />
         ) : null
-    const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
+    const planBlock = activeReport.plan ? <ReportPlanBlock reportId={report.id} plan={activeReport.plan} /> : null
+    const prMonitoringDisabledReason =
+        selectedPullRequest.state === 'closed' && !selectedPullRequest.merged
+            ? 'Closed pull requests cannot be monitored'
+            : undefined
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
@@ -370,9 +425,9 @@ export function InboxDetailFrame({
 
             <ReportChartsContext.Provider value={chartsById}>
                 <div>
-                    {report.summary ? (
+                    {activeReport.summary ? (
                         <ReportSummaryBody
-                            summary={report.summary}
+                            summary={activeReport.summary}
                             chartPlacements={chartPlacements}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
@@ -399,6 +454,14 @@ export function InboxDetailFrame({
                     )}
                 </div>
             </ReportChartsContext.Provider>
+            {showPrMonitoringCard && pullRequest && prMonitoringSetupStatus && (
+                <PrMonitoringGuidanceSection
+                    report={activeReport}
+                    prUrl={pullRequest.prUrl}
+                    status={prMonitoringSetupStatus}
+                    disabledReason={prMonitoringDisabledReason}
+                />
+            )}
             {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 {notesEnabled && <ReportNotesSection report={report} />}

@@ -7,10 +7,12 @@ import { identifierToHuman } from 'lib/utils/strings'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SignalReportArtefact } from '../../types'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 
 /** Built-in signals pipeline product identifier on a `task_run` artefact. */
 export const SIGNALS_PRODUCT = 'signals'
+export const PR_MONITORING_NOTE_AUTHOR = 'PR monitoring'
+export const PR_MONITORING_REPO_REASON = 'Repository of the pull request selected for monitoring.'
 
 // ── Per-type content shapes (read defensively; treat every field as possibly absent) ─────────
 
@@ -345,11 +347,61 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
         (artefact) =>
             artefact.type !== 'implementation_dispatch' &&
             artefact.type !== 'impact_measurement_plan' &&
+            artefact.type !== 'check_authoring' &&
+            artefact.type !== 'reviewer_corrections' &&
+            artefact.type !== 'pr_owner_assignment' &&
             // The report shows its product suggestion under the evidence, so the log would only repeat it.
             artefact.type !== 'source_suggestion' &&
             (artefact.type !== 'implementation_handover' ||
                 (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )
+}
+
+export function isPrMonitoringReport(
+    report: SignalReport | null,
+    artefacts: SignalReportArtefact[] | null,
+    hasPr: boolean
+): boolean {
+    if (!report || !hasPr || report.signal_count > 0) {
+        return false
+    }
+    const summaryMatches = Boolean(report.summary?.startsWith('Post-merge impact check for '))
+    if (artefacts === null) {
+        return summaryMatches
+    }
+    return (
+        summaryMatches ||
+        artefacts.some(
+            (artefact) =>
+                (artefact.type === 'repo_selection' &&
+                    (artefact.content as RepoSelectionContent).reason === PR_MONITORING_REPO_REASON) ||
+                (artefact.type === 'note' &&
+                    artefact.actor_kind === 'system' &&
+                    (artefact.content as NoteContent).author === PR_MONITORING_NOTE_AUTHOR)
+        )
+    )
+}
+
+export function latestPrMonitoringGuidanceNote(
+    artefacts: SignalReportArtefact[] | null,
+    reportStatus: SignalReportStatus | undefined
+): string | null {
+    if (reportStatus !== SignalReportStatus.PENDING_INPUT || !artefacts) {
+        return null
+    }
+    const notes = artefacts.filter(
+        (artefact) =>
+            artefact.type === 'note' &&
+            artefact.actor_kind === 'system' &&
+            (artefact.content as NoteContent).author === PR_MONITORING_NOTE_AUTHOR &&
+            typeof (artefact.content as NoteContent).note === 'string' &&
+            Boolean((artefact.content as NoteContent).note.trim())
+    )
+    if (notes.length === 0) {
+        return null
+    }
+    const latest = notes.reduce((best, item) => (item.created_at > best.created_at ? item : best))
+    return (latest.content as NoteContent).note.trim()
 }
 
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────

@@ -77,10 +77,11 @@ function PullRequestRowAction({
                         loading={isMonitoring}
                         disabled={isMonitoring && !disabledReason}
                         disabledReason={disabledReason}
+                        // pinned: data-attr — renaming breaks Playwright selectors and autocapture
                         data-attr="inbox-pr-retry"
                         onClick={() => onToggleComposer(prUrl)}
                     >
-                        Retry
+                        {reportStatus === SignalReportStatus.PENDING_INPUT ? 'Guide' : 'Retry'}
                     </LemonButton>
                 )}
             </div>
@@ -114,7 +115,7 @@ function PullRequestRowAction({
 function PullRequestComposer({
     prUrl,
     draftNote,
-    isRetry,
+    reportStatus,
     isMonitoring,
     disabledReason,
     onChangeNote,
@@ -123,14 +124,23 @@ function PullRequestComposer({
 }: {
     prUrl: string
     draftNote: string
-    isRetry: boolean
+    reportStatus: SignalReportStatus | null
     isMonitoring: boolean
     disabledReason: string | undefined
     onChangeNote: (url: string, note: string) => void
     onCancel: () => void
     onSubmit: (url: string) => void
 }): JSX.Element {
-    const canSubmit = !isMonitoring && !disabledReason
+    const requiresGuidance = reportStatus === SignalReportStatus.PENDING_INPUT
+    const isRetry = reportStatus === SignalReportStatus.FAILED
+    const submitDisabledReason =
+        disabledReason ??
+        (requiresGuidance && !draftNote.trim()
+            ? 'Describe what to monitor first'
+            : draftNote.length > PR_MONITORING_NOTE_MAX_CHARS
+              ? 'Shorten the note first'
+              : undefined)
+    const canSubmit = !isMonitoring && !submitDisabledReason
     return (
         <div data-attr="inbox-pr-composer" className="flex flex-col gap-2 pl-6 pr-1.5">
             <LemonTextArea
@@ -142,9 +152,13 @@ function PullRequestComposer({
                 className="text-xs"
                 value={draftNote}
                 disabled={isMonitoring}
-                aria-label="Optional monitoring guidance"
+                aria-label={requiresGuidance ? 'Monitoring guidance' : 'Optional monitoring guidance'}
                 data-attr="inbox-pr-note-input"
-                placeholder="Optional: what metric or flow should PostHog watch? Leave blank to pick automatically."
+                placeholder={
+                    requiresGuidance
+                        ? 'Tell PostHog which event, action, or proxy metric to watch'
+                        : 'Optional: what metric or flow should PostHog watch? Leave blank to pick automatically.'
+                }
                 onChange={(value) => onChangeNote(prUrl, value)}
                 onPressCmdEnter={() => {
                     if (canSubmit) {
@@ -172,12 +186,12 @@ function PullRequestComposer({
                     size="xsmall"
                     type="primary"
                     loading={isMonitoring}
-                    disabled={isMonitoring && !disabledReason}
-                    disabledReason={disabledReason}
+                    disabled={isMonitoring && !submitDisabledReason}
+                    disabledReason={submitDisabledReason}
                     data-attr="inbox-pr-submit-monitor"
                     onClick={() => onSubmit(prUrl)}
                 >
-                    {isRetry ? 'Retry research' : 'Start monitoring'}
+                    {requiresGuidance ? 'Run with guidance' : isRetry ? 'Retry research' : 'Start monitoring'}
                 </LemonButton>
             </div>
         </div>
@@ -194,7 +208,7 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
         pr.monitoring_disabled_reason ??
         (pr.state === 'closed' ? 'Closed pull requests cannot be monitored' : undefined)
     const reportStatus = pr.report ? (pr.report.status as SignalReportStatus) : null
-    const reportId = pr.report && reportStatus !== SignalReportStatus.FAILED ? pr.report.id : null
+    const reportId = pr.report ? pr.report.id : null
 
     const summary = (
         <>
@@ -263,7 +277,7 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
                 <PullRequestComposer
                     prUrl={pr.url}
                     draftNote={draftNotes[pr.url] ?? ''}
-                    isRetry={isRetryablePRStatus(reportStatus)}
+                    reportStatus={reportStatus}
                     isMonitoring={isMonitoring}
                     disabledReason={disabledReason}
                     onChangeNote={setDraftNote}

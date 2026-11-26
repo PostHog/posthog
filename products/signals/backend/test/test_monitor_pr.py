@@ -30,15 +30,19 @@ from products.signals.backend.models import (
     SignalTeamConfig,
 )
 from products.signals.backend.monitor_pr import (
+    PR_MONITORING_NOTE_AUTHOR,
     PR_RESEARCH_DAILY_ATTEMPT_LIMIT,
     MonitorPRInput,
-    PRMonitoringOutput,
     fail_monitoring_research,
-    finish_monitoring_research,
     load_pull_request,
     monitor_key,
 )
-from products.signals.backend.monitor_pr_research import _context, research_pull_request
+from products.signals.backend.monitor_pr_research import (
+    PRMonitoringOutput,
+    _context,
+    finish_monitoring_research,
+    research_pull_request,
+)
 from products.signals.backend.presentation.monitor_pr import MonitorPRRequestSerializer
 from products.signals.backend.pull_requests import update_pull_request_state
 from products.signals.backend.report_claims import get_active_claim
@@ -91,6 +95,30 @@ class TestPRMonitoringOutputValidation(SimpleTestCase):
                 "baseline_without_period",
                 lambda payload: payload["check"]["config"].update(baseline_value=90),
             ),
+            (
+                "unavailable_without_guidance_question",
+                lambda payload: payload.update(metric=None, check=None, unavailable=True, guidance_question=None),
+            ),
+            (
+                "unavailable_with_blank_guidance_question",
+                lambda payload: payload.update(metric=None, check=None, unavailable=True, guidance_question="   "),
+            ),
+            (
+                "unavailable_with_control_chars",
+                lambda payload: payload.update(
+                    metric=None,
+                    check=None,
+                    unavailable=True,
+                    guidance_question="Which event should we watch?\x00",
+                ),
+            ),
+            (
+                "unavailable_with_metric_present",
+                lambda payload: payload.update(
+                    unavailable=True,
+                    guidance_question="Which metric should we watch?",
+                ),
+            ),
         ]
     )
     def test_rejects_invalid_monitoring_check_definitions(self, _name, mutate):
@@ -98,6 +126,23 @@ class TestPRMonitoringOutputValidation(SimpleTestCase):
         mutate(payload)
         with self.assertRaises(ValidationError):
             PRMonitoringOutput.model_validate(payload)
+
+    def test_normalizes_and_redacts_guidance_question(self):
+        unavailable = PRMonitoringOutput.model_validate(
+            {
+                "inspected_commit": "a" * 40,
+                "unavailable": True,
+                "guidance_question": "  No direct event exists; candidate proxies are `checkout_started` (key phx_1234567890abcdef1234567890abcdef). Which should we watch?  ",
+            }
+        )
+        assert unavailable.guidance_question is not None
+        assert "phx_" not in unavailable.guidance_question
+        assert unavailable.guidance_question.startswith("No direct event exists;")
+
+        measured = PRMonitoringOutput.model_validate(
+            {**_valid_output_payload(), "guidance_question": "Ignored when a metric is supplied"}
+        )
+        assert measured.guidance_question is None
 
     def test_request_serializer_bounds_optional_note(self):
         default_serializer = MonitorPRRequestSerializer(data={"pr_url": PR_URL})
@@ -227,8 +272,16 @@ class TestMonitorPR(APIBaseTest):
         if scenario == "merged_during_research":
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
         pr = load_pull_request(self.team.id, PR_URL)
+        guidance_question = (
+            "No dedicated event tracks coupon drawer dismissals in this project. "
+            "Candidate proxy events are `checkout_started` and `cart_viewed`. Which metric should PostHog watch?"
+        )
         output = (
-            PRMonitoringOutput(inspected_commit="a" * 40, unavailable=True)
+            PRMonitoringOutput(
+                inspected_commit="a" * 40,
+                unavailable=True,
+                guidance_question=guidance_question,
+            )
             if scenario == "unmeasurable"
             else self.output()
         )
@@ -243,6 +296,12 @@ class TestMonitorPR(APIBaseTest):
         if scenario == "unmeasurable":
             assert report.status == SignalReport.Status.PENDING_INPUT
             assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=report).exists()
+            artefacts_res = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/")
+            assert artefacts_res.status_code == 200
+            notes = [row for row in artefacts_res.json()["results"] if row["type"] == "note"]
+            assert len(notes) == 1
+            assert notes[0]["actor_kind"] == "system"
+            assert notes[0]["content"] == {"note": guidance_question, "author": PR_MONITORING_NOTE_AUTHOR}
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
             update_pull_request_state(
                 team_id=self.team.id, repository="example/widget", number=42, state="merged", merged_at=merged_at
@@ -327,6 +386,13 @@ class TestMonitorPR(APIBaseTest):
         fail_monitoring_research(inputs)
         report.refresh_from_db()
         assert report.status == SignalReport.Status.FAILED
+        failure_notes = list(
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.NOTE).values_list(
+                "actor_kind", "content"
+            )
+        )
+        assert len(failure_notes) == 1 and failure_notes[0][0] == "system"
+        assert PR_MONITORING_NOTE_AUTHOR in failure_notes[0][1]
 
         restarted, retried_inputs = self.request_report(expected_status=202, url=child_url)
         assert self.dispatched[-1][0] != first_workflow_id
@@ -764,7 +830,15 @@ class TestMonitorPR(APIBaseTest):
     def test_unmeasured_retries_parent_inbox_access_and_daily_project_cap(self):
         report, inputs = self.request_report()
         pr = load_pull_request(self.team.id, PR_URL)
-        finish_monitoring_research(inputs, PRMonitoringOutput(inspected_commit="a" * 40, unavailable=True), pr)
+        finish_monitoring_research(
+            inputs,
+            PRMonitoringOutput(
+                inspected_commit="a" * 40,
+                unavailable=True,
+                guidance_question="Which event should PostHog monitor for this pull request?",
+            ),
+            pr,
+        )
         report.refresh_from_db()
         assert report.status == SignalReport.Status.PENDING_INPUT
 

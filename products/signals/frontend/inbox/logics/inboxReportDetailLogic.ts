@@ -2473,6 +2473,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             })
             if (settled) {
                 actions.loadReportChecks()
+                if (!values.reportArtefactsLoading) {
+                    actions.loadReportArtefacts()
+                }
                 refreshSelectedReport(props.reportId)
             }
         },
@@ -2572,6 +2575,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Auto-disposed on unmount / hidden tab.
         cache.disposables.add(() => {
             const interval = setInterval(() => {
+                if (values.report?.status === SignalReportStatus.IN_PROGRESS) {
+                    refreshSelectedReport(props.reportId)
+                }
                 if (!values.shouldPollReportTasks || values.reportArtefactsLoading) {
                     return
                 }
