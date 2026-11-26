@@ -16,14 +16,14 @@ operations = [
     run_sql_with_exceptions(DROP_EMAIL_STATUS_EVENTS_MV_SQL(), node_roles=[NodeRole.AUX]),
     run_sql_with_exceptions(DROP_KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL(), node_roles=[NodeRole.AUX]),
     run_sql_with_exceptions(
-        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL(),
+        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL,
         node_roles=[NodeRole.AUX],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
     # A Distributed table stores no rows, so every node that has one changes its own copy.
     run_sql_with_exceptions(
-        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL(),
+        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL,
         node_roles=[NodeRole.AUX, NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,

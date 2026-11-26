@@ -1,5 +1,3 @@
-from collections.abc import Callable
-
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
@@ -235,10 +233,11 @@ ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
 ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"
 
 _ADD_PROVIDER_MESSAGE_ID_SQL = "ADD COLUMN IF NOT EXISTS provider_message_id String AFTER scheduled_at"
-ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL: Callable[[], str] = lambda: (
+# alter_sync = 2 waits until every replica has the column, because the view recreated next selects it on each replica.
+ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL = (
     f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_PROVIDER_MESSAGE_ID_SQL}, "
-    f"ADD INDEX IF NOT EXISTS {_PROVIDER_MESSAGE_ID_INDEX}"
+    f"ADD INDEX IF NOT EXISTS {_PROVIDER_MESSAGE_ID_INDEX} SETTINGS alter_sync = 2"
 )
-ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL: Callable[[], str] = lambda: (
+ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL = (
     f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_PROVIDER_MESSAGE_ID_SQL}"
 )

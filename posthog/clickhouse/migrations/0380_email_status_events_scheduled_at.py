@@ -2,6 +2,8 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from products.messaging.backend.facade.clickhouse import (
+    ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL,
+    ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL,
     ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL,
     ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL,
     DROP_EMAIL_STATUS_EVENTS_MV_SQL,
@@ -24,6 +26,20 @@ operations = [
     # A Distributed table stores no rows, so every node that has one changes its own copy.
     run_sql_with_exceptions(
         ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL(),
+        node_roles=[NodeRole.AUX, NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=False,
+    ),
+    # The view below selects every column the table family has today, so a database that runs this migration late
+    # also needs the columns of later migrations first. Those migrations skip what is already there.
+    run_sql_with_exceptions(
+        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL,
+        node_roles=[NodeRole.AUX],
+        sharded=False,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL,
         node_roles=[NodeRole.AUX, NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
