@@ -192,9 +192,9 @@ describe('counter drift', () => {
         ],
         [
             'records why the drift is unknown when ClickHouse could not say what feeds the counters',
-            { counters: { counted: counted() } },
+            { counters: { counted: counted(), consumersUnread: 'ClickHouse answered the consumer read with 503' } },
             'email_sent',
-            /could not say how many Kafka tables/,
+            /could not say how many Kafka tables feed app_metrics2 \(ClickHouse answered the consumer read with 503\)/,
         ],
         [
             'records why the truth could not be read',
@@ -249,9 +249,9 @@ describe('reading the counters', () => {
             2,
         ],
         [
-            'leaves the feeding Kafka tables out when ClickHouse cannot say',
+            'keeps why ClickHouse could not say which Kafka tables feed the counters',
             [counted({ email_sent: 2 })],
-            { counted: counted({ email_sent: 2 }) },
+            { counted: counted({ email_sent: 2 }), consumersUnread: 'ClickHouse answered the consumer read with 503' },
             new Error('ClickHouse answered the consumer read with 503'),
         ],
         [

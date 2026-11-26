@@ -8,7 +8,9 @@ import { isAccepted, owedOf } from './invariants'
 import type { JournalEntry } from './judge'
 import type { MeasurementDefinition } from './measurements'
 
-export type CounterReading = { counted: Counted; consumers?: number; incomplete?: true } | { unread: string }
+export type CounterReading =
+    | { counted: Counted; consumers?: number; consumersUnread?: string; incomplete?: true }
+    | { unread: string }
 
 export type CounterRead = { withinMs: number; quietMs: number; pollMs: number }
 
@@ -75,9 +77,15 @@ export async function readCounters(
     return { ...(await fedBy(probe, last)), incomplete: true }
 }
 
-const fedBy = async (probe: CounterProbe, counted: Counted): Promise<{ counted: Counted; consumers?: number }> => {
-    const consumers = await probe.consumers().catch(() => undefined)
-    return { counted, ...(consumers !== undefined && { consumers }) }
+const fedBy = async (
+    probe: CounterProbe,
+    counted: Counted
+): Promise<{ counted: Counted; consumers?: number; consumersUnread?: string }> => {
+    try {
+        return { counted, consumers: await probe.consumers() }
+    } catch (error) {
+        return { counted, consumersUnread: messageOf(error) }
+    }
 }
 
 const unknown = (reason: string): { value: null; censored: true; unmeasured: string } => ({
@@ -114,7 +122,7 @@ export const counterDrift: MeasurementDefinition = {
         )
         const fedTwice = unknown(
             read?.consumers === undefined
-                ? 'ClickHouse could not say how many Kafka tables feed app_metrics2, so a count could land more than once'
+                ? `ClickHouse could not say how many Kafka tables feed app_metrics2${read?.consumersUnread ? ` (${read.consumersUnread})` : ''}, so a count could land more than once`
                 : `ClickHouse feeds app_metrics2 from ${read.consumers} Kafka tables, not one, so the counts do not match the sends one to one`
         )
         const incomplete = read?.incomplete ? { incomplete: true as const } : {}
