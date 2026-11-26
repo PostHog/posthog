@@ -75,7 +75,10 @@ runs:
                       refuse(f"{path!r} is a submodule")
                   # The index stores a symlink's target string, not the target's contents, so a
                   # symlink is only hashed faithfully when it resolves into the hashed set.
+                  # A symlinked cargo config, or .cargo directory, would skip the [env] check below.
                   if mode == "120000":
+                      if ".cargo" in path.split("/"):
+                          refuse(f"cargo config {path!r} is a symlink")
                       resolved = os.path.realpath(os.path.join(root, path))
                       if os.path.commonpath([root, resolved]) != root or not inside_hashed(os.path.relpath(resolved, root)):
                           refuse(f"symlink {path!r} resolves outside the hashed sources")
