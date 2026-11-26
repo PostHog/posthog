@@ -440,15 +440,21 @@ class TableNode(BaseModel):
         child.copy_children_on_write()
         # Reentrant: a merge into an existing child calls add_child on that child.
         with _copy_on_write_lock:
-            shared = self.children
-            object.__setattr__(self, "children", dict(shared))
-            try:
-                self._add_child(
-                    child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
-                )
-            except BaseException:
-                object.__setattr__(self, "children", shared)
-                raise
+            self.__dict__.pop(_CI_INDEX_CACHE_KEY, None)
+            existing = self.children.get(child.name)
+            if existing is not None:
+                if children_conflict_mode == "merge":
+                    # Leaves this node's dict alone: the child's own dicts are copy-on-write.
+                    existing.merge_with(
+                        child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
+                    )
+                    return
+                if children_conflict_mode == "ignore":
+                    return
+            # The copy is complete before it is swapped in, so no reader can iterate it while it changes.
+            children = dict(self.children)
+            children[child.name] = child
+            object.__setattr__(self, "children", children)
 
     def _add_child(
         self,

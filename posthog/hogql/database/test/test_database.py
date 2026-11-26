@@ -5202,24 +5202,35 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with pytest.raises(ValueError):
                 Database.create_for(team_id=other_team.pk, team=self.team, user=self.user)
 
-    def test_a_sharing_scope_rebuilds_a_database_when_the_users_access_changes(self) -> None:
+    @parameterized.expand(
+        [
+            ("resource_denied", [], {"resource": "insight", "access_level": "none"}),
+            ("object_blocked", [], {"resource": "insight", "resource_id": "1", "access_level": "none"}),
+            (
+                # The resource is already denied, so the grant changes only the allowlist.
+                "object_allowlisted",
+                [{"resource": "insight", "access_level": "none"}],
+                {"resource": "insight", "resource_id": "1", "access_level": "viewer"},
+            ),
+        ]
+    )
+    def test_a_sharing_scope_rebuilds_a_database_when_the_users_access_changes(
+        self, _name: str, before_rows: list[dict[str, Any]], change: dict[str, Any]
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
+        for row in before_rows:
+            AccessControl.objects.create(team=self.team, organization_member=self.organization_membership, **row)
 
         with sharing_databases(SharedDatabases()):
             before = Database.create_for(
                 team=self.team, user=self.user, user_access_control=UserAccessControl(user=self.user, team=self.team)
             )
-            AccessControl.objects.create(
-                team=self.team,
-                resource="insight",
-                access_level="none",
-                organization_member=self.organization_membership,
-            )
+            AccessControl.objects.create(team=self.team, organization_member=self.organization_membership, **change)
             after = Database.create_for(
                 team=self.team, user=self.user, user_access_control=UserAccessControl(user=self.user, team=self.team)
             )
