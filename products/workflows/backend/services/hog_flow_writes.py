@@ -373,7 +373,13 @@ def _stage_revision_bump(
 
 def _refuse_change_to_sent_broadcast(locked: HogFlow, validated_data: dict) -> None:
     # Name, tags and status still change, so a sent broadcast can be renamed, stopped, archived and restored.
-    if broadcast_is_locked(locked) and _changes_content(locked, validated_data):
+    if not broadcast_is_locked(locked):
+        return
+    # Every save rewrites a stored exit condition the trigger never runs, so that rewrite is no edit.
+    runs = exit_condition_that_runs((locked.trigger or {}).get("type"), locked.exit_condition)
+    if validated_data.get("exit_condition") == runs:
+        validated_data = {**validated_data, "exit_condition": locked.exit_condition}
+    if _changes_content(locked, validated_data):
         raise BroadcastLocked()
 
 

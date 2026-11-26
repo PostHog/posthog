@@ -5791,7 +5791,8 @@ class _DeletedWorkflow:
 
 class SentBroadcastLockedError(exceptions.ValidationError):
     default_detail = (
-        "This broadcast already sent, so it can't be edited or sent again. Send it again as a new broadcast instead."
+        "This broadcast already started sending, so it can't be edited or sent again. Send it again as a new broadcast "
+        "instead."
     )
     default_code = "broadcast_locked"
 

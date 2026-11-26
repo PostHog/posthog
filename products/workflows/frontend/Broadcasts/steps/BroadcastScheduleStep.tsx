@@ -15,6 +15,7 @@ import { SendDayPicker } from '../../SendCalendar/SendDayPicker'
 import { describeRule, sendingRule } from '../../SendCalendar/sendSpacing'
 import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/components/EmailSendingRateLimitPicker'
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
+import { sendNowDisabledReason } from '../broadcastsLogic'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 
@@ -104,6 +105,8 @@ export function BroadcastScheduleStep(): JSX.Element {
         stepValidationErrors,
         channel,
         rateLimitMessage,
+        batchJobs,
+        hasLoadedBatchJobs,
     } = useValues(broadcastWizardLogic)
     const {
         setScheduleMode,
@@ -127,7 +130,11 @@ export function BroadcastScheduleStep(): JSX.Element {
                 value={scheduleMode}
                 onChange={setScheduleMode}
                 options={[
-                    { value: 'now', label: 'Send now' },
+                    {
+                        value: 'now',
+                        label: 'Send now',
+                        disabledReason: sendNowDisabledReason(hasLoadedBatchJobs ? batchJobs : null),
+                    },
                     { value: 'later', label: 'Send later' },
                     { value: 'recurring', label: 'Recurring' },
                 ]}

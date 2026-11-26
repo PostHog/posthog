@@ -30,6 +30,7 @@ from products.cohorts.backend.facade.api import (
 )
 from products.workflows.backend.facade.activity import log_workflow_activity
 from products.workflows.backend.facade.contracts import (
+    BroadcastLocked,
     CampaignSource,
     ImageBudget,
     ImportContent,
@@ -477,6 +478,8 @@ def import_campaign(
             )
     except WorkflowStale:
         return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
+    except BroadcastLocked:
+        return _skipped(result, previous.hog_flow_id, _SENT_BROADCAST)
     except IntegrityError:
         # Another request imported the same automation first, and the unique record rolled this one back.
         return {
@@ -542,6 +545,9 @@ def save_provider_draft(
 
 _NO_LONGER_DRAFT = (
     "This automation was imported before and that workflow is no longer a draft, so it was left unchanged."
+)
+_SENT_BROADCAST = (
+    "This automation was imported before and its broadcast already started sending, so it was left unchanged."
 )
 
 

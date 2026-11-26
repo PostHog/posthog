@@ -20,6 +20,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
     batch_job_audience_filters,
+    dispatch_new_batch_job,
     dispatch_queued_no_resolver,
 )
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -52,29 +53,29 @@ def create_batch_job(
     filters: dict[str, Any],
     status: HogFlowBatchJobState | None = None,
 ) -> WorkflowBatchJob:
-    """Save the job row. Its post_save receiver dispatches the run to the plugin server. Raises
-    BroadcastLocked for a broadcast that already sent."""
-    dispatch_error: Exception | None = None
+    """Save the job row, then dispatch the run to the plugin server. Raises BroadcastLocked for a broadcast
+    that already started sending."""
     # The workflow's row lock orders this check against another dispatch and against edits, which take it too.
     with transaction.atomic():
         hog_flow = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
         if broadcast_is_locked(hog_flow):
             raise BroadcastLocked()
-        try:
-            job = HogFlowBatchJob.objects.create(
-                id=batch_job_id,
-                team_id=team_id,
-                hog_flow_id=hog_flow_id,
-                created_by_id=created_by_id,
-                variables=variables,
-                filters=filters,
-                **({} if status is None else {"status": status}),
-            )
-        except Exception as error:
-            # Commit the job anyway: a dispatch that failed after the plugin server queued it still sends.
-            dispatch_error = error
-    if dispatch_error is not None:
-        raise dispatch_error
+        # bulk_create sends no post_save, so the row commits before the dispatch below. The resolver reads it
+        # over its own connection and gives up on a row it can't see.
+        (job,) = HogFlowBatchJob.objects.bulk_create(
+            [
+                HogFlowBatchJob(
+                    id=batch_job_id,
+                    team_id=team_id,
+                    hog_flow_id=hog_flow_id,
+                    created_by_id=created_by_id,
+                    variables=variables,
+                    filters=filters,
+                    **({} if status is None else {"status": status}),
+                )
+            ]
+        )
+    dispatch_new_batch_job(job)
     return to_batch_job(job)
 
 
@@ -83,7 +84,8 @@ SENDING_BATCH_JOB_STATES = (HogFlowBatchJobState.WAITING, HogFlowBatchJobState.Q
 
 def broadcast_is_locked(hog_flow: HogFlow) -> bool:
     """Whether a broadcast is the fixed record of what it sent: a run is sending, or a run started and no
-    schedule has a send still to come. A recurring broadcast between runs stays editable, as the broadcasts
+    schedule has a send still to come. A failed run counts, as the resolver can fail after it enqueued part of
+    the audience. A recurring broadcast between runs stays editable, as the broadcasts
     UI lets it go back to draft. A paused schedule still counts as to come, since editing a draft's audience
     pauses it."""
     if hog_flow.origin_product != HogFlow.OriginProduct.BROADCASTS:

@@ -149,39 +149,43 @@ def dispatch_queued_no_resolver(error: BaseException) -> bool:
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
-        realtime_cohort = realtime_audience_cohort(instance.team.project_id, batch_job_audience_filters(instance))
-        # The cohort's membership is partial until it finishes calculating, so its resolver parks until
-        # the cohort's ready signal resumes it.
-        wait_for_cohort = realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort)
-        if wait_for_cohort:
-            HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.WAITING)
-            instance.status = HogFlowBatchJobState.WAITING
-        snapshot_audience = realtime_cohort is None and batch_job_audience_type(instance) != "accounts"
-        try:
-            dispatch_batch_job(
-                instance, realtime_cohort, wait_for_cohort=wait_for_cohort, snapshot_audience=snapshot_audience
-            ).raise_for_status()
-        except Exception as e:
-            logger.exception(
-                "Failed to create batch hogflow job invocation",
-                batch_job_id=instance.id,
-                error=str(e),
-            )
-            # Nothing would ever move such a run on; any other failure leaves it stoppable.
-            if dispatch_queued_no_resolver(e):
-                HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.FAILED)
-                instance.status = HogFlowBatchJobState.FAILED
-            raise
-        if wait_for_cohort and realtime_cohort is not None:
-            # The cohort can finish between the check above and the park, and its ready signal then finds
-            # no parked resolver. A resume check after the park covers that; it does nothing while the
-            # cohort still calculates. A failed publish only logs, because the send is already accepted and a
-            # retried request would create a second run.
-            from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this model
-                resume_batch_jobs_waiting_for_realtime_cohort,
-            )
+        dispatch_new_batch_job(instance)
 
-            team_id, cohort_id = realtime_cohort.team_id, realtime_cohort.pk
-            transaction.on_commit(
-                lambda: resume_batch_jobs_waiting_for_realtime_cohort.delay(team_id, cohort_id), robust=True
-            )
+
+def dispatch_new_batch_job(instance: HogFlowBatchJob) -> None:
+    realtime_cohort = realtime_audience_cohort(instance.team.project_id, batch_job_audience_filters(instance))
+    # The cohort's membership is partial until it finishes calculating, so its resolver parks until
+    # the cohort's ready signal resumes it.
+    wait_for_cohort = realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort)
+    if wait_for_cohort:
+        HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.WAITING)
+        instance.status = HogFlowBatchJobState.WAITING
+    snapshot_audience = realtime_cohort is None and batch_job_audience_type(instance) != "accounts"
+    try:
+        dispatch_batch_job(
+            instance, realtime_cohort, wait_for_cohort=wait_for_cohort, snapshot_audience=snapshot_audience
+        ).raise_for_status()
+    except Exception as e:
+        logger.exception(
+            "Failed to create batch hogflow job invocation",
+            batch_job_id=instance.id,
+            error=str(e),
+        )
+        # Nothing would ever move such a run on; any other failure leaves it stoppable.
+        if dispatch_queued_no_resolver(e):
+            HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.FAILED)
+            instance.status = HogFlowBatchJobState.FAILED
+        raise
+    if wait_for_cohort and realtime_cohort is not None:
+        # The cohort can finish between the check above and the park, and its ready signal then finds
+        # no parked resolver. A resume check after the park covers that; it does nothing while the
+        # cohort still calculates. A failed publish only logs, because the send is already accepted and a
+        # retried request would create a second run.
+        from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this model
+            resume_batch_jobs_waiting_for_realtime_cohort,
+        )
+
+        team_id, cohort_id = realtime_cohort.team_id, realtime_cohort.pk
+        transaction.on_commit(
+            lambda: resume_batch_jobs_waiting_for_realtime_cohort.delay(team_id, cohort_id), robust=True
+        )

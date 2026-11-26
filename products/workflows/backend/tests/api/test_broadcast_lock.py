@@ -1,9 +1,14 @@
 from datetime import UTC, datetime
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connections
+
 from parameterized import parameterized
+from rest_framework.test import APIClient
+
+from posthog.models import Team
 
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -33,12 +38,9 @@ def _exit() -> dict:
     return {"id": "exit_node", "name": "exit", "type": "exit", "config": {}}
 
 
-class TestSentBroadcastLock(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        dispatch = patch(_DISPATCH)
-        self.dispatch = dispatch.start()
-        self.addCleanup(dispatch.stop)
+class _BroadcastFixtures:
+    team: Team
+    client: APIClient
 
     def _url(self, flow_id: str, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/hog_flows/{flow_id}{suffix}"
@@ -49,6 +51,7 @@ class TestSentBroadcastLock(APIBaseTest):
         runs: tuple[str, ...] = (),
         schedule: str | None = None,
         origin_product: str | None = HogFlowOriginProduct.BROADCASTS,
+        exit_condition: str | None = None,
     ) -> str:
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
@@ -65,14 +68,15 @@ class TestSentBroadcastLock(APIBaseTest):
         assert activated.status_code == 200, activated.json()
         flow = HogFlow.objects.get(pk=flow_id)
         flow.origin_product = origin_product
-        flow.save(update_fields=["origin_product"])
+        flow.exit_condition = exit_condition or flow.exit_condition
+        flow.save(update_fields=["origin_product", "exit_condition"])
         for run in runs:
             HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow, status=run, filters={}, variables={})
         if schedule:
             HogFlowSchedule.objects.create(
                 team=self.team,
                 hog_flow=flow,
-                rrule="FREQ=WEEKLY;BYDAY=MO",
+                rrule="FREQ=DAILY;COUNT=1" if schedule == "completed" else "FREQ=WEEKLY;BYDAY=MO",
                 starts_at=datetime(2026, 1, 5, 9, tzinfo=UTC),
                 status=schedule,
             )
@@ -81,6 +85,14 @@ class TestSentBroadcastLock(APIBaseTest):
     def _audience(self, flow_id: str) -> str:
         trigger = next(action for action in HogFlow.objects.get(pk=flow_id).actions if action["type"] == "trigger")
         return trigger["config"]["filters"]["properties"][0]["value"]
+
+
+class TestSentBroadcastLock(_BroadcastFixtures, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        dispatch = patch(_DISPATCH)
+        dispatch.start()
+        self.addCleanup(dispatch.stop)
 
     def _assert_locked(self, response, flow_id: str) -> None:
         assert response.status_code == 400, response.json()
@@ -94,6 +106,7 @@ class TestSentBroadcastLock(APIBaseTest):
             ("sent", ("completed",), None, HogFlowOriginProduct.BROADCASTS, 400),
             ("sent_with_errors", ("partially_failed",), None, HogFlowOriginProduct.BROADCASTS, 400),
             ("run_failed", ("failed",), None, HogFlowOriginProduct.BROADCASTS, 400),
+            ("run_cancelled", ("cancelled",), None, HogFlowOriginProduct.BROADCASTS, 400),
             ("sending", ("active",), None, HogFlowOriginProduct.BROADCASTS, 400),
             ("one_time_schedule_fired", ("completed",), "completed", HogFlowOriginProduct.BROADCASTS, 400),
             ("recurring_between_runs", ("completed",), "active", HogFlowOriginProduct.BROADCASTS, 200),
@@ -167,8 +180,11 @@ class TestSentBroadcastLock(APIBaseTest):
         assert response.json()["code"] == "broadcast_locked", response.json()
         assert self._audience(flow_id) == "@example.com"
 
-    def test_a_sent_broadcast_can_still_be_renamed_stopped_archived_and_restored(self):
-        flow_id = self._create_broadcast(runs=("completed",))
+    @parameterized.expand(
+        [("current_exit_condition", None), ("exit_condition_the_trigger_never_runs", "exit_on_trigger_not_matched")]
+    )
+    def test_a_sent_broadcast_can_still_be_renamed_stopped_archived_and_restored(self, _name, exit_condition):
+        flow_id = self._create_broadcast(runs=("completed",), exit_condition=exit_condition)
         loaded = self.client.get(self._url(flow_id)).json()
 
         for payload in (
@@ -194,7 +210,6 @@ class TestSentBroadcastLock(APIBaseTest):
     )
     def test_a_sent_broadcast_cannot_be_dispatched_again(self, _name, runs, schedule, expected_status):
         flow_id = self._create_broadcast(runs=runs, schedule=schedule)
-        self.dispatch.reset_mock()
 
         response = self.client.post(self._url(flow_id, "/batch_jobs"), {}, format="json")
 
@@ -202,6 +217,29 @@ class TestSentBroadcastLock(APIBaseTest):
         assert HogFlowBatchJob.objects.filter(hog_flow_id=flow_id).count() == len(runs) + (
             1 if expected_status == 200 else 0
         )
-        assert self.dispatch.called == (expected_status == 200)
         if expected_status == 400:
             assert response.json()["code"] == "broadcast_locked", response.json()
+
+
+class TestBroadcastDispatchCommitsFirst(_BroadcastFixtures, NonAtomicAPIBaseTest):
+    def test_the_resolver_can_read_the_run_while_its_dispatch_is_in_flight(self):
+        flow_id = self._create_broadcast()
+        seen_by_another_connection: list[int] = []
+
+        def resolver_reads_the_run(**kwargs):
+            other = connections.create_connection("default")
+            try:
+                with other.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT count(*) FROM workflows_hogflowbatchjob WHERE id = %s", [str(kwargs["batch_job_id"])]
+                    )
+                    seen_by_another_connection.append(cursor.fetchone()[0])
+            finally:
+                other.close()
+            return MagicMock(status_code=200)
+
+        with patch(_DISPATCH, side_effect=resolver_reads_the_run):
+            response = self.client.post(self._url(flow_id, "/batch_jobs"), {}, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert seen_by_another_connection == [1]

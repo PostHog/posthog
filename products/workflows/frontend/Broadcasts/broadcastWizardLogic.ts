@@ -2835,9 +2835,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             actions.hydrateFromBroadcast(broadcast)
-            if (broadcast.status !== 'draft') {
-                actions.loadBatchJobs()
-            }
+            actions.loadBatchJobs()
         },
         hydrateFromBroadcast: ({ broadcast }) => {
             if (values.broadcast?.status !== 'draft') {
