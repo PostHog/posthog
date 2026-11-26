@@ -51,6 +51,7 @@ import {
     startStack,
     syncTemplates,
     terminateRoleConnections,
+    untilMigrated,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
 import {
@@ -68,7 +69,11 @@ export type { RoleExit } from './supervisor'
 
 export interface Environment {
     up(signal: AbortSignal): Promise<void>
-    reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
+    reset(
+        settings: Profile['settings'],
+        replicas?: Replicas,
+        through?: { cyclotronThroughEdge?: boolean }
+    ): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
@@ -107,6 +112,7 @@ const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
 const EDGE = { port: EDGE_PORT, owner: 'provider edge' }
 const TEMPLATES_WITHIN_MS = 120_000
+const MIGRATED_WITHIN_MS = 60_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
 const GROUPS_EMPTY_WITHIN_MS = 45_000
@@ -188,6 +194,15 @@ async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Act
     }
 }
 
+// The edge's proxy for each Cyclotron database the roles reach on their own.
+export async function proxiesOf(
+    pgProxyOf: EdgeProcess['pgProxyOf'],
+    direct: RoleSpec[]
+): Promise<Record<string, string>> {
+    const databases = [...new Set(direct.map(cyclotronUrlOf))]
+    return Object.fromEntries(await Promise.all(databases.map(async (url) => [url, await pgProxyOf(url)])))
+}
+
 export function createEnvironment({
     hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
     docker = 'docker',
@@ -234,10 +249,10 @@ export function createEnvironment({
             }
         },
 
-        async reset(settings, replicas = {}) {
+        async reset(settings, replicas = {}, through = {}) {
             const edge = startedEdge('reset')
             try {
-                await resetRoles(edge, settings, replicas)
+                await resetRoles(edge, settings, replicas, through.cyclotronThroughEdge === true)
             } catch (error) {
                 await stop()
                 throw error
@@ -328,11 +343,22 @@ export function createEnvironment({
         return edge
     }
 
-    async function resetRoles(edge: EdgeProcess, settings: Profile['settings'], replicas: Replicas): Promise<void> {
+    async function resetRoles(
+        edge: EdgeProcess,
+        settings: Profile['settings'],
+        replicas: Replicas,
+        cyclotronThroughEdge: boolean
+    ): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
-        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const direct = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const specs = cyclotronThroughEdge
+            ? roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, {
+                  urls: await proxiesOf(edge.pgProxyOf, direct),
+                  fallback: STACK.cyclotronNodeUrl,
+              })
+            : direct
         running = specs
         launched = specs
         await createTopics(intakeTopicsOf(specs), docker)
@@ -409,7 +435,7 @@ export function createEnvironment({
             throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(hogli, stateDir, env, signal)
+        await startStack(hogli, docker, stateDir, env, signal)
         const planned = roleSpecs(
             env,
             { url: `http://127.0.0.1:${EDGE_PORT}` },
@@ -417,6 +443,15 @@ export function createEnvironment({
             stateDir,
             {},
             sesRateLimiterValkey
+        )
+        await untilMigrated(
+            [
+                { url: postgresUrl, table: 'posthog_hogfunctiontemplate' },
+                { url: cyclotronUrlOf(planned[0]), table: 'cyclotron_jobs' },
+            ],
+            MIGRATED_WITHIN_MS,
+            PROBE_INTERVAL_MS,
+            signal
         )
         await refuseHeldPorts([...portsOf(planned), EDGE])
         const groups = consumerGroupsOf(planned)

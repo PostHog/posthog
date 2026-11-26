@@ -43,13 +43,17 @@ function makeSeries(
     label: string,
     interval: 'hour' | 'day' | 'week',
     values: number[],
-    flaggedAgo: number[]
+    flaggedAgo: number[],
+    // The AI judge's verdict on a flagged bucket, by how many buckets ago it is.
+    verdicts: Record<number, Pick<AnomalySeriesPointApi, 'anomaly_kind' | 'anomaly_reason'>> = {}
 ): StorySeries {
     const step = { hour: HOUR_MS, day: DAY_MS, week: 7 * DAY_MS }[interval]
     const flagFrom = interval === 'week' ? WEEK_FLAG_FROM : FLAG_FROM
     const points = values.map((value, index) => {
         const ago = values.length - index
-        return { bucket_start: iso(NOW - ago * step), value, flag: flaggedAgo.includes(ago) }
+        const flag = flaggedAgo.includes(ago)
+        const verdict = (flag && verdicts[ago]) || { anomaly_kind: null, anomaly_reason: null }
+        return { bucket_start: iso(NOW - ago * step), value, flag, ...verdict }
     })
     const inFlagWindow = points.filter((point) => Date.parse(point.bucket_start) >= flagFrom)
     const flagged = inFlagWindow.filter((point) => point.flag)
@@ -76,7 +80,13 @@ function makeSeries(
             flagged_points: flagged
                 .slice()
                 .reverse()
-                .map((point) => ({ bucket_start: point.bucket_start, value: point.value, score: 4.2 })),
+                .map(({ bucket_start, value, anomaly_kind, anomaly_reason }) => ({
+                    bucket_start,
+                    value,
+                    score: 4.2,
+                    anomaly_kind,
+                    anomaly_reason,
+                })),
         },
     }
 }
@@ -133,7 +143,13 @@ const FLAGGED_SERIES = [
     makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', dailyValues(8, 5, { 2: 30 }), [2]),
     makeSeries(1, 'Signups by referrer', 'Direct', 'day', dailyValues(64, 50, { 17: 20, 3: 30, 2: 28 }), [17, 3, 2]),
     makeSeries(1, 'Signups by referrer', 'Partners', 'day', dailyValues(5, 3, { 2: 18 }), [2]),
-    makeSeries(4, 'Invites sent', 'Invites sent', 'day', dailyValues(120, 80, { 1: 310 }), [1]),
+    makeSeries(4, 'Invites sent', 'Invites sent', 'day', dailyValues(120, 80, { 1: 310 }), [1], {
+        1: {
+            anomaly_kind: 'spike',
+            anomaly_reason:
+                'The current value of 310 is more than twice the usual weekday level of about 120, with no similar jump in the last 4 weeks.',
+        },
+    }),
     makeSeries(
         2,
         'Checkout started',

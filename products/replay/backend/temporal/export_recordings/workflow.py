@@ -8,6 +8,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay.backend.temporal.export_recordings.activities import (
+    EXPORT_POOL_WAIT_SECONDS,
     check_destination,
     export_shard,
     load_day_viewports,
@@ -148,7 +149,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 wait_for_export_pool,
                 ExportPoolInput(run_id=input.run_id, shards=shards),
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(seconds=EXPORT_POOL_WAIT_SECONDS + 120),
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=common.RetryPolicy(maximum_attempts=2),
             )

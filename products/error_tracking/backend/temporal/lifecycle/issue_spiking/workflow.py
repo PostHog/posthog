@@ -5,6 +5,7 @@ from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.error_tracking.backend.temporal.lifecycle.change_log import LifecycleChangeInputs, record_lifecycle_change
 from products.error_tracking.backend.temporal.lifecycle.issue_spiking.types import (
     IssueSpikingSnapshot,
     IssueSpikingWorkflowInputs,
@@ -89,6 +90,20 @@ class ErrorTrackingIssueSpikingWorkflow(PostHogWorkflow):
             if workflow.patched(ALERT_DISPATCH_PATCH)
             else None
         )
+        change_log = asyncio.create_task(
+            record_lifecycle_change(
+                LifecycleChangeInputs(
+                    notification_id=inputs.notification_id,
+                    team_id=inputs.team_id,
+                    issue_id=inputs.issue_id,
+                    kind="spiking",
+                    event_uuid=inputs.event_uuid,
+                    event_timestamp=inputs.event_timestamp,
+                    computed_baseline=inputs.computed_baseline,
+                    current_bucket_value=inputs.current_bucket_value,
+                )
+            )
+        )
         try:
             await workflow.execute_activity(
                 "emit_issue_spiking_internal_event_activity",
@@ -105,4 +120,5 @@ class ErrorTrackingIssueSpikingWorkflow(PostHogWorkflow):
         finally:
             if dispatch is not None:
                 await dispatch
+            await change_log
         return IssueSpikingWorkflowResult(persisted=True, notified=True)

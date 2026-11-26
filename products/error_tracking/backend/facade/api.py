@@ -16,6 +16,7 @@ import posthoganalytics
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
@@ -29,6 +30,7 @@ from ..logic import (
     built_in_filters,
     external_references,
     github_external_references,
+    linear_external_references,
     rules,
     sentry_migration,
     team_flags,
@@ -927,6 +929,22 @@ def prepare_github_external_reference_jobs(
 
 def link_github_external_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
     return github_external_references.link_reference(job)
+
+
+def prepare_linear_external_reference_jobs(payload: dict[str, Any]) -> list[contracts.LinearExternalReferenceJob]:
+    return linear_external_references.prepare_jobs(payload)
+
+
+def link_linear_external_reference(job: contracts.LinearExternalReferenceJob) -> bool:
+    return linear_external_references.link_reference(job)
+
+
+def link_linear_external_references(jobs: list[contracts.LinearExternalReferenceJob]) -> list[bool]:
+    return linear_external_references.link_references(jobs)
+
+
+def linear_external_reference_delivery_ownership(payload: dict[str, Any]) -> DeliveryOwnership:
+    return linear_external_references.delivery_ownership(payload)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
