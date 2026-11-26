@@ -39,7 +39,7 @@ _MAILGUN_VARIABLE = re.compile(f"{_FIXED_VARIABLE.pattern}|{_RECIPIENT_VARIABLE.
 _FIXED_UNSUBSCRIBE = re.compile(r"%(?:unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url)%")
 # Looks like a Mailgun variable, but Mailgun fills nothing for it. Two hex digits are an encoded character in a link,
 # and a percent right after a number, as in 50%off%, is text.
-_PERCENT_TAG = re.compile(r"(?<!\w)%(?![0-9A-Fa-f]{2}%)[A-Za-z_][\w.-]{0,127}%")
+_PERCENT_TAG = re.compile(r"(?<![0-9])%(?![0-9A-Fa-f]{2}%)[A-Za-z_][\w.-]{0,127}%")
 # Stopping at the next `<` keeps the scan linear on markup that never closes a tag.
 _ANCHOR = re.compile(r"<a\b[^<>]{0,4000}+>", re.IGNORECASE)
 _ANCHOR_END = re.compile(r"</a\s*>", re.IGNORECASE)
@@ -113,14 +113,27 @@ def _unknown_variables(text: str) -> list[str]:
 def _browser_links(html_body: str) -> list[str]:
     """Each "view in browser" link, named by its address as written in the source."""
     found: list[str] = []
+    html_body = _without_comments(html_body)
     for anchor in _ANCHOR.finditer(html_body):
         end = _ANCHOR_END.search(html_body, anchor.end(), anchor.end() + 500)
-        text = " ".join(_MARKUP.sub(" ", html_body[anchor.end() : end.start()]).split()) if end else ""
+        label = html.unescape(_MARKUP.sub(" ", html_body[anchor.end() : end.start()])) if end else ""
+        text = " ".join(label.split())
         href = _HREF.search(anchor.group(0))
         address = next((group for group in href.groups() if group is not None), "").strip() if href else ""
         if _BROWSER_LINK_NAME.search(address) or _BROWSER_LINK_TEXT.search(text):
             found.append(address[:100] or f'"{text[:100]}"')
     return found
+
+
+def _without_comments(html_body: str) -> str:
+    kept: list[str] = []
+    position = 0
+    while (start := html_body.find("<!--", position)) >= 0:
+        kept.append(html_body[position:start])
+        end = html_body.find("-->", start + 4)
+        position = len(html_body) if end < 0 else end + 3
+    kept.append(html_body[position:])
+    return "".join(kept)
 
 
 def _too_many_values(text: str) -> bool:
@@ -189,7 +202,7 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     engine = detect_engine(version)
     raw_headers = version.get("headers")
     headers: Mapping[str, Any] = raw_headers if isinstance(raw_headers, dict) else {}
-    subject_source = str(_header(headers, "Subject") or "")
+    subject_source = str(_header(headers, "Subject") or "").replace("\x00", "")
     subject = convert_text(subject_source, engine=engine, is_html=False)
     body_source = version.get("template")
     body = convert_text(body_source if isinstance(body_source, str) else "", engine=engine)
@@ -198,7 +211,7 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     send_notes: list[str] = []
     named_engine = str(version.get("engine") or "").strip().lower()
 
-    body_text = body_source if isinstance(body_source, str) else ""
+    body_text = body_source.replace("\x00", "") if isinstance(body_source, str) else ""
     unsupported = list(dict.fromkeys(tag for part in parts for tag in part.unsupported))
     unknown = list(dict.fromkeys(_unknown_variables(subject_source) + _unknown_variables(body_text)))
     as_written = unknown if engine == "go" else unsupported + unknown

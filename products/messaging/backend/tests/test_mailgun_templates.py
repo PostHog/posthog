@@ -218,6 +218,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "can't convert %tag_name%, so the email shows it as written",
             ),
             (
+                "unknown_variable_joined_to_text",
+                {"template": '<a href="https://example.com/?id=ref%tracking_ref%">x</a>'},
+                "can't convert %tracking_ref%, so the email shows it as written",
+            ),
+            (
+                "browser_link_text_with_entities",
+                {"template": '<a href="https://example.com/m">View&nbsp;in&nbsp;your&nbsp;browser</a>'},
+                "no view in browser link, so the link to https://example.com/m isn't a PostHog page",
+            ),
+            (
                 "unknown_variable_right_after_a_known_one",
                 {"template": "<p>%recipient.a%%tag_name%</p>"},
                 "can't convert %tag_name%, so the email shows it as written",
@@ -264,6 +274,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 '<a href="https://example.com/preview-online">x</a>',
             ),
             ("printf_verbs_in_a_go_template", "go", '{{printf "%s%d" .x}}'),
+            (
+                "commented_out_browser_link",
+                "handlebars",
+                '<!-- <a href="https://example.com/m">View in browser</a> -->',
+            ),
         ]
     )
     def test_text_that_only_looks_like_a_tag_or_browser_link_gets_no_note(
@@ -272,6 +287,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         notes = convert_version({"template": template, "engine": engine, "headers": {"Subject": "Hi"}}).notes
 
         assert [note for note in notes if "Go templates" not in note and "whole template" not in note] == []
+
+    def test_a_browser_link_with_a_nul_byte_leaves_it_out_of_the_note(self) -> None:
+        notes = convert_version({"template": '<a href="https://example.com/\x00m">View in browser</a>'}).notes
+
+        assert any("the link to https://example.com/m isn't a PostHog page" in note for note in notes)
+        assert not any("\x00" in note for note in notes)
 
     def test_a_go_value_prints_lists_and_maps_the_go_way(self) -> None:
         converted = convert_text("<p>{{.x}}</p>", engine="go").text
