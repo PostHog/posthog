@@ -1,22 +1,33 @@
 import os
+import uuid
 import importlib
 from datetime import datetime, timedelta
+from typing import TypedDict
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.models.instance_setting import set_instance_setting
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.settings import ses as ses_settings
 from posthog.test.fixtures import create_app_metric2
 
+from products.workflows.backend.facade.contracts import TransactionalEmailContent
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.services.transactional_email_workflows import (
+    code_email_actions,
+    transactional_email_actions,
+)
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
@@ -27,6 +38,12 @@ from products.workflows.backend.services.workflow_email_health import (
 )
 
 AUTO_PAUSE_ON = {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": True}
+
+
+class SeedCounts(TypedDict, total=False):
+    sent: int
+    hard_bounces: int
+    complaints: int
 
 
 @override_settings(**AUTO_PAUSE_ON)
@@ -45,6 +62,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self,
         *,
         source_id: str | None = None,
+        team_id: int | None = None,
         sent: int = 0,
         complaints: int = 0,
         hard_bounces: int = 0,
@@ -66,7 +84,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         ):
             if count:
                 create_app_metric2(
-                    team_id=self.team.pk,
+                    team_id=team_id or self.team.pk,
                     app_source="hog_flow",
                     app_source_id=source_id or str(self.flow.id),
                     instance_id=instance_id,
@@ -327,6 +345,201 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             flow.refresh_from_db()
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
         assert (self.flow.email_sending_paused_at, self.flow.email_sending_warned_at) == (None, None)
+
+    @parameterized.expand(
+        [
+            (
+                "transactional_breach_alone",
+                ["transactional"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
+                "code_send_workflow",
+                ["code_send"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
+                "template_send_workflow",
+                ["template_send"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
+                "transactional_breach_beside_a_quiet_sibling",
+                ["transactional"],
+                {"sent": 300, "hard_bounces": 60},
+                [{"sent": 8, "hard_bounces": 1}],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
+                "transactional_workflow_in_the_warning_band",
+                ["transactional"],
+                {"sent": 10000, "complaints": 20},
+                [],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
+                "sibling_breach_beside_a_quiet_transactional_workflow",
+                ["transactional"],
+                {"sent": 1, "hard_bounces": 1},
+                [{"sent": 300, "hard_bounces": 60}],
+                ["sibling"],
+                [("is paused", False, True)],
+            ),
+            (
+                "clean_transactional_sends_leave_the_project_rate",
+                ["transactional"],
+                {"sent": 300},
+                [{"sent": 150, "hard_bounces": 30}, {"sent": 100}],
+                ["sibling"],
+                [("is paused", False, True)],
+            ),
+            (
+                "transactional_sends_leave_the_project_volume",
+                ["transactional"],
+                {"sent": 150, "hard_bounces": 20},
+                [{"sent": 100, "hard_bounces": 15}],
+                [],
+                [],
+            ),
+            (
+                "one_marketing_step_makes_it_pausable",
+                ["transactional", "marketing"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                ["own"],
+                [("is paused", False, True)],
+            ),
+            (
+                "an_email_step_with_a_malformed_config_makes_it_pausable",
+                ["transactional", "malformed"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                ["own"],
+                [("is paused", False, True)],
+            ),
+            (
+                "a_generic_step_running_the_email_template_makes_it_pausable",
+                ["transactional", "generic"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                ["own"],
+                [("is paused", False, True)],
+            ),
+        ]
+    )
+    def test_a_transactional_workflow_is_warned_instead_of_paused(
+        self,
+        _name: str,
+        categories: list[str],
+        own_seed: SeedCounts,
+        sibling_seeds: list[SeedCounts],
+        paused: list[str],
+        emails: list[tuple[str, bool, bool]],
+    ):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_steps: dict[str, dict[str, object]] = {
+            "malformed": {"type": "function_email", "config": "not an object"},
+            "generic": {
+                "type": "function",
+                "config": {"template_id": "template-email", "message_category_type": "transactional"},
+            },
+        }
+        code_send_workflows = {
+            "code_send": lambda: code_email_actions("password-reset"),
+            "template_send": lambda: transactional_email_actions(
+                TransactionalEmailContent(
+                    message_template_id=uuid.uuid4(),
+                    name="Password reset",
+                    subject="Reset your password",
+                    preheader="",
+                    html="<p>Reset</p>",
+                    text="Reset",
+                    from_integration_id=None,
+                    message_category_id=None,
+                ),
+                from_integration_id=1,
+            ),
+        }
+        self.flow.actions = (
+            code_send_workflows[categories[0]]()
+            if categories[0] in code_send_workflows
+            else [
+                {"id": f"step_{index}", **other_steps[category]}
+                if category in other_steps
+                else {"id": f"step_{index}", "type": "function_email", "config": {"message_category_type": category}}
+                for index, category in enumerate(categories)
+            ]
+        )
+        self.flow.save()
+        sibling = HogFlow.objects.create(name="Second blast", team=self.team)
+        names = {str(self.flow.id): "own", str(sibling.id): "sibling"}
+        self._seed(**own_seed)
+        for index, sibling_seed in enumerate(sibling_seeds):
+            source = sibling if index == 0 else HogFlow.objects.create(name=f"Blast {index}", team=self.team)
+            names.setdefault(str(source.id), f"sibling_{index}")
+            self._seed(source_id=str(source.id), **sibling_seed)
+
+        with (
+            patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            sweep_workflow_email_health(now=self.now)
+
+        flows = HogFlow.objects.filter(team=self.team).order_by("created_at")
+        assert [names[str(flow.id)] for flow in flows if flow.email_sending_paused_at] == paused
+        paused_flow = sibling if paused == ["sibling"] else self.flow
+        delivered: list[tuple[str, list[str], str]] = []
+        for message in mail.outbox:
+            [html_part] = [part for part in message.message().walk() if part.get_content_type() == "text/html"]
+            html_bytes = html_part.get_payload(decode=True)
+            assert isinstance(html_bytes, bytes)
+            delivered.append((str(message.subject), message.to, html_bytes.decode()))
+        assert [
+            (
+                next((label for label in ("needs attention", "is paused") if label in subject), subject),
+                "we don't pause it automatically" in html and "only emails the person who triggered it" in html,
+                "never open anything" in html,
+            )
+            for subject, _to, html in delivered
+        ] == emails
+        assert [
+            (
+                to,
+                f"/project/{self.team.id}/workflows/{paused_flow.id}/workflow" in html,
+            )
+            for _subject, to, html in delivered
+        ] == [([self.user.email], True)] * len(emails)
+
+    @patch("products.workflows.backend.services.workflow_email_health._TRANSACTIONAL_LOOKUP_BATCH_SIZE", 2)
+    def test_a_sweep_classifies_every_lookup_batch_across_projects(self):
+        other_team = Team.objects.create(organization=self.organization)
+        flows = [
+            HogFlow.objects.create(name=f"Code send {index}", team=team, actions=code_email_actions(f"key-{index}"))
+            for index, team in enumerate((self.team, self.team, other_team))
+        ]
+        for flow in flows:
+            self._seed(source_id=str(flow.id), team_id=flow.team_id, sent=300, hard_bounces=60)
+
+        self._sweep()
+
+        stored = HogFlow.objects.filter(id__in=[flow.id for flow in flows]).order_by("name")
+        assert [(flow.email_sending_paused_at, flow.email_sending_warned_at is not None) for flow in stored] == [
+            (None, True)
+        ] * 3
 
     def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
