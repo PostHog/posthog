@@ -44,6 +44,8 @@ export function cohortUsedInSections(
     // During a rollout the frontend can reach a backend that predates these blocks.
     const environments = usedIn.test_account_filters?.results ?? []
     const workflows = usedIn.workflows ?? { results: [], total: 0, hidden: 0, has_more: false }
+    const experiments = usedIn.experiments ?? { results: [], total: 0, hidden: 0, has_more: false }
+    const hiddenExperiments = hiddenIn(experiments)
 
     const sections: CohortUsedInSection[] = [
         {
@@ -55,6 +57,17 @@ export function cohortUsedInSections(
                 key: `flag-${flag.id}`,
                 url: urls.featureFlag(flag.id),
                 label: flag.name || flag.key,
+            })),
+        },
+        {
+            title: 'Experiments',
+            noun: 'experiment',
+            total: experiments.total + hiddenExperiments,
+            hidden: hiddenExperiments,
+            items: experiments.results.map((experiment) => ({
+                key: `experiment-${experiment.id}`,
+                url: urls.experiment(experiment.id),
+                label: experiment.name,
             })),
         },
         {

@@ -31050,6 +31050,24 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface CohortUsedInExperiment {
+      /** Experiment database ID */
+      id: number;
+      /** Experiment display name; falls back to 'Unnamed' when empty */
+      name: string;
+    }
+
+    export interface CohortUsedInExperimentsBlock {
+      /** Experiments that filter on this cohort and that the caller can view, capped at 100 results */
+      results: CohortUsedInExperiment[];
+      /** Total number of experiments filtering on this cohort that the caller can view, before truncation */
+      total: number;
+      /** Number of experiments filtering on this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+      hidden: number;
+      /** True when more experiments exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
     export interface CohortUsedInFlag {
       /** Feature flag database ID */
       id: number;
@@ -31126,6 +31144,8 @@ export namespace Schemas {
       test_account_filters: CohortUsedInEnvironmentsBlock;
       /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
       workflows: CohortUsedInWorkflowsBlock;
+      /** Experiments that are not archived or deleted and whose exposure criteria, metrics or linked shared metrics filter on this cohort. While any exist, the cohort cannot be deleted. */
+      experiments: CohortUsedInExperimentsBlock;
     }
 
     /**

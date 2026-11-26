@@ -276,8 +276,10 @@ def _flag_names_suffix(
     return _names_suffix([flag.name or flag.key for flag in visible], len(flags))
 
 
-def _viewable_experiment_names(request: Request, experiments: tuple[ExperimentCohortReference, ...]) -> list[str]:
-    if not _token_can_read(request, "experiment"):
+def _viewable_experiments(
+    request: Request, experiments: tuple[ExperimentCohortReference, ...]
+) -> list[ExperimentCohortReference]:
+    if not experiments or not _token_can_read(request, "experiment"):
         return []
     subject = request_subject(request)
     viewable = authorization.check(
@@ -295,7 +297,16 @@ def _viewable_experiment_names(request: Request, experiments: tuple[ExperimentCo
             for experiment in experiments
         ]
     )
-    return [experiment.name or "Unnamed" for experiment, ok in zip(experiments, viewable, strict=True) if ok]
+    return [experiment for experiment, ok in zip(experiments, viewable, strict=True) if ok]
+
+
+def _experiments_block(request: Request, cohort: Cohort) -> dict[str, Any]:
+    experiments = experiments_using_cohort(project_id=cohort.team.project_id, cohort_id=cohort.id)
+    visible = _viewable_experiments(request, experiments)
+    page = [
+        {"id": experiment.id, "name": experiment.name or "Unnamed"} for experiment in visible[:COHORT_USED_IN_PAGE_SIZE]
+    ]
+    return {**_used_in_block(page, len(visible)), "hidden": len(experiments) - len(visible)}
 
 
 COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
@@ -840,6 +851,11 @@ class CohortUsedInWorkflowSerializer(serializers.Serializer):
     )
 
 
+class CohortUsedInExperimentSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Experiment database ID")
+    name = serializers.CharField(help_text="Experiment display name; falls back to 'Unnamed' when empty")
+
+
 class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
     results = CohortUsedInFlagSerializer(
         many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
@@ -907,6 +923,20 @@ class CohortUsedInWorkflowsBlockSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when some relying workflows are not listed in results")
 
 
+class CohortUsedInExperimentsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInExperimentSerializer(
+        many=True,
+        help_text=f"Experiments that filter on this cohort and that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results",
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of experiments filtering on this cohort that the caller can view, before truncation"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of experiments filtering on this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total"
+    )
+    has_more = serializers.BooleanField(help_text="True when more experiments exist beyond the truncation cap")
+
+
 class CohortUsedInResponseSerializer(serializers.Serializer):
     feature_flags = CohortUsedInFlagsBlockSerializer(
         help_text="Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata",
@@ -924,6 +954,12 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
         help_text=(
             "Active workflows that trigger on this cohort or branch on its membership. While any exist, the "
             "cohort cannot be deleted or edited in a way that stops it updating in real time."
+        )
+    )
+    experiments = CohortUsedInExperimentsBlockSerializer(
+        help_text=(
+            "Experiments that are not archived or deleted and whose exposure criteria, metrics or linked shared "
+            "metrics filter on this cohort. While any exist, the cohort cannot be deleted."
         )
     )
 
@@ -2517,7 +2553,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
                 experiments = experiments_using_cohort(project_id=cohort.team.project_id, cohort_id=cohort.id)
                 if experiments:
-                    names = _names_suffix(_viewable_experiment_names(request, experiments), len(experiments))
+                    visible_experiments = _viewable_experiments(request, experiments)
+                    names = _names_suffix(
+                        [experiment.name or "Unnamed" for experiment in visible_experiments], len(experiments)
+                    )
                     self._reject_delete(
                         cohort,
                         "experiments",
@@ -3339,6 +3378,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     environments_data[:COHORT_USED_IN_PAGE_SIZE], len(environments_data)
                 ),
                 "workflows": _workflows_block(request, uac, cohort),
+                "experiments": _experiments_block(request, cohort),
             }
         )
 
