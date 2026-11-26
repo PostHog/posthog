@@ -779,7 +779,7 @@ jobs:
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
             schema_base_sha: ${{ steps.schema-key.outputs.base_sha }}
             schema_base_timestamp: ${{ steps.schema-key.outputs.base_timestamp }}
-            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
+            schema_ancestor_keys: ${{ steps.schema-key.outputs.ancestor_keys }}
             django_shards: ${{ steps.discover.outputs.django_shards }}
             # Which Django tests this PR runs. Empty mode = this run does not select.
             mode: ${{ steps.discover.outputs.mode }}
@@ -817,13 +817,14 @@ jobs:
 
             - name: Compute schema cache key from PR base
               id: schema-key
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'schedule'
               env:
                   PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # The event base is the exact master revision in the synthetic merge checkout.
                   # Use it directly so cache compatibility does not depend on parent ordering.
-                  BASE_SHA="$PR_BASE_SHA"
+                  # A scheduled run checks out master itself, so its base is HEAD.
+                  BASE_SHA="${PR_BASE_SHA:-$(git rev-parse HEAD)}"
                   if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -848,16 +849,21 @@ jobs:
                   fi
                   # Exact base-revision key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${BASE_SHA}" >> $GITHUB_OUTPUT
-                  # Last-resort restore prefix: matches the newest saved dump of any
-                  # migration set, for the window where both exact keys miss. Gated on
-                  # checkout age (a day) because a re-run of an old run keeps its original
-                  # commit: a stale checkout can lack migrations the newest dump records,
-                  # and the migrate top-ups only apply forward, so they cannot repair a
-                  # dump that is newer than the code.
-                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
-                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
-                  fi
+                  # Last-resort restore keys: the migration sets of the base's first-parent
+                  # ancestors, newest first, for the window before master saves the base's own
+                  # dump and for stacked bases that master never dumps. The migrate top-ups
+                  # only apply forward, so a fallback must never be newer than the base. The
+                  # newest dump of any migration set often is, because a stacked or older
+                  # base trails master. actions/cache accepts at most 10 keys, and the restore
+                  # steps already use 2 of them.
+                  ANCESTOR_KEYS=$(python3 .github/scripts/master_schema_cache.py --repository . \
+                      --epoch "$SCHEMA_CACHE_EPOCH" ancestor-keys --revision "$BASE_SHA" --limit 7) \
+                      || { echo "::notice::could not list ancestor schema keys, so only the exact keys are restored"; ANCESTOR_KEYS=""; }
+                  {
+                      echo "ancestor_keys<<SCHEMA_ANCESTOR_KEYS"
+                      echo "$ANCESTOR_KEYS"
+                      echo "SCHEMA_ANCESTOR_KEYS"
+                  } >> $GITHUB_OUTPUT
                   # Shared key: hash base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
@@ -1111,7 +1117,7 @@ jobs:
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
-                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
+                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
                   lookup-only: true
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.schema-cache.outputs.cache-matched-key == ''
@@ -1332,26 +1338,26 @@ jobs:
                   echo "::endgroup::"
                   exit "$status"
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               timeout-minutes: 4
               continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact PR-base SHA key,
-                  # then to the newest dump of any migration set. Right after a migration
-                  # lands on master both exact keys miss until ci-backend re-dumps, and a
-                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
-                  # migrate tops a slightly stale dump up in seconds instead.
+                  # Prefer the shared content key; fall back to the exact base SHA key,
+                  # then to the dumps of older migration sets in the base's history. Right
+                  # after a migration lands on master both exact keys miss until ci-backend
+                  # re-dumps, and pytest's keepdb migrate tops an older dump up in seconds,
+                  # far faster than a from-scratch migrate.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
-                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
+                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -1366,13 +1372,13 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
                   fi
             - name: Migrate test_posthog from scratch
-              # Any run without a restored schema cache (master, dispatches, PR cache
-              # misses) replays the full migration chain here, in a process that exits
+              # Any run without a restored schema cache (dispatches, cache misses)
+              # replays the full migration chain here, in a process that exits
               # before tests: the executor's memory high-water stays resident in
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -3747,26 +3753,26 @@ jobs:
                   echo "::endgroup::"
                   exit "$status"
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               timeout-minutes: 4
               continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact PR-base SHA key,
-                  # then to the newest dump of any migration set. Right after a migration
-                  # lands on master both exact keys miss until ci-backend re-dumps, and a
-                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
-                  # migrate tops a slightly stale dump up in seconds instead.
+                  # Prefer the shared content key; fall back to the exact base SHA key,
+                  # then to the dumps of older migration sets in the base's history. Right
+                  # after a migration lands on master both exact keys miss until ci-backend
+                  # re-dumps, and pytest's keepdb migrate tops an older dump up in seconds,
+                  # far faster than a from-scratch migrate.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
-                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
+                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -3781,13 +3787,13 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
                   fi
             - name: Migrate test_posthog from scratch
-              # Any run without a restored schema cache (master, dispatches, PR cache
-              # misses) replays the full migration chain here, in a process that exits
+              # Any run without a restored schema cache (dispatches, cache misses)
+              # replays the full migration chain here, in a process that exits
               # before tests: the executor's memory high-water stays resident in
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |

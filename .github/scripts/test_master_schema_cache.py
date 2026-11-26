@@ -118,3 +118,41 @@ def test_validate_fetches_source_in_shallow_checkout(repository: Path, tmp_path:
     assert MasterSchemaCache(checkout).validate(key=f"posthog-schema-master-{source}", epoch="v2", dump=dump) is True
     assert dump.exists()
     assert "promisor" not in git(checkout, "config", "--list", "--local")
+
+
+def commit_schema_key(repository: Path, files: dict[str, str]) -> str | None:
+    for filename, content in files.items():
+        (repository / filename).write_text(content)
+    git(repository, "add", ".")
+    git(repository, "commit", "--allow-empty", "-qm", "change")
+    return MasterSchemaCache(repository).key(epoch="v2")
+
+
+@pytest.mark.parametrize(
+    "first_change,usable_older_sets",
+    [
+        pytest.param({"posthog/migrations/0003_column.py": "column = True"}, 3, id="forward-only-history"),
+        pytest.param({"uv.lock": "version = 2"}, 2, id="stops-before-dependency-change"),
+        pytest.param({"posthog/migrations/0001_initial.py": "edited = True"}, 2, id="stops-before-edited-migration"),
+    ],
+)
+def test_ancestor_keys_list_older_compatible_migration_sets_newest_first(
+    repository: Path, first_change: dict[str, str], usable_older_sets: int
+) -> None:
+    older_sets = [MasterSchemaCache(repository).key(epoch="v2")]
+    older_sets.append(commit_schema_key(repository, first_change))
+    commit_schema_key(repository, {"posthog/models.py": "unrelated = True"})
+    older_sets.append(commit_schema_key(repository, {"posthog/migrations/0004_index.py": "index = True"}))
+    commit_schema_key(repository, {"posthog/clickhouse/migrations/0001_initial.py": "changed = True"})
+    commit_schema_key(repository, {"posthog/migrations/0005_table.py": "table = True"})
+
+    ancestors = MasterSchemaCache(repository).ancestor_keys(revision="HEAD", epoch="v2", limit=5)
+
+    assert ancestors == older_sets[::-1][:usable_older_sets]
+
+
+def test_ancestor_keys_stop_at_the_limit(repository: Path) -> None:
+    for number in range(3, 7):
+        commit_schema_key(repository, {f"posthog/migrations/000{number}_step.py": f"step = {number}"})
+
+    assert len(MasterSchemaCache(repository).ancestor_keys(revision="HEAD", epoch="v2", limit=2)) == 2

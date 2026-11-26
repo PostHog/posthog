@@ -728,6 +728,22 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
     ...[
+        { name: 'ready PR', github: pullRequest(), runs: true },
+        { name: 'hourly schedule', github: schedule(), runs: true },
+        { name: 'manual dispatch', github: workflowDispatch(), runs: false },
+    ].flatMap(({ name, github, runs }) =>
+        [
+            { job: 'turbo-discover', step: 'schema-key' },
+            { job: 'django', step: 'prime-schema' },
+        ].map(({ job, step }) => ({
+            file: DEPOT_BACKEND,
+            job,
+            step,
+            scenario: { name, github, steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors } },
+            runs,
+        }))
+    ),
+    ...[
         { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
         {
             name: 'draft PR labeled run-ci-backend',
