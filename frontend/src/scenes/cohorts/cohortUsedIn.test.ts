@@ -94,6 +94,7 @@ describe('cohortUsedInSections', () => {
                 cohorts: empty,
                 test_account_filters: empty,
                 workflows: empty,
+                experiments: empty,
             })
         ).toEqual([])
     })
