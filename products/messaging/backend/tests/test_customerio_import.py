@@ -225,6 +225,7 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
             {"id": 4, "name": "Building", "type": "dynamic", "state": "build"},
             {"id": 5, "name": "Rules", "type": "dynamic", "state": "finished"},
             {"id": "²", "name": "Not a number", "type": "manual", "state": "finished"},
+            {"id": "9" * 5000, "name": "Too long", "type": "manual", "state": "finished"},
         ]
         everyone = {each["cio_id"] for each in self.workspace.people}
         self.workspace.members = {
