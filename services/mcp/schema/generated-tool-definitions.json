@@ -13411,7 +13411,7 @@
         "feature_flag": "mcp-posthog-support-tickets"
     },
     "posthog-support-draft-send": {
-        "description": "Send a draft from posthog-support-draft-create to PostHog's human support team, for the person. Call it only after the person saw the full ticket in this conversation and said yes to sending it, such as \"please post it\". Never call it on your own judgment. If they ask for a change, draft it again, show the new version, and wait for a yes to that one. A draft becomes at most one ticket: calling again returns the same ticket. Afterwards, first tell them to log in and watch the support panel in the right-hand sidebar of PostHog for replies, at https://app.posthog.com/home#panel=support.",
+        "description": "Send a draft from posthog-support-draft-create to PostHog's human support team, for the person. Call it only after the person saw the full ticket in this conversation and said yes to sending it, such as \"please post it\". Never call it on your own judgment. If they ask for a change, draft it again, show the new version, and wait for a yes to that one. A draft becomes at most one ticket: calling again returns the same ticket. Afterwards, first give them the ticket number when the response has one, and tell them to log in and watch the support panel in the right-hand sidebar of PostHog for replies, at https://app.posthog.com/home#panel=support.",
         "category": "PostHog support",
         "feature": "posthog_support",
         "summary": "Send a drafted PostHog support ticket",

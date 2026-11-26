@@ -22,7 +22,11 @@ from posthog.models.user import User
 from posthog.utils import resolve_self_flags_team
 
 WIDGET_MESSAGE_PATH = "/api/conversations/v1/widget/message"
+WIDGET_TICKETS_PATH = "/api/conversations/v1/widget/tickets"
+# Newest first, so the new ticket is on this page unless the person sent this many more in the meantime.
+WIDGET_TICKETS_LOOKUP_LIMIT = 10
 WIDGET_REQUEST_TIMEOUT_SECONDS = 10
+WIDGET_TICKET_LOOKUP_TIMEOUT_SECONDS = 3
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +48,7 @@ class SupportWidgetTarget:
 @frozen
 class SentSupportTicket:
     ticket_id: str
+    ticket_number: int | None = None
 
 
 def resolve_support_widget_target() -> SupportWidgetTarget:
@@ -102,10 +107,27 @@ class PostHogSupportWidgetClient:
             logger.warning("posthog_support_widget_failed", status=response.status_code)
             raise SupportTicketOutcomeUnknown("PostHog support failed while it handled the ticket.")
         try:
-            data = response.json()
-            return SentSupportTicket(ticket_id=str(data["ticket_id"]))
+            ticket_id = str(response.json()["ticket_id"])
         except (ValueError, KeyError, TypeError) as e:
             raise SupportTicketOutcomeUnknown("PostHog support sent an answer without a ticket.") from e
+        return SentSupportTicket(ticket_id=ticket_id)
+
+    def ticket_number(self, user: User, ticket_id: str) -> int | None:
+        # The widget's send answer has no ticket number, but its ticket list for the session does. The ticket
+        # exists either way, so a failed lookup only costs the person the number.
+        try:
+            response = requests.get(
+                f"{self._target.host}{WIDGET_TICKETS_PATH}",
+                params={"widget_session_id": _widget_session_id(user), "limit": WIDGET_TICKETS_LOOKUP_LIMIT},
+                headers={"X-Conversations-Token": self._target.token, "Origin": settings.SITE_URL},
+                timeout=WIDGET_TICKET_LOOKUP_TIMEOUT_SECONDS,
+            )
+            numbers = {str(ticket["id"]): ticket["ticket_number"] for ticket in response.json()["results"]}
+        except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+            logger.warning("posthog_support_widget_ticket_number_failed", error_type=type(e).__name__)
+            return None
+        number = numbers.get(ticket_id)
+        return number if isinstance(number, int) else None
 
     def _payload(self, user: User, message: str, *, via_mcp: bool) -> dict[str, Any]:
         if not user.distinct_id:

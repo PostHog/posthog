@@ -13,6 +13,7 @@ These rules cover privacy, security, retention, deletion, data region, DPA, BAA,
 
 - Answer from the latest docs, not from memory or docs-search (docs-search includes insufficient summaries and stale cache). Docs change often: find pages with web search, open them with web fetch (add .md for clean text).
 - Cite the URL you opened for every fact. Only name pages you've actually opened.
+- Speak for yourself: say what you know in your own words, without saying it comes from this skill or another, and don't predict how support will reply.
 - Security and compliance facts are in /docs and also https://posthog.com/handbook/company/security. Link https://trust.posthog.com only for documents gated there (e.g. SOC 2 report), naming the document, since you can't read it.
 - For subprocessors, link https://posthog.com/subprocessors and mention its tabs for each processor type.
 - Before mentioning an endpoint, check that all users can access it. Docs or repo code don't prove it: some are flagged for staff or a few orgs. Check docs outside /docs/api for hints. E.g., on Nov 19, 2026, /data-deletion-requests and its UI were behind a feature flag.
@@ -57,7 +58,7 @@ Related asks:
 
 - **Redlines, an NDA, or custom terms:** quote the privacy FAQ answer on redlines and confidentiality agreements, and say custom terms come with an Enterprise contract (section 1). On a paid plan, offer a ticket if they still want to ask.
 - **Which DPA applies to us, or a copy of the signed one:** the signer's PandaDoc email holds their copy. If nobody can find it, or they need an acceptance record, that's a staff lookup (section 5).
-- **What a DPA clause means for their situation:** that's legal interpretation. Link the DPA section and give the legal counsel line. A ticket won't get them legal advice either.
+- **What a DPA clause means for their situation:** that's legal interpretation. Link the DPA section and give the legal counsel line. PostHog support can't give legal advice either.
 
 ## 3. BAA
 
@@ -117,7 +118,7 @@ Open one only when there's no self-serve option and the docs don't answer it, or
 
 **On the free plan**, tickets from here are only for billing issues, with one exception. For a deletion with no self-serve route, ask why they need it first. If the reason is privacy or security (like PII or secrets in the data), open a ticket with the section 4 details and that reason. For anything else, answer from the docs, tell them community support is available at https://posthog.com/forum (other options are on https://posthog.com/docs/support-options), that any paid plan adds support, and which plan adds the feature they need. The forum is public, so tell them to leave out personal data and secrets. Don't offer to write the post. The `writing-posthog-support-tickets` skill says what to do when they ask for one.
 
-**When they can't log in**, don't open a ticket. Say what the `writing-posthog-support-tickets` skill says about the help link on the login page.
+**When they can't log in**, don't open a ticket. Give them the login help from the `writing-posthog-support-tickets` skill, in your own words.
 
 When the docs answer the question, answer and cite instead of opening a ticket. If someone on a paid plan, a trial that includes support, or in a new organization still disagrees that the docs answer it, offer a ticket that includes the answer you gave and its links. Skip the ticket when the ask is legal interpretation (give the legal counsel line). If the docs answer part of it, answer that part with a citation and open a ticket only for the rest.
 
@@ -125,7 +126,7 @@ How it works (paid plans, trials that include support, new organizations, and th
 
 1. Load the `writing-posthog-support-tickets` skill and write the ticket with it: what they asked, what the docs say (with the links you opened), what's still missing, and the details staff need (for a deletion, the section 4 list). Set `topic` to match, and use `privacy_or_security_deletion` only when they gave a privacy or security reason.
 2. Show them the full draft and let them edit it. Send it only when they say yes to that version, so they don't copy or paste anything.
-3. First tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support.
+3. First give them the ticket number when the send returns one, and tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support.
 
 If they also want to ask about something outside these topics, don't put it in the ticket. On a paid plan, on a trial that includes support, or in a new organization, they can ask in the support widget. On the free plan, point them to https://posthog.com/forum, which is public, so they should leave out personal data and secrets.
 

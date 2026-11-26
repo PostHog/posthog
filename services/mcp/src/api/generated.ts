@@ -103483,6 +103483,11 @@ export namespace Schemas {
     export interface PostHogSupportSentTicket {
       /** Id of the ticket PostHog support received. */
       ticket_id: string;
+      /**
+         * The ticket's number, to give the person. Null when PostHog support did not return it.
+         * @nullable
+         */
+      ticket_number: number | null;
       /** Support panel in PostHog, where the person reads replies. */
       support_panel_url: string;
       /** What to tell the person now. */

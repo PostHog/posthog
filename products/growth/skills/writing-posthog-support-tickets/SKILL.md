@@ -18,6 +18,7 @@ This skill turns what you already know into a ticket a support engineer can act 
 It does not solve the problem.
 The docs and the product's own skills run first, and this skill takes over when they could not settle it, or when the person asks for a human.
 The person decides to contact support, and nothing is sent until the person approves the ticket.
+Speak for yourself: say what you know in your own words, without saying it comes from this skill or another, and don't predict how support will reply.
 
 ## Which topics you can file
 
@@ -30,7 +31,7 @@ Answer what the docs answer, then say where they can ask:
 - **On a paid plan, on a trial that includes support, or in an organization under 3 months old:** log in to PostHog in their browser and ask in the support widget in the right-hand sidebar, at https://app.posthog.com/home#panel=support.
 - **On the free plan:** community support at https://posthog.com/forum. Say that the forum is public, so they should leave out personal data and secrets. Any paid plan adds support.
 - **When you don't know the plan:** give both.
-- **When they can't log in:** no plan can file that from here. Say something like "For security reasons, I can't send that ticket through the MCP. When you try to log in and it fails, a help link appears above the login fields. You can open a support ticket from there, even on the free plan."
+- **When they can't log in:** no plan can file that from here. Say something like "For security reasons, I can't send that ticket through the MCP. Go to the [PostHog login page](https://app.posthog.com) and try to log in. When the login fails, an error such as 'Invalid email or password.' appears below the 'Welcome back' heading, followed by 'Need help?'. If you get past the password but can't finish two-factor authentication, that screen has a 'Need help?' link too. Click 'Need help?' to open a support ticket from there, even on the free plan."
 
 Don't offer to write a forum post. Write one only when they ask for it, and never put personal data or secrets in it, even when they ask for that too. Use placeholders, and tell them something like "I've written the draft with placeholders for your private data and your keys, and I suggest you don't post those to the public forum."
 
@@ -150,7 +151,7 @@ When `posthog:posthog-support-draft-create` is in your tool list, draft the tick
 Then show the person the full ticket, and follow the `next_step` the draft returns:
 
 - **When `can_send` is true**, show the full ticket in the chat and ask whether to send it to PostHog support, such as "Do you want me to send this to PostHog support?". Many people use the MCP from a terminal, so never send them to a web page to review it.
-- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with the draft's `id`. After it is sent, first tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support, because replies don't show up in this conversation.
+- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with `draft_id` set to the draft's `id`. After it is sent, first give them the ticket number when the response has one, and tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support, because replies don't show up in this conversation.
 - Anything else is not a yes: a question, a change they want, or no answer. Change the ticket, draft it again, and show them the new version. A yes to an earlier version does not cover a changed ticket, so show the new one and ask again.
 - **When `can_send` is false**, do not offer to send it. Tell them what `next_step` says.
 - **When they already sent 3 tickets on this topic in 72 hours**, the server refuses the draft. Tell them so, and that they can read those tickets, reply on them, and watch for replies at https://app.posthog.com/home#panel=support. Don't draft it again under another topic.

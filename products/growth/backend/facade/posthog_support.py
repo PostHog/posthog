@@ -93,5 +93,9 @@ def send_support_ticket(*, user_id: int, team_id: int, draft_id: str) -> SentSup
         raise SupportTicketSendFailed(outcome.failure, topic, filing_reason)
     assert outcome.ticket is not None
     return SentSupportTicketResult(
-        ticket_id=outcome.ticket.ticket_id, newly_sent=not outcome.replayed, topic=topic, filing_reason=filing_reason
+        ticket_id=outcome.ticket.ticket_id,
+        ticket_number=outcome.ticket.ticket_number,
+        newly_sent=not outcome.replayed,
+        topic=topic,
+        filing_reason=filing_reason,
     )

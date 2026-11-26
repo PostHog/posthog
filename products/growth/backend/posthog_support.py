@@ -245,6 +245,9 @@ class SupportDraftStore:
         sent_at = [*self._recent_sends(topic), int(time.time())]
         self._cache.set(self._topic_key(topic), sent_at, TOPIC_WINDOW_SECONDS)
 
+    def record_ticket_number(self, draft_id: str, ticket: SentSupportTicket) -> None:
+        self._cache.set(self._sent_key(draft_id), asdict(ticket), DRAFT_TTL_SECONDS)
+
     def topic_limit_reached(self, topic: TicketTopic) -> bool:
         return len(self._recent_sends(topic)) >= MAX_TICKETS_PER_TOPIC
 
@@ -256,7 +259,7 @@ class SupportDraftStore:
         stored = self._cache.get(self._sent_key(draft_id))
         if stored is None:
             return None
-        return SentSupportTicket(ticket_id=stored["ticket_id"])
+        return SentSupportTicket(ticket_id=stored["ticket_id"], ticket_number=stored.get("ticket_number"))
 
     def _topic_key(self, topic: TicketTopic) -> str:
         # Not per project, so switching projects does not reset the limit
@@ -341,15 +344,19 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
 
     if not store.start_send(draft_id):
         return failed(SendFailure.ALREADY_SENDING)
+    client = PostHogSupportWidgetClient(resolve_support_widget_target())
     try:
-        ticket = PostHogSupportWidgetClient(resolve_support_widget_target()).send_ticket(
-            user, draft.outgoing_message(team), via_mcp=draft.drafted_via == DraftedVia.MCP
-        )
+        ticket = client.send_ticket(user, draft.outgoing_message(team), via_mcp=draft.drafted_via == DraftedVia.MCP)
     except SupportTicketNotSent:
         store.cancel_send(draft_id)
         return failed(SendFailure.NOT_SENT)
     except SupportTicketOutcomeUnknown:
         return failed(SendFailure.OUTCOME_UNKNOWN)
 
+    # Recorded before the number lookup, so a request that dies during the lookup still leaves the ticket on record.
     store.record_sent(draft_id, draft.topic, ticket)
+    ticket_number = client.ticket_number(user, ticket.ticket_id)
+    if ticket_number is not None:
+        ticket = SentSupportTicket(ticket_id=ticket.ticket_id, ticket_number=ticket_number)
+        store.record_ticket_number(draft_id, ticket)
     return SendOutcome(draft=draft, ticket=ticket)

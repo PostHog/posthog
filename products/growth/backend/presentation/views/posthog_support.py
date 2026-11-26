@@ -171,6 +171,10 @@ class PostHogSupportDraftSerializer(serializers.Serializer):
 
 class PostHogSupportSentTicketSerializer(serializers.Serializer):
     ticket_id = serializers.CharField(help_text="Id of the ticket PostHog support received.")
+    ticket_number = serializers.IntegerField(
+        allow_null=True,
+        help_text="The ticket's number, to give the person. Null when PostHog support did not return it.",
+    )
     support_panel_url = serializers.CharField(help_text="Support panel in PostHog, where the person reads replies.")
     next_step = serializers.CharField(help_text="What to tell the person now.")
 
@@ -293,11 +297,17 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = PostHogSupportSentTicketSerializer(
             {
                 "ticket_id": ticket.ticket_id,
+                "ticket_number": ticket.ticket_number,
                 "support_panel_url": SUPPORT_PANEL_URL,
                 "next_step": (
-                    f"First tell the person to watch for replies at {SUPPORT_PANEL_URL}, the support panel in the "
-                    "right-hand sidebar of PostHog. They need to log in, and replies don't show up in this "
-                    "conversation. Don't promise a response time."
+                    (
+                        f"First give the person their ticket number, {ticket.ticket_number}, and tell them"
+                        if ticket.ticket_number is not None
+                        else "First tell the person"
+                    )
+                    + f" to watch for replies at {SUPPORT_PANEL_URL}, the support panel in the right-hand sidebar"
+                    " of PostHog. They need to log in, and replies don't show up in this conversation. Don't"
+                    " promise a response time."
                 ),
             }
         ).data

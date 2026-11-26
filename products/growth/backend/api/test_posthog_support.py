@@ -128,7 +128,15 @@ class TestPostHogSupportAPI(APIBaseTest):
 
 WIDGET_HOST = "https://support.example.com"
 WIDGET_URL = f"{WIDGET_HOST}/api/conversations/v1/widget/message"
+WIDGET_TICKETS_URL = f"{WIDGET_HOST}/api/conversations/v1/widget/tickets"
 TICKET_ID = "0b6f0a52-6f43-4a8e-9d2c-3f1e6c8d7a10"
+TICKET_LIST = {
+    "count": 2,
+    "results": [
+        {"id": "5d0c7e1a-2b3f-4c6d-8e9f-0a1b2c3d4e5f", "ticket_number": 41},
+        {"id": TICKET_ID, "ticket_number": 42},
+    ],
+}
 
 
 @override_settings(POSTHOG_SUPPORT_WIDGET_HOST=WIDGET_HOST, POSTHOG_SUPPORT_WIDGET_TOKEN="widget-token")
@@ -146,21 +154,39 @@ class TestPostHogSupportSend(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
 
-    def test_agent_sends_an_approved_draft_once_for_the_person(self) -> None:
+    @parameterized.expand(
+        [
+            ("number_found", {"json": TICKET_LIST}, 42, "First give the person their ticket number, 42, and tell them"),
+            ("list_failed", {"status": 500}, None, "First tell the person"),
+            ("ticket_not_listed", {"json": {"count": 0, "results": []}}, None, "First tell the person"),
+            ("throttled", {"status": 429, "json": {"detail": "Request was throttled."}}, None, "First tell the person"),
+            ("not_a_page", {"json": []}, None, "First tell the person"),
+            ("number_missing", {"json": {"count": 1, "results": [{"id": TICKET_ID}]}}, None, "First tell the person"),
+            ("timed_out", {"body": requests.ReadTimeout()}, None, "First tell the person"),
+        ]
+    )
+    def test_agent_sends_an_approved_draft_once_for_the_person(
+        self, _name: str, list_answer: dict[str, Any], ticket_number: int | None, next_step_start: str
+    ) -> None:
         draft = self._create_draft()
 
         with responses.RequestsMock() as widget:
             widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            widget.add(responses.GET, WIDGET_TICKETS_URL, **list_answer)
             sent = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
             retry = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
             calls = list(widget.calls)
 
         assert draft["can_send"] is True
         assert (sent.status_code, sent.json()["ticket_id"]) == (200, TICKET_ID)
+        assert sent.json()["ticket_number"] == retry.json()["ticket_number"] == ticket_number
         assert sent.json()["support_panel_url"] == SUPPORT_PANEL_URL
-        assert sent.json()["next_step"].startswith(f"First tell the person to watch for replies at {SUPPORT_PANEL_URL}")
+        assert sent.json()["next_step"].startswith(f"{next_step_start} to watch for replies at {SUPPORT_PANEL_URL}")
         assert retry.json()["ticket_id"] == TICKET_ID
-        assert len(calls) == 1
+        assert [call.request.method for call in calls] == ["POST", "GET"]
+        lookup = calls[1].request
+        assert lookup.headers["X-Conversations-Token"] == "widget-token"
+        assert lookup.params["widget_session_id"] == json.loads(calls[0].request.body)["widget_session_id"]
         request = calls[0].request
         body = json.loads(request.body)
         assert request.headers["X-Conversations-Token"] == "widget-token"
@@ -222,9 +248,24 @@ class TestPostHogSupportSend(APIBaseTest):
             response._content = answer.content
             return response
 
+        def get_from_the_real_widget(url: str, params: dict, headers: dict, timeout: int) -> requests.Response:
+            answer = widget_client.get(
+                url.removeprefix(WIDGET_HOST),
+                params,
+                HTTP_X_CONVERSATIONS_TOKEN=headers["X-Conversations-Token"],
+                HTTP_ORIGIN=headers["Origin"],
+            )
+            response = requests.Response()
+            response.status_code = answer.status_code
+            response._content = answer.content
+            return response
+
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}", HTTP_X_POSTHOG_CLIENT="mcp")
         teammate = self._create_user("teammate@example.com")
-        with patch("products.growth.backend.posthog_support_widget.requests.post", side_effect=post_to_the_real_widget):
+        with (
+            patch("products.growth.backend.posthog_support_widget.requests.post", side_effect=post_to_the_real_widget),
+            patch("products.growth.backend.posthog_support_widget.requests.get", side_effect=get_from_the_real_widget),
+        ):
             sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
             sent_again = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
             teammate_client = APIClient()
@@ -236,6 +277,10 @@ class TestPostHogSupportSend(APIBaseTest):
         ticket = Ticket.objects.get(id=sent.json()["ticket_id"])
         ticket_again = Ticket.objects.get(id=sent_again.json()["ticket_id"])
         teammate_ticket = Ticket.objects.get(id=teammate_sent.json()["ticket_id"])
+        assert [sent.json()["ticket_number"], sent_again.json()["ticket_number"]] == [
+            ticket.ticket_number,
+            ticket_again.ticket_number,
+        ]
         assert (ticket.distinct_id, ticket.identity_verified, ticket.session_context) == (
             self.user.distinct_id,
             False,
@@ -313,8 +358,9 @@ class TestPostHogSupportSend(APIBaseTest):
 
         with responses.RequestsMock() as widget:
             widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            widget.add(responses.GET, WIDGET_TICKETS_URL, json=TICKET_LIST)
             sends = [self.client.post(f"{self.base}/drafts/{draft['id']}/send/") for draft in early_drafts]
-            calls = len(widget.calls)
+            calls = len([call for call in widget.calls if call.request.method == "POST"])
             replay = self.client.post(f"{self.base}/drafts/{early_drafts[0]['id']}/send/")
 
         refused = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")

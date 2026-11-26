@@ -5,9 +5,9 @@ from posthog.scope_docs import ScopeDoc
 SCOPE_DOCS = (
     ScopeDoc(
         object="posthog_support",
-        name="PostHog Support tickets via MCP",
-        plural="PostHog Support tickets via MCP",
-        description="Agents can draft tickets to PostHog's support engineers on some topics, and open them only after you approve the draft.",
+        name="PostHog Support tickets",
+        plural="PostHog Support tickets",
+        description="Agents can open support tickets on your behalf on some topics, and are told to ask you first.",
         group="Organization & account",
         docs_url="https://posthog.com/docs/support-options",
         actions=("write",),

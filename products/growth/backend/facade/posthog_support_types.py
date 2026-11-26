@@ -82,6 +82,7 @@ class SupportDraft:
 @frozen
 class SentSupportTicketResult:
     ticket_id: str
+    ticket_number: int | None
     newly_sent: bool
     topic: TicketTopic | None = None
     filing_reason: FilingReason | None = None

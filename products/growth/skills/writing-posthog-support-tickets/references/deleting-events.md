@@ -59,6 +59,7 @@ Their name and role in the organization. Ask for both. Never infer them from wha
 
 When you hand it over, tell the person to send it from their own PostHog account, through the draft tool or the support widget, and not from another email address.
 Support checks that the requester is a member of the organization that owns the project.
+A ticket sent through the draft tool arrives unverified, so support may wait for the person to reply from the support panel in PostHog before deleting anything.
 
 ## Leave out
 
