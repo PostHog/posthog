@@ -19,7 +19,6 @@ export const HOOK_SOURCE_HASHES: Record<string, readonly string[]> = {
     'logs/redactCredentialsHooks': ['c9ad8c9e56a8', '95e6513df5ad'],
     'replay/sessionRecordingGetHooks': ['c6c44d594f83'],
     'signals/inboxMySettingsHooks': ['3a11ff810aa0'],
-    'signals/selfDrivingStatusHooks': ['78a829a731b8'],
     'workflows/broadcastLinkHooks': ['4ed62789d159'],
     'workflows/dataSuggestionCreateHooks': ['7f0b14e101aa'],
     'workflows/testSenderNoteHooks': ['aa18f0720c08'],

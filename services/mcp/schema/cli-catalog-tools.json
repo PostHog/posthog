@@ -45843,8 +45843,8 @@
     "self-driving-status-get": {
         "name": "self-driving-status-get",
         "kind": "http",
-        "requires": ["hook:signals/selfDrivingStatusHooks"],
-        "hooks": "signals/selfDrivingStatusHooks",
+        "requires": [],
+        "hooks": null,
         "uiApp": null,
         "request": {
             "method": "GET",
