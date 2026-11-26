@@ -5,11 +5,13 @@ from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.workflows.backend.facade.advent_calendar import (
     ADVENT_CALENDAR_QUESTIONS,
@@ -65,12 +67,23 @@ class AdventCalendarResultsSerializer(serializers.Serializer):
     )
 
 
+class AdventCalendarUserThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "workflow_advent_calendar_user"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        return self.cache_format % {"scope": self.scope, "ident": request.user.pk}
+
+
 class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """How people answer the questions of the Workflows advent calendar."""
 
     scope_object = "INTERNAL"
     posthog_feature_flag = "workflows-advent-calendar"
     permission_classes = [PostHogFeatureFlagPermission]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        return [AdventCalendarUserThrottle(), *super().get_throttles()]
 
     @extend_schema(operation_id="workflow_advent_calendar_results", responses={200: AdventCalendarResultsSerializer})
     @action(detail=False, methods=["get"])

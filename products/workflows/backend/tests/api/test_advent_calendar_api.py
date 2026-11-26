@@ -134,6 +134,25 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert not AdventCalendarAnswer.objects.exists()
         self._results()
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch(
+        "products.workflows.backend.presentation.views.workflow_advent_calendar.AdventCalendarUserThrottle.rate",
+        new="2/minute",
+    )
+    def test_each_signed_in_person_has_their_own_request_budget(self, _rate_limit_enabled: Any) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+        self._answer_as(self.user, self.team, 2, "tim")
+        self._results()
+
+        over_budget = self.client.get(self._url(self.team, "results"))
+        teammate_answer = self._answer_as(teammate, self.team, 2, "james")
+
+        assert over_budget.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert teammate_answer["questions"][0]["shares"] == [
+            {"option": "james", "share": 50},
+            {"option": "tim", "share": 50},
+        ]
+
 
 class TestAdventCalendarAnswers(BaseTest):
     def test_an_answer_for_an_account_deleted_meanwhile_stores_nothing(self) -> None:
