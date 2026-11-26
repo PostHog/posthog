@@ -301,7 +301,6 @@ def queried_access_controlled_resources(
 
         collector = TableCollector()
         collector.visit(select)
-        table_names = collector.table_names - collector.ctes
         system_scopes = {
             **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
             **access_controlled_posthog_tables(),
@@ -312,7 +311,7 @@ def queried_access_controlled_resources(
         scopes_from_system_tables = set(scopes)
 
         # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
-        if "system.accounts" in table_names and any(
+        if "system.accounts" in collector.table_names and any(
             any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain)
             for field in GetFieldsTraverser(select).fields
         ):
@@ -323,7 +322,7 @@ def queried_access_controlled_resources(
 
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.
-        if table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
+        if collector.table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_catalog")
             # Their row visibility also depends on per-object warehouse denials (`_catalog_table_visible`
             # and referenced-table filtering hide rows for sources/views the caller can't see), so
@@ -342,7 +341,7 @@ def queried_access_controlled_resources(
         # users with different warehouse grants share a cache key and the denied one is served the
         # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
         # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
-        if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+        if collector.table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
