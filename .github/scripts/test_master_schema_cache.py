@@ -1,3 +1,4 @@
+import sys
 import subprocess
 from pathlib import Path
 
@@ -152,7 +153,36 @@ def test_ancestor_keys_list_older_compatible_migration_sets_newest_first(
 
 
 def test_ancestor_keys_stop_at_the_limit(repository: Path) -> None:
-    for number in range(3, 7):
+    sets = [
         commit_schema_key(repository, {f"posthog/migrations/000{number}_step.py": f"step = {number}"})
+        for number in range(3, 7)
+    ]
 
-    assert len(MasterSchemaCache(repository).ancestor_keys(revision="HEAD", epoch="v2", limit=2)) == 2
+    assert MasterSchemaCache(repository).ancestor_keys(revision="HEAD", epoch="v2", limit=2) == [sets[2], sets[1]]
+
+
+def test_ancestor_keys_stop_at_the_shallow_boundary(repository: Path, tmp_path: Path) -> None:
+    commit_schema_key(repository, {"posthog/migrations/0003_column.py": "column = True"})
+    newest_older_set = commit_schema_key(repository, {"posthog/migrations/0004_index.py": "index = True"})
+    commit_schema_key(repository, {"posthog/migrations/0005_table.py": "table = True"})
+    checkout = tmp_path / "checkout"
+    git(repository, "clone", "-q", "--depth=2", repository.as_uri(), str(checkout))
+
+    assert MasterSchemaCache(checkout).ancestor_keys(revision="HEAD", epoch="v2", limit=7) == [newest_older_set]
+
+
+def test_ancestor_keys_command_runs_without_pyyaml(repository: Path) -> None:
+    baseline = MasterSchemaCache(repository).key(epoch="v2")
+    commit_schema_key(repository, {"posthog/migrations/0003_column.py": "column = True"})
+    script = Path(__file__).with_name("master_schema_cache.py")
+    command = f"""
+import runpy, sys
+sys.modules["yaml"] = None
+sys.argv = ["master_schema_cache.py", "--repository", {str(repository)!r}, "--epoch", "v2",
+            "ancestor-keys", "--revision", "HEAD", "--limit", "7"]
+runpy.run_path({str(script)!r}, run_name="__main__")
+"""
+
+    result = subprocess.run([sys.executable, "-I", "-c", command], capture_output=True, text=True, check=True)
+
+    assert result.stdout.splitlines() == [baseline]

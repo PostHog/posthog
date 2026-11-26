@@ -1115,9 +1115,10 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
-                  restore-keys: |
-                      ${{ needs.turbo-discover.outputs.schema_cache_key }}
-                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
+                  # Exact keys only. A match on an older migration set must still build the
+                  # base's own dump, because every later run on this base would restore that
+                  # older dump and repeat its top-up migrations in each shard.
+                  restore-keys: ${{ needs.turbo-discover.outputs.schema_cache_key }}
                   lookup-only: true
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.schema-cache.outputs.cache-matched-key == ''

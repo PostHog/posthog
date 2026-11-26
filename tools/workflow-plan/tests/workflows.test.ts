@@ -1585,6 +1585,57 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['the exact migration-set dump', ['posthog-schema-mig-v2-base'], false],
+        ['the exact base dump', ['posthog-schema-master-base'], false],
+        ['only an older migration set', ['posthog-schema-mig-v2-older'], true],
+        ['no dump', [], true],
+    ])('prime-schema-cache builds the base dump when the cache holds %s', (name, cached, builds) => {
+        const github = pullRequest()
+        const schemaKey = {
+            migrations_key: 'posthog-schema-mig-v2-base',
+            key: 'posthog-schema-master-base',
+            ancestor_keys: 'posthog-schema-mig-v2-older\nposthog-schema-mig-v2-oldest',
+        }
+        const turboDiscover = {
+            outputs: {
+                schema_migrations_key: schemaKey.migrations_key,
+                schema_cache_key: schemaKey.key,
+                schema_ancestor_keys: schemaKey.ancestor_keys,
+            },
+        }
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const lookup = workflow(DEPOT_BACKEND).jobs['prime-schema-cache']?.steps?.find(
+            (step) => step.id === 'schema-cache'
+        )
+        const context = { github, needs: { 'turbo-discover': turboDiscover } }
+        const primaryKey = evaluateTemplate(lookup?.with?.key, context, functions)
+        const restoreKeys = evaluateTemplate(lookup?.with?.['restore-keys'], context, functions)
+            .split('\n')
+            .map((key) => key.trim())
+            .filter(Boolean)
+        const matched =
+            cached.find((entry) => entry === primaryKey) ??
+            restoreKeys.map((prefix) => cached.find((entry) => entry.startsWith(prefix))).find(Boolean) ??
+            ''
+
+        const plan = planWorkflow(workflow(DEPOT_BACKEND), {
+            name,
+            github,
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                ...backendSelectors,
+                'turbo-discover': { ...backendSelectors['turbo-discover'], 'schema-key': { outputs: schemaKey } },
+                'prime-schema-cache': { 'schema-cache': { outputs: { 'cache-matched-key': matched } } },
+            },
+        })
+
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs['prime-schema-cache']?.steps.find((step) => step.name === 'Build schema dump')?.runs).toBe(
+            builds
+        )
+    })
+
+    it.each([
         ['master schedule', schedule(), 'success', true],
         ['same-repo PR', pullRequest(), 'success', false],
         ['fork PR', pullRequest({ fork: true }), 'success', false],
