@@ -14,6 +14,7 @@ const KEYWORDS = new Set([
     'atan2',
     'prefix',
 ])
+const LITERALS = new Set(['inf', 'nan'])
 const WORD = /[a-zA-Z_:][a-zA-Z0-9_:.]*/y
 const NUMBER = /[0-9.][0-9.a-zA-Z_]*(?:[eE][+-]?[0-9]+)?/y
 
@@ -71,13 +72,17 @@ export function selectorsOf(expr: string): string[] {
                 continue
             }
             const next = nextNonSpace(expr, at + word.length)
-            if (LABEL_LISTS.has(word)) {
+            const lower = word.toLowerCase()
+            const operand =
+                !LITERALS.has(lower) && (expr[at + word.length] === '{' || [')', ','].includes(expr[next] ?? ''))
+            if (LABEL_LISTS.has(word) && !operand) {
                 at = expr[next] === '(' ? afterGroup(expr, next, '(', ')') : at + word.length
             } else if (
-                expr[next] === '(' ||
-                KEYWORDS.has(word.toLowerCase()) ||
-                (word.toLowerCase() === 'limit' && /[0-9]/.test(expr[next] ?? '')) ||
-                LABEL_LISTS.has(match(WORD, expr, next) ?? '')
+                !operand &&
+                (expr[next] === '(' ||
+                    KEYWORDS.has(lower) ||
+                    (lower === 'limit' && /[0-9]/.test(expr[next] ?? '')) ||
+                    LABEL_LISTS.has(match(WORD, expr, next) ?? ''))
             ) {
                 at += word.length
             } else if (expr[next] === '{') {
