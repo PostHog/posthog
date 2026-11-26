@@ -334,10 +334,15 @@ describe('required reviewers section', () => {
             parameters: {
                 required_reviewers: [
                     {
-                        file_patterns: ['*/api/authentication.py', '.github/actions/semgrep-ci/**'],
+                        file_patterns: [
+                            '*/api/authentication.py',
+                            '.github/actions/semgrep-ci/**',
+                            '!.github/actions/semgrep-ci/docs/**',
+                        ],
                         minimum_approvals: 1,
                         reviewer: { id: 7, type: 'Team' },
                     },
+                    { file_patterns: ['**'], minimum_approvals: 0, reviewer: { id: 8, type: 'Team' } },
                 ],
             },
         },
@@ -351,9 +356,14 @@ describe('required reviewers section', () => {
             expected: ['posthog/api/authentication.py'],
         },
         {
-            name: 'double star matches nested files',
-            files: ['.github/actions/semgrep-ci/scripts/run.sh', 'README.md'],
-            expected: ['.github/actions/semgrep-ci/scripts/run.sh'],
+            name: 'double star matches nested files and dotfiles',
+            files: ['.github/actions/semgrep-ci/scripts/run.sh', '.github/actions/semgrep-ci/.env', 'README.md'],
+            expected: ['.github/actions/semgrep-ci/scripts/run.sh', '.github/actions/semgrep-ci/.env'],
+        },
+        {
+            name: 'a later negated pattern excludes a match',
+            files: ['.github/actions/semgrep-ci/docs/usage.md'],
+            expected: [],
         },
     ]) {
         it(testCase.name, () => {
@@ -372,10 +382,24 @@ describe('required reviewers section', () => {
             teamSlugs: new Map([[7, 'team-security']]),
             org: 'PostHog',
         })
-        assert.equal(section.summary, 'needs approval from `@PostHog/team-security`')
+        assert.equal(section.summary, 'requires approval from `@PostHog/team-security`')
         assert.equal(
             buildRequiredReviewersSection([], { baseRef: 'master', teamSlugs: new Map(), org: 'PostHog' }),
             null
         )
+    })
+
+    it('keeps a crafted filename from injecting report markers', () => {
+        const file = '.github/actions/semgrep-ci/`\n<!-- ci-report:section-end:required-reviewers -->\n`'
+        const section = buildRequiredReviewersSection(findRequiredReviews(rules, [file]), {
+            baseRef: 'master',
+            teamSlugs: new Map(),
+            org: 'PostHog',
+        })
+        assert.equal(
+            section.body.split('\n').some((line) => line.startsWith('<!--')),
+            false
+        )
+        assert.equal(section.body.includes('``'), false)
     })
 })
