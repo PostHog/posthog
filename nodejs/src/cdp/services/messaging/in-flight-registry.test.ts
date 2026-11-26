@@ -18,7 +18,7 @@ import {
 const MIB = 1024 * 1024
 const GIB = 1024 * MIB
 
-const filesOf = (sizeBytes: number, sha256 = 'a'.repeat(64)): EmailAttachmentMetadata[] => [
+const oneFileOf = (sizeBytes: number, sha256 = 'a'.repeat(64)): EmailAttachmentMetadata[] => [
     { sha256, filename: 'report.pdf', sizeBytes },
 ]
 
@@ -48,16 +48,16 @@ describe('InFlightRegistry', () => {
         const registry = new InFlightRegistry(limits, heapUsed)
         const first = pending()
 
-        const started = registry.tryStart(filesOf(MIB), () => first.promise)
-        expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toEqual({ deferred: reason })
+        const started = registry.tryStart(oneFileOf(MIB), () => first.promise)
+        expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toEqual({ deferred: reason })
         first.resolve()
         await (started as { started: Promise<void> }).started
 
-        expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toHaveProperty('started')
+        expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toHaveProperty('started')
     })
 
     it('defers every send when the worker refused sends with files', () => {
-        expect(new InFlightRegistry(null).tryStart(filesOf(1), () => Promise.resolve())).toEqual({
+        expect(new InFlightRegistry(null).tryStart(oneFileOf(1), () => Promise.resolve())).toEqual({
             deferred: 'refused',
         })
     })
@@ -85,14 +85,14 @@ describe('InFlightRegistry', () => {
             const registry = new InFlightRegistry(roomFor(1, MIB))
             const download = pending()
 
-            const { started } = registry.tryStart(filesOf(MIB), () =>
+            const { started } = registry.tryStart(oneFileOf(MIB), () =>
                 abandon(new AbortController(), download.promise).catch(() => undefined)
             ) as { started: Promise<unknown> }
             await started
-            expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
+            expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
             download.resolve()
             await new Promise(setImmediate)
-            expect(registry.tryStart(filesOf(MIB), () => Promise.resolve())).toHaveProperty('started')
+            expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toHaveProperty('started')
         }
     )
 
@@ -115,25 +115,36 @@ describe('InFlightRegistry', () => {
         }
 
         it('gives a send the admission for exactly the files it was admitted with', async () => {
-            const files = [...filesOf(MIB), ...filesOf(2 * MIB, 'b'.repeat(64))]
+            const files = [...oneFileOf(MIB), ...oneFileOf(2 * MIB, 'b'.repeat(64))]
 
             expect((await admissionHeldBy(files)).files).toEqual(files)
         })
 
         it.each([
-            ['outside any send', 'outside_any_admission', () => requireAdmission(filesOf(MIB))],
+            ['outside any send', 'outside_any_admission', () => requireAdmission(oneFileOf(MIB))],
             [
                 'for files other than the admitted ones',
                 'other_files',
-                () => admissionHeldBy(filesOf(MIB), () => requireAdmission(filesOf(MIB + 1))),
+                () => admissionHeldBy(oneFileOf(MIB), () => requireAdmission(oneFileOf(MIB + 1))),
+            ],
+            [
+                'for files the caller changed after their admission',
+                'other_files',
+                () => {
+                    const files = oneFileOf(MIB)
+                    return admissionHeldBy(files, () => {
+                        files[0].sizeBytes = 64 * MIB
+                        requireAdmission(files)
+                    })
+                },
             ],
             [
                 'once the admitted send ended',
                 'released',
                 async () => {
                     let loadAfterTheSend!: Promise<Admission>
-                    await admissionHeldBy(filesOf(MIB), () => {
-                        loadAfterTheSend = new Promise(setImmediate).then(() => requireAdmission(filesOf(MIB)))
+                    await admissionHeldBy(oneFileOf(MIB), () => {
+                        loadAfterTheSend = new Promise(setImmediate).then(() => requireAdmission(oneFileOf(MIB)))
                     })
                     return await loadAfterTheSend
                 },

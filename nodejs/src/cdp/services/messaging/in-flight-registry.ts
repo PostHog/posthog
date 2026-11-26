@@ -149,6 +149,9 @@ export function admittedFiles(admission: Admission): readonly EmailAttachmentMet
     if (!liveAdmissions.has(admission)) {
         throw refusedUnadmitted('released')
     }
+    if (sendAdmission.getStore() !== admission) {
+        throw refusedUnadmitted('outside_any_admission')
+    }
     return admission.files
 }
 
@@ -231,7 +234,8 @@ export class InFlightRegistry {
         files: readonly EmailAttachmentMetadata[],
         send: () => Promise<T>
     ): { started: Promise<T> } | { deferred: DeferralReason } {
-        const fileBytes = declaredFileBytes(files)
+        const admitted = Object.freeze(files.map((file) => Object.freeze({ ...file })))
+        const fileBytes = declaredFileBytes(admitted)
         const reason = this.whyNoRoom(fileBytes)
         if (reason) {
             deferralTokensSpent.labels({ reason }).inc()
@@ -239,7 +243,7 @@ export class InFlightRegistry {
         }
         const estimate = estimateSend(fileBytes)
         this.hold(estimate, 1)
-        const admission = { files } as Admission
+        const admission = { files: admitted } as Admission
         liveAdmissions.add(admission)
         const started = sendAdmission.run(admission, () =>
             sendCalls.run(new Set(), async () => {

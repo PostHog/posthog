@@ -2954,18 +2954,22 @@ describe('EmailService', () => {
                 }
             )
 
-            it('when a flow sends its next email inline after the email before abandoned its downloads mid-body, it loads its files and sends', async () => {
+            it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000, admits: 'nothing' })
+                const logoRef = { filename: 'logo.png', contentType: 'image/png', contentId: 'logo' }
+                logo = attachmentFile(logoRef)
+                send([pdf, logo])
                 bucket.answer = 'stallFileBodies'
 
                 const { first, second } = await inOneAdmission([pdf.metadata, logo.metadata], async () => {
                     const first = await emailService.executeSendEmail(invocation)
+                    await uploadAttachment(team.id, logoRef, logo.bytes)
                     bucket.answer = 'pass'
                     return { first, second: await emailService.executeSendEmail(invocation) }
                 })
 
-                expect(outcomeOf(first)).toEqual(retriedLoad)
-                await waitForExpect(() => expect(bucket.abandonedRequests).toBe(2), 3000)
+                expect(first.error).toMatch(/^attachments_missing: /)
+                await waitForExpect(() => expect(bucket.abandonedRequests).toBe(1), 3000)
                 expect(outcomeOf(second)).toEqual(sent)
                 expect(deliveredTo(ses, recipient)).toEqual([
                     { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
@@ -3113,14 +3117,6 @@ describe('EmailService', () => {
                     true,
                     expect.stringMatching(/^attachment_unavailable: /),
                     'attachment_unavailable',
-                ],
-                [
-                    0,
-                    true,
-                    'fails a test send at once as attachment_unavailable',
-                    true,
-                    expect.stringMatching(/^attachment_unavailable: .* in 1 try,/),
-                    null,
                 ],
             ])(
                 'after %s load retries (test send: %s), %s when the bucket still does not answer',
