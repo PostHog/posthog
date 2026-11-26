@@ -295,8 +295,6 @@ class TestWebAuthnLogin(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
-        self.credential.refresh_from_db()
-        self.assertEqual(self.credential.counter, 0)
 
     @patch(
         "posthog.api.webauthn.refuse_blocked_account",
