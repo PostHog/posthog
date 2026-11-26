@@ -28,12 +28,13 @@ export interface TodaySeasonalChecklistLogicProps {
     checklist: SeasonalChecklistApi
 }
 
-export type SeasonalItemSource = 'checkbox' | 'action'
+export type SeasonalItemSource = 'checkbox'
 
 const EVENTS = {
     shown: 'today seasonal checklist shown',
     opened: 'today seasonal checklist opened',
     itemCompleted: 'today seasonal checklist item completed',
+    actionClicked: 'today seasonal checklist action clicked',
     completed: 'today seasonal checklist completed',
     dismissed: 'today seasonal checklist dismissed',
     restored: 'today seasonal checklist restored',
@@ -187,7 +188,7 @@ export const todaySeasonalChecklistLogic: LogicWrapper<todaySeasonalChecklistLog
                     peekFeatureFlag(featureFlags, FEATURE_FLAGS.TODAY_SEASONAL_CHECKLIST) ?? null,
             ],
         }),
-        listeners(({ actions, values, props }) => {
+        listeners(({ values, props }) => {
             const capture = (event: string, properties?: Record<string, unknown>): void =>
                 captureChecklistEvent(event, props, values, properties)
             return {
@@ -206,9 +207,7 @@ export const todaySeasonalChecklistLogic: LogicWrapper<todaySeasonalChecklistLog
                     if (!item) {
                         return
                     }
-                    if (!values.doneKeys.has(key)) {
-                        actions.setItemDone(key, true, 'action')
-                    }
+                    capture(EVENTS.actionClicked, { item_key: key, action_kind: item.action.kind })
                     if (item.action.kind === 'ask_ai' && item.action.prompt) {
                         router.actions.push(urls.ai(undefined, item.action.prompt))
                     }
@@ -217,7 +216,15 @@ export const todaySeasonalChecklistLogic: LogicWrapper<todaySeasonalChecklistLog
                     capture(EVENTS.dismissed)
                     toast({
                         title: 'Checklist hidden',
-                        action: { label: 'Undo', onClick: () => actions.restoreChecklist() },
+                        action: {
+                            label: 'Undo',
+                            onClick: () => {
+                                const logic = todaySeasonalChecklistLogic(props)
+                                const unmount = logic.mount()
+                                logic.actions.restoreChecklist()
+                                unmount()
+                            },
+                        },
                     })
                 },
                 restoreChecklist: () => capture(EVENTS.restored),
