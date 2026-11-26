@@ -645,7 +645,9 @@ export function createRunner(
                     startedAt: driveStartedAt,
                 })
                 const windowOpen = new AbortController()
-                void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
+                void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {
+                    signal: windowOpen.signal,
+                })
                     .then(() => valves.releaseAll())
                     .catch(() => undefined)
                 const liveSignal = AbortSignal.any([signal, judging.signal])
