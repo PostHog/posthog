@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -139,6 +140,32 @@ describe('billingUsageLogic loader', () => {
             { key: '3', label: 'ID: 3 (deleted)' },
             { key: '17', label: 'ID: 17 (deleted)' },
         ])
+    })
+
+    it("links the organization's exports, and nothing before the organization loads", async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization_id/billing/': () => [200, billingJson],
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
+                    200,
+                    { count: 0, next: null, previous: null, results: [] },
+                ],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        logic = billingUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const exportPath = `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/export/`
+        expect(logic.values.usageExportUrl?.split('?')[0]).toEqual(exportPath)
+        expect(logic.values.usageChartExportUrl?.split('?')[0]).toEqual(exportPath)
+
+        organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+
+        expect(logic.values.usageExportUrl).toBeNull()
+        expect(logic.values.usageChartExportUrl).toBeNull()
     })
 
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {
