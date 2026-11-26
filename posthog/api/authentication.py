@@ -966,15 +966,14 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         # Seeded accounts first so the default test user stays on top. After that recency beats
         # alphabetical: on instances with hundreds of test accounts, the handful you actually
         # switch between float up on their own. Email breaks ties to keep the order stable.
-        users = list(
-            User.objects.humans()
+        users = [
+            {**entry, "label": DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])}
+            for entry in User.objects.humans()
             .filter(is_active=True)
             .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
             .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
             .values("email", "first_name", "is_staff", "last_login")
-        )
-        for entry in users:
-            entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
+        ]
 
         return Response(
             DevLoginUserListSerializer({"users": users, "oauth_connectors": seeded_dev_oauth_connector_links()}).data
@@ -1417,6 +1416,8 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         code = serializer.validated_data.get("code")
         user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
+            if user_id is None:
+                raise User.DoesNotExist
             user = User.objects.humans().get(pk=user_id, is_active=True)
         except User.DoesNotExist:
             code_based_verifier.clear_pending(request)
@@ -1477,10 +1478,11 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             )
         _require_fresh_idp_challenge(request)
 
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
-            user = User.objects.humans().get(
-                pk=code_based_verifier.get_pending_code_based_verification_user_id(request)
-            )
+            if user_id is None:
+                raise User.DoesNotExist
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 

@@ -1351,7 +1351,7 @@ class TestTwoFactorAPI(APIBaseTest):
     @parameterized.expand([("totp", False), ("backup", True)])
     @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email.delay")
     def test_pending_2fa_refuses_service_account(self, _name: str, backup: bool, _send_email: MagicMock) -> None:
-        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         backup_device = StaticDevice.objects.create(user=self.user, name="backup")
         backup_token = backup_device.token_set.create(token="abcd2345")
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
