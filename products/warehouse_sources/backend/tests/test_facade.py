@@ -86,12 +86,25 @@ class TestWarehouseSourcesFacade(BaseTest):
         self.source.save()
         self.schema.latest_error = "permission denied for table users (password fake-password)"
         self.schema.save()
+        unreadable = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Stripe",
+            job_inputs="not json",
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=unreadable, name="charges", latest_error="request failed: api_key=sk_test_1234"
+        )
 
         results = api.list_source_health(self.team.pk)
 
-        assert [r.source_type for r in results] == ["Postgres"]
+        assert [(r.source_type, r.latest_error) for r in results] == [
+            ("Postgres", "permission denied for table users (password ***)"),
+            ("Stripe", "request failed: api_key=***"),
+        ]
         assert results[0].last_run_at == newest.created_at
-        assert results[0].latest_error == "permission denied for table users (password ***)"
 
     @parameterized.expand(
         [

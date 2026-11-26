@@ -23,11 +23,15 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from posthog.integrations import IntegrationRecord
 
     from products.warehouse_sources.backend.facade.source_management import FieldType
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def field_name_variants(name: str) -> tuple[str, ...]:
@@ -173,8 +177,10 @@ def _collect_secret_values(data: Any, sensitive: set[str], into: set[str]) -> No
 
 def source_secret_values(source_type: str, job_inputs: Mapping[str, Any]) -> frozenset[str]:
     """The stored secret values in a source's inputs, to mask wherever they appear in its error messages."""
-    # The registry imports every source, so it loads on first use rather than with the facade.
-    from products.warehouse_sources.backend.facade.source_management import SourceRegistry  # noqa: PLC0415
+    # The registry loads source modules, so keep it off this module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415
+        SourceRegistry,
+    )
 
     try:
         source_config = SourceRegistry.get_source(source_type).get_source_config
@@ -184,6 +190,20 @@ def source_secret_values(source_type: str, job_inputs: Mapping[str, Any]) -> fro
     values: set[str] = set()
     _collect_secret_values(job_inputs, sensitive, values)
     return frozenset(value for value in values if len(value) >= _MIN_REDACTED_SECRET_LENGTH)
+
+
+def source_secret_values_by_source(sources: Iterable[ExternalDataSource]) -> dict[UUID, frozenset[str]]:
+    """The stored secret values of each source, read with one inputs query for all of them.
+
+    A source whose inputs can't be read is left out, so its errors keep only the pattern masking.
+    """
+    sources = list(sources)
+    inputs = SourceInputsStore.load_many(sources)
+    return {
+        source.id: source_secret_values(source.source_type, inputs[source.id])
+        for source in sources
+        if source.id in inputs
+    }
 
 
 def get_integration_error_redaction_values(integration: IntegrationRecord | None) -> frozenset[str]:
