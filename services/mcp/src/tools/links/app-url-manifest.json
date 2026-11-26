@@ -594,6 +594,11 @@
         "params": [],
         "scope": "project"
     },
+    "dashboardV2Board": {
+        "template": "/dashboard-v2/{uid}",
+        "params": ["uid"],
+        "scope": "project"
+    },
     "dashboards": {
         "template": "/dashboard",
         "params": [],
