@@ -130,8 +130,8 @@ describe('LegacyWebhookService', () => {
         return { events, requests: sentRequests() }
     }
 
-    const startService = async (): Promise<void> => {
-        const started = new LegacyWebhookService(hub.postgres, hub.teamManager, hub.pubSub)
+    const startService = async (skipByTeamHeader = true): Promise<void> => {
+        const started = new LegacyWebhookService(hub.postgres, hub.teamManager, hub.pubSub, skipByTeamHeader)
         await started.start()
         service = started
         stopService = () => started.stop()
@@ -206,22 +206,27 @@ describe('LegacyWebhookService', () => {
             }
         )
 
-        it('posts nothing for an event whose body names another team than its header', async () => {
-            await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
-            await updateOrganizationAvailableFeatures(hub.postgres, otherOrganizationId, [ZAPIER])
-            await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
-            await createPageviewHook(team2.id, 'https://hooks.zapier.com/other-team')
-            await startService()
+        it.each([
+            { switch: 'on', urls: [] },
+            { switch: 'off', urls: ['https://hooks.zapier.com/other-team'] },
+        ])(
+            'posts to the body team only with the switch $switch, for an event whose body names another team than its header',
+            async ({ switch: on, urls }) => {
+                await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])
+                await updateOrganizationAvailableFeatures(hub.postgres, otherOrganizationId, [ZAPIER])
+                await createPageviewHook(team.id, 'https://hooks.zapier.com/team')
+                await createPageviewHook(team2.id, 'https://hooks.zapier.com/other-team')
+                await startService(on === 'on')
 
-            const { events, requests } = await parseAndSend([
-                createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' }), {
-                    headers: [{ team_id: String(team.id) }],
-                }),
-            ])
+                const { requests } = await parseAndSend([
+                    createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' }), {
+                        headers: [{ team_id: String(team.id) }],
+                    }),
+                ])
 
-            expect(events).toEqual([])
-            expect(requests).toEqual([])
-        })
+                expect(requests.map(({ url }) => url)).toEqual(urls)
+            }
+        )
 
         it('posts to the hook of every matching action that has a target', async () => {
             await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [ZAPIER])

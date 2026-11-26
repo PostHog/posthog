@@ -22,7 +22,8 @@ export class LegacyWebhookService {
     constructor(
         private postgres: PostgresRouter,
         private teamManager: TeamManager,
-        pubSub: PubSub
+        pubSub: PubSub,
+        private skipByTeamHeader = false
     ) {
         this.actionManager = new ActionManager(postgres, pubSub)
         this.actionMatcher = new ActionMatcher(this.actionManager)
@@ -101,7 +102,7 @@ export class LegacyWebhookService {
         await Promise.all(
             messages.map(async (message) => {
                 // Few teams have webhooks, so most bodies are never needed.
-                const headerTeamId = readTeamIdHeader(message)
+                const headerTeamId = this.skipByTeamHeader ? readTeamIdHeader(message) : null
                 if (headerTeamId !== null && !this.actionMatcher.hasWebhooks(headerTeamId)) {
                     return
                 }

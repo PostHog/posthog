@@ -740,17 +740,40 @@ describe('CdpLegacyEventsConsumer', () => {
         let otherTeam: Team
         let handleBatch: (messages: Message[]) => Promise<{ backgroundTask: Promise<unknown> }>
 
+        const startWithSwitches = async (on: boolean): Promise<void> => {
+            hub.CDP_LEGACY_EVENT_CONSUMER_PLUGINS_SKIP_BY_TEAM_HEADER = on
+            hub.CDP_LEGACY_EVENT_CONSUMER_WEBHOOKS_SKIP_BY_TEAM_HEADER = on
+            consumer = new CdpLegacyEventsConsumer(hub, createCdpConsumerDeps(hub))
+            await consumer.start()
+            handleBatch = (consumer['kafkaConsumer'].connect as jest.Mock).mock.calls.at(-1)[0]
+        }
+
         beforeEach(async () => {
             otherTeam = (await createTestTeamFixture(hub.postgres)).team
-            await consumer.start()
-            handleBatch = (consumer['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
         })
 
         afterEach(async () => {
             await consumer.stop()
         })
 
+        it.each([
+            { switches: 'on', pluginRuns: false },
+            { switches: 'off', pluginRuns: true },
+        ])('trusts the header over the body only with the switches $switches', async ({ switches, pluginRuns }) => {
+            await startWithSwitches(switches === 'on')
+            // The header names a team without a plugin, the body names the team with one.
+            const mismatched = createKafkaMessage(createIncomingEvent(team.id, {}), {
+                headers: [{ team_id: String(otherTeam.id) }],
+            })
+
+            const { backgroundTask } = await handleBatch([mismatched])
+            await backgroundTask
+
+            expect(mockFetch.mock.calls.length > 0).toBe(pluginRuns)
+        })
+
         it('leaves the body unread when the header names a team with no legacy plugin and no webhook', async () => {
+            await startWithSwitches(true)
             register.getSingleMetric('cdp_function_parse_error')?.reset()
             // Reading this body would count a parse error, so none counted means neither side read it.
             const unreadable = {
@@ -770,6 +793,7 @@ describe('CdpLegacyEventsConsumer', () => {
         })
 
         it("does not run the header team's plugins on an event whose body names another team", async () => {
+            await startWithSwitches(true)
             register.getSingleMetric('cdp_events_team_id_header_mismatch')?.reset()
             const mismatched = createKafkaMessage(createIncomingEvent(otherTeam.id, {}), {
                 headers: [{ team_id: String(team.id) }],
