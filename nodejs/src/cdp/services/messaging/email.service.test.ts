@@ -3094,7 +3094,7 @@ describe('EmailService', () => {
                     'the SES host does not resolve and the SDK is still backing off',
                     (emailService: EmailService) => {
                         emailService.sesTransport = sesTransportFor(
-                            { endpoint: 'http://ses.invalid' },
+                            { endpoint: `http://${'x'.repeat(64)}.invalid` },
                             { retryStrategy: oneRetryAfter(2_000) }
                         )
                     },
