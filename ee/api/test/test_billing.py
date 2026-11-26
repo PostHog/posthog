@@ -1792,7 +1792,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
     UNLOCKED_WRITE_ACTIONS = {
         "deactivate",
         "cancel_trial",
-        "patch",
+        "update_limits",
         "license",
         "authorize_status",
         "apply_startup_program",
@@ -3144,7 +3144,7 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         [
             ("activate", "post", "/api/billing/activate", {"products": "all_products:"}, BILLING_ACCESS_DENIED_MESSAGE),
             ("deactivate", "post", "/api/billing/deactivate", {"products": "product_1"}, BILLING_ACCESS_DENIED_MESSAGE),
-            ("patch", "patch", "/api/billing//", {"custom_limits_usd": {}}, BILLING_ACCESS_DENIED_MESSAGE),
+            ("update_limits", "patch", "/api/billing//", {"custom_limits_usd": {}}, BILLING_ACCESS_DENIED_MESSAGE),
             (
                 "subscription_switch_plan",
                 "post",
