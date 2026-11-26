@@ -53,6 +53,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     compute_query_hash,
     create_lazy_computation_job,
     ensure_precomputed,
+    expiry_buffer_seconds,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
     is_non_retryable_error,
@@ -2438,6 +2439,24 @@ class TestComputationExecutorExecute(BaseTest):
         with self.assertRaises(ValueError):
             LazyComputationExecutor(stale_while_revalidate_seconds=EXPIRY_BUFFER_SECONDS)
 
+    @parameterized.expand(
+        [
+            ("short_buffer_table", LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED_BY_DAY, 2 * 60 * 60),
+            ("default_buffer_table", LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED, EXPIRY_BUFFER_SECONDS),
+        ]
+    )
+    def test_stale_while_revalidate_must_stay_under_the_table_expiry_buffer(self, _name, table, buffer_seconds):
+        assert expiry_buffer_seconds(table) == buffer_seconds
+        with self.assertRaises(ValueError):
+            ensure_precomputed(
+                team=self.team,
+                insert_query="SELECT 1",
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                table=table,
+                stale_while_revalidate_seconds=buffer_seconds,
+            )
+
     def test_fresh_ready_job_is_reused(self):
         query_info, query_hash = self._make_query_info()
 
@@ -3609,6 +3628,8 @@ _INSERT_LOAD_BALANCING_CASES = [
     (LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED, "in_order"),
     (LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED, None),
     (LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED, None),
+    (LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED_BY_DAY, None),
+    (LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY, None),
 ]
 
 

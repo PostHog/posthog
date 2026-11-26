@@ -44,6 +44,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     DIMENSIONAL_TTL_SECONDS,
+    DimensionalLayout,
     dimensional_insert_modifiers,
     dimensional_ttl_schedule,
     ensure_web_bounces_dimensional_precomputed,
@@ -102,6 +103,10 @@ TODAY_MAX_LAG_SECONDS = DIMENSIONAL_TTL_SECONDS["0d"] + COVERAGE_GRACE_SECONDS
 
 STATS_TABLE = "web_stats_dimensional_preaggregated"
 BOUNCES_TABLE = "web_bounces_dimensional_preaggregated"
+
+# Comma-separated team IDs whose jobs also fill the day-partitioned copy of the tables, so reads can compare the two
+# layouts. Unset, it follows the writer's own team list. Set to empty to stop filling the copy.
+BY_DAY_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_BY_DAY_TEAM_IDS"
 
 # Run pods exit after the run, so nothing scrapes their in-process registry. The gauges go through
 # the push gateway instead, under this group name. A push replaces every gauge of the group.
@@ -327,6 +332,13 @@ def _push_coverage_gauges(coverages: list[TableCoverage]) -> None:
             )
 
 
+def by_day_team_ids(selected_team_ids: list[int]) -> set[int]:
+    raw = os.getenv(BY_DAY_TEAM_IDS_ENV_VAR)
+    if raw is None:
+        return set(selected_team_ids)
+    return {int(part.strip()) for part in raw.split(",") if part.strip().isdigit()}
+
+
 def team_window(team: Team, window: TimeSpan) -> TimeSpan:
     floor = sessions_coverage_floor(dimensional_insert_modifiers(team))
     if floor is None or floor <= window.start:
@@ -340,6 +352,7 @@ def _ensure_for_team(
     window: TimeSpan,
     chunk_days: int,
     sample_job_ids: dict[tuple[int, str], str],
+    fill_by_day: bool = False,
 ) -> int:
     """Ensure both dimensional tables for one team, one bounded chunk at a time.
 
@@ -351,15 +364,23 @@ def _ensure_for_team(
     Chunks run newest first, and each chunk builds both tables before the next one starts. A read
     needs both tables for every day it covers, so after a full rebuild (a new job identity) the
     recent ranges become servable after a few chunks instead of after a whole pass over one table.
+    With `fill_by_day`, each chunk also builds the day-partitioned copy of both tables. The coverage
+    check covers only the current tables, so the copy cannot fail the run.
     """
+    builds = [
+        (STATS_TABLE, ensure_web_stats_dimensional_precomputed, DimensionalLayout.BY_JOB),
+        (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed, DimensionalLayout.BY_JOB),
+    ]
+    if fill_by_day:
+        builds += [
+            (f"{STATS_TABLE}_by_day", ensure_web_stats_dimensional_precomputed, DimensionalLayout.BY_DAY),
+            (f"{BOUNCES_TABLE}_by_day", ensure_web_bounces_dimensional_precomputed, DimensionalLayout.BY_DAY),
+        ]
     failures = 0
     for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
-        for table_label, ensure_fn in (
-            (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
-            (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
-        ):
+        for table_label, ensure_fn, layout in builds:
             try:
-                result = ensure_fn(team, chunk_start, chunk_end)
+                result = ensure_fn(team, chunk_start, chunk_end, layout=layout)
             except Exception as exc:
                 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_FAILED.labels(table=table_label, error_type=type(exc).__name__).inc()
                 context.log.exception(
@@ -405,6 +426,7 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
         )
 
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
+    fill_by_day_ids = by_day_team_ids(team_ids)
 
     failures = 0
     processed: list[int] = []
@@ -414,7 +436,14 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
         if team is None:
             context.log.warning(f"web_dimensional_precompute_team_missing team_id={team_id}")
             continue
-        failures += _ensure_for_team(context, team, team_window(team, window), PRECOMPUTE_CHUNK_DAYS, sample_job_ids)
+        failures += _ensure_for_team(
+            context,
+            team,
+            team_window(team, window),
+            PRECOMPUTE_CHUNK_DAYS,
+            sample_job_ids,
+            fill_by_day=team_id in fill_by_day_ids,
+        )
         processed.append(team_id)
 
     context.log.info(f"web_dimensional_precompute_complete teams={len(processed)} failures={failures}")

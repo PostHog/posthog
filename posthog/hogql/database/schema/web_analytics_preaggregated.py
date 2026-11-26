@@ -272,3 +272,31 @@ class WebBouncesDimensionalPreAggregatedTable(EventsRetentionTable):
 
     def to_printed_hogql(self):
         return "web_bounces_dimensional_preaggregated"
+
+
+class WebStatsDimensionalPreAggregatedByDayTable(WebStatsDimensionalPreAggregatedTable):
+    description: str = (
+        "The rows of web_stats_dimensional_preaggregated, stored partitioned by the day of period_bucket. Filled next "
+        "to it to compare read cost, used internally by the web analytics product. Reads must filter job_id to READY "
+        "jobs, as for the other table."
+    )
+
+    def to_printed_clickhouse(self, context):
+        return "web_stats_dimensional_preaggregated_by_day"
+
+    def to_printed_hogql(self):
+        return "web_stats_dimensional_preaggregated_by_day"
+
+
+class WebBouncesDimensionalPreAggregatedByDayTable(WebBouncesDimensionalPreAggregatedTable):
+    description: str = (
+        "The rows of web_bounces_dimensional_preaggregated, stored partitioned by the day of period_bucket. Filled "
+        "next to it to compare read cost, used internally by the web analytics product. Reads must filter job_id to "
+        "READY jobs, as for the other table."
+    )
+
+    def to_printed_clickhouse(self, context):
+        return "web_bounces_dimensional_preaggregated_by_day"
+
+    def to_printed_hogql(self):
+        return "web_bounces_dimensional_preaggregated_by_day"

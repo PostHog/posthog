@@ -19,9 +19,13 @@ from posthog.models import Organization, Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import dimensional_ttl_schedule
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    DimensionalLayout,
+    dimensional_ttl_schedule,
+)
 from products.web_analytics.dags.web_dimensional_precompute import (
     BOUNCES_TABLE,
+    BY_DAY_TEAM_IDS_ENV_VAR,
     DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
@@ -247,6 +251,13 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
     """Orchestration-shaped tests; the ensure_* functions are patched so no
     ClickHouse traffic is needed."""
 
+    def setUp(self):
+        super().setUp()
+        # The day-partitioned copy is off here, so the call counts cover the current tables only.
+        env_patcher = patch.dict(os.environ, {BY_DAY_TEAM_IDS_ENV_VAR: ""})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
     def _make_team(self, name: str) -> Team:
         org = Organization.objects.create(name=name)
         return Team.objects.create(organization=org, name=f"{name}-team")
@@ -288,6 +299,31 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
         "products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed",
         return_value=_READY,
     )
+    def test_fills_the_day_partitioned_copy_only_for_its_teams(self, stats_mock, bounces_mock):
+        t1 = self._make_team("A")
+        t2 = self._make_team("B")
+        with patch.dict(
+            os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk},{t2.pk}", BY_DAY_TEAM_IDS_ENV_VAR: str(t1.pk)}
+        ):
+            result = ensure_web_dimensional_precompute_op(dagster.build_op_context())
+
+        assert result.failures == 0
+        for mock in (stats_mock, bounces_mock):
+            layouts = {(call.args[0].pk, call.kwargs["layout"]) for call in mock.call_args_list}
+            assert layouts == {
+                (t1.pk, DimensionalLayout.BY_JOB),
+                (t1.pk, DimensionalLayout.BY_DAY),
+                (t2.pk, DimensionalLayout.BY_JOB),
+            }
+
+    @patch(
+        "products.web_analytics.dags.web_dimensional_precompute.ensure_web_bounces_dimensional_precomputed",
+        return_value=_READY,
+    )
+    @patch(
+        "products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed",
+        return_value=_READY,
+    )
     def test_chunking_issues_multiple_bounded_calls(self, stats_mock, bounces_mock):
         # Chunking bounds each ensure call to <= chunk_days so no single INSERT
         # scans the whole window. Exercised here with a 7-day chunk for clarity.
@@ -295,7 +331,7 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
         calls: list[tuple[str, datetime]] = []
 
         def record(table: str):
-            def ensure(_team: Team, start: datetime, _end: datetime) -> LazyComputationResult:
+            def ensure(_team: Team, start: datetime, _end: datetime, **_kwargs) -> LazyComputationResult:
                 calls.append((table, start))
                 return _READY
 
@@ -332,7 +368,7 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
         t1 = self._make_team("A")
         t2 = self._make_team("B")
 
-        def stats_side_effect(team, start, end):
+        def stats_side_effect(team, start, end, **_kwargs):
             if team.pk != t1.pk:
                 return _READY
             if isinstance(failure, Exception):

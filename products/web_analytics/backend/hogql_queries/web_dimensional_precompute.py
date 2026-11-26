@@ -25,6 +25,7 @@ Parity with v2 is intentional, with two deliberate deviations:
 import json
 from collections.abc import Collection
 from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import UUID
 
 from django.conf import settings
@@ -53,6 +54,37 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 # Distributed read-table names as registered in the HogQL database schema.
 WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
 WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
+
+
+class DimensionalLayout(StrEnum):
+    """Which copy of the dimensional tables a build fills or a read uses.
+
+    BY_JOB is the current pair, partitioned by expiry with `job_id` first in the key. BY_DAY holds the same rows
+    partitioned by the day of `period_bucket`, filled next to it so reads can compare the two.
+    """
+
+    BY_JOB = "by_job"
+    BY_DAY = "by_day"
+
+
+# The read table names above name the tables in every layout: job lookups and builders key on them, and only the
+# physical table changes with the layout.
+_LAYOUT_TABLES: dict[DimensionalLayout, dict[str, LazyComputationTable]] = {
+    DimensionalLayout.BY_JOB: {
+        WEB_STATS_DIMENSIONAL_READ_TABLE: LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
+        WEB_BOUNCES_DIMENSIONAL_READ_TABLE: LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
+    },
+    DimensionalLayout.BY_DAY: {
+        WEB_STATS_DIMENSIONAL_READ_TABLE: LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED_BY_DAY,
+        WEB_BOUNCES_DIMENSIONAL_READ_TABLE: LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_BY_DAY,
+    },
+}
+
+
+def dimensional_physical_table(read_table: str, layout: DimensionalLayout) -> str:
+    """The ClickHouse and HogQL name of `read_table` in `layout`."""
+    return _LAYOUT_TABLES[layout][read_table].value
+
 
 # Today's window refreshes hourly, the last two days daily, and older days are held for 90 to 97
 # days so a settled day is computed once. The scheduled job re-runs over the rolling window and the
@@ -399,13 +431,21 @@ def dimensional_insert_modifiers(team: Team) -> HogQLQueryModifiers:
     )
 
 
-def dimensional_cache_key_context(modifiers: HogQLQueryModifiers) -> dict[str, str]:
+def dimensional_cache_key_context(
+    modifiers: HogQLQueryModifiers, layout: DimensionalLayout = DimensionalLayout.BY_JOB
+) -> dict[str, str]:
     dump = modifiers.model_dump(mode="json")
-    return {
+    context = {
         "semantic_modifiers": json.dumps(
             {field: dump.get(field) for field in DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS}, sort_keys=True
         )
     }
+    # Both layouts run the same INSERT, and a job row does not record its table, so the layout must be part of the
+    # job identity or a lookup on one table would find the other's jobs. BY_JOB adds nothing, so its existing jobs
+    # keep matching.
+    if layout != DimensionalLayout.BY_JOB:
+        context["layout"] = layout.value
+    return context
 
 
 def ensure_web_stats_dimensional_precomputed(
@@ -415,6 +455,7 @@ def ensure_web_stats_dimensional_precomputed(
     run_inserts: bool = True,
     stale_while_revalidate_seconds: float | None = None,
     modifiers: HogQLQueryModifiers | None = None,
+    layout: DimensionalLayout = DimensionalLayout.BY_JOB,
 ) -> LazyComputationResult:
     modifiers = modifiers or dimensional_insert_modifiers(team)
     return ensure_precomputed(
@@ -423,7 +464,7 @@ def ensure_web_stats_dimensional_precomputed(
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         ttl_seconds=dimensional_ttl_schedule(),
-        table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
+        table=_LAYOUT_TABLES[layout][WEB_STATS_DIMENSIONAL_READ_TABLE],
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
         # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
@@ -432,7 +473,7 @@ def ensure_web_stats_dimensional_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
         modifiers=modifiers,
-        cache_key_context=dimensional_cache_key_context(modifiers),
+        cache_key_context=dimensional_cache_key_context(modifiers, layout),
     )
 
 
@@ -443,6 +484,7 @@ def ensure_web_bounces_dimensional_precomputed(
     run_inserts: bool = True,
     stale_while_revalidate_seconds: float | None = None,
     modifiers: HogQLQueryModifiers | None = None,
+    layout: DimensionalLayout = DimensionalLayout.BY_JOB,
 ) -> LazyComputationResult:
     modifiers = modifiers or dimensional_insert_modifiers(team)
     return ensure_precomputed(
@@ -451,7 +493,7 @@ def ensure_web_bounces_dimensional_precomputed(
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         ttl_seconds=dimensional_ttl_schedule(),
-        table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
+        table=_LAYOUT_TABLES[layout][WEB_BOUNCES_DIMENSIONAL_READ_TABLE],
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
         # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
@@ -460,7 +502,7 @@ def ensure_web_bounces_dimensional_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
         modifiers=modifiers,
-        cache_key_context=dimensional_cache_key_context(modifiers),
+        cache_key_context=dimensional_cache_key_context(modifiers, layout),
     )
 
 
@@ -486,6 +528,7 @@ def dimensional_job_ids(
     time_range_end: datetime,
     tables: Collection[str],
     modifiers: HogQLQueryModifiers,
+    layout: DimensionalLayout = DimensionalLayout.BY_JOB,
 ) -> DimensionalJobIds | None:
     """Return the READY job ids of `tables` that cover the range, or None when any of them
     has a gap. Check-only: a read never builds a window, the scheduled job does.
@@ -505,6 +548,7 @@ def dimensional_job_ids(
             run_inserts=False,
             stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
             modifiers=modifiers,
+            layout=layout,
         )
         if not result.ready:
             return None

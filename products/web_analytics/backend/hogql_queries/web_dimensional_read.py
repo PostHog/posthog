@@ -37,8 +37,10 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
     DimensionalJobIds,
+    DimensionalLayout,
     dimensional_insert_modifiers,
     dimensional_job_ids,
+    dimensional_physical_table,
     sessions_coverage_floor,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
@@ -119,7 +121,12 @@ def ready_dimensional_job_ids(
     end = min(runner.query_date_range.date_to(), timezone.now())
     try:
         return dimensional_job_ids(
-            runner.team, start.astimezone(UTC), end.astimezone(UTC), tables=tables, modifiers=build_modifiers
+            runner.team,
+            start.astimezone(UTC),
+            end.astimezone(UTC),
+            tables=tables,
+            modifiers=build_modifiers,
+            layout=dimensional_layout(runner),
         )
     except Exception:
         logger.exception("web_dimensional_job_ids_lookup_failed", team_id=runner.team.pk)
@@ -206,16 +213,26 @@ def _crosses_events_retention_floor(runner: "DimensionalReadRunner", start: date
     return start <= timezone.now() - relativedelta(months=retention_months)
 
 
+def dimensional_layout(runner: "DimensionalReadRunner") -> DimensionalLayout:
+    web_query_modifiers = runner.query.webQueryModifiers
+    if web_query_modifiers and web_query_modifiers.useDimensionalTablesByDay:
+        return DimensionalLayout.BY_DAY
+    return DimensionalLayout.BY_JOB
+
+
 class DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
     job_ids: DimensionalJobIds
 
     @property
     def stats_table(self) -> str:
-        return WEB_STATS_DIMENSIONAL_READ_TABLE
+        return self.physical_table(WEB_STATS_DIMENSIONAL_READ_TABLE)
 
     @property
     def bounces_table(self) -> str:
-        return WEB_BOUNCES_DIMENSIONAL_READ_TABLE
+        return self.physical_table(WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+
+    def physical_table(self, read_table: str) -> str:
+        return dimensional_physical_table(read_table, dimensional_layout(self.runner))
 
     def _get_channel_type_expr(self) -> ast.Expr:
         # The writer stores the session's channel type with the team's custom rules applied, and the rules
@@ -223,7 +240,9 @@ class DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
         return ast.Field(chain=["channel_type"])
 
     def _job_ids_for(self, table_name: str) -> list[UUID] | None:
-        return self.job_ids.stats if table_name == WEB_STATS_DIMENSIONAL_READ_TABLE else self.job_ids.bounces
+        # Callers pass the read table name or its physical name in the layout being read.
+        is_stats = table_name in (WEB_STATS_DIMENSIONAL_READ_TABLE, self.stats_table)
+        return self.job_ids.stats if is_stats else self.job_ids.bounces
 
     def _get_filters(self, table_name: str, exclude_pathname: bool = False) -> ast.And:
         filters = super()._get_filters(table_name, exclude_pathname=exclude_pathname)

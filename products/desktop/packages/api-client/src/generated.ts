@@ -3707,6 +3707,7 @@ export namespace Schemas {
     }>;
     export type WebAnalyticsQueryModifiers = Partial<{
         useDimensionalTables: boolean | null;
+        useDimensionalTablesByDay: boolean | null;
     }>;
     export type WebStatsTableQuery = {
         aggregation_group_type_index?: (number | null) | undefined;
