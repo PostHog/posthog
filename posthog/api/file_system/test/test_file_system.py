@@ -512,6 +512,8 @@ class TestFileSystemAPI(APIBaseTest):
             ("parent_folder_without_cascading", "link", True, "?recursive=false"),
             ("template_file", "message_template", False, ""),
             ("template_parent_folder", "message_template", True, ""),
+            ("workflow_file", "hog_flow", False, ""),
+            ("workflow_parent_folder", "hog_flow", True, ""),
         ]
     )
     @patch("posthoganalytics.feature_enabled", return_value=True)
