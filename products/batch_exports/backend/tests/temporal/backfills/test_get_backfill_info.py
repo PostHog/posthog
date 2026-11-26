@@ -5,10 +5,12 @@ import datetime as dt
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.conf import settings
 from django.test.utils import override_settings
 
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.event.new_events_schema import EVENTS_TABLE_ROLLOUT_FLAG
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, insert_sessions_in_clickhouse
@@ -57,15 +59,9 @@ def mock_clickhouse_client():
     mock_client = MockClickHouseClient(
         read_query_as_jsonl_responses=[[{"min_timestamp": "1970-01-01 00:00:00", "record_count": "0"}]],
     )
-    with (
-        patch(
-            "products.batch_exports.backend.temporal.backfill_batch_export.get_client",
-            return_value=mock_client.mock_client_cm,
-        ),
-        patch(
-            "products.batch_exports.backend.temporal.record_batch_model.get_client",
-            return_value=mock_client.mock_client_cm,
-        ),
+    with patch(
+        "products.batch_exports.backend.temporal.clickhouse.get_client",
+        return_value=mock_client.mock_client_cm,
     ):
         yield mock_client
 
@@ -310,6 +306,50 @@ class TestGetBackfillInfoForEvents:
 
         assert result.total_records_count is None
         assert result.adjusted_start_at == dt.datetime(2021, 1, 1, tzinfo=dt.UTC).isoformat()
+
+    @pytest.mark.parametrize(
+        "project_on_new_events_table,batch_exports_on_new_events_table",
+        [(True, False), (False, True)],
+        ids=["project-switch-only", "batch-exports-switch-only"],
+    )
+    async def test_counts_on_the_cluster_that_stores_the_table_it_reads(
+        self,
+        ateam,
+        generate_events,
+        create_batch_export,
+        run_get_backfill_info,
+        project_on_new_events_table: bool,
+        batch_exports_on_new_events_table: bool,
+    ):
+        """Needed only during the migration to the new events tables, while the app-wide switch and the batch exports
+        switch can disagree. Remove it with the legacy events table."""
+        unreachable_url = "http://127.0.0.1:1/"
+        if batch_exports_on_new_events_table:
+            cluster_urls = {
+                "CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL": settings.CLICKHOUSE_HTTP_URL,
+                "CLICKHOUSE_EVENTS_CLUSTER": settings.CLICKHOUSE_CLUSTER,
+                "CLICKHOUSE_OFFLINE_HTTP_URL": unreachable_url,
+            }
+        else:
+            cluster_urls = {"CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL": unreachable_url}
+
+        with (
+            override_settings(
+                BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if batch_exports_on_new_events_table else 0,
+                CLICKHOUSE_EVENTS_OFFLINE_HOST="events.example.com",
+                **cluster_urls,
+            ),
+            patch("posthog.models.event.new_events_schema.is_cloud", return_value=project_on_new_events_table),
+            patch(
+                "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
+            ),
+        ):
+            await generate_events(start_time=dt.datetime(2021, 1, 15, 10, 30, tzinfo=dt.UTC), count=25)
+            batch_export = await create_batch_export()
+            result = await run_get_backfill_info(batch_export)
+
+        assert result.total_records_count == 25
 
 
 class TestGetBackfillInfoForPersons:

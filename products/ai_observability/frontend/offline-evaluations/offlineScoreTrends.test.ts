@@ -1,3 +1,4 @@
+import { experimentScoreLabel } from './ExperimentScoreResult'
 import {
     aggregateOfflineScoreHistory,
     buildOfflineTrendPanels,
@@ -10,6 +11,58 @@ import {
 import { makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
 
 describe('offline score trends', () => {
+    it('keeps full precision in tooltips and identifies a missing formula input', () => {
+        const score = { status: 'ok', kind: 'numeric', config: {}, inputs: [], passed: null } as const
+        expect(experimentScoreLabel({ ...score, inputs: [], value: 0.901 })).toBe('0.9')
+        expect(experimentScoreLabel({ ...score, inputs: [], value: 0.901 }, true)).toBe('0.901')
+        expect(experimentScoreLabel({ ...score, inputs: [], value: 0.904 }, true)).toBe('0.904')
+        expect(
+            experimentScoreLabel({
+                ...score,
+                value: null,
+                status: 'no_successful_items',
+                inputs: [
+                    {
+                        alias: 'grounded',
+                        status: 'no_successful_items',
+                        statistic: 'true_rate',
+                        version_policy: 'run',
+                        value: null,
+                        sources: [],
+                    },
+                ],
+            })
+        ).toBe('No successful items · grounded')
+    })
+    it('plots a numeric experiment score of zero and skips an unavailable score from the same pinned version', () => {
+        const { experiment, summary } = makeOfflineHistoryPoint(1)
+        const score = {
+            definition_id: summary.scorer.definition_id,
+            scorer_version_id: summary.scorer.id,
+            version: 1,
+            kind: 'numeric' as const,
+            name: 'Release score',
+            config: { min: 0, max: 100 },
+            status: 'ok' as const,
+            passed: null,
+            value: 0,
+            inputs: [],
+        }
+        const points = [
+            { experiment: { ...experiment, experiment_score: score }, summary: null },
+            {
+                experiment: {
+                    ...makeOfflineHistoryPoint(2).experiment,
+                    experiment_score: { ...score, status: 'mixed_versions' as const, value: null },
+                },
+                summary: null,
+            },
+        ]
+        const [panel] = buildOfflineTrendPanels([{ key: 'current', label: 'Selected', points }])
+        expect(panel.label).toBe('Experiment score')
+        expect(panel.series[0].points.map(({ y }) => y)).toEqual([0])
+    })
+
     it('separates breakdown values, missing values, versions, and periods', () => {
         const point = makeOfflineHistoryPoint(1, 0.8)
         point.summary.scorer = { ...point.summary.scorer, version: 1 }
@@ -283,7 +336,16 @@ describe('offline score trends', () => {
         const first = makeOfflineHistoryPoint(1, 2)
         const second = makeOfflineHistoryPoint(2, 4)
         const third = makeOfflineHistoryPoint(3, 80)
-        third.summary.scorer = { ...third.summary.scorer, id: 'percentage-version', config: { min: 0, max: 100 } }
+        const firstRule = { operator: 'gte', threshold: 3 } as const
+        const thirdRule = { operator: 'lte', threshold: 60 } as const
+        first.summary.scorer.config = { min: 0, max: 5, passing_rule: firstRule }
+        second.summary.scorer.config = first.summary.scorer.config
+        third.summary.scorer = {
+            ...third.summary.scorer,
+            id: 'percentage-version',
+            version: 3,
+            config: { min: 0, max: 100, passing_rule: thirdRule },
+        }
         const panels = buildOfflineTrendPanels([
             { key: 'primary', label: 'Selected', points: [first, third], dateFrom: '2026-01-01', dateTo: '2026-01-11' },
             { key: 'comparison', label: 'Comparison', points: [second], dateFrom: '2026-01-01', dateTo: '2026-01-06' },
@@ -297,6 +359,13 @@ describe('offline score trends', () => {
         expect(combined[0].series).toHaveLength(2)
         expect(combined[0].series.map((series) => series.points[0].y)).toEqual([2, 80])
         expect(combined[0].passingRule).toBeNull()
+
+        const period = { key: 'primary', label: 'Selected', points: [first, third] }
+        const [firstSelected] = buildOfflineTrendPanels([period], true, undefined, first.summary.scorer.id)
+        const [thirdSelected] = buildOfflineTrendPanels([period], true, undefined, third.summary.scorer.id)
+        expect(firstSelected).toMatchObject({ passingRule: firstRule, passingRuleVersion: 2 })
+        expect(thirdSelected).toMatchObject({ passingRule: thirdRule, passingRuleVersion: 3 })
+        expect(thirdSelected.series).toEqual(firstSelected.series)
     })
 
     it('aligns equal windows by elapsed time without changing the actual execution date', () => {

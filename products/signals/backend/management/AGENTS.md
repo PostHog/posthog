@@ -309,6 +309,31 @@ uv run manage.py unenroll_unchosen_general_scouts --apply
 
 Idempotent. A switched-off row no longer matches.
 
+## Enabling the Product analytics source for older self-driving projects
+
+Anomaly scoring enrolls a project only when it has an enabled `analytics / anomaly_investigation` source row.
+Onboarding writes that row, but projects that completed self-driving setup before the source joined onboarding have none.
+`enable_analytics_source_for_self_driving` writes the row for each project with `onboarding.completed_at` set and no row for that source.
+It skips a project with a disabled row, and a project with `anomaly_scoring_enabled=False`.
+The row is enabled with `alert_scope: off`, so no firing alert or investigation becomes a signal.
+It also carries `backfilled_by: enable_analytics_source_for_self_driving`, which `--revert` uses.
+The row alone does not start scoring: the `anomaly-scoring` flag payload must also enroll the project's organization.
+The dry run prints how many matched projects the current payload enrolls.
+
+```bash
+# Dry run (the default): matched projects, how many the current rollout enrolls, and the first 50 team ids
+uv run manage.py enable_analytics_source_for_self_driving
+
+# Canary on some projects, then write for all
+uv run manage.py enable_analytics_source_for_self_driving --apply --team-ids 1 2
+uv run manage.py enable_analytics_source_for_self_driving --apply
+
+# Delete the rows the command wrote, except rows that a person or onboarding changed since
+uv run manage.py enable_analytics_source_for_self_driving --revert --apply
+```
+
+Idempotent. A project with a row no longer matches.
+
 ## Reactivating report checks a paused scout retired
 
 Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired an `agent` check as `errored`.

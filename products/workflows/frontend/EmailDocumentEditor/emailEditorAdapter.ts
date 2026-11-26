@@ -104,6 +104,18 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
                 emit('design:loaded')
             }
         },
+        // Text written in the plain text tab belongs to the person, so edits to the email stop rewriting it. An empty
+        // canvas has no html to keep, so it answers false and the email stays text-only.
+        keepOwnPlainText: ({ quietly = false, checkOnly = false }: { quietly?: boolean; checkOnly?: boolean } = {}) => {
+            if (isEmailDocEmpty(editor.getJSON())) {
+                return false
+            }
+            if (!checkOnly && editor.state.doc.attrs.ownPlainText !== true) {
+                const tr = editor.state.tr.setDocAttribute('ownPlainText', true).setMeta('addToHistory', false)
+                editor.view.dispatch(quietly ? tr.setMeta(AUTOMATIC_CHANGE_META, true) : tr)
+            }
+            return true
+        },
         loadDocument: (doc: Record<string, any>) => {
             loadDoc(doc)
             emit('design:loaded')

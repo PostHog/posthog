@@ -18,6 +18,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { initialReferrerSignupFields } from 'scenes/authentication/shared/initialReferrer'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import {
@@ -565,6 +566,7 @@ export const signupLogic = kea<signupLogicType>([
                         referral_source_ai_prompt: followUp === 'ai' ? payload.referral_source_ai_prompt : '',
                         referral_source_influencer: followUp === 'influencer' ? payload.referral_source_influencer : '',
                         next_url: nextUrl ?? undefined,
+                        ...initialReferrerSignupFields(),
                     }
 
                     // Only include password for password-based signup

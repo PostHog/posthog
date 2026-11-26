@@ -1,7 +1,6 @@
 """The LLM step of an activity summary update: one call, its tokens and its cost.
 
-The call goes through `build_openai_client`, so the deployment picks the gateway: the Go AI gateway
-when its settings are set, else the Python gateway on the `signals` route.
+The call goes through `build_openai_client`, which routes it to the Go AI gateway.
 """
 
 import time

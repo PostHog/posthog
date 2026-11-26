@@ -11,8 +11,8 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { TagIcon } from 'lib/components/TagIcon'
 import { pluralize } from 'lib/utils/strings'
-import { AnalyticsTagIcon } from 'scenes/analytics/AnalyticsTagIcon'
 
 import { EndpointType } from '~/types'
 
@@ -46,7 +46,7 @@ export function QuillEndpointTagsChip({ endpoint }: { endpoint: EndpointType }):
                     />
                 }
             >
-                <AnalyticsTagIcon />
+                <TagIcon />
                 {filtered ? (
                     <>
                         <span className="min-w-0 truncate">{filtered}</span>
@@ -65,7 +65,7 @@ export function QuillEndpointTagsChip({ endpoint }: { endpoint: EndpointType }):
                         const active = filters.tags.includes(tag)
                         return (
                             <DropdownMenuItem key={tag} onClick={() => toggle(tag)} data-attr="endpoint-row-tag">
-                                <AnalyticsTagIcon className="size-3.5" />
+                                <TagIcon className="size-3.5" />
                                 <span className="min-w-0 flex-1 break-all text-left">{tag}</span>
                                 <Text size="xs" variant="muted" className="ml-2 shrink-0">
                                     {active ? 'Remove filter' : 'Filter'}

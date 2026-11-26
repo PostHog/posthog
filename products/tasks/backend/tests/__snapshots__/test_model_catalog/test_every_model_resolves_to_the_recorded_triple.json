@@ -211,6 +211,17 @@
           "supports_1m_context": true,
           "supports_fast_mode": false
         },
+        "claude-haiku-5-5": {
+          "cost_multiplier": "0.05× base",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
         "claude-opus-4-5": {
           "cost_multiplier": "2.5×",
           "offered": false,
