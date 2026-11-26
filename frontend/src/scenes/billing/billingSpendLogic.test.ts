@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -45,6 +46,20 @@ describe('billingSpendLogic chart type', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it("links the organization's exports, and nothing before the organization loads", async () => {
+        useMocks(mocks())
+        await mount()
+
+        const exportPath = `/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/export/`
+        expect(logic.values.spendExportUrl?.split('?')[0]).toEqual(exportPath)
+        expect(logic.values.spendChartExportUrl?.split('?')[0]).toEqual(exportPath)
+
+        organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+
+        expect(logic.values.spendExportUrl).toBeNull()
+        expect(logic.values.spendChartExportUrl).toBeNull()
     })
 
     it('places markers on the usage dates assigned to new pricing periods', async () => {
