@@ -115,7 +115,10 @@ export function SlackAppPersonalSettings(): JSX.Element {
         )
     }
 
-    const changedAdvancedCount = Number(personal.thread_join_mode !== 'allow') + Number(!personal.feature_tips_enabled)
+    const changedAdvancedCount =
+        Number(personal.thread_join_mode !== 'allow') +
+        Number(!personal.feature_tips_enabled) +
+        Number(personal.chatgpt_apps_enabled === true)
 
     return (
         <div className="flex flex-col gap-4 max-w-200">
@@ -222,6 +225,21 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         data-attr="slack-app-settings-thread-join"
                                     />
                                 </SettingRow>
+                                {personal.chatgpt_apps_enabled !== null ? (
+                                    <SettingRow
+                                        label="ChatGPT apps"
+                                        description="Your ChatGPT plan is connected. Let tasks you start from Slack use the apps on it. People who join your threads can use them too. Applies to new tasks."
+                                    >
+                                        <LemonSwitch
+                                            checked={personal.chatgpt_apps_enabled}
+                                            onChange={(checked) =>
+                                                updatePersonalSettings({ chatgpt_apps_enabled: checked })
+                                            }
+                                            disabledReason={personalSettingsDisabledReason}
+                                            data-attr="slack-app-settings-chatgpt-apps"
+                                        />
+                                    </SettingRow>
+                                ) : null}
                                 <SettingRow
                                     label="Feature tips"
                                     description="Short tips about things PostHog can do in Slack."
