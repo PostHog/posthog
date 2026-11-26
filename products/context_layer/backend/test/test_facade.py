@@ -41,3 +41,15 @@ class TestContextLayerFacade(BaseTest):
 
     def test_get_sandbox_mount_is_none_without_wiki(self) -> None:
         assert facade.get_sandbox_mount(self.organization.id) is None
+
+    def test_get_sandbox_mount_is_none_when_storage_fails(self) -> None:
+        store.initialize_repo(self.organization.id)
+        with patch.object(
+            store.object_storage, "read_bytes", side_effect=object_storage_module.ObjectStorageError("boom")
+        ):
+            assert facade.get_sandbox_mount(self.organization.id) is None
+
+    def test_get_sandbox_mount_is_none_past_the_size_limit(self) -> None:
+        store.initialize_repo(self.organization.id)
+        with patch.object(store, "BUNDLE_MAX_MOUNT_BYTES", 1):
+            assert facade.get_sandbox_mount(self.organization.id) is None
