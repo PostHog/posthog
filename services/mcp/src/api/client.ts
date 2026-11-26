@@ -394,6 +394,8 @@ export class ApiClient {
         timeoutMs?: number
         /** Cancels the request, including any wait before a retry. */
         signal?: AbortSignal
+        /** Set for a non-GET request that has no upstream effect, so a transport fault retries it like a GET. */
+        idempotent?: boolean
     }): Promise<T> {
         const pathname = opts.path.split(/[?#]/, 1)[0]!
         if (
@@ -449,7 +451,10 @@ export class ApiClient {
             return (await response.text()) as T
         }
 
-        const result = await this.fetchJson<T>(url, fetchOptions, { timeoutMs: opts.timeoutMs })
+        const result = await this.fetchJson<T>(url, fetchOptions, {
+            idempotent: opts.idempotent,
+            timeoutMs: opts.timeoutMs,
+        })
 
         if (!result.success) {
             // Re-throw the original error instance so callers can instanceof-check
@@ -1225,7 +1230,8 @@ export class ApiClient {
                     {
                         method: 'POST',
                         body: JSON.stringify(queryRequest),
-                    }
+                    },
+                    { idempotent: true }
                 )
 
                 if (!result.success) {
@@ -1322,7 +1328,8 @@ export class ApiClient {
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
-                                }
+                                },
+                                { idempotent: true }
                             )
 
                             return result.success ? result.data : null
@@ -1352,7 +1359,8 @@ export class ApiClient {
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
-                                }
+                                },
+                                { idempotent: true }
                             )
 
                             return result.success ? result.data : null
@@ -1549,10 +1557,14 @@ export class ApiClient {
             query: async ({ query }: { query: Record<string, any> }): Promise<Result<QueryEndpointResponse>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<QueryEndpointResponse>(url, {
-                    method: 'POST',
-                    body: JSON.stringify({ query }),
-                })
+                return this.fetchJson<QueryEndpointResponse>(
+                    url,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ query }),
+                    },
+                    { idempotent: true }
+                )
             },
 
             validate: async ({
@@ -1584,10 +1596,14 @@ export class ApiClient {
                 if (connectionId) {
                     queryBody.connectionId = connectionId
                 }
-                return this.fetchJson(url, {
-                    method: 'POST',
-                    body: JSON.stringify({ query: queryBody }),
-                })
+                return this.fetchJson(
+                    url,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ query: queryBody }),
+                    },
+                    { idempotent: true }
+                )
             },
 
             sqlInsight: async ({ query }: { query: string }): Promise<Result<any[]>> => {
@@ -1684,6 +1700,7 @@ export class ApiClient {
                 method: 'POST',
                 path: `/api/environments/${projectId}/query/`,
                 body: { query: wrappedQuery },
+                idempotent: true,
             })
 
             const baseUrl = this.getProjectBaseUrl(projectId)
@@ -1733,10 +1750,14 @@ export class ApiClient {
 
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
-                return this.fetchJson<{ results: unknown[] }>(queryUrl, {
-                    method: 'POST',
-                    body: JSON.stringify({ query: queryBody }),
-                })
+                return this.fetchJson<{ results: unknown[] }>(
+                    queryUrl,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ query: queryBody }),
+                    },
+                    { idempotent: true }
+                )
             },
 
             runQuery: async ({
@@ -1768,6 +1789,7 @@ export class ApiClient {
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
                     body: { query: normalizeQuery(query) },
+                    idempotent: true,
                     signal,
                 })
             },
