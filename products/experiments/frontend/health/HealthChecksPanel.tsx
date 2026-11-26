@@ -18,27 +18,28 @@ import { HealthChecksCoverageNote } from './HealthChecksCoverageNote'
 import { HealthFindingDetail } from './HealthFindingDetail'
 import { HealthFindingListItem } from './HealthFindingListItem'
 import { HealthOverviewDetail } from './HealthOverviewDetail'
-import { type HealthPanelCheck, listedHealthChecks } from './healthPanelChecks'
+import { type ExposureChecksState, type HealthPanelCheck, listedHealthChecks } from './healthPanelChecks'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 import { type HealthPanelSelection, healthFindingKey, resolveHealthPanelSelection } from './healthPanelSelection'
 
 export function HealthChecksPanel({
-    checks,
-    findings,
+    checks: loadedChecks,
+    findings: loadedFindings,
     setup,
     exposures,
     isDraft,
-    exposureChecksMissing,
+    exposureChecks,
     onFindingActedOn,
 }: {
-    checks: HealthPanelCheck[]
-    /** Issues first, as `healthPanelFindings` sorts them. */
-    findings: HealthPanelFinding[]
+    /** Null while the checks load. */
+    checks: HealthPanelCheck[] | null
+    /** Issues first, as `healthPanelFindings` sorts them. Null while the checks load. */
+    findings: HealthPanelFinding[] | null
     setup: ExperimentHealthSetupApi | null
     /** The exposure answer that the exposure checks come from. Null for a draft and before it loads. */
     exposures: ExperimentExposureQueryResponse | null
     isDraft: boolean
-    exposureChecksMissing: boolean
+    exposureChecks: ExposureChecksState
     onFindingActedOn?: () => void
 }): JSX.Element {
     const [pickedSelection, setPickedSelection] = useState<HealthPanelSelection | null>(null)
@@ -47,6 +48,9 @@ export function HealthChecksPanel({
     const { experiment } = useValues(experimentLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { reportHealthCheckExpanded, reportHealthOverviewOpened } = useActions(experimentLogic)
+    const checksLoading = loadedChecks === null || loadedFindings === null
+    const checks = loadedChecks ?? []
+    const findings = loadedFindings ?? []
     const listedChecks = listedHealthChecks(checks)
     const findingGroups = [
         { label: 'Issues', findings: healthIssues(findings) },
@@ -132,11 +136,15 @@ export function HealthChecksPanel({
                                 ))}
                             </div>
                         )}
-                        {(listedChecks.length > 0 || exposureChecksMissing) && (
+                        {(checksLoading ||
+                            listedChecks.length > 0 ||
+                            exposureChecks === 'pending' ||
+                            exposureChecks === 'missing') && (
                             <div className="border-t">
                                 <HealthCheckList
                                     checks={listedChecks}
-                                    exposureChecksMissing={exposureChecksMissing}
+                                    checksLoading={checksLoading}
+                                    exposureChecks={exposureChecks}
                                     selectedKey={selection.kind === 'check' ? selection.key : null}
                                     onSelect={(check) => {
                                         const isSelected = selection.kind === 'check' && selection.key === check.key

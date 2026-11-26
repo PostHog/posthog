@@ -160,7 +160,7 @@ export const Draft: Story = {
             },
         ],
         isDraft: true,
-        exposureChecksMissing: false,
+        exposureChecks: 'not_launched',
     },
 }
 
@@ -189,7 +189,7 @@ export const ChecksThatCouldNotRun: Story = {
         ],
         findings: [],
         isDraft: false,
-        exposureChecksMissing: true,
+        exposureChecks: 'missing',
     },
 }
 
@@ -305,7 +305,7 @@ export const RunningWithAnIssue: Story = {
         findings: [BIAS_FINDING],
         exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
 }
 
@@ -324,7 +324,7 @@ export const CheckDetailsWithWhatItRead: Story = {
         findings: [],
         exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
     play: async ({ canvasElement }) => {
         await userEvent.click(
@@ -426,7 +426,7 @@ export const PassedCheckDetailsWithRows: Story = {
         findings: [],
         exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
     play: async ({ canvasElement }) => {
         await userEvent.click(
