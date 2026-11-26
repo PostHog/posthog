@@ -282,6 +282,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
     '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
     '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
+    '/mcp-analytics/users': ['MCPAnalytics', 'mcpAnalyticsUsers'],
+    '/mcp-analytics/users/:distinctId': ['MCPAnalyticsUser', 'mcpAnalyticsUser'],
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
@@ -1151,6 +1153,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
+    MCPAnalyticsUser: { projectBased: true, name: 'MCP user', layout: 'app-container', iconType: 'mcp_analytics' },
     McpGateway: {
         projectBased: true,
         name: 'MCP servers',
@@ -1906,6 +1909,8 @@ export const productUrls = {
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
+    mcpAnalyticsUsers: (): string => '/mcp-analytics/users',
+    mcpAnalyticsUser: (distinctId: string): string => `/mcp-analytics/users/${encodeURIComponent(distinctId)}`,
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
@@ -3160,6 +3165,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [
             { name: 'Activity', href: urls.mcpAnalyticsActivity() },
             { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
+            { name: 'Users', href: urls.mcpAnalyticsUsers() },
             { name: 'Tool quality', href: urls.mcpAnalyticsToolQuality() },
             { name: 'Missing capabilities', href: urls.mcpAnalyticsMissingCapabilities() },
             { name: 'Notifications', href: urls.mcpAnalyticsNotifications() },
@@ -3171,7 +3177,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
-        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
+        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail', 'MCPAnalyticsUser'],
     },
     {
         path: 'MCP servers',
