@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Literal, TypeVar
 
 from django.db import transaction
+from django.db.models import F, Q
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -17,6 +18,7 @@ from posthog.models.team.team_marketing_analytics_config import TeamMarketingAna
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import DefinitionListTimedOut, definition_read_db_alias
+from posthog.taxonomy.definition_search import NAME_ORDER_MIN_DEFINITIONS, project_definition_scale
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.user_permissions import UserPermissions
 
@@ -248,13 +250,15 @@ class ConversionRecommendationService:
     def event_catalog(self, run: ConversionRecommendationRun) -> list[ConversionCandidate]:
         alias = definition_read_db_alias(EventDefinition)
         with statement_timeout(alias, CATALOG_QUERY_TIMEOUT_MS, DefinitionListTimedOut, CATALOG_QUERY_TIMEOUTS):
+            scale = project_definition_scale("posthog_eventdefinition", self.team.project_id, alias)
             definitions = list(
                 EventDefinition.objects.using(alias)
                 .alias(effective_project_id=effective_project_id_expr())
                 .filter(effective_project_id=self.team.project_id)
+                .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__gte=run.date_from))
                 .exclude(name__in=DEFAULT_EXCLUDED_EVENTS)
-                .order_by("name")
-                .values_list("pk", "name", "last_seen_at")[:MAX_CATALOG_EVENTS]
+                .order_by(*(["name"] if scale.orders_by_name else [F("last_seen_at").desc(nulls_last=True), "name"]))
+                .values_list("pk", "name")[:MAX_CATALOG_EVENTS]
             )
             descriptions: dict[str, str] = {}
             hidden: set[str] = set()
@@ -266,7 +270,7 @@ class ConversionRecommendationService:
                 for name, description, is_hidden in (
                     EnterpriseEventDefinition.objects.using(alias)
                     .alias(effective_project_id=effective_project_id_expr())
-                    .filter(effective_project_id=self.team.project_id, pk__in=[pk for pk, _, _ in definitions])
+                    .filter(effective_project_id=self.team.project_id, pk__in=[pk for pk, _ in definitions])
                     .annotate(short_description=Substr("description", 1, 200))
                     .values_list("name", "short_description", "hidden")
                 ):
@@ -281,8 +285,8 @@ class ConversionRecommendationService:
                 name=name,
                 description=descriptions.get(name, ""),
             )
-            for _, name, last_seen_at in definitions
-            if name not in hidden and (last_seen_at is None or last_seen_at >= run.date_from)
+            for _, name in definitions
+            if name not in hidden
         ]
 
     def hydrate_candidates(self, candidates: list[ConversionCandidate]) -> list[ConversionCandidate]:
@@ -515,7 +519,7 @@ class ConversionRecommendationService:
         return ConversionRecommendationResults(
             recommendations=recommendations,
             limitations=[
-                "Discovery reads up to 1,000 event definitions in name order and 50 recently updated actions. The catalog sent to AI is size-limited.",
+                f"Discovery reads up to 1,000 event definitions, most recently seen first, and 50 recently updated actions. Projects with more than {NAME_ORDER_MIN_DEFINITIONS:,} event definitions are read in name order. The catalog sent to AI is size-limited.",
                 "Up to 10 sources are selected for review, with up to 50 property names per event. Other sources may be omitted.",
                 "Event definitions last seen before the analysis period are excluded. Definitions without activity dates may be included.",
                 "The event catalog is shared across project environments. Counts and activity in this environment are not verified, and test accounts are not filtered.",
