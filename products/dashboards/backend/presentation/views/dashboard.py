@@ -3264,6 +3264,21 @@ class DashboardActivitySummarySerializer(serializers.Serializer):
     )
 
 
+def _sql_tile_bucket(data: Any) -> str:
+    """Bucket the board's SQL-backed tile count so it can label a metric without unbounded cardinality."""
+    count = 0
+    for tile in (data.get("tiles") or []) if hasattr(data, "get") else []:
+        query = ((tile or {}).get("insight") or {}).get("query") or {}
+        source = query.get("source") or {}
+        if query.get("kind") == "HogQLQuery" or source.get("kind") == "HogQLQuery":
+            count += 1
+    if count == 0:
+        return "0"
+    if count <= 20:
+        return "1-20"
+    return "21-50" if count <= 50 else ">50"
+
+
 def _record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
     # The facade stamps its own copy of the row, so copy the stamp onto this instance before it is serialized.
     last_accessed_at = record_dashboard_view(dashboard_id=dashboard.id, access_method=access_method)
@@ -3587,10 +3602,16 @@ class DashboardsViewSet(
             _record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
-        if str_to_bool(request.query_params.get("omit_tile_results")) and self._dashboard_v2_enabled(request):
+        v2_path = str_to_bool(request.query_params.get("omit_tile_results")) and self._dashboard_v2_enabled(request)
+        if v2_path:
             serializer_context["omit_insight_results"] = True
         serializer = DashboardSerializer(dashboard, context=serializer_context)
         data = serializer.data
+        # The middleware reads this off the underlying Django request, not the DRF wrapper.
+        request._request._pg_queries_labels = {  # type: ignore[attr-defined]
+            "dashboard_v2": "true" if v2_path else "false",
+            "sql_tiles": _sql_tile_bucket(data),
+        }
 
         response = Response(data)
 
