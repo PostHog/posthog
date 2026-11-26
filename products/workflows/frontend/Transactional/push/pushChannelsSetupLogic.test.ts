@@ -79,15 +79,31 @@ describe('pushChannelsSetupLogic', () => {
         },
         { name: 'no channel is picked yet', integrations: [APNS], channels: [], counts: {}, warning: null },
     ])('picks the warning when $name', async ({ integrations, channels, counts, warning }) => {
-        jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) => {
-            const appId = Object.keys(counts).find((id) => String(query).includes(id))
-            return { results: [[appId ? counts[appId as keyof typeof counts] : 0]] } as HogQLQueryResponse
+        const query = jest.spyOn(api, 'queryHogQL').mockImplementation(async (hogQL) => {
+            const sql = String(hogQL)
+            const appIds = Object.keys(counts)
+                .filter((id) => sql.includes(id))
+                .sort((a, b) => sql.indexOf(a) - sql.indexOf(b))
+            return { results: [appIds.map((id) => counts[id as keyof typeof counts])] } as HogQLQueryResponse
         })
         await mountWith(integrations)
 
         await expectLogic(logic, () => logic.actions.setChannels(channels)).toFinishAllListeners()
 
         expect(logic.values.warning?.kind ?? null).toEqual(warning)
+        expect(query).toHaveBeenCalledTimes(Object.keys(counts).length > 0 ? 1 : 0)
+    })
+
+    it('offers a retry when the device check fails, and clears it once a retry succeeds', async () => {
+        const query = jest.spyOn(api, 'queryHogQL').mockRejectedValueOnce(new Error('timeout'))
+        await mountWith([APNS])
+
+        await expectLogic(logic, () => logic.actions.setChannels([1])).toFinishAllListeners()
+        expect(logic.values.warning).toEqual({ kind: 'check_failed' })
+
+        query.mockResolvedValueOnce({ results: [[3]] } as HogQLQueryResponse)
+        await expectLogic(logic, () => logic.actions.recheckDevices()).toFinishAllListeners()
+        expect(logic.values.warning).toBeNull()
     })
 
     it('does not warn about devices while their count is still loading', async () => {

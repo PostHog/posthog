@@ -28,6 +28,24 @@ export function PushChannelsSetupWarning({ channels }: { channels: number[] }): 
             </div>
         )
     }
+    if (warning.kind === 'check_failed') {
+        return (
+            <div data-attr="transactional-push-device-check-failed-warning">
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Check again',
+                        onClick: recheckDevices,
+                        loading: deviceCountsLoading,
+                        'data-attr': 'transactional-push-recheck-devices',
+                    }}
+                >
+                    We couldn't check whether any device has registered with the selected app. Check your connection and
+                    try again.
+                </LemonBanner>
+            </div>
+        )
+    }
     return (
         <div data-attr="transactional-push-no-devices-warning">
             <LemonBanner
