@@ -1,7 +1,7 @@
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeVar, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
@@ -152,6 +152,8 @@ DATE_FORMAT_HELP = (
     "Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day "
     "of this month) or 'yStart'. Days are whole days in the project's timezone."
 )
+
+_Report = TypeVar("_Report")
 
 
 def date_from_field(default: str) -> serializers.CharField:
@@ -1574,17 +1576,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def overview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        with date_range_errors():
-            overview = get_prompt_set_overview(
-                self.team_id,
-                timezone_name=self.team.timezone,
-                date_from=request.validated_query_data["date_from"],
-                date_to=request.validated_query_data["date_to"],
-                branded=BrandedSegment(request.validated_query_data["branded"]),
-                engine=request.validated_query_data["engine"],
-                topic=request.validated_query_data["topic"],
-                current_prompts=request.validated_query_data["current_prompts"],
-            )
+        overview = self._prompt_set_report(request, get_prompt_set_overview)
         return Response(AEOPromptSetOverviewSerializer(overview).data)
 
     @validated_request(
@@ -1603,18 +1595,22 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def rankings(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        rankings = self._prompt_set_report(request, get_prompt_set_rankings)
+        return Response(AEOPromptSetRankingsSerializer(rankings).data)
+
+    def _prompt_set_report(self, request: ValidatedRequest, read: Callable[..., _Report]) -> _Report:
+        query = request.validated_query_data
         with date_range_errors():
-            rankings = get_prompt_set_rankings(
+            return read(
                 self.team_id,
                 timezone_name=self.team.timezone,
-                date_from=request.validated_query_data["date_from"],
-                date_to=request.validated_query_data["date_to"],
-                branded=BrandedSegment(request.validated_query_data["branded"]),
-                engine=request.validated_query_data["engine"],
-                topic=request.validated_query_data["topic"],
-                current_prompts=request.validated_query_data["current_prompts"],
+                date_from=query["date_from"],
+                date_to=query["date_to"],
+                branded=BrandedSegment(query["branded"]),
+                engine=query["engine"],
+                topic=query["topic"],
+                current_prompts=query["current_prompts"],
             )
-        return Response(AEOPromptSetRankingsSerializer(rankings).data)
 
     @validated_request(
         query_serializer=AEOPromptSetOverviewQuerySerializer,
