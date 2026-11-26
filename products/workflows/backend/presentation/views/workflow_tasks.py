@@ -151,8 +151,18 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Fields the agent must return, as {name: string|number|boolean}. They come back on the step "
-            "result as `output.<name>`; text fields are cut at 1500 characters."
+            "Fields the agent must return, as {name: string|number|boolean|json}. They come back on the step "
+            "result as `output.<name>`; text fields are cut at 1500 characters, and a json field holds an "
+            "object or a list."
+        ),
+    )
+    output_field_descriptions = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, trim_whitespace=True),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the agent should put in each output field, as {name: description}. Shown to the agent, "
+            "cut at 500 characters."
         ),
     )
 
@@ -167,13 +177,14 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Repositories must be unique.")
         return repositories
 
-    def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
-        if value is None:
-            return None
-        try:
-            return build_output_schema(value)
-        except WorkflowTaskOutputFieldsInvalid as exc:
-            raise serializers.ValidationError(str(exc))
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        descriptions = attrs.pop("output_field_descriptions", None)
+        if attrs.get("output_fields") is not None:
+            try:
+                attrs["output_fields"] = build_output_schema(attrs["output_fields"], descriptions)
+            except WorkflowTaskOutputFieldsInvalid as exc:
+                raise serializers.ValidationError({"output_fields": str(exc)})
+        return attrs
 
 
 class WorkflowTaskResponseSerializer(serializers.Serializer):

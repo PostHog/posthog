@@ -340,6 +340,16 @@ function sesNamedSenderAsUnverified(error: unknown, senderEmail: string): boolea
     )
 }
 
+function sentStatusReason(
+    invocation: CyclotronJobInvocationHogFunction,
+    trackingEnabled: boolean
+): 'untracked' | 'clicks_untracked' | undefined {
+    if (!trackingEnabled) {
+        return 'untracked'
+    }
+    return isClickTrackingEnabled(invocation) ? undefined : 'clicks_untracked'
+}
+
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
 
@@ -771,6 +781,11 @@ export class EmailService {
             return null
         }
         const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        // The stored config skips schema checks, so any value other than true or absent counts as an opt-out.
+        const runLinkTag: unknown = invocation.hogFunction.metadata?.run_link_tag_enabled
+        if (runLinkTag !== undefined && runLinkTag !== true) {
+            return untagged
+        }
         try {
             const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
             return enabled ? { ...untagged, runId: invocation.id } : untagged
@@ -1125,7 +1140,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? (trackingEnabled ? undefined : 'untracked') : failureReason,
+                    reason: success ? sentStatusReason(invocation, trackingEnabled) : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
