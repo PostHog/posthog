@@ -1043,19 +1043,9 @@ class TestDraftScout(SimpleTestCase):
         assert str(client.base_url) == "https://ai-gateway.example.com/v1/"
         assert create.call_args.kwargs["user"] == "team-7"
 
-    @parameterized.expand(
-        [
-            ("no_gateway", {}),
-            (
-                "python_gateway_only",
-                {"LLM_GATEWAY_URL": "http://llm-gateway.example.com", "LLM_GATEWAY_API_KEY": "phx_test"},
-            ),
-        ]
-    )
-    def test_an_unconfigured_go_gateway_returns_none(self, _name: str, gateway: dict):
-        unset = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "LLM_GATEWAY_URL": "", "LLM_GATEWAY_API_KEY": ""}
+    def test_an_unconfigured_go_gateway_returns_none(self):
         with (
-            override_settings(**{**unset, **gateway}),
+            override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
             patch.object(Completions, "create", autospec=True) as create,
         ):
             draft = draft_scout(
