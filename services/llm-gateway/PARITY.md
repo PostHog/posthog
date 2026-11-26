@@ -10,7 +10,7 @@ It last served inference on 2026-11-18 in US and 2026-11-04 in EU.
 No PR changes the Python gateway.
 A gap in the Go gateway is fixed in `PostHog/ai-gateway`.
 To move a caller, read `/migrating-llm-gateway-callers`.
-A new Django caller builds its client with `build_ai_gateway_openai_client` or `build_ai_gateway_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py).
+A new Django caller builds its client with `build_openai_client` or `build_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py).
 
 The use-case tables below record the parity gaps as they stood before the removal.
 They stay until the service is deleted.
@@ -27,7 +27,7 @@ They stay until the service is deleted.
 | Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                                        |
 | Gateway-managed routing       | The caller accepts operator-managed provider plans and health-aware selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or configured Modal, Fireworks, and Baseten hosts. |
 
-Existing Django callers use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). They still fall back to the Python gateway when `AI_GATEWAY_URL` is unset; that fallback is being removed with the service.
+Existing Django callers use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). They reach only the Go gateway and raise `GatewayNotConfiguredError` when it is not configured.
 
 ### ⛔ Gaps that kept callers on the Python gateway
 
