@@ -611,11 +611,15 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Assignment target. Required when action is assign; null unassigns.'),
     resolved_until: zod
-        .enum(['next_occurrence', 'new_release'])
-        .describe('\* `next_occurrence` - Next occurrence\n\* `new_release` - New release')
+        .union([
+            zod
+                .enum(['next_occurrence', 'new_release'])
+                .describe('\* `next_occurrence` - Next occurrence\n\* `new_release` - New release'),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            'What reopens the issues while they are resolved, as on a single issue update. Only valid when action is set_status and status is resolved. When omitted, issues that become resolved get next_occurrence, and issues that are already resolved keep their value.\n\n\* `next_occurrence` - Next occurrence\n\* `new_release` - New release'
+            'What reopens the issues while they are resolved, as on a single issue update. Only valid when action is set_status and status is resolved. When omitted or null, issues that become resolved get next_occurrence, and issues that are already resolved keep their value.\n\n\* `next_occurrence` - Next occurrence\n\* `new_release` - New release'
         ),
 })
 

@@ -1380,11 +1380,11 @@ export interface ErrorTrackingIssueBulkRequestApi {
     status?: ErrorTrackingIssueWritableStatusEnumApi
     /** Assignment target. Required when action is assign; null unassigns. */
     assignee?: ErrorTrackingIssueAssigneeWriteApi | null
-    /** What reopens the issues while they are resolved, as on a single issue update. Only valid when action is set_status and status is resolved. When omitted, issues that become resolved get next_occurrence, and issues that are already resolved keep their value.
+    /** What reopens the issues while they are resolved, as on a single issue update. Only valid when action is set_status and status is resolved. When omitted or null, issues that become resolved get next_occurrence, and issues that are already resolved keep their value.
      *
      * * `next_occurrence` - Next occurrence
      * * `new_release` - New release */
-    resolved_until?: ResolvedUntilEnumApi
+    resolved_until?: ResolvedUntilEnumApi | null
 }
 
 export interface ErrorTrackingIssueExistsResponseApi {

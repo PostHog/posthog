@@ -294,10 +294,11 @@ class ErrorTrackingIssueBulkRequestSerializer(serializers.Serializer):
     resolved_until = serializers.ChoiceField(
         choices=contracts.IssueResolvedUntil.choices,
         required=False,
+        allow_null=True,
         help_text=(
             "What reopens the issues while they are resolved, as on a single issue update. Only valid when action is "
-            "set_status and status is resolved. When omitted, issues that become resolved get next_occurrence, and "
-            "issues that are already resolved keep their value."
+            "set_status and status is resolved. When omitted or null, issues that become resolved get "
+            "next_occurrence, and issues that are already resolved keep their value."
         ),
     )
 
