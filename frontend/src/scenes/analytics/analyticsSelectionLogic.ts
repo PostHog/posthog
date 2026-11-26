@@ -19,18 +19,21 @@ import { AnalyticsItem } from './analyticsUtils'
 
 export type AnalyticsBulkTagAction = 'add' | 'remove'
 
-// The bulk tag endpoints take at most this many ids in one request.
+// The bulk tag endpoints take at most this many ids in one request,
+// and at most this many changes (ids × distinct tags).
 const BULK_TAGS_MAX_IDS = 500
+const BULK_TAGS_MAX_OPERATIONS = 10_000
 
 /** The row id of an item in the list, which is also the key of its selection. */
 export function analyticsItemRowId(item: Pick<AnalyticsItem, 'type' | 'id'>): string {
     return shareTargetKey({ type: item.type, ref: item.id })
 }
 
-function chunk(ids: number[]): number[][] {
+function chunk(ids: number[], tagCount: number): number[][] {
+    const size = Math.max(1, Math.min(BULK_TAGS_MAX_IDS, Math.floor(BULK_TAGS_MAX_OPERATIONS / tagCount)))
     const chunks: number[][] = []
-    for (let start = 0; start < ids.length; start += BULK_TAGS_MAX_IDS) {
-        chunks.push(ids.slice(start, start + BULK_TAGS_MAX_IDS))
+    for (let start = 0; start < ids.length; start += size) {
+        chunks.push(ids.slice(start, start + size))
     }
     return chunks
 }
@@ -188,6 +191,7 @@ export const analyticsSelectionLogic = kea<analyticsSelectionLogicType>([
                 return
             }
             const projectId = String(values.currentProjectId)
+            const tagCount = new Set(tags).size
             try {
                 const dashboardIds = items.filter((item) => item.type === 'dashboard').map((item) => Number(item.id))
                 // The list knows an insight by its short id, and the bulk endpoint takes the numeric one.
@@ -203,10 +207,12 @@ export const analyticsSelectionLogic = kea<analyticsSelectionLogicType>([
                     )
                 ).filter((id): id is number => typeof id === 'number')
                 const responses = await Promise.all([
-                    ...chunk(dashboardIds).map((ids) =>
+                    ...chunk(dashboardIds, tagCount).map((ids) =>
                         dashboardsBulkUpdateTagsCreate(projectId, { ids, action, tags })
                     ),
-                    ...chunk(insightIds).map((ids) => insightsBulkUpdateTagsCreate(projectId, { ids, action, tags })),
+                    ...chunk(insightIds, tagCount).map((ids) =>
+                        insightsBulkUpdateTagsCreate(projectId, { ids, action, tags })
+                    ),
                 ])
                 const updated = responses.reduce((sum, response) => sum + response.updated.length, 0)
                 const skipped = items.length - updated
