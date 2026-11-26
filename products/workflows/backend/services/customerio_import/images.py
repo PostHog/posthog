@@ -39,8 +39,9 @@ def rehost_images(
         if (body := _html(action)) is not None
     }
     all_urls = list(dict.fromkeys(url for urls in urls_by_step.values() for url in urls))
+    tagged = _tagged_notes(workflow)
     if not all_urls:
-        return RehostedWorkflow(workflow=workflow, notes=())
+        return RehostedWorkflow(workflow=workflow, notes=tagged)
     count = len({html.unescape(url) for url in all_urls})
     if not budget.can_upload:
         return RehostedWorkflow(
@@ -54,6 +55,7 @@ def rehost_images(
                     "scope. Reconnect the MCP and allow uploading media, then import again, or upload "
                     f"{_them(count)} before you close your Customer.io account.",
                 ),
+                *tagged,
             ),
         )
     if dry_run:
@@ -65,6 +67,7 @@ def rehost_images(
                     message=f"{count} email {_images(count)} on Customer.io's servers will be "
                     "copied into your email media library when you import.",
                 ),
+                *tagged,
             ),
         )
 
@@ -91,7 +94,35 @@ def rehost_images(
                     step_name=action.get("name"),
                 )
             )
-    return RehostedWorkflow(workflow={**workflow, "actions": actions}, notes=tuple(notes))
+    return RehostedWorkflow(workflow={**workflow, "actions": actions}, notes=(*notes, *tagged))
+
+
+def _tagged_notes(workflow: dict[str, Any]) -> tuple[ImportNote, ...]:
+    notes = []
+    for action in workflow["actions"]:
+        body = _html(action)
+        if body is None:
+            continue
+        tagged = list(
+            dict.fromkeys(
+                found[: found.index("{")] + "…"
+                for match in _ASSET_URL.finditer(body)
+                if not _is_link(match) and "{" in (found := match.group(0))
+            )
+        )
+        if tagged:
+            notes.append(
+                ImportNote(
+                    level=WorkflowImportNoteLevel.NEEDS_INPUT,
+                    message=f"{len(tagged)} {_images(len(tagged))} still {_load(len(tagged))} from Customer.io's "
+                    f"servers, because the address holds a Liquid tag: {', '.join(tagged[:3])}"
+                    f"{'…' if len(tagged) > 3 else ''}. Use an image from the media library there before you close "
+                    "your Customer.io account.",
+                    step_id=action["id"],
+                    step_name=action.get("name"),
+                )
+            )
+    return tuple(notes)
 
 
 def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -> dict[str, str]:

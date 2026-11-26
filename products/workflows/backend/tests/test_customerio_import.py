@@ -1526,6 +1526,10 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert guide not in requested
         assert requested.count(f"{hero}?w=1(2&h=2") == 1
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
+        assert any(
+            n["step_id"] == "cio_1" and f"Liquid tag: {templated.split('{')[0]}…" in n["message"]
+            for n in first["notes"]
+        )
         design = json.dumps(
             next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
                 "inputs"
