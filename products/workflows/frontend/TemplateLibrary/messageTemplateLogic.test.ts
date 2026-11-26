@@ -985,6 +985,7 @@ describe('messageTemplateLogic', () => {
             const delayedSettingArrived = new Promise<void>((resolve) => {
                 delayedSettingStarted = resolve
             })
+            const tagsAfterRemoteEdit = ['old', 'remote']
             let currentServer: Record<string, unknown> = {
                 ...serverTemplate,
                 sensitive: true,
@@ -997,11 +998,10 @@ describe('messageTemplateLogic', () => {
                 if ('tags' in body) {
                     return [500, { detail: 'Tag save failed' }]
                 }
-                // Another editor saved 'remote' before this setting PATCH ran.
                 currentServer = {
                     ...currentServer,
                     ...body,
-                    tags: ['old', 'remote'],
+                    tags: tagsAfterRemoteEdit,
                     updated_at: '2026-01-01T00:01:00Z',
                 }
                 const snapshot = { ...currentServer }
@@ -1201,6 +1201,9 @@ describe('messageTemplateLogic', () => {
             // Advance past the 1500ms autosave debounce while exportHtml is still pending.
             await jest.advanceTimersByTimeAsync(2000)
             expect(logic.values.isReconcilingPublish).toBe(true)
+            logic.actions.submitTemplate()
+            await jest.advanceTimersByTimeAsync(10)
+            expect(bodies.filter((body) => 'content' in body)).toHaveLength(1)
             expect(currentServer.draft_content).toEqual(newerServerDraft)
             expect(bodies.some((body) => 'draft_content' in body)).toBe(false)
 
@@ -1211,6 +1214,7 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.isReconcilingPublish).toBe(false)
             expect(logic.values.externallyEdited).toBe(true)
             expect(logic.values.template.content.email.html).toBe('<p>Canvas edit</p>')
+            expect(bodies.filter((body) => 'content' in body)).toHaveLength(1)
             expect(currentServer.draft_content).toEqual(newerServerDraft)
             expect(bodies.some((body) => 'draft_content' in body)).toBe(false)
             canvas.unmount()
@@ -1353,7 +1357,7 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
         })
 
-        it('preserves an unsaved rename when an older discard response lands after a newer external edit', async () => {
+        it('blocks direct publish and preserves an unsaved rename when an external edit arrives during discard', async () => {
             logic.unmount()
             let releaseDiscard!: () => void
             const discardGate = new Promise<void>((resolve) => {
@@ -1363,6 +1367,8 @@ describe('messageTemplateLogic', () => {
             const discardArrived = new Promise<void>((resolve) => {
                 discardStarted = resolve
             })
+            const renamedElsewhere = 'Renamed elsewhere'
+            const patchBodies: Record<string, unknown>[] = []
             let currentServer: Record<string, unknown> = {
                 ...serverTemplate,
                 sensitive: true,
@@ -1371,6 +1377,7 @@ describe('messageTemplateLogic', () => {
             }
             const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
                 const body = (await request.json()) as Record<string, unknown>
+                patchBodies.push(body)
                 if ('draft_content' in body && body.draft_content === null) {
                     currentServer = {
                         ...currentServer,
@@ -1382,12 +1389,10 @@ describe('messageTemplateLogic', () => {
                     await discardGate
                     return [200, discardResponse]
                 }
-                // Another tab renamed the template before this setting PATCH ran.
                 currentServer = {
                     ...currentServer,
                     ...body,
-                    name: 'Renamed elsewhere',
-                    updated_at: '2026-01-01T00:02:00Z',
+                    updated_at: '2026-01-01T00:03:00Z',
                 }
                 return [200, { ...currentServer }]
             }
@@ -1404,13 +1409,28 @@ describe('messageTemplateLogic', () => {
 
             logic.actions.confirmDiscardDraft()
             await discardArrived
-            logic.actions.setClickTrackingEnabled(true)
-            await waitFor(() => expect(logic.values.originalTemplate.updated_at).toBe('2026-01-01T00:02:00Z'))
+            logic.actions.submitTemplate()
+            expect(patchBodies).toEqual([{ draft_content: null }])
+
+            currentServer = {
+                ...currentServer,
+                name: renamedElsewhere,
+                updated_at: '2026-01-01T00:02:00Z',
+            }
+            resourceEditedLogic.actions.resourceEdited({
+                notification_type: 'resource_edited',
+                team_id: 1,
+                resource_type: 'MessageTemplate',
+                resource_id: 'existing-id',
+                updated_at: '2026-01-01T00:02:00Z',
+                actor_user_id: null,
+            })
             logic.actions.setTemplateValue('name', 'Unsaved rename')
 
             releaseDiscard()
             await expectLogic(logic).toFinishAllListeners()
 
+            expect(patchBodies).toEqual([{ draft_content: null }])
             expect(logic.values.template.name).toBe('Unsaved rename')
             expect(logic.values.externallyEdited).toBe(true)
         })

@@ -22,7 +22,6 @@ import { messageTemplateLogic } from './messageTemplateLogic'
 interface MockCanvas {
     edit: (design: Record<string, any>) => void
     setExportGate: (gate: Promise<void> | null) => void
-    wasExportCalled: () => boolean
 }
 
 const mockCanvases: MockCanvas[] = []
@@ -36,7 +35,6 @@ jest.mock('react-email-editor', () => {
                 const listeners: Record<string, () => void> = {}
                 let design: Record<string, any> = {}
                 let exportGate: Promise<void> | null = null
-                let exportCalled = false
                 const editor = {
                     loadDesign: (next: Record<string, any>) => {
                         design = next
@@ -46,7 +44,6 @@ jest.mock('react-email-editor', () => {
                         listeners[event] = callback
                     },
                     exportHtml: (callback: (data: any) => void) => {
-                        exportCalled = true
                         const deliver = (): void =>
                             callback({
                                 html: design?.body?.id ? `<p>${design.body.id}</p>` : '<p>Canvas edit</p>',
@@ -72,9 +69,7 @@ jest.mock('react-email-editor', () => {
                     },
                     setExportGate: (gate: Promise<void> | null) => {
                         exportGate = gate
-                        exportCalled = false
                     },
-                    wasExportCalled: () => exportCalled,
                 }
             }, [])
             React.useImperativeHandle(ref, () => ({ editor: canvas.editor }), [canvas])
@@ -638,8 +633,7 @@ describe('MessageTemplate', () => {
             return item as HTMLElement
         })
         fireEvent.click(discardMenuItem)
-        const dialogTitle = await screen.findByText('Discard your draft?')
-        const dialog = dialogTitle.closest('.LemonModal') as HTMLElement
+        const dialog = await screen.findByRole('dialog')
         fireEvent.click(within(dialog).getByText('Discard draft'))
         await discardArrived
 
@@ -710,17 +704,15 @@ describe('MessageTemplate', () => {
         })
         await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
 
-        const logic = messageTemplateLogic({ id: TEMPLATE_ID })
         const canvas = mockCanvases.at(-1)
         expect(canvas).not.toBeUndefined()
-        act(() => {
-            logic.actions.setTemplateValue('name', 'Renamed in publish')
-            logic.actions.setClickTrackingEnabled(true)
-            logic.actions.submitTemplate()
-        })
+
+        fireEvent.click(screen.getByText('API'))
+        const clickTrackingSwitch = await screen.findByLabelText('Track link clicks')
+        fireEvent.click(clickTrackingSwitch)
+        fireEvent.click(screen.getByText('Publish'))
         await publishArrived
-        await waitFor(() => expect(logic.values.isSavingClickTracking).toBe(false))
-        expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+        await waitFor(() => expect(screen.getByLabelText('Track link clicks')).toHaveAttribute('aria-checked', 'true'))
 
         canvas!.setExportGate(exportGate)
         act(() => {
@@ -729,19 +721,13 @@ describe('MessageTemplate', () => {
         })
 
         const publishButton = screen.getByText('Publish').closest('button') as HTMLButtonElement
-        await waitFor(() => {
-            expect(canvas!.wasExportCalled()).toBe(true)
-            expect(logic.values.isReconcilingPublish).toBe(true)
-            expect(publishButton).toHaveAttribute('aria-disabled', 'true')
-        })
+        await waitFor(() => expect(publishButton).toHaveAttribute('aria-disabled', 'true'))
         fireEvent.click(publishButton)
         expect(publishBodies).toHaveLength(1)
         expect(currentServer.draft_content).toEqual(newerServerDraft)
 
         await act(async () => releaseExport())
-        await waitFor(() => expect(logic.values.isReconcilingPublish).toBe(false))
-        expect(logic.values.externallyEdited).toBe(true)
-        expect(logic.values.template.content.email.html).toBe('<p>Canvas edit</p>')
+        expect(await screen.findByText(/This template was updated elsewhere/)).toBeInTheDocument()
         expect(publishBodies).toHaveLength(1)
         expect(currentServer.draft_content).toEqual(newerServerDraft)
     })
