@@ -23,6 +23,8 @@ describe('messageTemplatesLogic', () => {
     let holdNextPages: boolean
     let heldNextPages: ((status: number) => void)[]
     let holdCounts: boolean
+    let holdFirstPages: boolean
+    let heldFirstPages: ((status: number) => void)[]
     let heldCounts: ((status: number) => void)[]
 
     const names = (): string[] => logic.values.templates.map((t) => t.name)
@@ -46,19 +48,29 @@ describe('messageTemplatesLogic', () => {
         heldNextPages = []
         holdCounts = false
         heldCounts = []
+        holdFirstPages = false
+        heldFirstPages = []
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
                     const query = new URL(request.url).searchParams
-                    requests.push(query)
                     const offset = Number(query.get('offset') ?? 0)
                     const limit = Number(query.get('limit'))
+                    if (limit > 1) {
+                        requests.push(query)
+                    }
                     const filtered = ['search', 'created_by', 'tags', 'transactional'].some((key) => query.has(key))
                     const rows = filtered || !everything ? stored : everything
                     const next = offset + limit < rows.length ? `?offset=${offset + limit}` : null
                     const page = { count: rows.length, next, results: rows.slice(offset, offset + limit) }
                     const held =
-                        offset > 0 && holdNextPages ? heldNextPages : limit === 1 && holdCounts ? heldCounts : null
+                        offset > 0 && holdNextPages
+                            ? heldNextPages
+                            : limit === 1 && holdCounts
+                              ? heldCounts
+                              : offset === 0 && limit > 1 && holdFirstPages
+                                ? heldFirstPages
+                                : null
                     const status = held ? await new Promise<number>((release) => held.push(release)) : 200
                     return status === 200 ? [200, page] : [status, { detail: 'failed' }]
                 },
@@ -204,6 +216,27 @@ describe('messageTemplatesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.templateCount).toBe(4)
+    })
+
+    it('keeps paging off after a filtered create until the reloaded first page lands', async () => {
+        stored = many(TEMPLATES_PAGE_SIZE + 1, 'Match')
+        logic.actions.setCreatedByFilter(7)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        expect(logic.values.canLoadMoreTemplates).toBe(true)
+        useMocks({
+            post: { '/api/projects/:team_id/messaging_templates/': () => [201, template('d', 'Fresh', [])] },
+        })
+        holdFirstPages = true
+
+        logic.actions.createTemplate({ template: { name: 'Fresh' } })
+        await expectLogic(logic).toDispatchActions(['createTemplateSuccess'])
+        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
+        expect(logic.values.canLoadMoreTemplates).toBe(false)
+
+        heldFirstPages[0](200)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        expect(logic.values.canLoadMoreTemplates).toBe(true)
+        expect(names()).toEqual(stored.slice(0, TEMPLATES_PAGE_SIZE).map((t) => t.name))
     })
 
     it('cuts a long search to what the server accepts, without splitting an emoji', async () => {

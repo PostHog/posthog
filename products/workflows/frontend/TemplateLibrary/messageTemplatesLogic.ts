@@ -84,6 +84,9 @@ export interface messageTemplatesLogicActions {
         templates: MessageTemplate[]
         payload?: MessageTemplate
     }
+    listInvalidated: () => {
+        value: true
+    }
     loadMoreTemplates: () => {
         value: true
     }
@@ -147,12 +150,10 @@ export interface messageTemplatesLogicActions {
     }
     templatesPageLoaded: (
         listParams: MessagingTemplatesListParams,
-        hasMoreTemplates: boolean,
-        templateCount: number | null
+        hasMoreTemplates: boolean
     ) => {
         hasMoreTemplates: boolean
         listParams: MessagingTemplatesListParams
-        templateCount: number | null
     }
     updateTemplate: ({ templateId, template }: { template: Partial<MessageTemplate>; templateId: string }) => {
         templateId: string
@@ -233,11 +234,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         setTransactionalOnly: (transactionalOnly: boolean) => ({ transactionalOnly }),
         setTagsFilter: (tagsFilter: string[]) => ({ tagsFilter }),
         templateTagsSaved: (template: MessageTemplate) => ({ template }),
-        templatesPageLoaded: (
-            listParams: MessagingTemplatesListParams,
-            hasMoreTemplates: boolean,
-            templateCount: number | null
-        ) => ({ listParams, hasMoreTemplates, templateCount }),
+        templatesPageLoaded: (listParams: MessagingTemplatesListParams, hasMoreTemplates: boolean) => ({
+            listParams,
+            hasMoreTemplates,
+        }),
+        listInvalidated: true,
         loadMoreTemplates: true,
         loadMoreTemplatesSuccess: (templates: MessageTemplate[], hasMoreTemplates: boolean) => ({
             templates,
@@ -270,11 +271,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         // The filters the shown list came from, so a filter change stops paging until its first page lands.
         loadedListParams: [
             null as MessagingTemplatesListParams | null,
-            { templatesPageLoaded: (_, { listParams }) => listParams },
-        ],
-        templateCount: [
-            null as number | null,
-            { templatesPageLoaded: (state, { templateCount }) => templateCount ?? state },
+            { templatesPageLoaded: (_, { listParams }) => listParams, listInvalidated: () => null },
         ],
         templates: [
             [] as MessageTemplate[],
@@ -290,13 +287,10 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async (_: void, breakpoint) => {
-                    const { listParams, hasActiveFilters } = values
-                    if (hasActiveFilters && values.templateCount === null) {
-                        actions.loadTemplateCount()
-                    }
+                    const { listParams } = values
                     const page = await api.messaging.getTemplates(listParams)
                     breakpoint()
-                    actions.templatesPageLoaded(listParams, !!page.next, hasActiveFilters ? null : page.count)
+                    actions.templatesPageLoaded(listParams, !!page.next)
                     return page.results
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
@@ -414,15 +408,17 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         templateTagsSaved: () => {
             // A tag edit can move a template out of a tag or search filter, and only the server knows.
             if (values.hasActiveFilters) {
-                actions.loadTemplates()
+                actions.listInvalidated()
             }
         },
         templatesAdded: () => {
             actions.loadTemplateCount()
             if (values.hasActiveFilters) {
-                actions.loadTemplates()
+                actions.listInvalidated()
             }
         },
+        // A create's own success clears the loading flag before this reload lands, so paging waits on the reload.
+        listInvalidated: () => actions.loadTemplates(),
         loadTemplates: () => {
             cache.loadMoreRequest = (cache.loadMoreRequest ?? 0) + 1
         },
@@ -454,6 +450,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadTemplates()
+        actions.loadTemplateCount()
     }),
 ])
 
