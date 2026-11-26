@@ -42,7 +42,7 @@ from posthog.hogql_queries.access_controlled_resources import (
 )
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
-from products.actions.backend.facade.testing import create_action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -308,7 +308,10 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert ("tracing" in result) is expect_tracing
 
     def _create_span_action(self) -> int:
-        action = create_action(
+        return self._create_span_action_contract().id
+
+    def _create_span_action_contract(self):
+        return create_action(
             team=self.team,
             name="span action",
             steps_json=[
@@ -318,7 +321,6 @@ class TestQueriedAccessControlledResources(BaseTest):
                 }
             ],
         )
-        return action.id
 
     @parameterized.expand(
         [
@@ -339,6 +341,14 @@ class TestQueriedAccessControlledResources(BaseTest):
     )
     def test_saved_action_steps_are_scanned(self, _name, build_query):
         query = build_query(self._create_span_action())
+        result = queried_access_controlled_resources(query, self.team)
+        assert result is not None
+        assert "tracing" in result
+
+    def test_deleted_action_steps_are_scanned(self):
+        action = self._create_span_action_contract()
+        query = HogQLQuery(query=f"select count() from events where matchesAction({action.id})")
+        update_action(action, deleted=True)
         result = queried_access_controlled_resources(query, self.team)
         assert result is not None
         assert "tracing" in result

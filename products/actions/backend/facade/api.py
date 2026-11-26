@@ -194,9 +194,10 @@ def get_actions(
 
 
 def hogql_step_expressions(*, project_id: int) -> list[str]:
-    """The HogQL expressions in the step property filters of the project's live actions. A query can reach
-    any action (a series, `matchesAction(...)`, a behavioral filter), and these expressions can read any table."""
-    queryset = logic.live_or_all(logic.scoped(project_id=project_id, team_id=None), include_deleted=False)
+    """The HogQL expressions in the step property filters of the project's actions, deleted ones included
+    because `matchesAction(...)` still expands them. A query can reach any action (a series, `matchesAction`,
+    a behavioral filter), and these expressions can read any table."""
+    queryset = logic.scoped(project_id=project_id, team_id=None)
     return [
         prop["key"]
         for steps in queryset.filter(steps_json__contains=[{"properties": [{"type": "hogql"}]}]).values_list(

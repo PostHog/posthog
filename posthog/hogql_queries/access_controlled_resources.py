@@ -127,7 +127,7 @@ class _WarehouseCatalog:
         )
 
     def action_hogql_expressions(self, project_id: int) -> list[str]:
-        """The HogQL in the project's live action steps, read once per shared lookup scope."""
+        """The HogQL in the project's action steps, read once per shared lookup scope."""
         if project_id not in self.action_expressions:
             from products.actions.backend.facade import api as actions_facade  # noqa: PLC0415
 
@@ -279,7 +279,7 @@ def queried_access_controlled_resources(
         # Execution also applies HogQL stored outside the query: the team's test-account filters when the
         # query turns them on, and the steps of the actions it names. Either can read any table. A query can
         # name an action in too many ways (series, `matchesAction(...)`, behavioral filters) to find them all,
-        # so the HogQL in every live action of the project counts: an unused one only adds scopes.
+        # so the HogQL in every action of the project counts, deleted ones too: an unused one only adds scopes.
         if _enables_test_account_filters(query):
             embedded_sources.append(team.test_account_filters)
         embedded_sources.append(catalog.action_hogql_expressions(team.project_id))
