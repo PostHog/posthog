@@ -69,11 +69,12 @@ describe('server', () => {
             ...CYCLOTRON_QUEUE_ROLES,
         })
         const pool = new Pool({ connectionString: dbUrl })
-        await manager.connect()
-        const [id] = await manager.bulkCreateJobs([
-            { teamId: 1, queueName: queue, functionId: uuidv7(), scheduled: new Date(), state: null },
-        ])
+        let id: string | undefined
         try {
+            await manager.connect()
+            ;[id] = await manager.bulkCreateJobs([
+                { teamId: 1, queueName: queue, functionId: uuidv7(), scheduled: new Date(), state: null },
+            ])
             pluginsServer = new PluginServer({
                 LOG_LEVEL: 'warn',
                 PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_email,
@@ -84,12 +85,17 @@ describe('server', () => {
 
             await waitForExpect(async () => {
                 const { rows } = await pool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
-                expect(rows[0]?.status).not.toBe('available')
+                expect(rows).toEqual([{ status: expect.stringMatching(/^(running|completed|failed)$/) }])
             }, 15_000)
         } finally {
-            await pool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
-            await pool.end()
-            await manager.disconnect()
+            try {
+                if (id) {
+                    await pool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                }
+            } finally {
+                await pool.end()
+                await manager.disconnect()
+            }
         }
     })
 
