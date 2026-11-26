@@ -1,0 +1,38 @@
+import { grafanaRoot, importGrafana } from './grafanaImport'
+import type { ImportResult } from './importReport'
+
+export type { ImportResult } from './importReport'
+
+/**
+ * Reads a pasted or uploaded export and converts it with the importer for its source. Text before the JSON, such as
+ * a line copied along with it, is skipped.
+ */
+export function importDashboard(text: string): ImportResult | { error: string } {
+    const parsed = parseJson(text)
+    if (parsed === undefined) {
+        return { error: "This isn't JSON. Paste a Grafana dashboard export." }
+    }
+    try {
+        const root = grafanaRoot(parsed)
+        if (root && (Array.isArray(root.panels) || Array.isArray(root.rows) || (root.elements && root.layout))) {
+            return importGrafana(parsed)
+        }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+    }
+    return { error: "This doesn't look like a Grafana dashboard export." }
+}
+
+function parseJson(text: string): any | undefined {
+    for (const start of [0, text.indexOf('{')]) {
+        if (start < 0) {
+            continue
+        }
+        try {
+            return JSON.parse(text.slice(start))
+        } catch {
+            continue
+        }
+    }
+    return undefined
+}
