@@ -258,6 +258,17 @@ describe('githubOrigin', () => {
         }
     )
 
+    it('sends no retry until the wait before it ends', async () => {
+        answers = [RATE_LIMITED, { status: 200 }]
+        const { io } = scripted()
+        const interrupted = new Error('Interrupted while waiting to retry.')
+
+        await expect(viaApi({ ...io, sleep: () => Promise.reject(interrupted) }).onMaster(COMMIT)).rejects.toBe(
+            interrupted
+        )
+        expect(authorizations).toHaveLength(1)
+    })
+
     it.each([
         [
             'refuses the retry too',
