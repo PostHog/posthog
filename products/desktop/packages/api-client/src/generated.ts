@@ -4291,8 +4291,6 @@ export namespace Schemas {
             | Array<ExperimentVariantResultBayesian>;
     };
     export type ExperimentWarehouseNativeRowsLeftOut = Partial<{
-        after_window: number | null;
-        before_window: number | null;
         empty_id: number | null;
         exposed_without_rows: Record<string, number> | null;
         unknown_variants: Record<string, number> | null;
