@@ -43,8 +43,11 @@ type SendKind = 'plain' | 'files'
 
 const WITH_FILES_LABEL = { plain: 'false', files: 'true' } satisfies Record<SendKind, 'true' | 'false'>
 
-const MAY_HAVE_SENT_BEFORE_DEADLINE =
-    'SES did not answer before the send deadline. It may have sent the email, so it is not sent again.'
+const MAY_HAVE_SENT = {
+    before_deadline:
+        'SES did not answer before the send deadline. It may have sent the email, so it is not sent again.',
+    throttled: 'SES throttled a retry after an earlier attempt that may have sent the email, so it is not sent again.',
+} satisfies Record<SesSendOutcomeOf<'not_sent'>['reason'], string>
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -83,10 +86,15 @@ function boundedSendResultLabel(error: unknown): string {
 }
 
 function failureOf(error: unknown, deadline: AbortSignal | undefined, mayHaveReachedSes: boolean): SesSendOutcome {
+    const failure = classifiedFailure(error, deadline)
+    return failure.kind === 'not_sent' && mayHaveReachedSes
+        ? { kind: 'unknown', message: MAY_HAVE_SENT[failure.reason] }
+        : failure
+}
+
+function classifiedFailure(error: unknown, deadline: AbortSignal | undefined): SesSendOutcome {
     if (deadline?.aborted) {
-        return mayHaveReachedSes
-            ? { kind: 'unknown', message: MAY_HAVE_SENT_BEFORE_DEADLINE }
-            : { kind: 'not_sent', reason: 'before_deadline', cause: error }
+        return { kind: 'not_sent', reason: 'before_deadline', cause: error }
     }
     const name = errorNameOf(error)
     if (isOneOf(SES_THROTTLE_ERROR_NAMES, name)) {
