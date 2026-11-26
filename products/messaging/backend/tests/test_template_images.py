@@ -9,19 +9,24 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from PIL import Image
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.messaging.backend.facade.provider_imports import TEMPLATE_IMAGES_FLAG, list_import_providers
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.images import TemplateImages
-from products.messaging.backend.provider_imports.mailchimp import MailchimpImportProvider
+from products.messaging.backend.provider_imports.mailchimp import HOSTED_IMAGES_NEXT_STEP, MailchimpImportProvider
 from products.messaging.backend.provider_imports.resend import ResendImportProvider
 from products.messaging.backend.provider_imports.sendgrid import SendGridImportProvider
 from products.messaging.backend.services.message_templates import update_template
 from products.messaging.backend.tests.fake_mailchimp import FULL_KEY, FakeMailchimp, split_url
+from products.workflows.backend.facade.api import can_edit_media
 from products.workflows.backend.facade.contracts import CopiedImages, EmailImageSource
 
 IMAGES = "products.messaging.backend.provider_imports.images"
@@ -52,6 +57,13 @@ class TestTemplateImages(SimpleTestCase):
                 "srcset",
                 f'<img srcset="{HERO} 1x, https://mcusercontent.com/b,c.png 2x, https://x.example.com/d.png 3x">',
                 f'<img srcset="{COPY} 1x, {COPY} 2x, https://x.example.com/d.png 3x">',
+            ),
+            ("unquoted_srcset", f"<img srcset={HERO}>", f"<img srcset={COPY}>"),
+            ("unquoted_imagesrcset", f"<link imagesrcset={HERO}>", f"<link imagesrcset={COPY}>"),
+            (
+                "css_in_unclosed_style_block",
+                f"<style>a{{background:url({HERO})}}",
+                f"<style>a{{background:url({COPY})}}",
             ),
             ("accents_and_spaces", '<img src="https://mcusercontent.com/a/été 1.png">', f'<img src="{COPY}">'),
             ("background", f'<td background="{HERO}">', f'<td background="{COPY}">'),
@@ -86,6 +98,9 @@ class TestTemplateImages(SimpleTestCase):
             ("own_domain", '<img src="https://img.example.com/a.png">'),
             ("link", f'<a href="{HERO}">{HERO}</a>'),
             ("image_named_in_a_link", f'<a href="https://example.com/?src={HERO}&background={HERO}">x</a>'),
+            ("css_in_a_link", f'<a href="https://example.com/?u=url({HERO})">x</a>'),
+            ("css_in_text", f"<p>Use url({HERO}) in your CSS.</p>"),
+            ("css_after_a_closed_style_block", f"<style>a{{}}</style><p>url({HERO})</p>"),
             ("lazy_attribute", f'<img data-src="{HERO}">'),
             ("lookalike_suffix", '<img src="https://evilmcusercontent.com/a.png">'),
             ("lookalike_prefix", '<img src="https://mcusercontent.com.example.com/a.png">'),
@@ -121,6 +136,37 @@ class TestTemplateImages(SimpleTestCase):
     def test_a_huge_body_of_unclosed_quotes_scans_quickly(self, unit: str) -> None:
         body = unit * 100_000
         assert self._place(body) == body
+
+    def test_requests_nothing_more_once_the_step_budget_is_spent(self) -> None:
+        requested: list[list[str]] = []
+
+        def copy(_team: int, _user: int, urls: Any, *_: Any, **__: Any) -> CopiedImages:
+            requested.append(list(urls))
+            return CopiedImages(copies=dict.fromkeys(urls, COPY), downloads=len(urls))
+
+        with (
+            patch(f"{IMAGES}.MAX_IMAGES_PER_STEP", 1),
+            patch(f"{IMAGES}.can_edit_media", return_value=True),
+            patch(f"{IMAGES}.copy_images_for_team", copy),
+        ):
+            images = TemplateImages(team_id=1, user_id=1, source=MailchimpImportProvider.image_source, can_upload=True)
+            images.copy([f'<img src="{HERO}">'])
+            images.copy(['<img src="https://mcusercontent.com/later.png">'])
+
+        assert requested == [[HERO]]
+
+    @parameterized.expand([("copying_on", True, False), ("copying_off", False, True)])
+    def test_asks_for_manual_image_uploads_only_while_nothing_is_copied(
+        self, _name: str, flag: bool, asked: bool
+    ) -> None:
+        with patch(
+            "products.messaging.backend.facade.provider_imports.feature_enabled_or_false",
+            side_effect=lambda name, *_args, **_kwargs: flag or name != TEMPLATE_IMAGES_FLAG,
+        ):
+            providers = list_import_providers("team-uuid", "organization-id")
+
+        mailchimp = next(provider for provider in providers if provider.key == "mailchimp")
+        assert (HOSTED_IMAGES_NEXT_STEP in mailchimp.next_steps) is asked
 
 
 class TestTemplateImageImport(APIBaseTest):
@@ -227,6 +273,22 @@ class TestTemplateImageImport(APIBaseTest):
         assert HERO in self._template().content["email"]["html"]
         assert self.requested == []
         assert note in self._notes(run)
+
+    def test_media_access_follows_the_rules_of_the_importing_environment(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        environment = self.create_sibling_environment()
+        assert environment.pk != environment.project_id
+        AccessControl.objects.create(
+            team=environment, resource="project", resource_id=str(environment.pk), access_level="none"
+        )
+
+        assert can_edit_media(team_id=environment.pk, user_id=self.user.id) is False
+        assert can_edit_media(team_id=self.team.pk, user_id=self.user.id) is True
 
     @parameterized.expand(
         [

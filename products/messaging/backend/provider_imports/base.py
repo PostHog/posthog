@@ -188,6 +188,8 @@ class ImportProvider(ABC):
     not_imported: ClassVar[str] = ""
     # What the person does once the import has finished, in order.
     next_steps: ClassVar[tuple[str, ...]] = ()
+    # The step in `next_steps` that asks for images to be uploaded by hand. Hidden while imports copy them.
+    hosted_images_next_step: ClassVar[str | None] = None
     settings: ClassVar[tuple[ImportSettingSpec, ...]] = ()
     # Where the tool hosts images uploaded to it. None for a tool whose emails only show images hosted elsewhere.
     image_source: ClassVar[EmailImageSource | None] = None

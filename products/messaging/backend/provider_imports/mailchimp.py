@@ -118,6 +118,9 @@ HOSTED_IMAGES_NOTE = (
     "Mailchimp still hosts images in this email. Upload them to PostHog and replace them before you close your "
     "Mailchimp account."
 )
+HOSTED_IMAGES_NEXT_STEP = (
+    "Mailchimp keeps hosting the images in your emails. Upload them to PostHog before you close your Mailchimp account."
+)
 # Each audience becomes its own cohort, and the contacts step saves them all in one transaction.
 MAX_AUDIENCES = 500
 TOO_MANY_AUDIENCES_MESSAGE = (
@@ -204,6 +207,7 @@ class MailchimpImportProvider(ImportProvider):
     label = ImportProviderKey.MAILCHIMP.label
     retains_credentials = False
     feature_flag = "workflows-mailchimp-import"
+    hosted_images_next_step = HOSTED_IMAGES_NEXT_STEP
     image_source = EmailImageSource(
         key="mailchimp",
         label="Mailchimp",
@@ -227,8 +231,7 @@ class MailchimpImportProvider(ImportProvider):
         "Mailchimp fills merge tags such as *|COMPANY|* from the audience. PostHog reads *|FNAME|* and *|LNAME|* "
         "from the first_name and last_name person properties and every other tag from the property of the same "
         "name. The Contacts step fills these in from your merge fields. Send them to PostHog for people who join later.",
-        "Mailchimp keeps hosting the images in your emails. Upload them to PostHog before you close your Mailchimp "
-        "account.",
+        HOSTED_IMAGES_NEXT_STEP,
         "Recipients see the imported audience and group names on the email preferences page. Rename any you don't "
         "want them to see.",
         "Import once more right before you delete an audience or close your Mailchimp account. PostHog can't see who "

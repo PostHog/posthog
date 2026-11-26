@@ -208,7 +208,7 @@ def _can_edit(team_id: int, user_id: int | None, resource_type: ResourceType) ->
     return all(
         authorization.check(
             [
-                CheckRequest(resource=Resource.project(team.project_id), action=Action.VIEW, subject=subject),
+                CheckRequest(resource=Resource.project(team.pk), action=Action.VIEW, subject=subject),
                 CheckRequest(
                     resource=Resource(type=resource_type, project_id=team.pk), action=Action.EDIT, subject=subject
                 ),

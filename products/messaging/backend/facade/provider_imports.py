@@ -159,7 +159,7 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             api_key_help=provider.api_key_help,
             api_key_url=provider.api_key_url,
             not_imported=_not_imported(provider, team_uuid, organization_id),
-            next_steps=provider.next_steps,
+            next_steps=_next_steps(provider, team_uuid, organization_id),
             settings=tuple(
                 ImportSettingOption(
                     key=spec.key,
@@ -174,6 +174,12 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
         for provider in PROVIDERS.values()
         if _flag_enabled(provider.feature_flag, team_uuid, organization_id)
     ]
+
+
+def _next_steps(provider: ImportProvider, team_uuid: str, organization_id: str) -> tuple[str, ...]:
+    if provider.hosted_images_next_step is None or not _flag_enabled(TEMPLATE_IMAGES_FLAG, team_uuid, organization_id):
+        return provider.next_steps
+    return tuple(step for step in provider.next_steps if step != provider.hosted_images_next_step)
 
 
 def _not_imported(provider: ImportProvider, team_uuid: str, organization_id: str) -> str:

@@ -5,6 +5,7 @@ They stop loading once the team closes its account there. An image on any other 
 
 import re
 import time
+import bisect
 from collections.abc import Callable, Iterable
 
 from posthog.dataclasses import frozen
@@ -27,7 +28,8 @@ _ATTRIBUTE = re.compile(
     re.IGNORECASE,
 )
 _SRCSET = re.compile(
-    r"""(?<=[\s"'])(?:srcset|imagesrcset)\s{0,20}=\s{0,20}(?:"([^"]{0,16384})"|'([^']{0,16384})')""", re.IGNORECASE
+    r"""(?<=[\s"'])(?:srcset|imagesrcset)\s{0,20}=\s{0,20}(?:"([^"]{0,16384})"|'([^']{0,16384})'|([^\s"'<>]{1,8192}))""",
+    re.IGNORECASE,
 )
 _SRCSET_URL = re.compile(r"(?:https?:)?//[^\s]+")
 _CSS_URL = re.compile(
@@ -35,6 +37,12 @@ _CSS_URL = re.compile(
     r"""|([^\s"'()<>]{1,8192}))\s{0,20}\)""",
     re.IGNORECASE,
 )
+# CSS is read only where a browser reads it, so a `url(...)` in a link or in the text stays as written.
+_STYLE_ATTRIBUTE = re.compile(
+    r"""(?<=[\s"'])style\s{0,20}=\s{0,20}(?:"([^"]{0,65536})"|'([^']{0,65536})')""", re.IGNORECASE
+)
+_STYLE_OPEN = re.compile(r"<style\b[^>]{0,1000}>", re.IGNORECASE)
+_STYLE_CLOSE = re.compile(r"</style\s{0,20}>", re.IGNORECASE)
 _AMPERSAND = re.compile(r"&(?:amp|#38|#x26);", re.IGNORECASE)
 # Liquid, Handlebars, Mailchimp and Mailgun tags, written out or percent-encoded. The address only exists at send time.
 _TEMPLATE_TAG = re.compile(r"[{}]|\*\||\|\*|%recipient|%7b|\*%7c", re.IGNORECASE)
@@ -74,6 +82,9 @@ class TemplateImages:
         """Copy the images `bodies` show, before the page that saves them, so no transaction waits for a download."""
         source, user_id = self._source, self._user_id
         if source is None or user_id is None or not self._can_upload:
+            return
+        # Past either limit nothing more is copied, so the addresses aren't kept either.
+        if self._remaining <= 0 or self._seconds_left <= 0:
             return
         found: dict[str, None] = {}
 
@@ -181,9 +192,29 @@ def _rewrite(html: str, replace: Callable[[str], str]) -> str:
         url = match.group(0).rstrip(",")
         return replace(url) + match.group(0)[len(url) :]
 
+    def in_css(css: str) -> str:
+        return _CSS_URL.sub(in_value, css)
+
     html = _ATTRIBUTE.sub(in_value, html)
     html = _SRCSET.sub(in_srcset, html)
-    return _CSS_URL.sub(in_value, html)
+    html = _STYLE_ATTRIBUTE.sub(lambda match: _with_value(match, in_css), html)
+    return _in_style_blocks(html, in_css)
+
+
+def _in_style_blocks(html: str, replace: Callable[[str], str]) -> str:
+    # The closing tags are found once, so many unclosed `<style>` tags can't make the scan slow.
+    closes = [match.start() for match in _STYLE_CLOSE.finditer(html)]
+    parts: list[str] = []
+    position = 0
+    for match in _STYLE_OPEN.finditer(html):
+        if match.start() < position:
+            continue
+        index = bisect.bisect_left(closes, match.end())
+        end = closes[index] if index < len(closes) else len(html)
+        parts += [html[position : match.end()], replace(html[match.end() : end])]
+        position = end
+    parts.append(html[position:])
+    return "".join(parts)
 
 
 def _with_value(match: re.Match[str], replace: Callable[[str], str]) -> str:
