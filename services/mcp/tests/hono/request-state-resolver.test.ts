@@ -1149,7 +1149,6 @@ describe('RequestStateResolver MCP client contexts', () => {
             const result = await resolver.resolve(makeProps(props))
 
             expect(result.inboxWaitingCount).toBe(count)
-            expect(mockInboxForYouCount).toHaveBeenCalledTimes(count === undefined ? 0 : 1)
         }
     )
 

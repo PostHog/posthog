@@ -1597,18 +1597,24 @@ describe('StateManager', () => {
 
         it('keeps a count for 30 minutes, then reads it again', async () => {
             vi.useFakeTimers()
-            const request = vi.fn().mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce({ count: 0 })
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            let waiting = 3
+            // Answers only on the count endpoint's path, so a read of any other path shows as no count.
+            const request = vi.fn(async ({ path }: { path: string }) => {
+                if (path !== '/api/projects/42/signals/reports/for_you_count/') {
+                    throw new Error(`Synthetic unknown path ${path}`)
+                }
+                return { count: waiting }
+            })
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             expect(await stateManager.getOrFetchInboxForYouCount('42')).toBe(3)
+            waiting = 0
             vi.advanceTimersByTime(29 * 60 * 1000)
             expect(await stateManager.getOrFetchInboxForYouCount('42')).toBe(3)
             vi.advanceTimersByTime(61 * 1000)
 
             expect(await stateManager.getOrFetchInboxForYouCount('42')).toBe(0)
-            expect(request).toHaveBeenCalledWith(
-                expect.objectContaining({ path: '/api/projects/42/signals/reports/for_you_count/' })
-            )
         })
 
         it.each<[string, unknown]>([
