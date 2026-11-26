@@ -857,7 +857,7 @@ jobs:
                   if [ "$MODE" = "vendors" ]; then
                       narrow=("--source-vendors=${VENDORS// /,}")
                   fi
-                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
+                  pytest -p no:cacheprovider -n 2 products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
 
             # These suites check that every vendor declares a valid, unique credential kind and an
             # auth type. A vendors run skips Backend CI, so they run in both modes. The check that
@@ -881,7 +881,7 @@ jobs:
                       targets=("${vendors[@]/#/$plugin_dir/}")
                   fi
                   status=0
-                  pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short || status=$?
+                  pytest -p no:cacheprovider -n 2 "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short || status=$?
                   # Exit code 5 means pytest collected no tests. A scaffolded vendor stub has none yet,
                   # so a vendors run that selects only stubs passes. A full run must still find tests.
                   if [ "$status" -eq 5 ] && [ "$MODE" = "vendors" ]; then
