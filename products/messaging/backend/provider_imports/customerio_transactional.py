@@ -28,7 +28,7 @@ from products.messaging.backend.provider_imports.base import (
     SavedPage,
     StepCheckpoint,
 )
-from products.messaging.backend.services.customerio_client import CustomerIOClient
+from products.messaging.backend.services.customerio_client import CustomerIOAPIError, CustomerIOClient
 from products.messaging.backend.services.imported_data import code_email_keys
 from products.messaging.backend.services.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
@@ -48,6 +48,9 @@ MESSAGES_PER_PAGE = 20
 _KEY_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 # Reading the sender identities and snippets with the stored key, once per step.
 LOOKUP_SECONDS = 60
+CONTENT_READ_INTERVAL_SECONDS = 0.125
+CONTENT_READ_ATTEMPTS = 3
+RATE_LIMIT_BACKOFF_SECONDS = 2
 NO_SENDER_MESSAGE = (
     "PostHog has no verified email sender, so it imported no transactional messages. Verify a sending domain, then "
     "run the import again."
@@ -95,7 +98,7 @@ def fetch_transactional(
         return
     for offset in range(start, len(messages), MESSAGES_PER_PAGE):
         page = messages[offset : offset + MESSAGES_PER_PAGE]
-        with_contents = [(message, client.get_transactional_contents(message["id"])) for message in page]
+        with_contents = [(message, _read_contents(client, message["id"])) for message in page]
         next_offset = offset + MESSAGES_PER_PAGE
         yield ImportPage(
             processed=len(page),
@@ -200,7 +203,6 @@ def _import_one(
                     "type": "email",
                     "content": {"templating": "liquid", "email": with_editor_design(email)},
                     "sensitive": bool(message.get("hide_message_body")),
-                    "click_tracking_enabled": False if message.get("link_tracking") is False else None,
                     "tags": [IMPORT_TAG],
                 },
             )
@@ -276,8 +278,11 @@ def _message_notes(message: dict[str, Any], content: dict[str, Any], languages: 
         )
     if message.get("queue_drafts"):
         notes.append("Customer.io holds each send as a draft for you to review. PostHog sends it right away.")
-    if message.get("open_tracking") is False:
-        notes.append("Customer.io doesn't track opens of this message. PostHog does.")
+    if message.get("open_tracking") is False or message.get("link_tracking") is False:
+        notes.append(
+            "Customer.io doesn't track opens or link clicks of this message. PostHog tracks both, so turn on Protect "
+            "sensitive data on the template's API tab if its links must keep their full address."
+        )
     return tuple(notes)
 
 
@@ -306,6 +311,19 @@ def _language(content: dict[str, Any]) -> str:
 def _name(message: dict[str, Any], language: str = "") -> str:
     name = str(message.get("name") or f"Customer.io transactional message {message.get('id')}")
     return (f"{name} ({language})" if language else name)[:400]
+
+
+def _read_contents(client: CustomerIOClient, transactional_id: Any) -> list[dict[str, Any]]:
+    """One message's contents, paced under Customer.io's limit of 10 requests a second, and retried on a 429."""
+    for attempt in range(CONTENT_READ_ATTEMPTS):
+        time.sleep(CONTENT_READ_INTERVAL_SECONDS)
+        try:
+            return client.get_transactional_contents(transactional_id)
+        except CustomerIOAPIError as e:
+            if e.status_code != 429 or attempt == CONTENT_READ_ATTEMPTS - 1:
+                raise
+            time.sleep(RATE_LIMIT_BACKOFF_SECONDS)
+    return []
 
 
 def _verified_senders(team_id: int) -> frozenset[int]:

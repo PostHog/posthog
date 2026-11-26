@@ -1101,6 +1101,16 @@ def translate_transactional_email(
                 f"Customer.io also sends this email to {key.upper()} {email[key]}. A transactional email has one "
                 "recipient, so that was left out."
             )
+    templated = [
+        label
+        for key, label in (("from", "sender"), ("reply_to", "reply-to address"))
+        if "{{" in str(message.get(key) or "")
+    ]
+    if templated:
+        notes.append(
+            f"Customer.io fills the {' and '.join(templated)} of this email with Liquid, which PostHog can't carry "
+            "over. Set them on the template."
+        )
     if images.asset_urls(email["html"]):
         notes.append(
             "This email shows images stored by Customer.io, which stop loading when you close your Customer.io "
@@ -1132,12 +1142,17 @@ def _headers(value: Any) -> list[Any]:
 
 
 _VARIABLE = re.compile(r"(?<![\w.])variables\.(?!customer\b)([A-Za-z_][\w-]*)")
-_CUSTOMER_ATTRIBUTE = re.compile(r"(?<![\w.])variables\.customer\.([A-Za-z_][\w-]*)")
+_CUSTOMER_ATTRIBUTE = re.compile(r"(?<![\w.])variables\.customer(?:\.([A-Za-z_][\w-]*)|\[\s*[\"']([^\"']+)[\"']\s*\])")
 
 
 def _variable_names(texts: list[str], pattern: re.Pattern[str]) -> tuple[str, ...]:
     return tuple(
-        dict.fromkeys(name for text in texts for tag in _LIQUID_TAG.findall(text) for name in pattern.findall(tag))
+        dict.fromkeys(
+            next(group for group in match.groups() if group)
+            for text in texts
+            for tag in _LIQUID_TAG.findall(text)
+            for match in pattern.finditer(tag)
+        )
     )
 
 

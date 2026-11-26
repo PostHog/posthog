@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.access_control.backend.facade.testing import set_member_property_access
 from products.cohorts.backend.models.cohort import Cohort
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
@@ -372,6 +373,7 @@ TRANSACTIONAL_CONTENTS: dict[str, list[dict[str, Any]]] = {
             "id": 70,
             "language": "",
             "subject": "Reset your password, {{customer.first_name | default: 'there'}}",
+            "preheader_text": "For {{customer['last_name']}}",
             "body": "<html><body>{% for step in trigger.steps %}<p>{{step}}</p>{% endfor %}"
             '<a href="{{trigger.reset_url}}">Reset</a></body></html>',
             "body_plain": "Reset here: {{trigger.reset_url}}",
@@ -449,7 +451,7 @@ class TestCustomerIOTransactionalMessages(APIBaseTest):
         assert progress["counts"] == {"needs_review": 1, "created": 1, "empty": 1, "failed": 1}
         notes = " ".join(note for item in progress["items"] for note in item["notes"])
         assert "customerio-transactional-7-fr" in notes
-        assert "reads steps and reset_url" in notes and '"customer": {"first_name": ...}' in notes
+        assert "reads steps and reset_url" in notes and '"customer": {"first_name": ..., "last_name": ...}' in notes
 
         MessageTemplate.objects.filter(id=reset.id).update(name="Edited by the team")
         progress = self._import(api_key=None)
@@ -462,6 +464,19 @@ class TestCustomerIOTransactionalMessages(APIBaseTest):
         progress = self._import()
 
         assert progress["status"] == "failed"
+        assert not MessageTemplate.objects.filter(team_id=self.team.id).exists()
+
+    @patch(PROVIDER_FLAGS_PATH, return_value=True)
+    def test_restricted_property_access_refuses_the_step(self, _flags: MagicMock) -> None:
+        self._verified_sender()
+        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_provider_imports/",
+            {"provider": "customerio", "steps": ["transactional"], "api_key": "app-key"},
+        )
+
+        assert response.status_code == 403
         assert not MessageTemplate.objects.filter(team_id=self.team.id).exists()
 
     @patch(PROVIDER_FLAGS_PATH, return_value=False)
