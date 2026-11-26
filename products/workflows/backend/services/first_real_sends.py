@@ -82,8 +82,8 @@ def _record_batch(first_sends: dict[tuple[int, UUID], datetime]) -> int:
     for team_id, hog_flow_id in first_sends:
         hog_flow_ids_by_team[team_id].append(hog_flow_id)
     team_scoped_ids = Q()
-    for team_id, hog_flow_ids in hog_flow_ids_by_team.items():
-        team_scoped_ids |= Q(team_id=team_id, pk__in=hog_flow_ids)
+    for team_id, team_hog_flow_ids in hog_flow_ids_by_team.items():
+        team_scoped_ids |= Q(team_id=team_id, pk__in=team_hog_flow_ids)
     candidates = list(
         HogFlow.objects.filter(
             team_scoped_ids,
