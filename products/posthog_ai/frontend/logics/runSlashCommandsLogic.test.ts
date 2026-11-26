@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -19,9 +20,13 @@ jest.mock('./runStreamLogic', () => {
             path(['test', 'runStreamLogicStub']),
             props({}),
             key((p: { streamKey: string }) => p.streamKey),
-            actions({ setStubCommands: (commands: unknown[]) => ({ commands }) }),
+            actions({
+                setStubCommands: (commands: unknown[]) => ({ commands }),
+                setStubThreadItems: (items: unknown[]) => ({ items }),
+            }),
             reducers({
                 availableCommands: [[], { setStubCommands: (_: unknown, { commands }: any) => commands }],
+                threadItems: [[], { setStubThreadItems: (_: unknown, { items }: any) => items }],
                 bootstrappedRunId: ['run-1', {}],
                 bootstrappedTaskId: ['task-1', {}],
                 contextUsage: [null, {}],
@@ -201,17 +206,39 @@ describe('runSlashCommandsLogic', () => {
         expect(interaction.values.composerForm.draft).toEqual('/btw what is this?')
     })
 
-    it('attributes a /ticket handover to the run', async () => {
+    it.each([
+        ['no drafted ticket', [], 'the diff looks wrong', 'plain'],
+        [
+            'a ticket the agent drafted',
+            [
+                {
+                    id: 'm1',
+                    type: 'assistant_message',
+                    complete: true,
+                    text: 'Here is your ticket.\n\n**What I want:** Fix my flag.\n\nType /ticket to send it.',
+                },
+            ],
+            'the diff looks wrong\n\n**What I want:** Fix my flag.',
+            'markdown',
+        ],
+    ])('opens /ticket attributed to the run with %s', async (_label, threadItems, message, messageFormat) => {
+        ;(runStreamLogic({ streamKey: 'run-1' }).actions as any).setStubThreadItems(threadItems)
         setDraft('/ticket the diff looks wrong')
 
         await expectLogic(logic, () => logic.actions.submitComposer()).toFinishAllListeners()
 
         expect(interaction.values.composerForm.draft).toEqual('')
+        const taskUrl = urls.absolute(urls.currentProject(urls.taskDetail('task-1')))
         await expectLogic(supportLogic).toDispatchActions([
-            (action: any) =>
-                action.type === supportLogic.actionTypes.openSupportForm &&
-                action.payload.ai_conversation_id === 'task-1' &&
-                action.payload.ai_trace_id === 'trace-1',
+            supportLogic.actionCreators.openSupportForm({
+                kind: 'support',
+                target: 'sidePanel',
+                isEmailFormOpen: true,
+                message: `${message}\n\nPostHog AI task: ${taskUrl}`,
+                message_format: messageFormat as 'plain' | 'markdown',
+                ai_conversation_id: 'task-1',
+                ai_trace_id: 'trace-1',
+            }),
         ])
     })
 
