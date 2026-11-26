@@ -7,6 +7,7 @@ use std::ops::Bound;
 use crate::bytescan::{self as scan, Span};
 
 use super::features::js_trim;
+use super::json_ld::is_json_ld_event;
 use super::rrweb::*;
 use super::stats::BlockStats;
 use crate::scan::message::Event;
@@ -339,7 +340,7 @@ pub fn event_page_url(inner: &[u8], event: &Event) -> Option<String> {
 /// `data.payload.href`, such as that of posthog-js's `$url_changed` custom event, trimmed as JavaScript trims.
 /// JSON-LD custom events carry no page.
 pub fn href_from<'b>(inner: &'b [u8], kind: Option<u8>, data: &DataFields) -> Option<Cow<'b, str>> {
-    if kind == Some(CUSTOM) && text(inner, data.tag).as_deref() == Some("$json_ld") {
+    if is_json_ld_event(inner, kind, data) {
         return None;
     }
     [data.href, data.payload_href]
