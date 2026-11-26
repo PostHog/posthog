@@ -351,15 +351,19 @@ export const SavedViews: Story = {
     ...SharedView,
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByRole('button', { name: 'Saved views' }, { timeout: 60000 }))
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Overview' }, { timeout: 60000 }))
+        await canvas.findByText('222', { exact: true }, { timeout: 60000 })
+        await userEvent.click(canvas.getByRole('button', { name: 'Saved views' }))
         const heading = await within(document.body).findByRole('heading', { name: 'Saved views' })
         const modal = within(heading.closest<HTMLElement>('.LemonModal__container')!)
         await userEvent.type(modal.getByLabelText('View name'), 'Europe / biweekly')
-        await userEvent.click(modal.getByRole('button', { name: 'Save view' }))
-        const link = await modal.findByRole('link', { name: 'Europe / biweekly' })
+        const save = modal.getByRole('button', { name: 'Save view' })
+        await waitFor(() => expect(save).toHaveAttribute('aria-disabled', 'false'), { timeout: 10000 })
+        await userEvent.click(save)
+        const link = await modal.findByRole('link', { name: 'Europe / biweekly' }, { timeout: 10000 })
         const url = new URL(link.getAttribute('href')!, window.location.origin)
         expect(JSON.parse(new URLSearchParams(url.hash.slice(1)).get('appView')!)).toMatchObject({
-            tab: 'details',
+            tab: 'overview',
             inputs: { region: 'Europe', weeks: 2 },
         })
         await userEvent.click(modal.getByRole('button', { name: 'Remove Europe / biweekly' }))
