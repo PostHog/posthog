@@ -88,8 +88,8 @@ from products.error_tracking.backend.models import (
     update_error_tracking_issue_fingerprints,
 )
 from products.error_tracking.backend.sql import ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE, INSERT_ERROR_TRACKING_ISSUE_TAG
+from products.event_definitions.backend.facade.enums import PropertyType
 from products.event_definitions.backend.models import PropertyDefinition
-from products.event_definitions.backend.property_type import PropertyType
 
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",

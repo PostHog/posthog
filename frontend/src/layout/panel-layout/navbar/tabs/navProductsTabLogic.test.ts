@@ -35,6 +35,7 @@ describe('navProductsTabLogic', () => {
         const registry = [...getDefaultTreeProducts(), ...getDefaultTreeData()]
         const flags = Object.fromEntries(registry.flatMap((item) => (item.flag ? [[item.flag, enabled]] : [])))
         const definitionsTabHrefs = new Set([
+            urls.tagDefinitions(),
             urls.coreEvents(),
             urls.propertyDefinitions(),
             urls.schemaManagement(),

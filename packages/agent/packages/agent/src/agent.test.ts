@@ -261,7 +261,9 @@ describe("Agent", () => {
     ];
     const headers = config.claudeGatewayEnv?.anthropicCustomHeaders ?? "";
     const blob = headers.match(/^X-PostHog-Properties: (.*)$/m)?.[1];
-    expect(config.claudeGatewayEnv?.isAiGateway).toBe(true);
+    expect(config.claudeGatewayEnv?.anthropicBaseUrl).toBe(
+      "https://ai-gateway.us.posthog.com",
+    );
     expect(headers).toContain("X-PostHog-Session-Id: task-1");
     expect(JSON.parse(blob ?? "{}")).toMatchObject({
       task_id: "task-1",

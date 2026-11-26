@@ -538,6 +538,7 @@ print(f"Token active: {data.get('active')}")
 - Ensure redirect_uri in request matches one configured in application, make sure you included the path and not just the base url
 - Check for trailing slashes
 - Verify HTTP vs HTTPS
+- A redirect URI on the OAuth proxy host (`OAUTH_PROXY_CALLBACK_URLS`, `https://oauth.posthog.com/oauth/callback/` by default) must be exactly the callback, or the callback followed by the application's own `<client_id>/`. Any other URI on that host is refused at registration and at authorize.
 
 ### "Invalid code_verifier"
 

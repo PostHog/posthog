@@ -947,7 +947,26 @@ class CohortCalculationHistoryQuerySerializer(serializers.Serializer):
     )
 
 
+class CohortCalculationQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(required=False, help_text="Text of the query.")
+    query_id = serializers.CharField(required=False, help_text="ClickHouse query ID.")
+    query_ms = serializers.IntegerField(required=False, help_text="Query duration in milliseconds.")
+    memory_mb = serializers.IntegerField(required=False, help_text="Peak memory the query used, in megabytes.")
+    read_rows = serializers.IntegerField(required=False, help_text="Rows the query read.")
+    written_rows = serializers.IntegerField(required=False, help_text="Rows the query wrote.")
+
+
+@extend_schema_field(CohortCalculationQuerySerializer(many=True, allow_null=True))
+class CohortCalculationQueriesField(serializers.JSONField):
+    pass
+
+
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
+    queries = CohortCalculationQueriesField(
+        read_only=True,
+        allow_null=True,
+        help_text="Queries the calculation ran, in order. Each entry only has the keys that were recorded.",
+    )
     duration_seconds = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
     is_successful = serializers.ReadOnlyField()
@@ -976,6 +995,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_written_rows",
             "main_query",
         ]
+        read_only_fields = fields
 
 
 class CohortCalculationHistoryResponseSerializer(serializers.Serializer):

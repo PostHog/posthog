@@ -101,7 +101,7 @@ CITED CHUNKS:
         system=system,
         messages=[{"role": "user", "content": user_content}],
         **anthropic_output_config(ValidateResult),
-        **tracing_kwargs(input.trace_id, input.ticket_id),
+        **tracing_kwargs(input.trace_id),
     )
     content = anthropic_text(message)
 

@@ -387,6 +387,7 @@ const SERVER_DATA_GAP_ACTIONS: Record<
 > = {
     conversion_action_tables_not_synced: 'manage_source',
     performance_max_search_terms_count_primary_conversions: null,
+    hidden_search_spend: null,
     posthog_conversions_not_ready: null,
     posthog_conversion_goals_unusable: 'edit_conversion_goals',
     // It also covers a truncated result, which no goal edit fixes.
