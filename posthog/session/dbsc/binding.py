@@ -1,0 +1,88 @@
+import secrets
+from datetime import datetime
+from typing import Any, Literal, cast
+
+from django.contrib.sessions.backends.base import SessionBase
+from django.utils import timezone
+
+from posthog.dataclasses import frozen
+from posthog.session.backend import DBSC_CARRY_SESSION_KEY
+from posthog.session.models import Session
+
+Algorithm = Literal["ES256", "RS256"]
+
+# Its value is the offer id, which keys the registration challenge.
+OFFER_SESSION_KEY = "_dbsc_offer"
+
+
+@frozen
+class Binding:
+    # The DBSC session identifier the browser sends back in `Sec-Secure-Session-Id`. Random, not
+    # derived from the session key, so it stays the same when the session key rotates.
+    id: str
+    alg: Algorithm
+    jwk: dict[str, Any]
+    bound_at: datetime
+
+    def to_json(self) -> dict[str, Any]:
+        return {"id": self.id, "alg": self.alg, "jwk": self.jwk, "bound_at": self.bound_at.isoformat()}
+
+    @classmethod
+    def from_json(cls, raw: object) -> "Binding | None":
+        if not isinstance(raw, dict):
+            return None
+        try:
+            alg = raw["alg"]
+            if alg not in ("ES256", "RS256") or not isinstance(raw["jwk"], dict) or not isinstance(raw["id"], str):
+                return None
+            return cls(
+                id=raw["id"],
+                alg=cast(Algorithm, alg),
+                jwk=raw["jwk"],
+                bound_at=datetime.fromisoformat(raw["bound_at"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+def new_binding(*, alg: Algorithm, jwk: dict[str, Any]) -> Binding:
+    return Binding(id=secrets.token_urlsafe(16), alg=alg, jwk=jwk, bound_at=timezone.now())
+
+
+def current_binding(session: SessionBase) -> Binding | None:
+    # Reuses the row the session store already loaded, because this runs on every request.
+    session_key = session.session_key
+    if not session_key:
+        return None
+    loaded = cast("Session | None", getattr(session, "loaded_row", None))
+    if loaded is not None and loaded.session_key == session_key:
+        return Binding.from_json(loaded.dbsc_binding)
+    raw = Session.objects.filter(session_key=session_key).values_list("dbsc_binding", flat=True).first()
+    return Binding.from_json(raw)
+
+
+def save_binding(session_key: str, binding: Binding) -> bool:
+    # Only an unbound row takes a key, so a stolen session cookie cannot move the binding to another device.
+    updated = Session.objects.filter(session_key=session_key, dbsc_binding__isnull=True).update(
+        dbsc_binding=binding.to_json()
+    )
+    return updated == 1
+
+
+def carry_binding(session: SessionBase, binding: Binding) -> None:
+    # A login on the same browser replaces the session row, and the device key stays in that browser.
+    session[DBSC_CARRY_SESSION_KEY] = binding.to_json()
+    session.pop(OFFER_SESSION_KEY, None)
+
+
+def is_bound_or_carried(session: SessionBase) -> bool:
+    return DBSC_CARRY_SESSION_KEY in session or current_binding(session) is not None
+
+
+def new_offer(session: SessionBase) -> None:
+    session[OFFER_SESSION_KEY] = secrets.token_urlsafe(16)
+
+
+def offer_id(session: SessionBase) -> str | None:
+    value = session.get(OFFER_SESSION_KEY)
+    return value if isinstance(value, str) else None

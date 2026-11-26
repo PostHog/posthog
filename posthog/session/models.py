@@ -34,6 +34,9 @@ class Session(AbstractBaseSession):
     # Distinct from last_activity (display "last seen", rolls every request): the baseline advances
     # only on low-risk requests, so the geo and its timestamp stay a matched pair for velocity scoring.
     baseline_at = models.DateTimeField(null=True)
+    # The device key this session is bound to (see posthog.session.dbsc). Not a session-owned
+    # column, so a routine session save never clears it.
+    dbsc_binding = models.JSONField(null=True)
 
     class Meta:
         db_table = "django_session"

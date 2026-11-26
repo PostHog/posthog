@@ -239,6 +239,8 @@ MIDDLEWARE = [
     "posthog.session.middleware.UserAuthSessionActivityMiddleware",
     "posthog.session.middleware.SessionRiskMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
+    # After ActivityLoggingMiddleware, so a refusal's audit row records the request's client and IP.
+    "posthog.session.dbsc.middleware.DeviceBoundSessionMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

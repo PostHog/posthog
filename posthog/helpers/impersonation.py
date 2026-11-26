@@ -9,6 +9,8 @@ from django.http import HttpRequest
 from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session, restore_original_login
 
+from posthog.session.dbsc.binding import carry_binding, current_binding
+
 
 def is_impersonated(request: Optional[HttpRequest]) -> bool:
     """Whether the current action is being performed under staff impersonation.
@@ -45,7 +47,10 @@ def end_impersonation(request: HttpRequest) -> None:
     # next admin page. Without this, that page shows the stale message next to "logged back in".
     for _ in messages.get_messages(request):
         pass
+    binding = current_binding(request.session)
     restore_original_login(request)
+    if binding is not None:
+        carry_binding(request.session, binding)
 
 
 def get_original_user_id_from_session(request) -> int | None:

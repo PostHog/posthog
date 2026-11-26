@@ -41,6 +41,7 @@ class TestActivityLogOCSF(APIBaseTest):
             ("updated", 3004, 3, None),
             ("deleted", 3004, 4, None),
             ("logged_in", 3002, 1, None),
+            ("session_refused_unbound", 3002, 1, None),
             ("scim_provisioned", 3001, 1, None),
             ("exported for opengraph image", 3004, 99, "exported for opengraph image"),
         ]
@@ -127,7 +128,9 @@ class TestActivityLogOCSF(APIBaseTest):
         assert event["metadata"]["version"] == "1.5.0"
         assert event["category_uid"] == 3
 
-    @parameterized.expand([("save_rejected_conflict", 2), ("share_login_failed", 2), ("updated", 1)])
+    @parameterized.expand(
+        [("save_rejected_conflict", 2), ("share_login_failed", 2), ("session_refused_unbound", 2), ("updated", 1)]
+    )
     def test_rejected_writes_are_reported_as_failures(self, activity: str, status_id: int):
         assert ActivityLogOCSFSerializer(self._log(activity=activity)).data["status_id"] == status_id
 
