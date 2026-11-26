@@ -1,8 +1,9 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { Badge, Button, cn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '@posthog/quill'
 
+import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
@@ -12,7 +13,12 @@ import { QuillRecommendationCpa } from './QuillRecommendationCpa'
 import { QUILL_DIRECTION_BADGE } from './QuillRecommendationImpactTotals'
 import { QuillRecommendationResolutionButtons } from './QuillRecommendationResolutionButtons'
 import { QuillRecommendationSteps } from './QuillRecommendationSteps'
-import { IMPACT_DIRECTION_LABELS, impactColumnTitle, RECOMMENDATION_RULE_LABELS } from './recommendations'
+import {
+    IMPACT_DIRECTION_LABELS,
+    impactColumnTitle,
+    RECOMMENDATION_RULE_LABELS,
+    RECOMMENDATIONS_PAGE_SIZE,
+} from './recommendations'
 
 const LAYOUT_BREAKPOINTS: Record<number, 'stacked' | 'columns'> = { 0: 'stacked', 640: 'columns' }
 
@@ -33,6 +39,11 @@ export function QuillRecommendationRows({
     // Measured rather than a container query, so each row renders one set of action buttons.
     const { ref, size } = useResizeBreakpoints(LAYOUT_BREAKPOINTS, { initialSize: 'columns' })
     const stacked = size === 'stacked'
+    const [page, setPage] = useState(1)
+    const pageCount = Math.max(1, Math.ceil(rows.length / RECOMMENDATIONS_PAGE_SIZE))
+    // Resolving or restoring the only row of the last page leaves that page empty.
+    const currentPage = Math.min(page, pageCount)
+    const pageRows = rows.slice((currentPage - 1) * RECOMMENDATIONS_PAGE_SIZE, currentPage * RECOMMENDATIONS_PAGE_SIZE)
 
     return (
         <div ref={ref} className="min-w-0">
@@ -46,7 +57,7 @@ export function QuillRecommendationRows({
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {rows.map((row) => {
+                    {pageRows.map((row) => {
                         const hasSteps = !!row.steps?.length
                         const isExpanded = hasSteps && expanded.has(row.key)
                         return (
@@ -138,6 +149,15 @@ export function QuillRecommendationRows({
                     })}
                 </TableBody>
             </Table>
+            {pageCount > 1 && (
+                <QuillTablePagination
+                    currentPage={currentPage}
+                    pageCount={pageCount}
+                    pageSize={RECOMMENDATIONS_PAGE_SIZE}
+                    total={rows.length}
+                    onPageChange={setPage}
+                />
+            )}
         </div>
     )
 }
