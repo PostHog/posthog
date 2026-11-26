@@ -2270,6 +2270,25 @@ export const signalsScoutConfigCreate = async (
     })
 }
 
+export const getSignalsScoutConfigRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/`
+}
+
+/**
+ * Return one scout config by its `id`, with every field the list returns: schedule, posture, output destinations, write grants, pre-check queries, structured output schema, and owners.
+ * @summary Get a scout config
+ */
+export const signalsScoutConfigRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi> => {
+    return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsScoutConfigUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/${id}/`
 }
@@ -3001,7 +3020,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or `exclude_skill_name` to leave one scout's runs out before `limit` applies. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (
@@ -3498,7 +3517,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `content_offset` to start each `content` at a character, and page a long entry with the `content_next_offset` each entry returns. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (
