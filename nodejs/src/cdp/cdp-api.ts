@@ -1569,6 +1569,9 @@ export class CdpApi {
                 if (recalled) {
                     return answer(recalled)
                 }
+                if (send?.category?.archived) {
+                    return reply('category_not_found', 400, { error: 'category_not_found' })
+                }
                 const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
@@ -1591,7 +1594,7 @@ export class CdpApi {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
-                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
+                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow, send) : null
 
                 return answer(
                     await sends.accept(
@@ -1664,6 +1667,9 @@ export class CdpApi {
                 const batch = parsed.data
                 if (exceedsCopyLimits(batch)) {
                     return refuse('too_large', 413, { error: 'too_large' })
+                }
+                if (batch.send?.category?.archived) {
+                    return refuse('category_not_found', 400, { error: 'category_not_found' })
                 }
                 const teamId = parseInt(req.params.team_id)
 
