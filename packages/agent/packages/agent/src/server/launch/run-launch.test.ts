@@ -179,8 +179,15 @@ describe("run launch", () => {
         { codex_apps_disabled: false },
         undefined,
       ],
+      [
+        "turns off the apps when the run could not be read",
+        null,
+        { "features.apps": false },
+      ],
     ])("%s", (_name, state, expected) => {
-      const launch = readRunLaunch(sources({ taskRun: runWithState(state) }));
+      const launch = readRunLaunch(
+        sources({ taskRun: state ? runWithState(state) : null }),
+      );
 
       expect(codexConfigOverrides(launch)).toEqual(expected);
     });

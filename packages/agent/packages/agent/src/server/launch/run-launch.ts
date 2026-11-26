@@ -80,7 +80,8 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     prewarmed: taskRun ? runState?.prewarmed === true : null,
     sharedPromptCache: runState?.codex_shared_prompt_cache === true,
     codexMaxSubagents: runState?.codex_max_subagents ?? null,
-    codexAppsDisabled: runState?.codex_apps_disabled === true,
+    // Without the run, the plan tokens can still arrive by another path, so a missing state keeps the apps off.
+    codexAppsDisabled: taskRun ? runState?.codex_apps_disabled === true : true,
     initialPermissionMode: runState?.initial_permission_mode ?? null,
     pendingUserArtifactIds: runState?.pending_user_artifact_ids ?? [],
     policy,

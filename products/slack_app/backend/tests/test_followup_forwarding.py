@@ -258,6 +258,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
     def test_a_codex_model_from_the_saved_default_bills_the_mentioners_plan(
         self, _name, setting_flag, apps_enabled, apps_disabled, mock_slack_cls, mock_execute_workflow
     ):
+        UserIntegration.objects.create(
+            user=self.user, kind="slack", integration_id="U_ALICE", config={"slack_team_id": "T_SLACK"}
+        )
         if apps_enabled is not None:
             SlackSettings.objects.create(
                 slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_enabled=apps_enabled
@@ -1699,7 +1702,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.task_run.save()
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
-        # The joiner allowing apps on their own plan must not turn on the creator's.
+        # The plan owner's linked Slack user decides. The joiner and the thread's original mentioner, who
+        # differ from the owner after a handoff, both allowed apps, and neither may turn on the owner's.
+        UserIntegration.objects.create(
+            user=self.user, kind="slack", integration_id="U_OWNER", config={"slack_team_id": "T_SLACK"}
+        )
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_enabled=True)
         SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_BOB", chatgpt_apps_enabled=True)
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
