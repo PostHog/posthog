@@ -1,6 +1,6 @@
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
-import type { TimeRange } from '../dashboard/document/dashboardTypes'
 import type { AppliedFilter } from '../filters/filtersContext'
+import { type TimeRange } from '../filters/time/timeRangeSchema'
+import { type PanelQuery } from './querySchema'
 
 /** A query's result in one shape every panel reads, so a chart can switch kind without running its query again. */
 export type DataFrame = {

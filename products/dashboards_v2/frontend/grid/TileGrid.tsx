@@ -20,7 +20,6 @@ import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import {
     GRID,
-    type SizeOf,
     type Tile,
     type TilePlace,
     columnWidthPx,
@@ -28,6 +27,7 @@ import {
     spanPx,
     panelSize,
 } from '../dashboard/document/dashboardTypes'
+import { type SizeOf } from '../panels/core/panelSpec'
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './drag/dropTargets'
 import { useGridDrag } from './drag/gridDrag'
 import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './drag/resizeFeedback'

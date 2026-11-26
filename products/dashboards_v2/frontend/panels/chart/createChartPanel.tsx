@@ -1,9 +1,9 @@
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { ContentPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import type { RunQuery } from '../../query/queryTypes'
 import { type PanelType, type PanelMenuContext, definePanel } from '../core/panelDefinition'
+import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
 import { ChartPanel } from './ChartPanel'

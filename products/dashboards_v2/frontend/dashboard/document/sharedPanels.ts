@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { sharedPanelSchema } from './dashboardSchema'
+import { sharedPanelSchema } from '../../panels/core/panelSchema'
 import { type Dashboard, type DashboardDocument, type Tile, isGridTab, isSectionPanel } from './dashboardTypes'
 
 type DocumentGridTab = Extract<DashboardDocument['tabs'][number], { tiles: unknown }>

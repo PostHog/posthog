@@ -4,9 +4,10 @@ import type { TimeRangeController } from '../../filters/time/useTimeRangeControl
 import type { FiltersController } from '../../filters/useFiltersController'
 import type { MenuAction } from '../../menu/menuAction'
 import type { PanelType } from '../../panels/core/panelDefinition'
+import { type SizeOf } from '../../panels/core/panelSpec'
 import type { AutoRefreshProps } from '../actions/AutoRefreshButton'
 import type { ImageFormat } from '../actions/dashboardImage'
-import type { Dashboard, GridTab, SizeOf, Panel } from '../document/dashboardTypes'
+import type { Dashboard, GridTab, Panel } from '../document/dashboardTypes'
 import type { DashboardEdit, View } from '../edits/dashboardEdits'
 
 /** Everything a person can do to a dashboard. A host's `disabledReasonFor` can give each one its own answer. */
@@ -19,17 +20,18 @@ export type DashboardAction = DashboardEdit['edit'] | 'undo' | 'redo'
 export type DashboardController = {
     /** The saved dashboard. The view folds closed sections itself. */
     dashboard: Dashboard
-    /** Unknown or unset shows the first tab. */
-    activeTabId: string | null
+    /** Unknown or unset shows the first tab. Without `onActiveTabChange`, it is only the tab shown first. */
+    activeTabId?: string | null
     /** The panel types this dashboard can show and add. Keep the array stable between renders, or every tile re-renders. */
     panels: PanelType[]
-    disabledReasonFor: (action: DashboardAction) => string | null
+    disabledReasonFor?: (action: DashboardAction) => string | null
     /**
      * Called with each edit, and with how the person saw the dashboard when they made it. Pass `view` to `applyEdit`,
-     * so a tile lands where the person dropped it in a layout with closed sections.
+     * so a tile lands where the person dropped it in a layout with closed sections. Left out, the dashboard is read-only.
      */
-    onEdit: (edit: DashboardEdit, view: View) => void
-    onActiveTabChange: (tabId: string) => void
+    onEdit?: (edit: DashboardEdit, view: View) => void
+    /** Left out, the dashboard keeps the shown tab itself, such as for a dashboard with no URL of its own. */
+    onActiveTabChange?: (tabId: string) => void
     /**
      * Receives what a content tile or a section does to itself, after the panel type's own changes, and returns the
      * list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `chart-type`.
@@ -72,11 +74,16 @@ export type RefreshController = {
 }
 
 /** What the components read: the controller, plus what the view works out from it. */
-export type DashboardState = Omit<DashboardController, 'activeTabId' | 'onEdit' | 'refresh'> & {
+export type DashboardState = Omit<
+    DashboardController,
+    'activeTabId' | 'onEdit' | 'refresh' | 'disabledReasonFor' | 'onActiveTabChange'
+> & {
     refresh?: AutoRefreshProps
     /** The dashboard as this person sees it, with the sections they closed folded. */
     dashboard: Dashboard
     onEdit: (edit: DashboardEdit) => void
+    onActiveTabChange: (tabId: string) => void
+    disabledReasonFor: (action: DashboardAction) => string | null
     /** Opens or closes a section for this person only. It is not saved and is not an undo step. */
     onSectionFoldedChange: (id: string, collapsed: boolean) => void
     activeTab: GridTab
