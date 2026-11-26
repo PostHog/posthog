@@ -9,8 +9,6 @@ from django.db import migrations, models
 import posthog.utils
 import posthog.uuidt
 
-import products.dashboards.backend.facade.enums
-
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -56,7 +54,7 @@ class Migration(migrations.Migration):
                             ("builtin", "Built-in"),
                             ("iac", "Infrastructure as code"),
                         ],
-                        default=products.dashboards.backend.facade.enums.BoardManagedBy["NATIVE"],
+                        default="native",
                         max_length=20,
                     ),
                 ),

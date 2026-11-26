@@ -42,6 +42,12 @@ class TestBoardSchemaUpgrade(SimpleTestCase):
         assert nested[0]["panel"]["config"] == {"text": "Hello"}
 
 
+def _nested(leaf: Any, depth: int) -> Any:
+    for _ in range(depth):
+        leaf = [leaf]
+    return leaf
+
+
 def _board(title: str = "Kitchen sink", **extra: Any) -> dict:
     return {
         "version": 2,
@@ -159,6 +165,7 @@ class TestDashboardV2Boards(APIBaseTest):
             ("no_schema_version", {"title": "x", "tabs": []}),
             ("too_large", _board(description="x" * MAX_BOARD_SPEC_BYTES)),
             ("nul_character", {**_board(), "tabs": [{"id": "t", "tiles": [{"id": "a\x00b"}]}]}),
+            ("nul_character_nested_deeper_than_the_recursion_limit", {**_board(), "tabs": _nested("\x00", 1500)}),
         ]
     )
     def test_rejects_a_document_that_is_not_a_version_2_board(self, _name: str, spec: Any) -> None:

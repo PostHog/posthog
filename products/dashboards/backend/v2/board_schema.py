@@ -83,13 +83,19 @@ def check_size(spec: dict[str, Any]) -> None:
         raise BoardSpecInvalid(f"The board document is {size} bytes. The limit is {MAX_BOARD_SPEC_BYTES} bytes.")
 
 
-def _has_nul(value: Any) -> bool:
-    if isinstance(value, str):
-        return "\x00" in value
-    if isinstance(value, dict):
-        return any(_has_nul(key) or _has_nul(item) for key, item in value.items())
-    if isinstance(value, list):
-        return any(_has_nul(item) for item in value)
+def _has_nul(root: Any) -> bool:
+    # An explicit stack, because a hostile document can nest deeper than Python's recursion limit.
+    stack = [root]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, str):
+            if "\x00" in value:
+                return True
+        elif isinstance(value, dict):
+            stack.extend(value.keys())
+            stack.extend(value.values())
+        elif isinstance(value, list):
+            stack.extend(value)
     return False
 
 
