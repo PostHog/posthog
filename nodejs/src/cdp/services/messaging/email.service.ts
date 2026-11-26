@@ -234,6 +234,11 @@ const isAttachmentLoadFailure = (error: unknown): boolean =>
 const isRetryableBeforeSes = (error: unknown): boolean =>
     isAttachmentLoadFailure(error) || error instanceof SesNotReachedError
 
+const withoutSendClaims = (metadata: CyclotronJobInvocationHogFunction['queueMetadata']): Record<string, any> => {
+    const { teamBudgetClaimed: _teamBudget, workflowRateClaimed: _workflowRate, ...unclaimed } = metadata ?? {}
+    return unclaimed
+}
+
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
 
@@ -807,7 +812,6 @@ export class EmailService {
         let senderNotVerified = false
         let messageId: string | undefined
         let teamBudgetCharged = false
-        let workflowRateClaimed = false
 
         try {
             const decision = await this.decideSend(invocation, params, storedIntegration, addLog)
@@ -831,7 +835,7 @@ export class EmailService {
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
             const sendStep = sendStepOf(invocation)
-            workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
+            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
@@ -1011,12 +1015,7 @@ export class EmailService {
                 result.finished = false
                 result.parked = true
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = {
-                    ...invocation.queueMetadata,
-                    ...(workflowRateClaimed && params.attachments?.length
-                        ? { workflowRateClaimed: sendStepOf(invocation) }
-                        : {}),
-                }
+                result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else if (
@@ -1029,12 +1028,13 @@ export class EmailService {
                 rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = {
-                    ...invocation.queueMetadata,
-                    attachmentLoadRetries: retries,
-                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
-                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStepOf(invocation) } : {}),
-                }
+                result.invocation.queueMetadata = isAttachmentLoadFailure(error)
+                    ? {
+                          ...invocation.queueMetadata,
+                          attachmentLoadRetries: retries,
+                          ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                      }
+                    : { ...withoutSendClaims(invocation.queueMetadata), attachmentLoadRetries: retries }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
                     'warn',
