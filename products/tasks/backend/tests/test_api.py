@@ -17003,6 +17003,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("billing_product", "posthog_ai"),
             ("gateway_token_hashes", ["a" * 64]),
             ("gateway_token_revoke_pending", True),
+            ("codex_apps_disabled", True),
         ]
     )
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
