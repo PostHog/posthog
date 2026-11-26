@@ -142,6 +142,7 @@ from posthog.hogql.database.database import (
     access_controlled_posthog_tables,
     denied_posthog_table_scopes,
     read_posthog_table_scopes,
+    record_read_scopes,
 )
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
@@ -2464,6 +2465,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            # Whoever publishes this result, such as an async status or an outer runner's entry, labels it too.
+            record_read_scopes(read_scopes)
             self._fill_action_names(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)

@@ -61,7 +61,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, read_posthog_table_scopes
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, notify_query_started, record
@@ -2205,6 +2205,19 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             else:
                 with self.assertRaises(TableAccessDeniedError):
                     runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+    def test_a_served_trace_hit_labels_whatever_publishes_it(self) -> None:
+        query = HogQLQuery(query="select name from posthog.trace_spans")
+        with mock.patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):
+            get_query_runner(query, self.team, user=self.user).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            # A single-flight follower or an outer runner serves the leader's entry without resolving a table.
+            with read_posthog_table_scopes() as read_scopes:
+                response = get_query_runner(query, self.team, user=self.user).run(
+                    ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                )
+
+        assert isinstance(response, CachedHogQLQueryResponse) and response.is_cached
+        assert read_scopes == {"tracing"}
 
     def test_unused_trace_join_does_not_mark_events_results_as_trace_reads(self) -> None:
         DataWarehouseJoin.objects.create(
