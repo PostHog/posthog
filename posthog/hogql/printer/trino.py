@@ -2172,8 +2172,10 @@ class TrinoPrinter(PostgresPrinter):
             converted = f"CAST({decimal_value} AS {trino_type})"
         elif decimal_match is not None and decimal_bits in CLICKHOUSE_DECIMAL_INT_BACKED_BITS:
             converted = f"TRY_CAST({value} AS {trino_type})"
-            minimum, maximum = (Decimal(bound).scaleb(-scale) for bound in integer_bounds[f"int{decimal_bits}"])
-            valid = f"{converted} BETWEEN DECIMAL '{minimum:f}' AND DECIMAL '{maximum:f}'"
+            decimal_minimum, decimal_maximum = (
+                Decimal(bound).scaleb(-scale) for bound in integer_bounds[f"int{decimal_bits}"]
+            )
+            valid = f"{converted} BETWEEN DECIMAL '{decimal_minimum:f}' AND DECIMAL '{decimal_maximum:f}'"
         elif normalized_type in {"bool", "boolean"} and isinstance(
             source_type, (ast.IntegerType, ast.FloatType, ast.DecimalType)
         ):
