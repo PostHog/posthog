@@ -512,7 +512,7 @@ export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOp
                         key: 'step1',
                         header: (
                             <div className="flex items-center justify-between w-full">
-                                <span>1. Import categories, opt-outs & suppressions</span>
+                                <span>1. Import from your Customer.io account</span>
                                 <StepBadge status={stepCompletion.step1} />
                             </div>
                         ),

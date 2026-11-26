@@ -18,6 +18,7 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.customerio_transactional import TRANSACTIONAL_STEP, fetch_transactional
 from products.messaging.backend.services import customerio_config
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
 from products.messaging.backend.services.customerio_import_service import (
@@ -43,10 +44,7 @@ class CustomerIOImportProvider(ImportProvider):
     label = ImportProviderKey.CUSTOMERIO.label
     api_key_label = "Customer.io App API Key"
     api_key_help = "You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials."
-    not_imported = (
-        "People, most segments, transactional messages, newsletters, forms, collections and "
-        "delivery history stay in Customer.io."
-    )
+    not_imported = "People, most segments, newsletters, forms, collections and delivery history stay in Customer.io."
     next_steps = (
         "Upload the opt-out preferences CSV, so people who left a single topic stay out of it.",
         "Import your automations from the Workflows page. They arrive as drafts.",
@@ -73,6 +71,7 @@ class CustomerIOImportProvider(ImportProvider):
             label="Global unsubscribes",
             description="Opts people who unsubscribed from all Customer.io messages out of all marketing messages.",
         ),
+        TRANSACTIONAL_STEP,
     )
 
     def check_credentials(
@@ -106,6 +105,10 @@ class CustomerIOImportProvider(ImportProvider):
                     yield from self._fetch_suppressions(self._connect(context), checkpoint)
                 case "opt_outs":
                     yield from self._fetch_opt_outs(self._connect(context), checkpoint)
+                case "transactional":
+                    service = self._connect(context)
+                    assert service.client is not None
+                    yield from fetch_transactional(service.client, context, checkpoint)
                 case _:
                     raise UnknownImportStep(f"Customer.io has no import step named {step}.")
         except CustomerIOAPIError as e:

@@ -20,6 +20,9 @@ from products.cdp.backend.validation import build_html_wrap_design, html_wrap_de
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
+# Turns on sending templates over the API, and making them transactional.
+TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+
 
 def get_email_content(team_id: int, template_id: UUID) -> dict | None:
     template = MessageTemplate.objects.filter(team_id=team_id, id=template_id, deleted=False).first()

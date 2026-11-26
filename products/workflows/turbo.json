@@ -33,6 +33,8 @@
                 "backend/services/message_assets.py",
                 "backend/services/provider_contacts.py",
                 "backend/services/resend_import/drafts.py",
+                "backend/services/customerio_import/content.py",
+                "backend/services/customerio_import/translator.py",
                 "backend/services/sandbox_email/provisioning.py",
                 "backend/services/template_input_usage.py",
                 "backend/services/transactional_email_workflows.py",

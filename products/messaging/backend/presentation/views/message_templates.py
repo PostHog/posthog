@@ -86,6 +86,7 @@ from products.messaging.backend.facade.templates import (
 from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
+    TRANSACTIONAL_EMAIL_API_FLAG,
     AttachmentNotUploaded,
     AttachmentsRefused,
     CodeEmail,
@@ -593,7 +594,6 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 )
 
 
-TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 TRANSACTIONAL_PUSH_API_FLAG = "workflows-transactional-push-api"
 EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
 SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)

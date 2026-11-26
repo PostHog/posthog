@@ -34,8 +34,9 @@ _CAPTURE_TAG = re.compile(r"\{%-?\s*capture\s+(\w+)\s*-?%\}")
 _QUOTED = re.compile(r"(\"[^\"]*\"|'[^']*')")
 _OUTPUT_TAG = re.compile(r"\{\{(.{0,1000}?)\}\}", re.DOTALL)
 _RAW_FILTER = re.compile(r"\|\s*raw\s*$")
+LiquidRenames = tuple[tuple[re.Pattern[str], str], ...]
 # Customer.io's `customer.id` is the id the team identifies people with, which is the distinct id in PostHog.
-_RENAMES = (
+AUTOMATION_RENAMES: LiquidRenames = (
     (re.compile(r"(?<![\w.])customer\.id\b"), "event.distinct_id"),
     (re.compile(r"(?<![\w.])customer(?=[.\[])"), "person.properties"),
     (
@@ -46,6 +47,12 @@ _RENAMES = (
     (re.compile(r"(?<![\w.])event_id\b"), "event.uuid"),
     (re.compile(r"(?<![\w.])event_timestamp\b"), "event.timestamp"),
     (re.compile(r"(?<![\w.])trigger(?=[.\[])"), "event.properties"),
+)
+# A transactional send fills `variables` with its `message_data`, which Customer.io reads as `trigger`. The template
+# can't read the person, so profile attributes have to come with the send too.
+TRANSACTIONAL_RENAMES: LiquidRenames = (
+    (re.compile(r"(?<![\w.])customer(?=[.\[])"), "variables.customer"),
+    (re.compile(r"(?<![\w.])trigger(?=[.\[])"), "variables"),
 )
 _UNSUPPORTED = {
     "journey": re.compile(r"(?<![\w.])journey\."),
@@ -67,7 +74,12 @@ class RewrittenLiquid:
     ignored_filters: tuple[str, ...] = ()
 
 
-def rewrite(text: str | None, snippets: dict[str, str], room: SnippetRoom | None = None) -> RewrittenLiquid:
+def rewrite(
+    text: str | None,
+    snippets: dict[str, str],
+    room: SnippetRoom | None = None,
+    renames: LiquidRenames = AUTOMATION_RENAMES,
+) -> RewrittenLiquid:
     if not text:
         return RewrittenLiquid(text=text or "")
     missing_snippets: list[str] = []
@@ -97,7 +109,7 @@ def rewrite(text: str | None, snippets: dict[str, str], room: SnippetRoom | None
             if pattern.search(code):
                 unsupported.add(name)
         ignored_filters.update(_UNKNOWN_FILTER.findall(code))
-        for pattern, replacement in _RENAMES:
+        for pattern, replacement in renames:
             code = pattern.sub(replacement, code)
         return code
 
