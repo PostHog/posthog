@@ -186,10 +186,12 @@ class TestRetentionSweep:
         for run in decided:
             snapshot = RunSnapshot.objects.create(run=run, team_id=repo.team_id, identifier="Button", **decision_row)
             RunSnapshot.objects.filter(id=snapshot.id).update(updated_at=now - timedelta(days=decision_age_days))
+        # The decided runs go only with the latest run, which needs a newer complete run to name the baseline.
+        self._run(repo, now, age_days=1, branch="master", pr_number=None)
 
         retention.sweep_repo_runs(repo, now=now)
 
-        assert [Run.objects.filter(id=run.id).exists() for run in decided] == [survive, survive]
+        assert [Run.objects.filter(id=run.id).exists() for run in (*decided, latest)] == [survive, survive, survive]
         assert Run.objects.filter(id=undecided.id).exists() is False
 
     @pytest.mark.parametrize("latest_kept", [False, True])
@@ -212,21 +214,30 @@ class TestRetentionSweep:
         assert [Run.objects.filter(id=run.id).exists() for run in (older, latest)] == [latest_kept, latest_kept]
 
     @pytest.mark.parametrize(
-        "situation", ["undecided_latest_run_kept_by_an_open_approval", "decided_on_a_merge_queue_run_of_an_active_pr"]
+        "situation",
+        [
+            "undecided_latest_run_kept_by_an_open_approval",
+            "undecided_latest_run_kept_as_the_newest_completed_run",
+            "decided_on_a_merge_queue_run_of_an_active_pr",
+        ],
     )
     def test_a_decided_run_stays_while_the_pull_request_still_counts_its_decisions(self, situation, repo, now):
-        if situation == "undecided_latest_run_kept_by_an_open_approval":
-            latest = self._run(repo, now, age_days=35)
-            decided = self._run(repo, now, age_days=40, superseded_by=latest)
-            _open_approval(repo, now, {"content_hash": "h1"})
-        else:
+        if situation == "decided_on_a_merge_queue_run_of_an_active_pr":
             decided = self._run(repo, now, age_days=40, branch="trunk-merge/pr-7/0c0ffee")
             self._run(repo, now, age_days=1)
+        else:
+            latest = self._run(repo, now, age_days=35)
+            decided = self._run(repo, now, age_days=40, superseded_by=latest)
+        if situation == "undecided_latest_run_kept_by_an_open_approval":
+            _open_approval(repo, now, {"content_hash": "h1"})
         snapshot = RunSnapshot.objects.create(
             run=decided, team_id=repo.team_id, identifier="Button", metadata={"review_decisions": [{"seq": 1}]}
         )
         RunSnapshot.objects.filter(id=snapshot.id).update(updated_at=now - timedelta(days=40))
-        self._run(repo, now, age_days=1, branch="master", pr_number=None)
+        # Without a newer complete run elsewhere, the quiet-branch pass keeps the latest run as the one that
+        # names the baseline.
+        if situation != "undecided_latest_run_kept_as_the_newest_completed_run":
+            self._run(repo, now, age_days=1, branch="master", pr_number=None)
 
         retention.sweep_repo_runs(repo, now=now)
 

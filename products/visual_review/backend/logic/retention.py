@@ -204,22 +204,13 @@ class RetentionSweep:
                 & Q(superseded_by__created_at__lt=self.now - timedelta(days=MERGE_QUEUE_RUN_RETENTION_DAYS))
             )
         )
-        # A decided run of a pull request whose latest run also holds a decision goes in the
-        # quiet-branch pass with that run, so this pass leaves it out of its bounded batch.
-        current_decided_run_of_pull_request = self._runs().filter(
-            self._holds_decisions(),
-            pr_number=OuterRef("pr_number"),
-            run_type=OuterRef("run_type"),
-            superseded_by__isnull=True,
-        )
+        # A decided run goes only in the quiet-branch pass, together with its pull request's newest
+        # run (see `_deletion_group`), so this pass leaves it out of its bounded batch.
         return list(
             self._runs()
             .filter(Q(superseded_by__isnull=False) & expired)
             .exclude(self._source_of_active_quarantine())
-            .filter(
-                ~self._holds_decisions()
-                | (~self._recent_run_on_branch() & ~Exists(current_decided_run_of_pull_request))
-            )
+            .exclude(self._holds_decisions())
             .order_by("created_at")
             .values_list("id", flat=True)[:limit]
         )
@@ -327,23 +318,22 @@ class RetentionSweep:
         decided_ids = set(self._decided_runs_of_pull_request(run.pr_number, run.run_type).values_list("id", flat=True))
         if not decided_ids:
             return [run.id]
-        if run.superseded_by_id is not None and run.id not in decided_ids:
+        pull_request_runs = self._runs().filter(pr_number=run.pr_number, run_type=run.run_type)
+        current_runs = pull_request_runs.filter(superseded_by__isnull=True)
+        newest_id = current_runs.order_by("-created_at", "-id").values_list("id", flat=True).first()
+        if run.id not in decided_ids and run.id != newest_id:
             return [run.id]
-        members = self._runs().filter(id__in=decided_ids | {run.id})
-        # Another latest run holds a decision, so the group goes when the quiet-branch pass takes that run.
-        if members.filter(superseded_by__isnull=True).exclude(id=run.id).exists():
+        # The decisions count on the newest run, so they go only with it, and only once the
+        # quiet-branch pass found that run deletable under the whole policy. Any other candidate
+        # keeps the group, so a run that has to stay never loses the decisions it counts.
+        if run.id != newest_id:
             return []
+        members = self._runs().filter(id__in=decided_ids | set(current_runs.values_list("id", flat=True)))
         if members.filter(self._recent_run_on_branch()).exists():
             return []
-        pull_request_runs = self._runs().filter(pr_number=run.pr_number, run_type=run.run_type)
         # A merge queue run of the pull request is on its own branch, and the runs on the pull
         # request's branch still count its decisions.
         if pull_request_runs.filter(created_at__gte=self._quiet_cutoff()).exists():
-            return []
-        # An undecided latest run still counts the group's decisions, so the group stays while that run has to stay.
-        member_ids = decided_ids | {run.id}
-        current_ids = pull_request_runs.filter(superseded_by__isnull=True).values_list("id", flat=True)
-        if any(not self._may_delete(current_id) for current_id in current_ids if current_id not in member_ids):
             return []
         recent_decision = self._snapshots().filter(
             review_decisions.has_decisions(), run_id__in=decided_ids, updated_at__gte=self._quiet_cutoff()
