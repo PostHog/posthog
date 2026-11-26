@@ -591,7 +591,10 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             prompt=f"Can you tell me how the {UPGRADE_BANNER_EXPERIMENT_NAME.lower()} experiment is doing?",
             expected={
                 "metric_found": {"metric_name": EARLY_DOWNGRADE_METRIC.name},
-                "implied_context_queried": {"patterns": [r"downgraded_plan"]},
+                "implied_context_queried": {
+                    "patterns": [r"downgraded_plan"],
+                    "metrics": [EARLY_DOWNGRADE_METRIC.name],
+                },
                 "analysis_diligence": {
                     "expected_behavior": (
                         f"Read the '{UPGRADE_BANNER_EXPERIMENT_NAME}' experiment: its primary metric is upgrades, and "
