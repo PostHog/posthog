@@ -145,6 +145,7 @@ def _viewable_objects(team_id: int, source_kinds: Sequence[str], reader: Platfor
             .values_list(key, flat=True)
         )
         allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader)
+        # nosemgrep: orm-field-injection -- source_config_key is a constant in the source spec registered in code, not user input
         viewable &= ~Q(source_kind=source_kind) | Q(**{f"{key}__in": list(allowed)})
     return viewable
 
