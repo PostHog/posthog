@@ -116,6 +116,9 @@ def build_request(
         return HighLevelRequest(method="post", path=path, params={}, json=_contacts_body(location_id, size, start))
 
     params: dict[str, Any] = {**_location_params(config, location_id), **config.extra_params}
+    if config.page_param_location == "json":
+        # The paginator sets these on every page, and the credential probe sends them as they are.
+        return HighLevelRequest(method="post", path=path, params=params, json={config.offset_param: 0, "limit": size})
     if config.pagination == Pagination.OFFSET:
         # The paginator sets these on every page. The credential probe sends them itself, because
         # endpoints such as /invoices/ reject a request without them.
@@ -310,7 +313,11 @@ def _paginator(config: HighLevelEndpointConfig) -> PaginatorConfig:
         return SinglePagePaginator()
     if config.pagination == Pagination.OFFSET:
         return OffsetPaginator(
-            limit=config.page_size, offset_param=config.offset_param, limit_param="limit", total_path=config.total_path
+            limit=config.page_size,
+            offset_param=config.offset_param,
+            limit_param="limit",
+            total_path=config.total_path,
+            param_location=config.page_param_location,
         )
     if config.pagination == Pagination.PAGE:
         return PageNumberPaginator(base_page=1, page_param="page")
@@ -332,6 +339,15 @@ def _fill_child_field(parent_key: str, child_field: str) -> Callable[[dict[str, 
         parent_id = row.pop(parent_key, None)
         if row.get(child_field) is None:
             row[child_field] = parent_id
+        return row
+
+    return _map
+
+
+def _fill_primary_key(key: str, fallback: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _map(row: dict[str, Any]) -> dict[str, Any]:
+        if row.get(key) is None:
+            row[key] = row.get(fallback)
         return row
 
     return _map
@@ -370,6 +386,8 @@ def get_resource(
         "endpoint": endpoint,
         "table_format": "delta",
     }
+    if config.primary_key_fallback is not None:
+        resource["data_map"] = _fill_primary_key(config.primary_keys[0], config.primary_key_fallback)
 
     fan_out = config.fan_out
     if fan_out is not None:
