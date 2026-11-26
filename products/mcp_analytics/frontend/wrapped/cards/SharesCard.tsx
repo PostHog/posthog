@@ -74,7 +74,7 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel, footno
                     />
                 ))}
             </ol>
-            {footnote && <p className="MCPWrapped__rise m-0 text-sm">{footnote}</p>}
+            {footnote && <p className="MCPWrapped__rise m-0 text-xs">* {footnote}</p>}
         </WrappedCard>
     )
 }

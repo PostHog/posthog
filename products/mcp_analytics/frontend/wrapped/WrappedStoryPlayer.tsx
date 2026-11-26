@@ -19,7 +19,7 @@ import { ShareActions } from './ShareActions'
 import { WrappedCardKey } from './storyCards'
 
 // Labs and models count only the calls that reported a model, which can be a minority of all calls.
-const MODEL_FOOTNOTE = 'Out of the tool calls that reported a model.'
+const MODEL_FOOTNOTE = 'Out of the tool calls that reported a model'
 
 const CONTROL_CLASS =
     'flex size-7 items-center justify-center rounded-full bg-black/20 text-current hover:bg-black/30 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-white'
