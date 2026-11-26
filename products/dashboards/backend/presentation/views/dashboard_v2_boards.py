@@ -136,7 +136,7 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # rule names a board by its row UUID, which never equals a classic dashboard's integer id.
     scope_object = "dashboard"
     scope_object_read_actions = ["list", "retrieve", "versions"]
-    scope_object_write_actions = ["create", "partial_update", "destroy", "restore"]
+    scope_object_write_actions = ["create", "update", "destroy", "restore"]
     pagination_class = FacadeLimitOffsetPagination
     serializer_class = BoardDetailSerializer
     lookup_field = "uid"
@@ -213,7 +213,7 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             409: OpenApiResponse(description="The board is not at `base_version`. Nothing was saved."),
         },
     )
-    def partial_update(self, request: ValidatedRequest, uid: str, **kwargs: Any) -> Response:
+    def update(self, request: ValidatedRequest, uid: str, **kwargs: Any) -> Response:
         """Replace a board's document and add 1 to its version."""
         self.get_object()
         try:

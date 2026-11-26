@@ -15,6 +15,7 @@ import type {
     BoardCreateApi,
     BoardDetailApi,
     BoardRestoreApi,
+    BoardUpdateApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CachedTilesResponseApi,
@@ -69,7 +70,6 @@ import type {
     PaginatedBoardVersionListApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
-    PatchedBoardUpdateApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
@@ -314,24 +314,24 @@ export const dashboardV2BoardsRetrieve = async (
     })
 }
 
-export const getDashboardV2BoardsPartialUpdateUrl = (projectId: string, uid: string) => {
+export const getDashboardV2BoardsUpdateUrl = (projectId: string, uid: string) => {
     return `/api/projects/${projectId}/dashboard_v2/boards/${uid}/`
 }
 
 /**
  * Replace a board's document and add 1 to its version.
  */
-export const dashboardV2BoardsPartialUpdate = async (
+export const dashboardV2BoardsUpdate = async (
     projectId: string,
     uid: string,
-    patchedBoardUpdateApi?: PatchedBoardUpdateApi,
+    boardUpdateApi: BoardUpdateApi,
     options?: RequestInit
 ): Promise<BoardDetailApi> => {
-    return apiMutator<BoardDetailApi>(getDashboardV2BoardsPartialUpdateUrl(projectId, uid), {
+    return apiMutator<BoardDetailApi>(getDashboardV2BoardsUpdateUrl(projectId, uid), {
         ...options,
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBoardUpdateApi),
+        body: JSON.stringify(boardUpdateApi),
     })
 }
 

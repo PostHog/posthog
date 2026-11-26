@@ -23639,6 +23639,26 @@ export namespace Schemas {
       last_modified_by_id: number | null;
     }
 
+    /**
+     * The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.
+     */
+    export type BoardUpdateSpec = { [key: string]: unknown };
+
+    export interface BoardUpdate {
+      /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
+      spec: BoardUpdateSpec;
+      /**
+         * A note on what changed, kept in the history.
+         * @maxLength 1000
+         */
+      message?: string;
+      /**
+         * The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.
+         * @minimum 1
+         */
+      base_version?: number;
+    }
+
     export interface BoardVersion {
       /** The board's `version` after this save. */
       version: number;
@@ -91644,26 +91664,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly updated_at?: string | null;
-    }
-
-    /**
-     * The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.
-     */
-    export type PatchedBoardUpdateSpec = { [key: string]: unknown };
-
-    export interface PatchedBoardUpdate {
-      /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
-      spec?: PatchedBoardUpdateSpec;
-      /**
-         * A note on what changed, kept in the history.
-         * @maxLength 1000
-         */
-      message?: string;
-      /**
-         * The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.
-         * @minimum 1
-         */
-      base_version?: number;
     }
 
     export interface PatchedBriefConfig {

@@ -389,18 +389,17 @@ export const DashboardV2BoardsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Replace a board's document and add 1 to its version.
  */
-export const dashboardV2BoardsPartialUpdateBodyMessageMax = 1000
+export const dashboardV2BoardsUpdateBodyMessageMax = 1000
 
-export const DashboardV2BoardsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const DashboardV2BoardsUpdateBody = /* @__PURE__ */ zod.object({
     spec: zod
         .record(zod.string(), zod.unknown())
-        .optional()
         .describe(
             'The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.'
         ),
     message: zod
         .string()
-        .max(dashboardV2BoardsPartialUpdateBodyMessageMax)
+        .max(dashboardV2BoardsUpdateBodyMessageMax)
         .optional()
         .describe('A note on what changed, kept in the history.'),
     base_version: zod
