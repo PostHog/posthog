@@ -275,7 +275,7 @@ _PROMQL_EXCLUDED_FIELDS = (
 
 @extend_schema_field(OpenApiTypes.STR)
 class _RelativeOrIsoDateTimeField(serializers.DateTimeField):
-    # Relative offsets stay strings so the body serializer resolves both bounds against one "now";
+    # Relative offsets and "now" stay strings so the body serializer resolves every bound against one clock read;
     # two separate clock reads would push a maximum-span lookback past the runner's limit.
     def to_internal_value(self, value: dt.datetime | str) -> dt.datetime | str:  # type: ignore[override]
         if isinstance(value, str) and _RELATIVE_DATE_RE.match(value.strip()):
