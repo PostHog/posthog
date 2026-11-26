@@ -34,6 +34,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
+    GENERIC_CHECK_ERROR_MESSAGE,
     WATCHED_ROWS_PER_INSIGHT,
     alert_inventory,
     enabled_alert_insight_ids,
@@ -579,6 +580,35 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         assert listed.json()["count"] == (1 if visible else 0)
         expected = status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND
         assert (retrieved.status_code, events.status_code) == (expected, expected), retrieved.json()
+
+    @parameterized.expand(
+        [
+            (
+                "unexpected_error",
+                "Code: 241. DB::Exception: Memory limit exceeded on ch-7",
+                None,
+                GENERIC_CHECK_ERROR_MESSAGE,
+            ),
+            (
+                "owner_facing_error",
+                LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+                LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+                LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+            ),
+        ]
+    )
+    def test_the_platform_api_shows_an_insight_check_error_as_the_insight_api_does(
+        self, _name: str, error: str, code: str | None, shown_in_events: str
+    ) -> None:
+        url = self._platform_alerts_url()
+        self._record(10, "errored", error=error, detail={"error_code": code} if code else None)
+
+        listed = self.client.get(url).json()["results"]
+        events = self.client.get(f"{url}{self.copy_id}/events/").json()
+
+        assert [event["error_message"] for event in events if event["kind"] == "check"] == [shown_in_events]
+        # The list's history keeps no error code, so it cannot tell an owner-facing error apart.
+        assert [row["last_error_message"] for row in listed] == [GENERIC_CHECK_ERROR_MESSAGE]
 
     @parameterized.expand(
         [

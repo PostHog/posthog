@@ -94,8 +94,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.facade.api import (
-    DETECTOR_PAUSED_ERROR_CODES,
-    DETECTOR_UNAVAILABLE_ERROR_CODES,
+    GENERIC_CHECK_ERROR_MESSAGE,
+    OWNER_FACING_CHECK_ERROR_CODES,
     ForecastDetectorUnavailableError,
     LLMAlertWrite,
     LLMDetectorError,
@@ -698,11 +698,9 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         # Only reasons written for the alert's owner pass through. Anything else may carry an
         # internal detail, so the history shows a generic message instead.
         code = instance.error.get("code")
-        if code in ("email_unavailable", "invalid_configuration") or code in (
-            DETECTOR_UNAVAILABLE_ERROR_CODES | DETECTOR_PAUSED_ERROR_CODES
-        ):
+        if code in OWNER_FACING_CHECK_ERROR_CODES:
             return {"code": code, "message": message}
-        return {"message": "This alert encountered an error. Check the alert configuration and try again."}
+        return {"message": GENERIC_CHECK_ERROR_MESSAGE}
 
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook

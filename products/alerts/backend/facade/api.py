@@ -104,6 +104,15 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
 
+# A check error with one of these codes was written for the alert's owner. Any other may carry an
+# internal detail, so a reader sees GENERIC_CHECK_ERROR_MESSAGE instead.
+OWNER_FACING_CHECK_ERROR_CODES = (
+    frozenset({"email_unavailable", "invalid_configuration"})
+    | DETECTOR_UNAVAILABLE_ERROR_CODES
+    | DETECTOR_PAUSED_ERROR_CODES
+)
+GENERIC_CHECK_ERROR_MESSAGE = "This alert encountered an error. Check the alert configuration and try again."
+
 
 def first_subscriber_id(*, team_id: int, alert_id: uuid.UUID) -> int | None:
     """One of the alert's subscribers, for a chart render or an investigation to run as. None when nobody subscribes."""

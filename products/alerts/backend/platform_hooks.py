@@ -7,8 +7,8 @@ process's startup path.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
-from typing import TYPE_CHECKING
+from collections.abc import Collection, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -148,6 +148,18 @@ def viewable_alert_insights(
             ).values("id")
         )
     return set(insights.values_list("id", flat=True))
+
+
+def insight_check_error(*, message: str, source_detail: Mapping[str, Any]) -> str:
+    from products.alerts.backend.facade.api import (  # noqa: PLC0415
+        GENERIC_CHECK_ERROR_MESSAGE,
+        OWNER_FACING_CHECK_ERROR_CODES,
+    )
+    from products.alerts.backend.platform_source_cycle import ERROR_CODE_KEY  # noqa: PLC0415
+
+    return (
+        message if source_detail.get(ERROR_CODE_KEY) in OWNER_FACING_CHECK_ERROR_CODES else GENERIC_CHECK_ERROR_MESSAGE
+    )
 
 
 def key_scopes_lack_metrics(key_scopes: Collection[str] | None) -> bool:

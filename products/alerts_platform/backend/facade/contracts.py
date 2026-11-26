@@ -1495,6 +1495,13 @@ class SourceObjectAccess:
     viewable: ViewableSourceObjects
 
 
+class CheckErrorWording(Protocol):
+    """The error a reader sees for a failed check of the kind, from the stored error and the check's
+    `source_detail`."""
+
+    def __call__(self, *, message: str, source_detail: Mapping[str, Any]) -> str: ...
+
+
 @frozen
 class NativeAlertLifecycle:
     """How the platform creates and deletes alerts of a kind whose source keeps no row for them.
@@ -1588,6 +1595,8 @@ class SourceConfigSpec:
     # Narrows a read through the platform API to the alerts whose watched object the reader may view.
     # None when read access to the kind is enough.
     object_access: SourceObjectAccess | None = None
+    # Words a failed check's error for a read through the platform API. None shows it as stored.
+    check_error: CheckErrorWording | None = None
 
     @property
     def creatable(self) -> bool:

@@ -12,6 +12,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import Case, Exists, FloatField, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
+from django.db.models.fields.json import KeyTransform, KeyTransformIn
 from django.db.models.functions import Coalesce
 
 from posthog.helpers.full_text_search import build_rank
@@ -114,16 +115,16 @@ _HELD = Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLA
 
 
 def _readable(
-    team_id: int, source_kinds: Sequence[str], reader: PlatformAlertReader | None = None
+    team_id: int, source_kinds: Sequence[str], narrowed: Q, reader: PlatformAlertReader | None
 ) -> QuerySet[PlatformAlertConfiguration]:
-    """Configurations of the given kinds belonging to `team_id`, instances prefetched.
+    """Configurations of the given kinds belonging to `team_id` that match `narrowed`, instances prefetched.
 
     The caller resolves which kinds it may read, because that depends on the caller's grants
     rather than on anything this product knows.
     """
     instances = PlatformAlert.objects.for_team(team_id, canonical=True).order_by("grouping_key")
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind__in=list(source_kinds)
+        narrowed, source_kind__in=list(source_kinds)
     )
     if reader is not None:
         rows = rows.filter(_viewable_objects(rows, team_id, source_kinds, reader))
@@ -139,11 +140,14 @@ def _viewable_objects(
         access = registered.object_access if registered is not None else None
         if access is None:
             continue
-        key = f"source_config__{access.source_config_key}"
-        watched = set(rows.filter(source_kind=source_kind).values_list(key, flat=True))
+        watched_object = KeyTransform(access.source_config_key, "source_config")
+        watched = set(
+            rows.filter(source_kind=source_kind)
+            .annotate(watched_object=watched_object)
+            .values_list("watched_object", flat=True)
+        )
         allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader)
-        # nosemgrep: orm-field-injection -- source_config_key is a constant in the source spec registered in code, not user input
-        viewable &= ~Q(source_kind=source_kind) | Q(**{f"{key}__in": list(allowed)})
+        viewable &= ~Q(source_kind=source_kind) | Q(KeyTransformIn(watched_object, list(allowed)))
     return viewable
 
 
@@ -168,15 +172,16 @@ def list_configurations(
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
     page's rows alone.
     """
-    readable = _readable(team_id, source_kinds, reader)
+    narrowed = Q()
     if legacy_configuration_id is not None:
-        readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
+        narrowed &= Q(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
-        readable = readable.filter(id__in=list(configuration_ids))
+        narrowed &= Q(id__in=list(configuration_ids))
     if created_by_uuid is not None:
-        readable = readable.filter(created_by__uuid=created_by_uuid)
+        narrowed &= Q(created_by__uuid=created_by_uuid)
     if held_only:
-        readable = readable.filter(_HELD)
+        narrowed &= _HELD
+    readable = _readable(team_id, source_kinds, narrowed, reader)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
@@ -586,7 +591,7 @@ def get_configuration(
 
     With `lock`, the row stays locked until the caller's transaction ends, so a delete waits for it.
     """
-    rows = _readable(team_id, source_kinds, reader).filter(id=configuration_id)
+    rows = _readable(team_id, source_kinds, Q(id=configuration_id), reader)
     if lock:
         rows = rows.select_for_update(no_key=True)
     row = rows.first()

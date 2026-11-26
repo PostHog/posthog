@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.platform_hooks import viewable_alert_insights
+from products.alerts.backend.platform_hooks import insight_check_error, viewable_alert_insights
 from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS, RECURRENCE, insight_activity_source
 from products.alerts.backend.platform_ownership import (
     admit_platform_write,
@@ -122,4 +122,5 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     kept_source_config_keys=INSIGHT_ROW_SETTINGS,
     activity_source=insight_activity_source,
     object_access=SourceObjectAccess(source_config_key="insight_id", viewable=viewable_alert_insights),
+    check_error=insight_check_error,
 )

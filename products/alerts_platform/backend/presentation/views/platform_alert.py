@@ -315,7 +315,8 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: PlatformAlertConfigurationView) -> str | None:
         extras = self._extras(obj)
-        return extras.last_error_message if extras else None
+        # The list's history keeps no check's `source_detail`.
+        return _check_error(obj.source_kind, extras.last_error_message, {}) if extras else None
 
     @extend_schema_field(PlatformAlertStateIntervalSerializer(many=True))
     def get_state_timeline(self, obj: PlatformAlertConfigurationView) -> list[dict[str, Any]]:
@@ -411,6 +412,13 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         required=False,
         help_text=RULE_ANNOTATIONS_HELP,
     )
+
+
+def _check_error(source_kind: str, message: str | None, source_detail: Mapping[str, Any]) -> str | None:
+    spec = editable_source_configs().get(SourceKind(source_kind))
+    if message is None or spec is None or spec.check_error is None:
+        return message
+    return spec.check_error(message=message, source_detail=source_detail)
 
 
 def _typed_edit_serializer(
@@ -1074,7 +1082,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         limit = query.validated_data["limit"]
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
-        self._readable_configuration(team_id, configuration_id)
+        configuration = self._readable_configuration(team_id, configuration_id)
         read = platform_api.alert_events(
             team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
         )
@@ -1086,7 +1094,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "previous_state": check.previous_state,
                     "state": check.state,
                     "value": check.value,
-                    "error_message": check.error_message,
+                    "error_message": _check_error(configuration.source_kind, check.error_message, check.source_detail),
                     "grouping_key": check.grouping_key,
                     "condition": check.condition,
                 }

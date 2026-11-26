@@ -87,6 +87,12 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     alerts: [],
 }
 
+const DISABLED_LOGS_CONFIGURATION: PlatformAlertConfigurationApi = {
+    ...DISABLED_CONFIGURATION,
+    source_kind: 'logs',
+    source_config: CONFIGURATION.source_config,
+}
+
 const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000003',
@@ -378,21 +384,13 @@ export const ListRowMenuDisabledAlertOpen: Story = {
                     count: 2,
                     next: null,
                     previous: null,
-                    // An insight alert is read-only here, so the disabled alert has to be one the list can change.
-                    results: [
-                        CONFIGURATION,
-                        {
-                            ...DISABLED_CONFIGURATION,
-                            source_kind: 'logs',
-                            source_config: CONFIGURATION.source_config,
-                        },
-                    ],
+                    results: [CONFIGURATION, DISABLED_LOGS_CONFIGURATION],
                 },
             },
         }),
     ],
     play: async ({ canvasElement }) => {
-        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        const name = await within(canvasElement).findByText(DISABLED_LOGS_CONFIGURATION.name)
         name.closest('tr')?.querySelector<HTMLElement>('[data-attr="platform-alerts-row-menu"]')?.click()
         await within(document.body).findByText('Enable alert')
         await userEvent.hover(
