@@ -432,6 +432,29 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("type only", {}, status.HTTP_400_BAD_REQUEST),
+            ("scope cleared", {"scope_service": None}, status.HTTP_400_BAD_REQUEST),
+            (
+                "everything cleared",
+                {"scope_service": None, "config": {}, "scope_attribute_filters": []},
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_patch_to_require_secret_key_checks_stored_scope_and_config(self, _label, overrides, expected_status):
+        rule = self.client.post(self.base_url, self._payload(scope_service="api"), format="json").json()
+
+        response = self.client.patch(
+            f"{self.base_url}{rule['id']}/", {"rule_type": "require_secret_key", **overrides}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        stored = LogsExclusionRule.objects.get(id=rule["id"]).rule_type
+        expected_type = "require_secret_key" if expected_status == status.HTTP_200_OK else "path_drop"
+        assert stored == expected_type
+
+    @parameterized.expand(
+        [
             ("create", "post", status.HTTP_403_FORBIDDEN),
             ("enable", "patch", status.HTTP_403_FORBIDDEN),
             ("delete", "delete", status.HTTP_204_NO_CONTENT),

@@ -146,11 +146,18 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         if rule_type == LogsExclusionRule.RuleType.REQUIRE_SECRET_KEY:
             if attrs.get("source") != LogsExclusionRule.RecordSource.LOGS:
                 raise ValidationError({"rule_type": "require_secret_key rules are only supported for logs."})
+
+            # A PATCH keeps omitted fields, so check the stored values too.
+            def effective(field: str) -> Any:
+                if field in attrs or self.instance is None:
+                    return attrs.get(field)
+                return getattr(self.instance, field)
+
             # The rule acts on the whole message, so a filter would suggest a narrower drop than it does.
             for field in ("scope_service", "scope_path_pattern"):
-                if attrs.get(field):
+                if effective(field):
                     raise ValidationError({field: "require_secret_key rules take no scope."})
-            if attrs.get("config") or attrs.get("scope_attribute_filters"):
+            if effective("config") or effective("scope_attribute_filters"):
                 raise ValidationError({"config": "require_secret_key rules take no config."})
             return attrs
 
