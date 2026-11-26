@@ -809,6 +809,42 @@ class TestDeniedTableError(BaseTest):
                 True,
                 True,
             ),
+            (
+                "edited_then_built_only_on_managed_warehouse",
+                "none",
+                "SELECT '' AS name",
+                True,
+                [],
+                None,
+                False,
+                True,
+                True,
+            ),
+            (
+                "backing_table_read_by_its_own_name",
+                "none",
+                "SELECT name FROM posthog.trace_spans",
+                False,
+                [],
+                None,
+                False,
+                True,
+                False,
+                "slow_spans_backing",
+            ),
+            (
+                "upstream_soft_deleted_after_build",
+                "none",
+                "SELECT name FROM spans_src",
+                False,
+                [],
+                None,
+                False,
+                True,
+                False,
+                "slow_spans",
+                True,
+            ),
         ]
     )
     def test_materialized_view_over_trace_tables_follows_tracing_access(
@@ -821,6 +857,9 @@ class TestDeniedTableError(BaseTest):
         events_expression: str | None,
         changed_after_build: bool,
         denied: bool,
+        rebuilt_on_managed_warehouse: bool = False,
+        read_name: str = "slow_spans",
+        upstream_soft_deleted_after_build: bool = False,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
         from posthog.hogql.parser import parse_select
@@ -831,7 +870,12 @@ class TestDeniedTableError(BaseTest):
         from posthog.models.scoping import team_scope
 
         from products.access_control.backend.models.access_control import AccessControl
-        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import (
+            DataModelingJob,
+            DataModelingJobEngine,
+            DataModelingJobStatus,
+            DataWarehouseSavedQuery,
+        )
         from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -905,7 +949,15 @@ class TestDeniedTableError(BaseTest):
                     team=self.team, table_name="events", field_name="span_name", expression=events_expression
                 )
         built_at = datetime.now(UTC) - timedelta(minutes=5)
-        DataWarehouseSavedQuery.objects.create(
+        if upstream_soft_deleted_after_build:
+            upstream = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="spans_src",
+                query={"query": "SELECT name FROM posthog.trace_spans"},
+                columns={"name": "String"},
+            )
+            DataWarehouseSavedQuery.objects.filter(id=upstream.id).update(created_at=built_at - timedelta(minutes=5))
+        saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="slow_spans",
             query={"query": view_sql},
@@ -923,6 +975,21 @@ class TestDeniedTableError(BaseTest):
                 with team_scope(self.team.id, canonical=True):
                     expression.expression = "''"
                     expression.save()
+        if rebuilt_on_managed_warehouse:
+            for engine, run_at in [
+                (DataModelingJobEngine.CLICKHOUSE, built_at),
+                (DataModelingJobEngine.MANAGED_WAREHOUSE, built_at + timedelta(minutes=2)),
+            ]:
+                job = DataModelingJob.objects.create(
+                    team=self.team,
+                    saved_query=saved_query,
+                    status=DataModelingJobStatus.COMPLETED,
+                    engine=engine,
+                    last_run_at=run_at,
+                )
+                DataModelingJob.objects.filter(id=job.id).update(created_at=run_at)
+        if upstream_soft_deleted_after_build:
+            upstream.soft_delete()
         modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
         database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
         context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
@@ -930,9 +997,9 @@ class TestDeniedTableError(BaseTest):
         with read_posthog_table_scopes() as read_scopes:
             if denied:
                 with self.assertRaises(TableAccessDeniedError):
-                    resolve_types(parse_select("SELECT name FROM slow_spans"), context, dialect="clickhouse")
+                    resolve_types(parse_select(f"SELECT name FROM {read_name}"), context, dialect="clickhouse")
             else:
-                resolve_types(parse_select("SELECT name FROM slow_spans"), context, dialect="clickhouse")
+                resolve_types(parse_select(f"SELECT name FROM {read_name}"), context, dialect="clickhouse")
                 # Caches and async statuses check later readers against this.
                 assert read_scopes == ({"tracing"} if "trace_spans" in view_sql else set())
 
