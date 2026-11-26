@@ -631,6 +631,7 @@ SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
+    "SORT_OPERATIONS": "posthog.api.documentation.sort_operations",
     "POSTPROCESSING_HOOKS": [
         # The guard pair around postprocess_schema_enums fails the build when two
         # different choice sets resolve to one component name, which the enum hook
