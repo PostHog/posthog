@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.preaggregation.series_values_preaggregated_sql import (
     DISTRIBUTED_SERIES_VALUES_PREAGGREGATED_TABLE,
@@ -42,6 +43,13 @@ class SeriesValuesPreaggregatedTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
+        from products.access_control.backend.facade.api import team_has_property_access_rules  # noqa: PLC0415
+
+        # The values are counted without a user, so they cannot honor one user's property restrictions.
+        if context.team_id is not None and team_has_property_access_rules(team_id=context.team_id):
+            raise QueryError(
+                "The table series_values_preaggregated is not available in a project that has property access rules."
+            )
         return DISTRIBUTED_SERIES_VALUES_PREAGGREGATED_TABLE()
 
     def to_printed_hogql(self):

@@ -67,64 +67,48 @@ class TrendsQueryRunResult:
 
 
 class SeriesValuesFeature(StrEnum):
-    """Something a Trends query asks for, which the stored path must either reproduce or refuse."""
+    """A kind of filter the stored path reproduces. A comparison is reported for each one a query used."""
 
+    EVENT_NAME = "event_name"
     EVENT_PROPERTY_FILTERS = "event_property_filters"
-    MULTIPLE_SERIES = "multiple_series"
-    ACTION_SERIES = "actions_node"
-    DATA_WAREHOUSE_SERIES = "data_warehouse_node"
-    OTHER_SERIES_KIND = "unsupported_series_node"
-    OTHER_MATH = "math"
-    FIXED_PROPERTIES = "fixed_properties"
-    BREAKDOWN = "breakdown"
-    COMPARE = "compare"
-    SAMPLING = "sampling"
-    QUERY_MODIFIERS = "modifiers"
-    CONVERSION_GOAL = "conversion_goal"
-    MARKETING_COST_FALLBACK = "marketing_cost_fallback"
-    FORMULA = "formula"
-    OTHER_DISPLAY = "display"
-    SMOOTHING = "smoothing"
-    OTHER_INTERVAL = "interval"
-    TEST_ACCOUNT_FILTERS = "test_account_filters"
-    EXPLICIT_DATE = "explicit_date"
-    DAYS_OF_WEEK = "days_of_week"
-    ALL_TIME_RANGE = "all_time_range"
-    PROPERTY_GROUP = "property_group"
-    OTHER_PROPERTY_TYPE = "property_type"
 
 
 class SeriesValuesBlocker(StrEnum):
-    """Why a query gets no stored values although the stored path supports every feature it uses."""
+    """Why a query gets no stored values."""
 
+    NO_COUNT_QUERY = "no_count_query"
+    BREAKDOWN = "breakdown"
+    OTHER_AGGREGATE = "other_aggregate"
+    OTHER_INTERVAL = "other_interval"
+    SAMPLING = "sampling"
+    UNSUPPORTED_CLAUSE = "unsupported_clause"
+    UNSUPPORTED_FILTER = "unsupported_filter"
+    UNSUPPORTED_TIME_RANGE = "unsupported_time_range"
     TIMEZONE = "timezone"
     PROPERTY_ACCESS_RULES = "property_access_rules"
-    DST_TRANSITION = "dst_transition"
     NO_FINISHED_BUCKET = "no_finished_bucket"
-    PARTIAL_BUCKET = "partial_bucket"
+    PARTIAL_HOUR = "partial_hour"
     DATE_RANGE_TOO_LONG = "date_range_too_long"
     NOT_READY = "not_ready"
 
 
 @dataclass(frozen=True)
 class PrecomputedSeriesValues:
-    """Stored Trends counts for every bucket before ``live_from``, keyed by the naive bucket start in the team timezone.
+    """Stored Trends values for every finished bucket, keyed by the naive bucket start in the team timezone.
 
-    ``live_from`` is the first bucket that still needs a live read, or None when the every bucket in the range is finished.
-    ``features`` are the supported features the query used, so a comparison can be reported for each one.
+    ``features`` are the kinds of filter the query used, so a comparison can be reported for each one.
     """
 
-    values: dict[datetime, int]
-    live_from: datetime | None
+    values: dict[datetime, float]
     freshly_built: bool = False
     features: frozenset[SeriesValuesFeature] = frozenset()
 
 
 @dataclass(frozen=True)
 class SeriesValuesUnavailable:
-    """Why stored Trends counts cannot serve a query: a feature the stored path refuses, or a blocker."""
+    """Why stored Trends values cannot serve a query."""
 
-    reason: SeriesValuesFeature | SeriesValuesBlocker
+    reason: SeriesValuesBlocker
 
 
 @dataclass(frozen=True)
