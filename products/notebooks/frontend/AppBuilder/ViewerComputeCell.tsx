@@ -53,7 +53,7 @@ export function ViewerComputeCell({
                 setResult({ data, inputs: variables })
                 posthog.capture('notebook app viewer calculation ran', {
                     short_id: viewer.shortId,
-                    cell_type: python ? 'python' : 'connected_sql',
+                    cell_type: python ? 'python' : cell.props.connectionId ? 'connected_sql' : 'dataframe_sql',
                 })
             }
         } catch (error) {
@@ -78,7 +78,7 @@ export function ViewerComputeCell({
                 <span className="text-secondary">
                     {result && !objectsEqual(variables, result.inputs)
                         ? 'Inputs changed. Run again to update this result.'
-                        : python
+                        : python || !cell.props.connectionId
                           ? 'Runs in a private sandbox with your current inputs.'
                           : 'Uses your access to the connected data source.'}
                 </span>

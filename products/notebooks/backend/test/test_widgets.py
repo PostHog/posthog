@@ -39,6 +39,7 @@ from products.notebooks.backend.models import (
     GeneratedWidgetGenerationJob,
     GeneratedWidgetVersion,
     Notebook,
+    NotebookAppRelease,
     NotebookNodeRun,
     NotebookRun,
     NotebookWidgetInstance,
@@ -997,6 +998,70 @@ class TestWidgetData(APIBaseTest):
         assert self.client.post(url, payload, format="json").json() == []
         self.notebook.refresh_from_db()
         assert self.notebook.app_published is None and self.notebook.variables[0]["value"] == "All"
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_private_widget_runs_only_its_versioned_input_in_published_and_draft_apps(self, _flag) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        version.input_contract[0]["columns"] = [{"name": "shifts", "type": "int64"}]
+        version.save(update_fields=["input_contract"])
+        source = (
+            f'<PythonV2 nodeId="capacity" code="import pandas as pd; {self.INPUT_NAME} = pd.DataFrame(dict(shifts=[orders // 48]))" returnVariable="{self.INPUT_NAME}" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        layout = {
+            "tabs": [{"id": "main", "title": "Main"}],
+            "blocks": [
+                {"id": "orders", "tab_id": "main", "kind": "input", "variable": "orders"},
+                {"id": "summary", "tab_id": "main", "kind": "cell", "node_id": self.NODE_ID},
+            ],
+        }
+        defaults = [{"name": "orders", "type": "number", "value": 240}]
+        self.notebook.content = markdown_content(source)
+        self.notebook.app_published = layout
+        self.notebook.app_revision = 1
+        self.notebook.variables = defaults
+        self.notebook.save(update_fields=["app_revision", "app_published", "content", "variables"])
+        NotebookAppRelease.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=self.notebook,
+            revision=1,
+            markdown=source,
+            layout=layout,
+            variables=defaults,
+        )
+        base = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/"
+        target = {"version_id": str(version.id), "slot": self.INPUT_NAME}
+        payload = {"node_id": self.NODE_ID, "variables": defaults, "revision": 1, "widget_input": target}
+        kernel = MagicMock()
+        kernel.execute.return_value = SimpleNamespace(
+            status="ok",
+            result=None,
+            stdout='{"columns":["shifts"],"types":["int64"],"rows":[{"shifts":5}],"row_count":1}',
+        )
+        with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel):
+            for path, context in [
+                ("app_compute/", {}),
+                ("app_draft_compute/", {"layout": layout, "revision": self.notebook.version}),
+            ]:
+                response = self.client.post(base + path, {**payload, **context}, format="json")
+                assert response.status_code == 200, response.content
+                frame = response.json()["widget_frame"]
+                assert frame["sourceNodeId"] == "capacity" and frame["name"] == self.INPUT_NAME
+                assert frame["rows"] == [[5]] and frame["columns"] == [{"name": "shifts", "type": "int64"}]
+                assert frame["runId"] and not frame["truncated"]
+            for invalid in [
+                {"widget_input": {**target, "slot": "unrelated"}},
+                {"widget_input": {**target, "version_id": str(uuid4())}},
+                {"node_id": "capacity"},
+            ]:
+                assert self.client.post(base + "app_compute/", {**payload, **invalid}, format="json").status_code == 400
+            version.input_contract[0]["columns"][0]["name"] = "unrelated"
+            version.save(update_fields=["input_contract"])
+            assert self.client.post(base + "app_compute/", payload, format="json").status_code == 400
+        assert not NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
 
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()

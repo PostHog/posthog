@@ -1227,6 +1227,8 @@ export const notebooksAppComputeCreateBodyRevisionMin = 0
 
 export const notebooksAppComputeCreateBodyVariablesItemNameMax = 200
 
+export const notebooksAppComputeCreateBodyWidgetInputSlotMax = 128
+
 export const notebooksAppComputeCreateBodyNodeIdMax = 200
 
 export const NotebooksAppComputeCreateBody = /* @__PURE__ */ zod.object({
@@ -1252,6 +1254,12 @@ export const NotebooksAppComputeCreateBody = /* @__PURE__ */ zod.object({
             })
             .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
     ),
+    widget_input: zod
+        .object({
+            version_id: zod.uuid(),
+            slot: zod.string().max(notebooksAppComputeCreateBodyWidgetInputSlotMax),
+        })
+        .optional(),
     node_id: zod.string().max(notebooksAppComputeCreateBodyNodeIdMax),
 })
 
@@ -1261,6 +1269,8 @@ export const NotebooksAppComputeCreateBody = /* @__PURE__ */ zod.object({
 export const notebooksAppDraftComputeCreateBodyRevisionMin = 0
 
 export const notebooksAppDraftComputeCreateBodyVariablesItemNameMax = 200
+
+export const notebooksAppDraftComputeCreateBodyWidgetInputSlotMax = 128
 
 export const notebooksAppDraftComputeCreateBodyNodeIdMax = 200
 
@@ -1329,6 +1339,12 @@ export const NotebooksAppDraftComputeCreateBody = /* @__PURE__ */ zod.object({
             })
             .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
     ),
+    widget_input: zod
+        .object({
+            version_id: zod.uuid(),
+            slot: zod.string().max(notebooksAppDraftComputeCreateBodyWidgetInputSlotMax),
+        })
+        .optional(),
     node_id: zod.string().max(notebooksAppDraftComputeCreateBodyNodeIdMax),
     layout: zod.object({
         title: zod

@@ -37,6 +37,7 @@ export interface ViewerOutput {
     widgetSlots: NonNullable<NotebookAppViewerQueryApi['widget_slots']>
 }
 export interface ViewerResults {
+    nativeOutputIds: string[]
     outputs: Record<string, ViewerOutput>
     variables: NotebookVariable[]
     updatedAt: string
@@ -292,6 +293,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                         return {
                             outputs,
                             variables,
+                            nativeOutputIds: plans.map((plan) => plan.node_id),
                             updatedAt: queried ? new Date().toISOString() : results?.updatedAt || '',
                         }
                     } catch (error) {

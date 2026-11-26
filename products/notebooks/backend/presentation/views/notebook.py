@@ -341,7 +341,13 @@ class NotebookAppDraftQueryRequestSerializer(NotebookAppViewerRequestSerializer)
     layout = NotebookAppLayoutSerializer()
 
 
+class NotebookAppComputeWidgetInputSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField()
+    slot = serializers.CharField(max_length=128)
+
+
 class NotebookAppComputeRequestSerializer(NotebookAppViewerRequestSerializer):
+    widget_input = NotebookAppComputeWidgetInputSerializer(required=False)
     node_id = serializers.CharField(max_length=200)
 
 
@@ -350,6 +356,7 @@ class NotebookAppDraftComputeRequestSerializer(NotebookAppComputeRequestSerializ
 
 
 class NotebookAppComputeResultSerializer(serializers.Serializer):
+    widget_frame = WidgetFrameSerializer(required=False)
     text = serializers.CharField(required=False, allow_blank=True)
     columns = serializers.ListField(child=serializers.CharField(), required=False)
     rows = serializers.ListField(child=serializers.ListField(child=serializers.JSONField()), required=False)
@@ -1036,7 +1043,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 data["node_id"],
                 inputs,
                 draft_layout=data.get("layout"),
+                widget_input=(data["widget_input"]["version_id"], data["widget_input"]["slot"])
+                if "widget_input" in data
+                else None,
             )
+        except WidgetError as error:
+            return self._widget_error_response(error)
         except (ExposedHogQLError, KernelSandboxLimitExceeded) as error:
             raise ValidationError(str(error)) from error
         return Response(NotebookAppComputeResultSerializer(result).data)

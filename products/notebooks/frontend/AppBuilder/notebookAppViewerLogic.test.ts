@@ -124,6 +124,7 @@ describe('published viewer refreshes', () => {
                 request.finish()
             }
             await waitFor(() => expect(Object.keys(second.values.results?.outputs ?? {})).toHaveLength(6))
+            expect(second.values.results?.nativeOutputIds).toEqual(Object.keys(second.values.results?.outputs ?? {}))
             await waitFor(() => expect(pending.size).toBe(15))
         } finally {
             first.unmount()

@@ -78170,15 +78170,66 @@ export namespace Schemas {
       upstream: string[];
     }
 
+    export interface NotebookAppComputeWidgetInput {
+      version_id: string;
+      /** @maxLength 128 */
+      slot: string;
+    }
+
     export interface NotebookAppComputeRequest {
       /** @minimum 0 */
       revision: number;
       variables: NotebookVariable[];
+      widget_input?: NotebookAppComputeWidgetInput;
       /** @maxLength 200 */
       node_id: string;
     }
 
+    export interface WidgetFrameColumn {
+      /** Column name. */
+      name: string;
+      /** Column type reported by the completed notebook run. */
+      type: string;
+    }
+
+    export interface WidgetFrame {
+      /** Notebook cell authorized for this version and dataframe slot. */
+      sourceNodeId?: string;
+      /** Logical dataframe name. */
+      name: string;
+      /** Completed notebook run used for every page in this iframe load. */
+      runId: string;
+      /** Dataframe columns in display order. */
+      columns: WidgetFrameColumn[];
+      /** Requested page of dataframe rows. */
+      rows: unknown[][];
+      /**
+         * Rows available in the completed run.
+         * @minimum 0
+         */
+      totalRowCount: number;
+      /**
+         * Rows returned in this response.
+         * @minimum 0
+         */
+      includedRowCount: number;
+      /**
+         * Zero-based offset of this page.
+         * @minimum 0
+         */
+      offset: number;
+      /**
+         * Offset for the next page, if any.
+         * @minimum 0
+         * @nullable
+         */
+      nextOffset: number | null;
+      /** Whether more rows exist after this page. */
+      truncated: boolean;
+    }
+
     export interface NotebookAppComputeResult {
+      widget_frame?: WidgetFrame;
       text?: string;
       columns?: string[];
       rows?: unknown[][];
@@ -78188,6 +78239,7 @@ export namespace Schemas {
       /** @minimum 0 */
       revision: number;
       variables: NotebookVariable[];
+      widget_input?: NotebookAppComputeWidgetInput;
       /** @maxLength 200 */
       node_id: string;
       layout: NotebookAppLayout;
@@ -132482,49 +132534,6 @@ export namespace Schemas {
       code: string;
       /** Actionable error detail. */
       detail: string;
-    }
-
-    export interface WidgetFrameColumn {
-      /** Column name. */
-      name: string;
-      /** Column type reported by the completed notebook run. */
-      type: string;
-    }
-
-    export interface WidgetFrame {
-      /** Notebook cell authorized for this version and dataframe slot. */
-      sourceNodeId?: string;
-      /** Logical dataframe name. */
-      name: string;
-      /** Completed notebook run used for every page in this iframe load. */
-      runId: string;
-      /** Dataframe columns in display order. */
-      columns: WidgetFrameColumn[];
-      /** Requested page of dataframe rows. */
-      rows: unknown[][];
-      /**
-         * Rows available in the completed run.
-         * @minimum 0
-         */
-      totalRowCount: number;
-      /**
-         * Rows returned in this response.
-         * @minimum 0
-         */
-      includedRowCount: number;
-      /**
-         * Zero-based offset of this page.
-         * @minimum 0
-         */
-      offset: number;
-      /**
-         * Offset for the next page, if any.
-         * @minimum 0
-         * @nullable
-         */
-      nextOffset: number | null;
-      /** Whether more rows exist after this page. */
-      truncated: boolean;
     }
 
     /**

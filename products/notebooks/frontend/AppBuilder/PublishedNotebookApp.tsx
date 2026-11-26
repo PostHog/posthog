@@ -11,6 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
+import { notebooksAppComputeCreate, notebooksAppDraftComputeCreate } from '../generated/api'
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { WidgetFrameSessionContext } from '../NotebookNodeGeneratedWidget/widgetFrameSession'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
@@ -101,7 +102,34 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
             />
             <WidgetFrameSessionContext.Provider
-                value={(nodeId, versionId) => viewerWidgetSession(results?.outputs ?? {}, nodeId, versionId)}
+                value={(nodeId, versionId) => ({
+                    ...viewerWidgetSession(results?.outputs ?? {}, nodeId, versionId),
+                    privateInputs: versionId
+                        ? {
+                              key: JSON.stringify([release.revision, variables]),
+                              compute: async (slot, signal) => {
+                                  const request = {
+                                      node_id: nodeId,
+                                      revision: release.revision,
+                                      variables,
+                                      widget_input: { version_id: versionId, slot },
+                                  }
+                                  const result = viewer.draft
+                                      ? await notebooksAppDraftComputeCreate(
+                                            viewer.project,
+                                            shortId,
+                                            { ...request, layout },
+                                            { signal }
+                                        )
+                                      : await notebooksAppComputeCreate(viewer.project, shortId, request, { signal })
+                                  if (!result.widget_frame) {
+                                      throw new Error('The calculation did not return a dataframe.')
+                                  }
+                                  return result.widget_frame
+                              },
+                          }
+                        : undefined,
+                })}
             >
                 <NotebookAppCanvas
                     layout={layout}
@@ -130,7 +158,11 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                         ) : (
                             saved
                         )
-                        if (cell.tagName === 'PythonV2' || (sql && cell.props.connectionId)) {
+                        if (
+                            cell.tagName === 'PythonV2' ||
+                            (sql &&
+                                (cell.props.connectionId || (results && !results.nativeOutputIds.includes(cell.id))))
+                        ) {
                             return (
                                 <ViewerComputeCell
                                     key={cell.id}

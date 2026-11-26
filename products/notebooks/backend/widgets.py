@@ -1779,7 +1779,7 @@ def _bounded_json_value(value: object, budget: list[int], depth: int = 0) -> obj
     return str(value)[:MAX_CELL_STRING_LENGTH]
 
 
-def _bounded_rows(
+def bounded_widget_rows(
     *, name: str, run_id: UUID, columns: list[dict[str, str]], candidates: object, total_row_count: int, offset: int
 ) -> dict[str, object]:
     rows: list[list[object]] = []
@@ -1880,7 +1880,7 @@ def read_widget_frame(
                 f'Re-run the cell that creates "{source_name}" to reload its SQL results.',
                 "frame_page_unavailable",
             )
-        frame = _bounded_rows(
+        frame = bounded_widget_rows(
             name=frame_name,
             run_id=run.id,
             columns=columns,
@@ -1910,7 +1910,7 @@ def read_widget_frame(
     return WidgetFrameRead(
         frame={
             "sourceNodeId": node_id_for_frame,
-            **_bounded_rows(
+            **bounded_widget_rows(
                 name=frame_name,
                 run_id=run.id,
                 columns=columns,

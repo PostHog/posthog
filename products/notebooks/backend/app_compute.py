@@ -4,7 +4,7 @@ from contextlib import ExitStack
 from graphlib import CycleError, TopologicalSorter
 from time import monotonic
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import JsonValue
 from rest_framework.exceptions import NotFound, ValidationError
@@ -28,9 +28,14 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.models import Notebook, NotebookWidgetInstance
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds, apply_raw_page_bounds
-from products.notebooks.backend.sql_v2_state import NotebookCellState, build_dependency_edges, extract_cells
+from products.notebooks.backend.sql_v2_state import (
+    NotebookCellState,
+    build_dependency_edges,
+    extract_cells,
+    get_dataframe_owners,
+)
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     NotebookVariableError,
@@ -40,6 +45,7 @@ from products.notebooks.backend.sql_v2_variables import (
     substitute_duckdb_variables,
     substitute_hogql_variables,
 )
+from products.notebooks.backend.widgets import bounded_widget_rows, widget_node_ids, widget_source_name
 
 MAX_ROWS = 500
 MAX_CELLS = 20
@@ -96,6 +102,7 @@ def run_app_cell(
     inputs: dict[str, NotebookVariableValue],
     *,
     draft_layout: dict[str, Any] | None = None,
+    widget_input: tuple[UUID, str] | None = None,
 ) -> dict[str, JsonValue]:
     release = (
         draft_app_release(team_id, notebook_id, revision, draft_layout)
@@ -114,7 +121,18 @@ def run_app_cell(
     ):
         raise ValidationError("Choose an output in the published app.")
     variables = viewer_variables(release, inputs)
-    chain = _cell_chain(extract_cells(build_markdown_notebook_content(release.markdown)), node_id)
+    content = build_markdown_notebook_content(release.markdown)
+    cells = extract_cells(content)
+    expected_columns = None
+    if widget_input:
+        if node_id not in widget_node_ids(content):
+            raise ValidationError("Choose a widget in this app.")
+        source, expected_columns = _widget_source(team_id, notebook_id, node_id, *widget_input)
+        owner = get_dataframe_owners(cells).get(source)
+        if owner is None:
+            raise ValidationError("This widget's dataframe is missing from the app.")
+        node_id = owner
+    chain = _cell_chain(cells, node_id)
     if any(cell.cell_type not in ("python", "sql") for cell in chain):
         raise ValidationError("This calculation requires an unsupported source. Use Python or a HogQL select query.")
     if any(cell.send_raw_query and not cell.connection_id for cell in chain):
@@ -145,10 +163,69 @@ def run_app_cell(
         result: dict[str, JsonValue] = {}
         for cell in chain:
             try:
-                result = _run_cell(cell, notebook, user, variables, kernel, deadline, cell.node_id == node_id)
+                result = _run_cell(
+                    cell, notebook, user, variables, kernel, deadline, cell.node_id == node_id, widget_input is not None
+                )
             except NotebookVariableError as error:
                 raise ValidationError(str(error)) from error
+        if widget_input:
+            return _widget_frame(result, node_id, widget_input[1], expected_columns)
         return result
+
+
+def _widget_frame(
+    result: dict[str, JsonValue], node_id: str, slot: str, expected_columns: list[dict[str, str]] | None
+) -> dict[str, JsonValue]:
+    columns = result.get("columns")
+    types = result.get("types")
+    rows = result.get("rows")
+    if (
+        not isinstance(columns, list)
+        or not isinstance(types, list)
+        or not isinstance(rows, list)
+        or len(columns) != len(types)
+    ):
+        raise ValidationError("This cell must return a dataframe with named columns.")
+    schema = [{"name": str(name), "type": str(dtype)} for name, dtype in zip(columns, types, strict=True)]
+    if expected_columns is not None and (
+        len(expected_columns) != len(schema)
+        or any(
+            declared.get("name") != actual["name"] or declared.get("type") not in ("unknown", actual["type"])
+            for declared, actual in zip(expected_columns, schema, strict=True)
+        )
+    ):
+        raise ValidationError("The dataframe columns changed. Update the widget input to use this result.")
+    frame = bounded_widget_rows(
+        name=slot,
+        run_id=uuid4(),
+        columns=schema,
+        candidates=rows,
+        total_row_count=len(rows),
+        offset=0,
+    )
+    if frame["truncated"]:
+        raise ValidationError("The widget dataframe is too large. Narrow the inputs or aggregate the source data.")
+    return {"widget_frame": json.loads(json.dumps({**frame, "sourceNodeId": node_id}, default=str))}
+
+
+def _widget_source(
+    team_id: int, notebook_id: UUID, node_id: str, version_id: UUID, slot: str
+) -> tuple[str, list[dict[str, str]] | None]:
+    placement = (
+        NotebookWidgetInstance.objects.for_team(team_id)
+        .filter(notebook_id=notebook_id, node_id=node_id)
+        .select_related("pinned_version", "widget__current_version")
+        .first()
+    )
+    version = (placement.pinned_version or placement.widget.current_version) if placement else None
+    if placement is None or version is None or version.id != version_id:
+        raise ValidationError("Refresh the app to load the current widget version.")
+    for item in version.input_contract:
+        if isinstance(item, dict) and item.get("slot") == slot:
+            binding = (placement.input_bindings or {}).get(slot)
+            transformed = isinstance(binding, dict) and binding.get("hog")
+            return widget_source_name(placement, item), None if transformed else item.get("columns", [])
+    raise ValidationError("This dataframe is not declared by this widget version.")
 
 
 def _run_cell(
@@ -159,6 +236,7 @@ def _run_cell(
     kernel: KernelRuntimeSession | None,
     deadline: float,
     final: bool,
+    frame_output: bool,
 ) -> dict[str, JsonValue]:
     if cell.cell_type == "python":
         assert kernel is not None
@@ -170,6 +248,8 @@ def _run_cell(
                 f"if isinstance(globals().get({name!r}), pd.DataFrame):\n    duck_save_table({name!r}, globals()[{name!r}])",
                 deadline,
             )
+        if final and frame_output and cell.dataframe_name:
+            return _kernel_frame(kernel, cell.dataframe_name, deadline, include_types=True)
         return {"text": text}
     if cell.depends_on:
         assert kernel is not None
@@ -183,7 +263,7 @@ def _run_cell(
                 f"globals()[{cell.dataframe_name!r}] = _app_result\nduck_save_table({cell.dataframe_name!r}, _app_result)",
                 deadline,
             )
-        return _kernel_frame(kernel, "_app_result", deadline) if final else {}
+        return _kernel_frame(kernel, "_app_result", deadline, include_types=frame_output) if final else {}
     query = (
         _external_query(cell, notebook, user, variables)
         if cell.send_raw_query
@@ -202,6 +282,8 @@ def _run_cell(
     if len(response.results) > MAX_ROWS:
         raise ValidationError("This calculation reads more than 500 rows. Aggregate the source data or add a limit.")
     frame = {"columns": response.columns or [], "rows": response.results}
+    if final and frame_output:
+        frame["types"] = [pair[1] for pair in response.types or []]
     payload = _bounded_json(frame)
     if kernel is not None and cell.dataframe_name and not final:
         name = cell.dataframe_name
@@ -213,17 +295,32 @@ def _run_cell(
     return json.loads(payload)
 
 
-def _kernel_frame(kernel: KernelRuntimeSession, name: str, deadline: float) -> dict[str, JsonValue]:
+def _kernel_frame(
+    kernel: KernelRuntimeSession, name: str, deadline: float, *, include_types: bool
+) -> dict[str, JsonValue]:
     data = _execute_python(
         kernel,
-        f"print(json.dumps(notebook_dataframe_page(globals()[{name!r}], limit={MAX_ROWS})))",
+        f"_app_df = globals().get({name!r})\n"
+        f"_app_page = notebook_dataframe_page(_app_df, limit={MAX_ROWS})\n"
+        + (
+            "if _app_page is not None:\n    _app_page['types'] = [str(t) for t in pd.DataFrame(_app_df).dtypes]\n"
+            if include_types
+            else ""
+        )
+        + "print(json.dumps(_app_page))",
         deadline,
     )
     page = json.loads(data)
+    if not isinstance(page, dict):
+        raise ValidationError("The source must assign a dataframe to its output variable.")
     if page["row_count"] > MAX_ROWS:
         raise ValidationError("This calculation returns more than 500 rows. Aggregate the result or add a limit.")
     columns = page["columns"]
-    return {"columns": columns, "rows": [[row.get(col) for col in columns] for row in page["rows"]]}
+    return {
+        "columns": columns,
+        "rows": [[row.get(col) for col in columns] for row in page["rows"]],
+        **({"types": page["types"]} if include_types else {}),
+    }
 
 
 def _external_query(cell: NotebookCellState, notebook: Notebook, user: User, variables: list[NotebookVariable]) -> str:
