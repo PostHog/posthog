@@ -103,6 +103,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         hasUnsavedChanges,
         isSavingDraft,
         isDiscardingDraft,
+        isReconcilingPublish,
         isSavingSensitive,
         isSavingClickTracking,
         isTransactional,
@@ -164,6 +165,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSavingClickTracking ||
         isTemplateSubmitting ||
         savedTemplateLoading ||
+        isReconcilingPublish ||
         templateLoading ||
         isDiscardingDraft
             ? 'Wait for the current save to finish'
@@ -173,17 +175,19 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
     const saveDisabledReason =
         editDisabledReason ??
-        (isDiscardingDraft
-            ? 'Discarding your draft'
-            : draftsEnabled && isSavingDraft
-              ? 'Saving your draft'
-              : draftsEnabled && !hasDraft && !hasUnsavedChanges
-                ? 'No changes to publish'
-                : !draftsEnabled && !templateChanged && props.id !== 'new'
-                  ? 'No changes to save'
-                  : !template.name
-                    ? 'Name is required'
-                    : undefined)
+        (isReconcilingPublish
+            ? 'Wait for the current save to finish'
+            : isDiscardingDraft
+              ? 'Discarding your draft'
+              : draftsEnabled && isSavingDraft
+                ? 'Saving your draft'
+                : draftsEnabled && !hasDraft && !hasUnsavedChanges
+                  ? 'No changes to publish'
+                  : !draftsEnabled && !templateChanged && props.id !== 'new'
+                    ? 'No changes to save'
+                    : !template.name
+                      ? 'Name is required'
+                      : undefined)
     const sendOnEventDisabledReason =
         editDisabledReason ??
         templateWorkflowDisabledReason({
@@ -496,7 +500,12 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     htmlType="submit"
                                     form="template"
                                     onClick={() => void saveWithLatestEmailEdit(submitTemplate)}
-                                    loading={isTemplateSubmitting || templateLoading || savedTemplateLoading}
+                                    loading={
+                                        isTemplateSubmitting ||
+                                        templateLoading ||
+                                        savedTemplateLoading ||
+                                        isReconcilingPublish
+                                    }
                                     disabledReason={saveDisabledReason}
                                     size="small"
                                     sideAction={
@@ -520,7 +529,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                                               ? 'There is no draft to discard'
                                                                               : isSavingDraft ||
                                                                                   isDiscardingDraft ||
-                                                                                  savedTemplateLoading
+                                                                                  savedTemplateLoading ||
+                                                                                  isReconcilingPublish
                                                                                 ? 'Wait for the draft to finish saving'
                                                                                 : isSavingSensitive ||
                                                                                     isSavingClickTracking

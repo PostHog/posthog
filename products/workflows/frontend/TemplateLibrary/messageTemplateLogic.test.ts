@@ -975,6 +975,63 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
         })
 
+        it('reconciles remote tags from a delayed setting response when a concurrent local tag write fails', async () => {
+            logic.unmount()
+            let releaseDelayedSetting!: () => void
+            const delayedSettingGate = new Promise<void>((resolve) => {
+                releaseDelayedSetting = resolve
+            })
+            let delayedSettingStarted!: () => void
+            const delayedSettingArrived = new Promise<void>((resolve) => {
+                delayedSettingStarted = resolve
+            })
+            let currentServer: Record<string, unknown> = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: null,
+                tags: ['old'],
+                updated_at: '2026-01-01T00:00:00Z',
+            }
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                if ('tags' in body) {
+                    return [500, { detail: 'Tag save failed' }]
+                }
+                // Another editor saved 'remote' before this setting PATCH ran.
+                currentServer = {
+                    ...currentServer,
+                    ...body,
+                    tags: ['old', 'remote'],
+                    updated_at: '2026-01-01T00:01:00Z',
+                }
+                const snapshot = { ...currentServer }
+                delayedSettingStarted()
+                await delayedSettingGate
+                return [200, snapshot]
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, { ...currentServer }] },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setClickTrackingEnabled(true)
+            await delayedSettingArrived
+            logic.actions.saveTags(['old', 'failed-local'])
+            await waitFor(() => expect(logic.values.failedTagSaves).toBe(1))
+            expect(logic.values.template.tags).toEqual(['old'])
+
+            releaseDelayedSetting()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old', 'remote'])
+            expect(logic.values.originalTemplate.tags).toEqual(['old', 'remote'])
+        })
+
         const mountMockEmailTemplater = (
             targetLogic: ReturnType<typeof messageTemplateLogic.build>,
             exportGate?: Promise<void>
@@ -1134,6 +1191,8 @@ describe('messageTemplateLogic', () => {
             logic.actions.submitTemplate()
             await publishArrived
             await jest.advanceTimersByTimeAsync(10)
+            expect(logic.values.isSavingClickTracking).toBe(false)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
             // Edit both the form and the canvas before the delayed publish response arrives.
             logic.actions.setTemplateValue('content.email.subject', 'Typed subject during publish')
             canvas.emitDesignUpdated()
@@ -1141,6 +1200,7 @@ describe('messageTemplateLogic', () => {
             releasePublish()
             // Advance past the 1500ms autosave debounce while exportHtml is still pending.
             await jest.advanceTimersByTimeAsync(2000)
+            expect(logic.values.isReconcilingPublish).toBe(true)
             expect(currentServer.draft_content).toEqual(newerServerDraft)
             expect(bodies.some((body) => 'draft_content' in body)).toBe(false)
 
@@ -1148,6 +1208,7 @@ describe('messageTemplateLogic', () => {
             await jest.advanceTimersByTimeAsync(2000)
             await expectLogic(logic).toFinishAllListeners()
 
+            expect(logic.values.isReconcilingPublish).toBe(false)
             expect(logic.values.externallyEdited).toBe(true)
             expect(logic.values.template.content.email.html).toBe('<p>Canvas edit</p>')
             expect(currentServer.draft_content).toEqual(newerServerDraft)
@@ -1214,6 +1275,8 @@ describe('messageTemplateLogic', () => {
             logic.actions.submitTemplate()
             await publishArrived
             await jest.advanceTimersByTimeAsync(10)
+            expect(logic.values.isSavingClickTracking).toBe(false)
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
             logic.actions.setTemplateValue('name', 'Typed during publish')
 
             releasePublish()
@@ -1290,7 +1353,7 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
         })
 
-        it('preserves an unsaved rename when an older discard response lands after a newer publish', async () => {
+        it('preserves an unsaved rename when an older discard response lands after a newer external edit', async () => {
             logic.unmount()
             let releaseDiscard!: () => void
             const discardGate = new Promise<void>((resolve) => {
@@ -1300,37 +1363,36 @@ describe('messageTemplateLogic', () => {
             const discardArrived = new Promise<void>((resolve) => {
                 discardStarted = resolve
             })
+            let currentServer: Record<string, unknown> = {
+                ...serverTemplate,
+                sensitive: true,
+                click_tracking_enabled: null,
+                updated_at: '2026-01-01T00:00:00Z',
+            }
             const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
                 const body = (await request.json()) as Record<string, unknown>
                 if ('draft_content' in body && body.draft_content === null) {
+                    currentServer = {
+                        ...currentServer,
+                        draft_content: null,
+                        updated_at: '2026-01-01T00:01:00Z',
+                    }
+                    const discardResponse = { ...currentServer }
                     discardStarted()
                     await discardGate
-                    return [
-                        200,
-                        {
-                            ...serverTemplate,
-                            draft_content: null,
-                            updated_at: '2026-01-01T00:01:00Z',
-                        },
-                    ]
+                    return [200, discardResponse]
                 }
-                return [
-                    200,
-                    {
-                        ...serverTemplate,
-                        ...body,
-                        draft_content: null,
-                        updated_at: '2026-01-01T00:02:00Z',
-                    },
-                ]
+                // Another tab renamed the template before this setting PATCH ran.
+                currentServer = {
+                    ...currentServer,
+                    ...body,
+                    name: 'Renamed elsewhere',
+                    updated_at: '2026-01-01T00:02:00Z',
+                }
+                return [200, { ...currentServer }]
             }
             useMocks({
-                get: {
-                    '/api/environments/:team_id/messaging_templates/:id/': {
-                        ...serverTemplate,
-                        updated_at: '2026-01-01T00:00:00Z',
-                    },
-                },
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, { ...currentServer }] },
                 patch: {
                     '/api/projects/:team_id/messaging_templates/:id/': patch,
                     '/api/environments/:team_id/messaging_templates/:id/': patch,
@@ -1342,7 +1404,7 @@ describe('messageTemplateLogic', () => {
 
             logic.actions.confirmDiscardDraft()
             await discardArrived
-            logic.actions.submitTemplate()
+            logic.actions.setClickTrackingEnabled(true)
             await waitFor(() => expect(logic.values.originalTemplate.updated_at).toBe('2026-01-01T00:02:00Z'))
             logic.actions.setTemplateValue('name', 'Unsaved rename')
 

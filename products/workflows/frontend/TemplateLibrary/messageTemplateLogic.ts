@@ -126,7 +126,6 @@ interface MessageTemplateCache {
     formWhenSaving?: MessageTemplate
     ownSettingSnapshot?: OwnSettingSnapshot | null
     tagWriteGeneration?: number
-    reconcilingOlderPublish?: boolean
 }
 
 interface ApplySettingUpdateResult {
@@ -282,6 +281,7 @@ export interface messageTemplateLogicValues {
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
     isMakingTransactional: boolean
+    isReconcilingPublish: boolean
     isSavingClickTracking: boolean
     isSavingDraft: boolean
     isSavingSensitive: boolean
@@ -524,6 +524,9 @@ export interface messageTemplateLogicActions {
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    setReconcilingPublish: (reconciling: boolean) => {
+        reconciling: boolean
+    }
     setSensitive: (sensitive: boolean) => {
         sensitive: boolean
     }
@@ -753,6 +756,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         syncExternalEdit: true,
         keepMyTemplateVersion: true,
         setExternallyEdited: (externallyEdited: boolean) => ({ externallyEdited }),
+        setReconcilingPublish: (reconciling: boolean) => ({ reconciling }),
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
         makeTransactional: true,
         makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
@@ -801,6 +805,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             }),
             submit: async (template) => {
+                if (values.isReconcilingPublish || values.isDiscardingDraft) {
+                    return
+                }
                 actions.saveTemplate(template)
             },
         },
@@ -908,6 +915,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             false,
             {
                 setSyncingExternalEdit: (_, { syncing }) => syncing,
+            },
+        ],
+        isReconcilingPublish: [
+            false,
+            {
+                setReconcilingPublish: (_, { reconciling }) => reconciling,
             },
         ],
         // An edit event that arrived while our own save or load was in flight. Replayed once it settles.
@@ -1056,7 +1069,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 if (
                     values.templateLoading ||
                     values.savedTemplateLoading ||
-                    (cache as MessageTemplateCache).reconcilingOlderPublish ||
+                    values.isReconcilingPublish ||
                     values.isMakingTransactional ||
                     values.isSavingSensitive ||
                     values.isSavingClickTracking ||
@@ -1117,6 +1130,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // can't cancel a tag that already looks saved.
             const writeBefore: Promise<string[] | undefined> =
                 pendingTagWrites.get(id) ?? Promise.resolve(values.originalTemplate.tags)
+            const cacheState = cache as MessageTemplateCache
             let failed = false
             const write: Promise<string[] | undefined> = writeBefore.then(async (saved) => {
                 // A newer edit already holds these tags.
@@ -1126,7 +1140,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 try {
                     // Tags are metadata: they apply live and must not publish a transactional template's draft,
                     // which a full form save would.
-                    return (await api.messaging.updateTemplate(id, { tags })).tags
+                    const savedTags = (await api.messaging.updateTemplate(id, { tags })).tags
+                    cacheState.tagWriteGeneration = (cacheState.tagWriteGeneration ?? 0) + 1
+                    return savedTags
                 } catch (error: any) {
                     failed = true
                     if (pendingTagWrites.get(id) === write) {
@@ -1135,9 +1151,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     return saved
                 }
             })
-            const cacheState = cache as MessageTemplateCache
             pendingTagWrites.set(id, write)
-            cacheState.tagWriteGeneration = (cacheState.tagWriteGeneration ?? 0) + 1
             window.addEventListener('beforeunload', warnAboutPendingTags)
             // Shown at once, so the next tag adds to this one instead of replacing it.
             showTags(tags)
@@ -1146,7 +1160,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             pendingTagWrites.delete(id)
-            cacheState.tagWriteGeneration = (cacheState.tagWriteGeneration ?? 0) + 1
             if (!pendingTagWrites.size) {
                 window.removeEventListener('beforeunload', warnAboutPendingTags)
             }
@@ -1168,7 +1181,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (
                 !values.draftOutOfDate ||
                 values.externallyEdited ||
-                (cache as MessageTemplateCache).reconcilingOlderPublish ||
+                values.isReconcilingPublish ||
                 values.templateLoading ||
                 values.isTemplateSubmitting ||
                 values.savedTemplateLoading ||
@@ -1225,6 +1238,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             while (
                 values.isSavingDraft ||
                 values.savedTemplateLoading ||
+                values.isReconcilingPublish ||
                 values.isSavingSensitive ||
                 values.isSavingClickTracking
             ) {
@@ -1332,12 +1346,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         setSensitive: async ({ sensitive }, breakpoint) => {
             // Wait for an in-flight draft or publish save so the loaded snapshot matches the server before reconciling.
-            while (values.isSavingDraft || values.templateLoading || values.savedTemplateLoading) {
+            while (
+                values.isSavingDraft ||
+                values.templateLoading ||
+                values.savedTemplateLoading ||
+                values.isReconcilingPublish
+            ) {
                 await breakpoint(100)
             }
             try {
                 const cacheState = cache as MessageTemplateCache
-                const hadPendingTagWrite = pendingTagWrites.has(props.id)
                 const tagGenerationBefore = cacheState.tagWriteGeneration ?? 0
                 // Saved on its own, so it applies to sends at once and leaves any content draft untouched.
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
@@ -1350,9 +1368,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const result = applySettingUpdate(updated, values, actions, {
                     canvasUnsaved,
                     hasConcurrentTagWrite:
-                        hadPendingTagWrite ||
-                        pendingTagWrites.has(props.id) ||
-                        (cacheState.tagWriteGeneration ?? 0) !== tagGenerationBefore,
+                        pendingTagWrites.has(props.id) || (cacheState.tagWriteGeneration ?? 0) !== tagGenerationBefore,
                 })
                 if (result.applied) {
                     cacheState.ownSettingSnapshot = result.ownSettingSnapshot
@@ -1366,12 +1382,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.autoSaveDraft()
         },
         setClickTrackingEnabled: async ({ clickTrackingEnabled }, breakpoint) => {
-            while (values.isSavingDraft || values.templateLoading || values.savedTemplateLoading) {
+            while (
+                values.isSavingDraft ||
+                values.templateLoading ||
+                values.savedTemplateLoading ||
+                values.isReconcilingPublish
+            ) {
                 await breakpoint(100)
             }
             try {
                 const cacheState = cache as MessageTemplateCache
-                const hadPendingTagWrite = pendingTagWrites.has(props.id)
                 const tagGenerationBefore = cacheState.tagWriteGeneration ?? 0
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     click_tracking_enabled: clickTrackingEnabled ? true : null,
@@ -1383,9 +1403,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const result = applySettingUpdate(updated, values, actions, {
                     canvasUnsaved,
                     hasConcurrentTagWrite:
-                        hadPendingTagWrite ||
-                        pendingTagWrites.has(props.id) ||
-                        (cacheState.tagWriteGeneration ?? 0) !== tagGenerationBefore,
+                        pendingTagWrites.has(props.id) || (cacheState.tagWriteGeneration ?? 0) !== tagGenerationBefore,
                 })
                 if (result.applied) {
                     cacheState.ownSettingSnapshot = result.ownSettingSnapshot
@@ -1485,61 +1503,65 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 })
 
             let canvasUnsaved = false
-            if (initialPublishIsOlder && !initialNewerIsOnlyOwnSetting) {
-                cacheState.reconcilingOlderPublish = true
-                try {
+            let markedReconciling = false
+            try {
+                if (initialPublishIsOlder && !initialNewerIsOnlyOwnSetting) {
+                    actions.setReconcilingPublish(true)
+                    markedReconciling = true
                     const flush = await flushCanvasAndCheckDirty(props)
                     if (!flush.stillMounted) {
                         return
                     }
                     canvasUnsaved = flush.canvasUnsaved
-                } finally {
-                    cacheState.reconcilingOlderPublish = false
                 }
-            }
 
-            const current = values.template
-            const typedMeanwhile = computeTypedMeanwhile(current)
-            // Tags save on their own, so the answer to this save can hold older ones.
-            const tagsChanged = current.tags !== sent.tags || pendingTagWrites.has(template.id)
-            const saved = props.id !== 'new' && tagsChanged ? { ...template, tags: current.tags } : template
-            // Clear the unsaved-changes state before navigating so the beforeUnload guard
-            // does not intercept the post-save redirect.
-            const publishIsOlder = isOlderThanLoaded(saved.updated_at, values.originalTemplate.updated_at)
-            const newerIsOnlyOwnSetting =
-                publishIsOlder &&
-                !values.externallyEdited &&
-                matchesOwnSettingSnapshot(cacheState.ownSettingSnapshot, values.originalTemplate.updated_at, {
-                    name: saved.name,
-                    description: saved.description,
-                    transactional_hog_flow_id: saved.transactional_hog_flow_id,
-                    publishedContent: publishedFromSave,
-                    serverDraft: draftFromSave,
-                })
-            const needsExternalReconcile = publishIsOlder && !newerIsOnlyOwnSetting
-            const hasLocalEdits = Object.keys(typedMeanwhile).length > 0 || canvasUnsaved
-            const reconciled = preserveNewerSettings(saved, values.originalTemplate)
-            if (!publishIsOlder) {
-                cacheState.ownSettingSnapshot = null
-            }
-            actions.setExternallyEdited(needsExternalReconcile && hasLocalEdits)
-            actions.resetTemplate(reconciled)
-            actions.setOriginalTemplate(reconciled)
-            if (values.transactionalHogFlowId) {
-                // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
-                workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
-            }
-            if (props.id === 'new') {
-                router.actions.push(urls.workflows('library'))
-            } else if (template.id) {
-                router.actions.replace(templateUrlInSection(template.id, values.section))
-            }
-            // After the navigation, which would otherwise ask to discard them.
-            if (Object.keys(typedMeanwhile).length > 0) {
-                actions.setTemplateValues(typedMeanwhile)
-            }
-            if (needsExternalReconcile && !hasLocalEdits) {
-                actions.syncExternalEdit()
+                const current = values.template
+                const typedMeanwhile = computeTypedMeanwhile(current)
+                // Tags save on their own, so the answer to this save can hold older ones.
+                const tagsChanged = current.tags !== sent.tags || pendingTagWrites.has(template.id)
+                const saved = props.id !== 'new' && tagsChanged ? { ...template, tags: current.tags } : template
+                // Clear the unsaved-changes state before navigating so the beforeUnload guard
+                // does not intercept the post-save redirect.
+                const publishIsOlder = isOlderThanLoaded(saved.updated_at, values.originalTemplate.updated_at)
+                const newerIsOnlyOwnSetting =
+                    publishIsOlder &&
+                    !values.externallyEdited &&
+                    matchesOwnSettingSnapshot(cacheState.ownSettingSnapshot, values.originalTemplate.updated_at, {
+                        name: saved.name,
+                        description: saved.description,
+                        transactional_hog_flow_id: saved.transactional_hog_flow_id,
+                        publishedContent: publishedFromSave,
+                        serverDraft: draftFromSave,
+                    })
+                const needsExternalReconcile = publishIsOlder && !newerIsOnlyOwnSetting
+                const hasLocalEdits = Object.keys(typedMeanwhile).length > 0 || canvasUnsaved
+                const reconciled = preserveNewerSettings(saved, values.originalTemplate)
+                if (!publishIsOlder) {
+                    cacheState.ownSettingSnapshot = null
+                }
+                actions.setExternallyEdited(needsExternalReconcile && hasLocalEdits)
+                actions.resetTemplate(reconciled)
+                actions.setOriginalTemplate(reconciled)
+                if (values.transactionalHogFlowId) {
+                    // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
+                    workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
+                }
+                if (props.id === 'new') {
+                    router.actions.push(urls.workflows('library'))
+                } else if (template.id) {
+                    router.actions.replace(templateUrlInSection(template.id, values.section))
+                }
+                // After the navigation, which would otherwise ask to discard them.
+                if (Object.keys(typedMeanwhile).length > 0) {
+                    actions.setTemplateValues(typedMeanwhile)
+                }
+                if (needsExternalReconcile && !hasLocalEdits) {
+                    actions.syncExternalEdit()
+                }
+            } finally {
+                if (markedReconciling && messageTemplateLogic.isMounted(props)) {
+                    actions.setReconcilingPublish(false)
+                }
             }
             actions.replayDeferredExternalEdit()
         },

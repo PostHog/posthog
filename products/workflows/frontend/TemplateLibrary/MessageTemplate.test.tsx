@@ -19,6 +19,74 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import { MessageTemplate } from './MessageTemplate'
 import { messageTemplateLogic } from './messageTemplateLogic'
 
+interface MockCanvas {
+    edit: (design: Record<string, any>) => void
+    setExportGate: (gate: Promise<void> | null) => void
+    wasExportCalled: () => boolean
+}
+
+const mockCanvases: MockCanvas[] = []
+
+jest.mock('react-email-editor', () => {
+    const React = jest.requireActual('react')
+    return {
+        __esModule: true,
+        default: React.forwardRef(function FakeUnlayer({ onReady }: { onReady?: () => void }, ref: unknown) {
+            const canvas = React.useMemo(() => {
+                const listeners: Record<string, () => void> = {}
+                let design: Record<string, any> = {}
+                let exportGate: Promise<void> | null = null
+                let exportCalled = false
+                const editor = {
+                    loadDesign: (next: Record<string, any>) => {
+                        design = next
+                        listeners['design:loaded']?.()
+                    },
+                    addEventListener: (event: string, callback: () => void) => {
+                        listeners[event] = callback
+                    },
+                    exportHtml: (callback: (data: any) => void) => {
+                        exportCalled = true
+                        const deliver = (): void =>
+                            callback({
+                                html: design?.body?.id ? `<p>${design.body.id}</p>` : '<p>Canvas edit</p>',
+                                design,
+                            })
+                        if (exportGate) {
+                            void exportGate.then(deliver)
+                        } else {
+                            deliver()
+                        }
+                    },
+                    exportPlainText: (callback: (data: any) => void) =>
+                        callback({ text: design?.body?.id ? String(design.body.id) : 'Canvas edit' }),
+                    setMergeTags: () => {},
+                    registerProvider: () => {},
+                    registerCallback: () => {},
+                }
+                return {
+                    editor,
+                    edit: (next: Record<string, any>) => {
+                        design = next
+                        listeners['design:updated']?.()
+                    },
+                    setExportGate: (gate: Promise<void> | null) => {
+                        exportGate = gate
+                        exportCalled = false
+                    },
+                    wasExportCalled: () => exportCalled,
+                }
+            }, [])
+            React.useImperativeHandle(ref, () => ({ editor: canvas.editor }), [canvas])
+            React.useEffect(() => {
+                mockCanvases.push(canvas)
+                onReady?.()
+            }, [canvas]) // oxlint-disable-line react-hooks/exhaustive-deps
+            return null
+        }),
+    }
+})
+
 const TEMPLATE_ID = 'tmpl-1'
 
 const ORDER_RECEIPT = {
@@ -42,6 +110,7 @@ describe('MessageTemplate', () => {
 
     afterEach(() => {
         cleanup()
+        mockCanvases.length = 0
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
@@ -569,8 +638,9 @@ describe('MessageTemplate', () => {
             return item as HTMLElement
         })
         fireEvent.click(discardMenuItem)
-        const confirmButton = await screen.findByRole('button', { name: 'Discard draft' })
-        fireEvent.click(confirmButton)
+        const dialogTitle = await screen.findByText('Discard your draft?')
+        const dialog = dialogTitle.closest('.LemonModal') as HTMLElement
+        fireEvent.click(within(dialog).getByText('Discard draft'))
         await discardArrived
 
         const publishButton = screen.getByText('Publish').closest('button') as HTMLButtonElement
@@ -581,5 +651,98 @@ describe('MessageTemplate', () => {
         await act(async () => releaseDiscard())
         await waitFor(() => expect(screen.queryByText('Editing draft')).not.toBeInTheDocument())
         expect(patchBodies).toEqual([{ draft_content: null }])
+    })
+
+    it('keeps Publish disabled while reconciling an older publish response with a pending canvas export', async () => {
+        let releasePublish!: () => void
+        const publishGate = new Promise<void>((resolve) => {
+            releasePublish = resolve
+        })
+        let publishStarted!: () => void
+        const publishArrived = new Promise<void>((resolve) => {
+            publishStarted = resolve
+        })
+        let releaseExport!: () => void
+        const exportGate = new Promise<void>((resolve) => {
+            releaseExport = resolve
+        })
+        let currentServer: Record<string, unknown> = {
+            ...PASSWORD_RESET_WITH_DRAFT,
+            sensitive: true,
+            click_tracking_enabled: null,
+            updated_at: '2026-01-01T00:00:00Z',
+        }
+        const newerServerDraft = {
+            templating: 'liquid',
+            email: { subject: 'From another tab', html: '<p>Other tab draft</p>', text: 'Other tab draft' },
+        }
+        const publishBodies: Record<string, unknown>[] = []
+        const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+            const body = (await request.json()) as Record<string, unknown>
+            if ('click_tracking_enabled' in body) {
+                await publishArrived
+                currentServer = {
+                    ...currentServer,
+                    ...body,
+                    draft_content: newerServerDraft,
+                    updated_at: '2026-01-01T00:02:00Z',
+                }
+                return [200, { ...currentServer }]
+            }
+            publishBodies.push(body)
+            currentServer = {
+                ...currentServer,
+                ...body,
+                draft_content: null,
+                updated_at: '2026-01-01T00:01:00Z',
+            }
+            const publishResponse = { ...currentServer }
+            publishStarted()
+            await publishGate
+            return [200, publishResponse]
+        }
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, { ...currentServer }] },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': patch,
+                '/api/projects/:team_id/messaging_templates/:id/': patch,
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
+
+        const logic = messageTemplateLogic({ id: TEMPLATE_ID })
+        const canvas = mockCanvases.at(-1)
+        expect(canvas).not.toBeUndefined()
+        act(() => {
+            logic.actions.setTemplateValue('name', 'Renamed in publish')
+            logic.actions.setClickTrackingEnabled(true)
+            logic.actions.submitTemplate()
+        })
+        await publishArrived
+        await waitFor(() => expect(logic.values.isSavingClickTracking).toBe(false))
+        expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+
+        canvas!.setExportGate(exportGate)
+        act(() => {
+            canvas!.edit({ body: { id: 'Canvas edit' } })
+            releasePublish()
+        })
+
+        const publishButton = screen.getByText('Publish').closest('button') as HTMLButtonElement
+        await waitFor(() => {
+            expect(canvas!.wasExportCalled()).toBe(true)
+            expect(logic.values.isReconcilingPublish).toBe(true)
+            expect(publishButton).toHaveAttribute('aria-disabled', 'true')
+        })
+        fireEvent.click(publishButton)
+        expect(publishBodies).toHaveLength(1)
+        expect(currentServer.draft_content).toEqual(newerServerDraft)
+
+        await act(async () => releaseExport())
+        await waitFor(() => expect(logic.values.isReconcilingPublish).toBe(false))
+        expect(logic.values.externallyEdited).toBe(true)
+        expect(logic.values.template.content.email.html).toBe('<p>Canvas edit</p>')
+        expect(publishBodies).toHaveLength(1)
+        expect(currentServer.draft_content).toEqual(newerServerDraft)
     })
 })
