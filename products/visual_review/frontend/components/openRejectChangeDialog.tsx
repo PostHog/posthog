@@ -1,0 +1,40 @@
+import { LemonTextArea } from '@posthog/lemon-ui'
+
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+export const REJECT_REASON_MAX_LENGTH = 500
+
+export function openRejectChangeDialog(onReject: (reason: string) => void): void {
+    LemonDialog.openForm({
+        title: 'Reject this change?',
+        description:
+            'The author gets a comment on the PR. Finalize stays blocked until the picture changes or you undo the rejection. ' +
+            'Is the old picture the wrong one? Quarantine the story instead.',
+        width: 520,
+        initialValues: { reason: '' },
+        errors: {
+            reason: (reason: string) => {
+                if (!reason?.trim()) {
+                    return 'Say what is wrong, so the author can fix it'
+                }
+                if (reason.trim().length > REJECT_REASON_MAX_LENGTH) {
+                    return `Keep the reason under ${REJECT_REASON_MAX_LENGTH} characters`
+                }
+                return undefined
+            },
+        },
+        onSubmit: ({ reason }) => onReject(reason.trim()),
+        primaryButtonProps: { children: 'Reject', status: 'danger' },
+        content: (
+            <LemonField name="reason" label="What is wrong">
+                <LemonTextArea
+                    autoFocus
+                    minRows={3}
+                    maxLength={REJECT_REASON_MAX_LENGTH}
+                    data-attr="visual-review-reject-reason"
+                />
+            </LemonField>
+        ),
+    })
+}

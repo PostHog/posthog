@@ -1,12 +1,14 @@
 import { IconInfo } from '@posthog/icons'
 import { Button, Checkbox, Label, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import type { FinalizeButtonCopy } from '../lib/reviewDecisions'
+
 export interface QuillFinalizeRunActionsProps {
     addImagesToComment: boolean
     setAddImagesToComment: (enabled: boolean) => void
     isFinalizing: boolean
     finalizeRun: () => void
-    reviewPending: number
+    button: FinalizeButtonCopy
 }
 
 export function QuillFinalizeRunActions({
@@ -14,10 +16,15 @@ export function QuillFinalizeRunActions({
     setAddImagesToComment,
     isFinalizing,
     finalizeRun,
-    reviewPending,
+    button,
 }: QuillFinalizeRunActionsProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
+            {button.note && (
+                <span className="text-xs text-secondary" data-attr="visual-review-finalize-progress">
+                    {button.note}
+                </span>
+            )}
             <div className="flex items-center gap-2">
                 <Checkbox
                     id="visual-review-add-images-to-comment"
@@ -41,9 +48,11 @@ export function QuillFinalizeRunActions({
                 variant="primary"
                 onClick={finalizeRun}
                 loading={isFinalizing}
+                tooltip={button.tooltip ?? undefined}
+                disabledReason={button.disabledReason ?? undefined}
                 data-attr="visual-review-finalize-run"
             >
-                {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                {isFinalizing ? 'Finalizing…' : button.label}
             </Button>
         </div>
     )
