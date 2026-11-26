@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from posthog.hogql import ast
 
@@ -175,6 +175,29 @@ def trace_session_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
         "argMinIf", [columns.session_id, ast.Tuple(exprs=[columns.timestamp, columns.session_id]), has_session]
     )
     return ast.Call(name="nullIf", args=[earliest, _constant("")])
+
+
+def trace_session_ids(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
+    """Every session a trace belongs to: each non-empty session id any of its events carries. A trace whose events name
+    two sessions belongs to both, and each of them counts it."""
+    return aggregate("groupUniqArrayIf", [columns.session_id, event_has_session(columns)])
+
+
+def names_session(columns: TraceColumns, session_ids: Sequence[str]) -> ast.Expr:
+    """Whether an event carries one of the session ids, which by `trace_session_ids` puts its whole trace in that
+    session. Reads narrow to the traces of such events before they group a trace's events."""
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=columns.session_id, right=ast.Constant(value=list(session_ids))
+    )
+
+
+def not_impersonated() -> ast.Expr:
+    """Whether an event was not sent while a support agent impersonated the user. Reads only the slim `properties`
+    column on `posthog.ai_events`, but the whole properties JSON on the shared events table."""
+    flag = _field("properties", "ai_support_impersonated")
+    return ast.Or(
+        exprs=[ast.Call(name="isNull", args=[flag]), _compare(ast.CompareOperationOp.NotEq, flag, _constant("true"))]
+    )
 
 
 def event_is_otel(columns: TraceColumns) -> ast.Expr:

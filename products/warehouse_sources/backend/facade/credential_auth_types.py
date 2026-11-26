@@ -1432,6 +1432,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "zenefits": "credentials",
     "zenloop": "token",
     "zep": "token",
+    "zernio": "token",
     "zero": "token",
     "zitadel": "credentials",
     "zluri": "credentials",

@@ -394,6 +394,14 @@ class TestHoneybadger:
         [
             ("team_members", "/v2/teams", "team_id", "team_name", [1, 2], "/v2/teams/{}/team_members"),
             ("account_users", "/v2/accounts", "account_id", "account_name", ["abc", "xyz"], "/v2/accounts/{}/users"),
+            (
+                "status_pages",
+                "/v2/accounts",
+                "account_id",
+                "account_name",
+                ["abc", "xyz"],
+                "/v2/accounts/{}/status_pages",
+            ),
         ],
     )
     def test_root_fan_out_walks_each_parent_and_stages_state_before_yield(

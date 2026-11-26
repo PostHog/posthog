@@ -56,6 +56,7 @@ export function CanvasEditorRenderer(): JSX.Element | null {
     }
     const hostProps: CanvasHostLogicProps = {
         canvasId: canvas.id,
+        canvasName: canvas.name,
         spaceId: canvas.channel,
         sourceVersionId: entry.baseVersionId,
     }

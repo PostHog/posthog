@@ -141,6 +141,9 @@ class InternalLogsProducer:
             return
         _count_records(source, "loop_guard", sum(1 for entry in entries if self._is_team_enabled(entry.team_id)))
 
+    def accepts(self, source: str, team_id: int) -> bool:
+        return self._enabled and source in INTERNAL_SOURCE_SERVICE_NAMES and self._is_team_enabled(team_id)
+
     def enqueue(self, source: str, entries: Iterable[InternalLogEntry]) -> None:
         if not self._enabled or source not in INTERNAL_SOURCE_SERVICE_NAMES:
             return
@@ -310,7 +313,7 @@ def _encode_otlp_log_record(entry: InternalLogEntry) -> bytes:
     record: dict[str, Any] = {
         "timeUnixNano": str(int(timestamp.timestamp() * 1_000_000) * 1_000),
         "severityText": entry.level.upper(),
-        "severityNumber": SEVERITY_NUMBERS.get(entry.level, 0),
+        "severityNumber": SEVERITY_NUMBERS.get(entry.level.lower(), 0),
         "body": {"stringValue": _valid_utf8(entry.message[:MAX_MESSAGE_LENGTH])},
         "attributes": [
             {"key": "log_source_id", "value": {"stringValue": entry.log_source_id}},

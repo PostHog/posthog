@@ -5,16 +5,9 @@ import { AnalyticsType } from 'scenes/analytics/analyticsUtils'
 
 import { TodayExplainerPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+import { todayRecordType } from '~/layout/today/todayRecordTypes'
 
 import { AnalyticsItemIcon } from './AnalyticsItemIcon'
-
-const DESCRIPTIONS: Record<AnalyticsType | 'collection', string> = {
-    canvas: 'A canvas. Open it to see the page built from your data.',
-    dashboard: 'A dashboard. Open it to see its insights and widgets.',
-    insight: 'An insight. Open it to see its chart and the query behind it.',
-    notebook: 'A notebook. Open it to read its analysis.',
-    collection: 'A collection. Open it to see the analytics kept in it.',
-}
 
 export function TodayAnalyticsRecordPreview({
     name,
@@ -31,7 +24,7 @@ export function TodayAnalyticsRecordPreview({
             kind: 'explainer',
             label: name,
             icon: type === 'collection' ? <AnalyticsSpaceGlyph name={name} /> : <AnalyticsItemIcon type={type} />,
-            description: DESCRIPTIONS[type],
+            description: todayRecordType(type).description,
         }),
         [name, type]
     )

@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -50,8 +51,9 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.experiments import get_experiment
 from products.experiments.backend.health.context import ConditionSetTraffic
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+from products.experiments.backend.logic.experiments import LIST_DEFERRED_FIELDS
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     get_metric_calculation_config,
@@ -69,9 +71,9 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
-from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -643,7 +645,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     def test_list_query_defers_heavy_metric_columns(self) -> None:
         # Omitting the metric fields lets the list query defer the heavy JSON columns — they must not
         # be SELECTed from posthog_experiment. metrics/metrics_secondary are the exception: the
-        # is_legacy annotation references them in its predicate (see list_is_legacy_annotation), so
+        # is_legacy annotation references them in its predicate (see _list_is_legacy_annotation), so
         # they appear in the WHERE/CASE but never in the SELECT output — the response still omits them
         # (test_list_omits_heavy_metric_fields_kept_on_detail). The other deferred columns stay absent.
         self._create_experiment_with_action_metrics(0)
@@ -731,18 +733,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
+            # (name, cutoff set, start_date offset from cutoff in days, expected event)
             ("before_cutoff", True, -7, "$feature_flag_called"),
             ("after_cutoff", True, 7, "$experiment_exposure"),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+            ("after_cutoff_without_cutoff_set", False, 7, "$feature_flag_called"),
         ]
     )
     def test_detail_reports_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, cutoff_set: bool, start_offset_days: int, expected_event: str
     ) -> None:
         # The frontend names the exposure event from this field, so it has to agree with what the
         # results queries actually read (resolve_default_exposure_event). Resolution compares
-        # start_date against a fixed constant, so these cases need no clock control.
+        # start_date against a fixed cutoff, so these cases need no clock control.
         experiment = Experiment.objects.create(
             team=self.team,
             name="resolved-exposure-event",
@@ -752,7 +754,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
 
-        with patch_exposure_event_flag(enabled=flag_enabled):
+        with override_exposure_event_cutoff(enabled=cutoff_set):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1246,6 +1248,72 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             [expected],
         )
 
+    @parameterized.expand(
+        [
+            ("draft", "", {}, "no_metric", ("not_applicable", "Runs after launch", {})),
+            (
+                "draft_at_launch",
+                "?at_launch=true",
+                {},
+                "no_metric",
+                ("finding", None, {"primary_metric_count": 0, "secondary_metric_count": 0}),
+            ),
+            (
+                "matured_users_at_launch",
+                "?at_launch=true",
+                {
+                    "metrics": [{**_HEALTH_METRIC, "conversion_window": 7, "conversion_window_unit": "day"}],
+                    "only_count_matured_users": True,
+                },
+                "metrics_not_matured",
+                (
+                    "finding",
+                    None,
+                    {"only_count_matured_users": True, "primary_metric_count": 1, "waiting_metric_count": 1},
+                ),
+            ),
+            (
+                "stale_experiment_at_launch",
+                "?at_launch=true",
+                {},
+                "stale_experiment",
+                ("passed", None, {"since_start_hours": 0.0, "daily_calculation_ends_at": "2026-03-06T12:00:00+00:00"}),
+            ),
+        ]
+    )
+    def test_health_checks_a_draft_at_launch_on_request(
+        self,
+        _name: str,
+        query: str,
+        experiment_fields: dict[str, Any],
+        check_key: str,
+        expected: tuple[str, str | None, dict[str, Any]],
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-at-launch-{_name}",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, name=f"health-at-launch-{_name}", feature_flag=flag, **experiment_fields
+        )
+
+        with time_machine.travel(datetime(2026, 1, 5, 12, tzinfo=UTC), tick=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        check = next(check for check in response.json()["checks"] if check["key"] == check_key)
+        self.assertEqual((check["status"], check["reason"], check["values"]), expected)
+
     def _deny_event_property(self, name: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -1322,10 +1390,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         with (
             time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False),
-            patch_exposure_event_flag(enabled=True),
+            override_exposure_event_cutoff(enabled=True),
         ):
             serialized = ExperimentSerializer(
-                experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
+                get_experiment(team=self.team, experiment_id=experiment.id),
+                context={"team_id": self.team.id, "get_team": lambda: self.team},
             ).data
 
         self.assertEqual(serialized["resolved_exposure_event"], expected_event)
@@ -1680,7 +1749,37 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
-    def test_cannot_assign_holdout_from_another_team(self):
+    @parameterized.expand(
+        [
+            (
+                "non_integer_string",
+                lambda other_team_holdout_id: "abc",
+                "incorrect_type",
+                "Incorrect type. Expected pk value, received str.",
+            ),
+            (
+                "boolean",
+                lambda other_team_holdout_id: True,
+                "incorrect_type",
+                "Incorrect type. Expected pk value, received bool.",
+            ),
+            (
+                "missing_id",
+                lambda other_team_holdout_id: other_team_holdout_id + 1,
+                "does_not_exist",
+                'Invalid pk "{holdout_id}" - object does not exist.',
+            ),
+            (
+                "another_teams_holdout",
+                lambda other_team_holdout_id: other_team_holdout_id,
+                "does_not_exist",
+                'Invalid pk "{holdout_id}" - object does not exist.',
+            ),
+        ]
+    )
+    def test_rejects_a_holdout_id_the_team_cannot_use(
+        self, _name: str, make_holdout_id: Callable[[int], object], code: str, detail: str
+    ) -> None:
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
         other_holdout = ExperimentHoldout.objects.create(
@@ -1688,18 +1787,27 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             name="Other Team Holdout",
             filters=[{"properties": [], "rollout_percentage": 20, "variant": "holdout"}],
         )
+        holdout_id = make_holdout_id(other_holdout.id)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
                 "feature_flag_key": "holdout-idor-test",
-                "holdout_id": other_holdout.id,
+                "holdout_id": holdout_id,
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("does not exist", response.json()["detail"])
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": code,
+                "detail": detail.format(holdout_id=holdout_id),
+                "attr": "holdout_id",
+            },
+        )
 
     def test_transferring_holdout_to_another_group(self):
         response = self.client.post(
@@ -5350,6 +5458,22 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
         self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
 
+    @parameterized.expand(
+        [("no_query", ""), ("search_misses", "?search=unrelated"), ("search_matches", "?search=denied")]
+    )
+    def test_retrieve_of_a_denied_experiment_ignores_the_list_filters(self, name: str, query: str) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Denied experiment", "denied-experiment-flag")
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment_id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, f"denied-{name}@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
     @parameterized.expand([("eligible_flag", True), ("ineligible_flag", False)])
     def test_copy_experiment_to_project_refuses_denied_flag_in_target(self, _name: str, eligible: bool) -> None:
         self._enable_access_control()
@@ -7530,7 +7654,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         flush_persons_and_events()
 
-        with patch_exposure_event_flag(enabled=True):
+        with override_exposure_event_cutoff(enabled=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
                 {},
@@ -10111,10 +10235,14 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_edit.status_code, status.HTTP_409_CONFLICT)
-        body = stale_edit.json()
-        self.assertIn("detail", body)
-        self.assertEqual(body["current_version"], 1)
-        self.assertEqual(body["conflicting_metric_uuids"], [snapshot["metrics"][0]["uuid"]])
+        self.assertEqual(
+            stale_edit.json(),
+            {
+                "detail": "A metric on this experiment changed since you loaded it. Review the latest changes and try again.",
+                "current_version": 1,
+                "conflicting_metric_uuids": [snapshot["metrics"][0]["uuid"]],
+            },
+        )
         experiment = Experiment.objects.get(id=snapshot["id"])
         self.assertEqual((experiment.metrics or [])[0]["source"]["event"], "their_event")
 
@@ -10297,7 +10425,15 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_conflicting_edit.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(stale_conflicting_edit.json()["conflicting_fields"], ["description"])
+        self.assertEqual(
+            stale_conflicting_edit.json(),
+            {
+                "detail": "This experiment changed since you loaded it, and your update changes fields that can't be "
+                "merged (description). Review the latest changes and try again.",
+                "current_version": snapshot["version"] + 1,
+                "conflicting_fields": ["description"],
+            },
+        )
         experiment = Experiment.objects.get(id=snapshot["id"])
         self.assertEqual(experiment.description, "their rewrite")
 
@@ -10505,9 +10641,13 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_write.status_code, status.HTTP_409_CONFLICT)
-        body = stale_write.json()
-        self.assertEqual(body["current_version"], snapshot["version"] + 1)
-        self.assertNotIn("conflicting_fields", body)
+        self.assertEqual(
+            stale_write.json(),
+            {
+                "detail": "This experiment changed since you loaded it. Review the latest changes and try again.",
+                "current_version": snapshot["version"] + 1,
+            },
+        )
 
     def test_duplicate_patch_racing_the_lock_window_succeeds_as_noop(self) -> None:
         # The UI sometimes dispatches one save as two parallel PATCHes: the loser reaches the

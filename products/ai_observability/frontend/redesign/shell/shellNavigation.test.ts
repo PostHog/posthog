@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { SHELL_TABS, ShellLocation, shellDocsUrl, shellLocationForSceneKey } from './shellNavigation'
+import { SHELL_TABS, ShellLocation, shellDocsUrl, shellLinkParams, shellLocationForSceneKey } from './shellNavigation'
 
 const DOCS = 'https://posthog.com/docs/ai-observability'
 
@@ -56,5 +56,18 @@ describe('shellNavigation', () => {
         [{ tab: null, scope: null }, `${DOCS}/installation`],
     ])('links %j to its docs page', (location, expected) => {
         expect(shellDocsUrl(location)).toBe(expected)
+    })
+
+    it('keeps the filters in tab and scope links but not the open trace or session', () => {
+        expect(
+            shellLinkParams({
+                date_from: '-7d',
+                trace: 't1',
+                ts: '2026-09-01T10:00:00Z',
+                step: 's1',
+                session: 'x',
+                timestamp: '2026-09-01T09:00:00Z',
+            })
+        ).toEqual({ date_from: '-7d' })
     })
 })

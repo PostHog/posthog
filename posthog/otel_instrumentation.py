@@ -1,4 +1,5 @@
 import os
+import re
 import atexit
 import typing
 import logging
@@ -24,8 +25,9 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import Decision, Sampler, SamplingResult, _get_from_env_or_default
 from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
-from opentelemetry.trace import Link, Span, SpanKind, StatusCode
+from opentelemetry.trace import Link, Span, SpanKind, StatusCode, TraceState
 from opentelemetry.util._decorator import _agnosticcontextmanager
 from opentelemetry.util.http import sanitize_method
 from opentelemetry.util.types import Attributes
@@ -35,6 +37,58 @@ from requests import PreparedRequest
 logger = structlog.get_logger(__name__)
 
 _OUTBOUND_URL_ATTRIBUTE_KEYS = ("http.url", "url.full")
+
+_ALWAYS_SAMPLED_ROOT_PATHS = re.compile(r"^/?api/(environments|projects)/\d+/dashboard_v2/query_batch/?$")
+
+
+def _request_path(attributes: Attributes) -> str | None:
+    # OTEL_SEMCONV_STABILITY_OPT_IN=http sends `url.path`. Old semconv sends `http.target` only when the WSGI
+    # server sets RAW_URI or REQUEST_URI. Granian sets neither, so its requests carry the full URL in `http.url`.
+    if not attributes:
+        return None
+    path = attributes.get("url.path") or attributes.get("http.target")
+    if isinstance(path, str):
+        return path.partition("?")[0]
+    url = attributes.get("http.url")
+    if isinstance(url, str):
+        try:
+            return urlsplit(url).path
+        except ValueError:
+            return None
+    return None
+
+
+class _AlwaysSampleRoutesSampler(Sampler):
+    """Samples every server span entering through a few low-volume routes and leaves all other decisions to `delegate`."""
+
+    def __init__(self, delegate: Sampler) -> None:
+        self._delegate = delegate
+
+    def should_sample(
+        self,
+        parent_context: Context | None,
+        trace_id: int,
+        name: str,
+        kind: SpanKind | None = None,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        trace_state: TraceState | None = None,
+    ) -> SamplingResult:
+        # A remote parent comes from the caller's `traceparent`, so its sampled flag must not switch tracing off here.
+        parent = trace.get_current_span(parent_context).get_span_context()
+        if attributes and (not parent.is_valid or parent.is_remote):
+            path = _request_path(attributes)
+            if path is not None and _ALWAYS_SAMPLED_ROOT_PATHS.match(path):
+                return SamplingResult(Decision.RECORD_AND_SAMPLE, attributes)
+        return self._delegate.should_sample(parent_context, trace_id, name, kind, attributes, links, trace_state)
+
+    def get_description(self) -> str:
+        return f"AlwaysSampleRoutes{{{_ALWAYS_SAMPLED_ROOT_PATHS.pattern}}}+{self._delegate.get_description()}"
+
+
+def build_sampler() -> Sampler:
+    # Same factory TracerProvider uses when no sampler is passed, so the OTEL_TRACES_SAMPLER* env vars still rule other routes.
+    return _AlwaysSampleRoutesSampler(_get_from_env_or_default())
 
 
 def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
@@ -258,7 +312,7 @@ def initialize_otel(*, instrument_outbound_calls: bool = False) -> None:
         # The SDK's atexit shutdown joins the exporter thread without a timeout.
         # A bounded flush keeps an unreachable collector from delaying worker exit.
         # The exporter thread is a daemon, so it can exit with the process.
-        provider = TracerProvider(resource=resource, shutdown_on_exit=False)
+        provider = TracerProvider(resource=resource, sampler=build_sampler(), shutdown_on_exit=False)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)
