@@ -34,8 +34,9 @@ function formatMoment(moment: Dayjs, now: Dayjs, preposition: 'at' | 'around'): 
     return `${moment.format('ddd, MMM D')} ${preposition} ${time}`
 }
 
-function trackedEmails(count: number): string {
-    return `${count === 1 ? 'email' : 'emails'} with open tracking`
+function countedEmails(count: number, anyTracking: boolean): string {
+    const emails = count === 1 ? 'email' : 'emails'
+    return anyTracking ? emails : `${emails} with open tracking`
 }
 
 // A paused, dry-run, or missing scout never checks, and a workflow that can't turn suggestions on never gets there.
@@ -73,6 +74,7 @@ export function suggestionReadiness(
 
     let readyAt: Dayjs | null = null
     let sendsShort = 0
+    let anyTracking = false
     if (sample) {
         const liveSince = dayjs(sample.version_live_since)
         const judgeableFrom = liveSince.add(MIN_VERSION_AGE_HOURS, 'hour')
@@ -90,16 +92,19 @@ export function suggestionReadiness(
                 : Math.round((Math.max(0, now.diff(liveSince, 'hour')) / MIN_VERSION_AGE_HOURS) * 100),
         })
 
-        sendsShort = Math.max(0, sample.required_sends - sample.tracked_sends)
+        // With a conversion goal PostHog can read, suggestions can aim at conversion, so untracked sends count too.
+        anyTracking = sample.reads_conversion
+        const counted = anyTracking ? sample.sends : sample.tracked_sends
+        sendsShort = Math.max(0, sample.required_sends - counted)
         steps.push({
             key: 'sends',
-            title: `${sample.required_sends} ${trackedEmails(sample.required_sends)} in 7 days`,
+            title: `${sample.required_sends} ${countedEmails(sample.required_sends, anyTracking)} in 7 days`,
             state: sendsShort === 0 ? 'done' : 'waiting',
             detail:
                 sendsShort === 0
-                    ? `The busiest email step sent ${sample.tracked_sends} ${trackedEmails(sample.tracked_sends)} in the last 7 days.`
-                    : `${sample.tracked_sends} of ${sample.required_sends} sent from the busiest email step in the last 7 days.`,
-            percent: sendsShort === 0 ? null : Math.round((sample.tracked_sends / sample.required_sends) * 100),
+                    ? `The busiest email step sent ${counted} ${countedEmails(counted, anyTracking)} in the last 7 days.`
+                    : `${counted} of ${sample.required_sends} sent from the busiest email step in the last 7 days.`,
+            percent: sendsShort === 0 ? null : Math.round((counted / sample.required_sends) * 100),
         })
     }
 
@@ -144,7 +149,7 @@ export function suggestionReadiness(
     } else if (sample && !ready) {
         headline =
             sendsShort > 0
-                ? `Needs ${sendsShort} more ${trackedEmails(sendsShort)}`
+                ? `Needs ${sendsShort} more ${countedEmails(sendsShort, anyTracking)}`
                 : `Can be judged from ${formatMoment(readyAt ?? now, now, 'at')}`
         detail =
             sendsShort > 0 && readyAt

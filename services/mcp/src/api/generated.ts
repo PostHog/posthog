@@ -61100,11 +61100,15 @@ export namespace Schemas {
     } as const;
 
     export interface SuggestionsSample {
-      /** Whether an email step of the live version has enough tracked sends, over enough time, for PostHog to judge it. */
+      /** Whether an email step of the live version has enough sends, over enough time, for PostHog to judge it. Only tracked sends count unless `reads_conversion` is true. */
       readonly reached: boolean;
       /** Tracked sends (sends with open tracking on) from the live version's busiest email step in the last 7 days. */
       readonly tracked_sends: number;
-      /** Tracked sends an email step needs before PostHog judges it. */
+      /** All sends, with open tracking on or off, from the live version's busiest email step in the last 7 days. */
+      readonly sends: number;
+      /** Whether PostHog can read this workflow's conversion goal. When true, sends without open tracking count toward `required_sends` too, because suggestions can aim at conversion instead of opens. */
+      readonly reads_conversion: boolean;
+      /** Sends an email step needs before PostHog judges it: tracked sends, or all sends when `reads_conversion` is true. */
       readonly required_sends: number;
       /** When the live version was published. PostHog waits 48 hours before judging it. */
       readonly version_live_since: string;

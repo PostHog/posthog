@@ -513,6 +513,7 @@ def conversion_sample_error(
     live: Mapping,
     base_version: int,
     step_id: Optional[str],
+    changes: Mapping,
     evidence: Mapping,
     measured: Optional[Mapping],
 ) -> Optional[str]:
@@ -521,23 +522,42 @@ def conversion_sample_error(
     A rate on too few runs is noise, and an email sent too few times in the window cannot be what moved it.
     A failed read leaves the suggestion filed and marked unverified, so only a reading that came back can refuse it.
     """
-    if not measured or target_metric_in(evidence) != TARGET_CONVERSION_METRIC:
+    if target_metric_in(evidence) != TARGET_CONVERSION_METRIC:
+        return None
+    # The sample is read from the base version, so the step has to be an email there to have sends to count.
+    revision = HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id, version=base_version).first()
+    base_emails = {
+        action["id"]: action
+        for action in (revision.content if revision is not None else live).get("actions") or []
+        if isinstance(action, dict) and action.get("type") == "function_email" and action.get("id")
+    }
+    changed_emails = sorted(
+        str(action["id"])
+        for action in changes.get("actions") or []
+        if isinstance(action, dict)
+        and action.get("id") in base_emails
+        # Only `config` holds what the email sends; read back from the API, a step also carries defaults the revision lacks.
+        and any(
+            _leaf(action, path) != _leaf(base_emails[action["id"]], path)
+            for path in _patch_paths(action.get("config"), ("config",))
+        )
+    )
+    # The sends floor reads the named step, so it has to be the email the suggestion changes.
+    if changed_emails and step_id not in changed_emails:
+        return (
+            f"This suggestion changes the email step {', '.join(changed_emails)}. Set `step_id` to that step, "
+            "so PostHog counts the sends of the email that changes."
+        )
+    if not measured:
         return None
     runs = int(measured["target"].get("n") or 0)
     if runs < MIN_EVIDENCE_SAMPLE:
         return (
             f"Conversion needs at least {MIN_EVIDENCE_SAMPLE} settled runs in the window. PostHog counts {runs} there."
         )
-    # The sample is read from the base version, so the step has to be an email there to have sends to count.
-    revision = HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id, version=base_version).first()
-    base_actions = (revision.content if revision is not None else live).get("actions") or []
-    email_step = any(
-        isinstance(action, dict) and action.get("id") == step_id and action.get("type") == "function_email"
-        for action in base_actions
-    )
     # The guardrails divide by every send of the step, tracked or not.
     sends = int((measured.get("guardrails") or [{}])[0].get("n") or 0)
-    if step_id and email_step and sends < MIN_EVIDENCE_SAMPLE:
+    if step_id in base_emails and sends < MIN_EVIDENCE_SAMPLE:
         return (
             f"Conversion needs at least {MIN_EVIDENCE_SAMPLE} sends of this email step in the window. "
             f"PostHog counts {sends} there."

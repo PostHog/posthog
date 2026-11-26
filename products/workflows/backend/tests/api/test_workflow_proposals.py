@@ -848,6 +848,9 @@ class TestWorkflowProposals(APIBaseTest):
             ("a draft activated under two days ago", True, (30, 0), 72, 24, False, 30),
             ("enough sends on a settled version", True, (30, 0), 72, 72, True, 30),
             ("too few sends before suggestions are on", False, (4, 0), 72, 72, False, 4),
+            ("untracked sends count with a readable goal", True, (25, 25), 72, 72, True, 0, CONVERSION_GOAL),
+            ("a goal does not lift too few sends", True, (12, 12), 72, 72, False, 0, CONVERSION_GOAL),
+            ("a goal too long to read", True, (25, 25), 72, 72, False, 0, {**CONVERSION_GOAL, "window": "60d"}),
         ]
     )
     def test_optimization_reports_the_sample_floor_of_the_live_version(
@@ -859,8 +862,9 @@ class TestWorkflowProposals(APIBaseTest):
         hours_since_first_send: int,
         reached: bool,
         tracked_sends: int,
+        conversion: dict | None = None,
     ):
-        flow_id = self._create_active_flow(optimize=optimize)
+        flow_id = self._create_active_flow(optimize=optimize, conversion=conversion)
         flow = HogFlow.objects.get(pk=flow_id)
         now = timezone.now() + timedelta(hours=hours_since_created)
         first_send = now - timedelta(hours=hours_since_first_send)
@@ -873,7 +877,13 @@ class TestWorkflowProposals(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         sample = response.json()["sample"]
-        assert (sample["reached"], sample["tracked_sends"], sample["required_sends"]) == (reached, tracked_sends, 20)
+        assert (sample["reached"], sample["tracked_sends"], sample["sends"], sample["required_sends"]) == (
+            reached,
+            tracked_sends,
+            sends[0],
+            20,
+        )
+        assert sample["reads_conversion"] == (conversion == CONVERSION_GOAL)
         args = mock_execute.call_args.args[1]
         assert (args["app_source_id"], args["step_ids"]) == (f"{flow_id}/{flow.version}", ["email_1"])
 
@@ -1730,14 +1740,30 @@ class TestWorkflowProposals(APIBaseTest):
             ("untracked_sends_still_count", 20, 20, "email_1", None),
             ("no_step_named", 20, 0, None, None),
             ("a_step_that_sends_no_email", 20, 0, "action_1", None),
+            ("changes_the_email_it_names", 25, 25, "email_1", None, True),
+            ("changes_an_email_but_names_another_step", 25, 25, "action_1", "Set `step_id` to that step", True),
+            ("changes_an_email_but_names_no_step", 25, 25, None, "changes the email step email_1", True),
+            ("carries_the_email_unchanged", 25, 25, "action_1", None, False),
         ]
     )
     def test_a_conversion_suggestion_needs_a_sample_posthog_can_count(
-        self, _name: str, runs: int, sends: int, step_id: str | None, refusal: str | None
+        self,
+        _name: str,
+        runs: int,
+        sends: int,
+        step_id: str | None,
+        refusal: str | None,
+        changes_email: bool | None = None,
     ) -> None:
         flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        change = None
+        if changes_email is not None:
+            email = {**_email_action(), "description": ""}
+            if changes_email:
+                email["config"]["inputs"]["email"]["value"]["subject"] = "Your cart is waiting"
+            change = {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com"), email]}
         with _filed_sample(runs=runs, sends=sends):
-            response = self._post_conversion_proposal(flow_id, _conversion_evidence(), step_id=step_id)
+            response = self._post_conversion_proposal(flow_id, _conversion_evidence(), change=change, step_id=step_id)
         assert response.status_code == (400 if refusal else 201), response.json()
         if refusal:
             assert response.json()["attr"] == "evidence"
