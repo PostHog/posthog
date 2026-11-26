@@ -2035,8 +2035,8 @@ describe('EmailTrackingService', () => {
                 })
                 const emailService = api['hogExecutorAsync']['deps'].emailService
                 const sesSend = jest
-                    .spyOn(emailService.sesV2Client!, 'send')
-                    .mockResolvedValue({ MessageId: 'ses-message-id' } as never)
+                    .spyOn(emailService.sesTransport!, 'send')
+                    .mockResolvedValue({ kind: 'accepted', messageId: 'ses-message-id' })
                 const invocation = createExampleInvocation({ id: hogFlow.id, team_id: team.id })
                 invocation.state.globals.event.distinct_id = 'user-1'
                 if (transactional) {
@@ -2055,13 +2055,13 @@ describe('EmailTrackingService', () => {
                 }
 
                 expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
-                const input = (sesSend.mock.calls[0][0] as any).input
-                const headers: { Name: string; Value: string }[] = input.Content.Simple.Headers
-                const emailTags: { Name: string; Value: string }[] = input.EmailTags
+                const { email } = sesSend.mock.calls[0][0]
+                const headers = email.Content!.Simple!.Headers!
+                const emailTags = email.EmailTags!
                 mockInternalFetch.mockClear()
                 return {
                     hogFlowId: hogFlow.id,
-                    headerCode: headers.find((header) => header.Name === TRACKING_CODE_HEADER_NAME)!.Value,
+                    headerCode: headers.find((header) => header.Name === TRACKING_CODE_HEADER_NAME)!.Value!,
                     tags: Object.fromEntries(emailTags.map((tag) => [tag.Name, [tag.Value]])),
                 }
             }
