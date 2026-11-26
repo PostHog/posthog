@@ -81,16 +81,18 @@ from products.experiments.backend.facade.contracts import (
     SdkLibCategory,
     SetupContextSectionStatus,
 )
-from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
+from products.experiments.backend.facade.enums import (
+    RUNNING_TIME_METRIC_TYPES,
+    ExperimentResultConfigurationStatus,
+    MetricSourceRole,
+)
 from products.experiments.backend.facade.experiment_validation import holdout_exists
-from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_events import MetricSourceRole
+from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
     get_experiment_rule,
 )
-from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
@@ -2198,7 +2200,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     """Inputs for estimating the recommended sample size and running time of an experiment."""
 
     metric_type = serializers.ChoiceField(
-        choices=METRIC_TYPE_CHOICES,
+        choices=RUNNING_TIME_METRIC_TYPES,
         help_text=(
             "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
             "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "

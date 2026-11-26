@@ -588,6 +588,18 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
 
 
+def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
+    """Start the timeseries backfill workflow for a row that ``request_timeseries_recalculation`` created.
+
+    When the start fails, the row is marked failed, and the exception propagates.
+    """
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    recalculation.start_timeseries_recalculation_workflow(recalculation_id, team_id=team_id)
+
+
 def request_metrics_recalculation(
     *, team_id: int, experiment_id: int, user_id: int, trigger: str
 ) -> RequestedRecalculation:
