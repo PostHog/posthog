@@ -290,6 +290,38 @@ describe('scorecard', () => {
         expect(scorecardOf({ ...RESULT, invariants: [invariant] }, SMOKE, PROVENANCE)).toMatchObject(expected)
     })
 
+    it.each<[string, NonNullable<RunResult['alerts']>, object]>([
+        [
+            'counts and names the rules it evaluated, could not evaluate and left out, and the gaps in its evidence',
+            {
+                evaluated: ['SyntheticA', 'SyntheticB'],
+                fired: ['SyntheticB'],
+                unevaluable: [{ rule: 'SyntheticC', selectors: ['synthetic_gone_total'] }],
+                excluded: ['SyntheticD'],
+                gaps: [{ from: 1000, to: 4000, reason: 'missed evaluations', rules: ['SyntheticA'] }],
+            },
+            {
+                alerts_evaluated: ['SyntheticA', 'SyntheticB'],
+                alerts_evaluated_count: 2,
+                alerts_fired: ['SyntheticB'],
+                alerts_fired_count: 1,
+                alerts_unevaluable: [{ rule: 'SyntheticC', selectors: ['synthetic_gone_total'] }],
+                alerts_unevaluable_count: 1,
+                alerts_excluded: ['SyntheticD'],
+                alerts_excluded_count: 1,
+                alerts_gaps: [{ from: 1000, to: 4000, reason: 'missed evaluations', rules: ['SyntheticA'] }],
+                alerts_gaps_count: 1,
+            },
+        ],
+        [
+            'says why it has no alert coverage',
+            { unread: 'the alert engine did not start: no docker' },
+            { alerts_unread: 'the alert engine did not start: no docker' },
+        ],
+    ])('%s', (_story, alerts, expected) => {
+        expect(scorecardOf({ ...RESULT, alerts }, SMOKE, PROVENANCE)).toMatchObject(expected)
+    })
+
     it.each<[string, RunResult['ramp'], object]>([
         [
             'where it broke and what broke',
