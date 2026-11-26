@@ -139,6 +139,8 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
 @database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
+    if not recalculation_enabled():
+        _fail_pending_run_when_paused(recalculation_id)
 
     state = _get_recalc_state(recalculation_id)
     with team_scope(state.team_id, canonical=True):
@@ -235,11 +237,13 @@ def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
 def _fail_pending_run_when_paused(recalculation_id: str) -> None:
     # Only a never-started run fails, so calcs in flight finish; an empty completed_at keeps the latest results.
     failed = (
-        ExperimentMetricsRecalculation.objects.filter(
+        ExperimentMetricsRecalculation.objects.unscoped()
+        .filter(
             id=recalculation_id,
             status=ExperimentMetricsRecalculation.Status.PENDING,
             query_to__isnull=True,
-        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
+        )
+        .update(status=ExperimentMetricsRecalculation.Status.FAILED)
         == 1
     )
     if failed:

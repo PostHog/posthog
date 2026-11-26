@@ -36,6 +36,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
+    SKIP_RECALCULATION_PAUSED,
     SKIP_START_WINDOW_ELAPSED,
     ScheduledRecalculationDiscovery,
     count_total_exposures,
@@ -111,6 +112,8 @@ async def discover_scheduled_recalculation_candidates() -> ScheduledRecalculatio
 @database_sync_to_async_pool
 def _check_experiment_exposures_sync(experiment_id: int, hour: int) -> bool:
     close_old_connections()
+    if not recalculation_enabled():
+        return False
     experiment = Experiment.objects.filter(id=experiment_id, deleted=False).first()
     if experiment is None:
         return False
@@ -147,6 +150,10 @@ def _start_scheduled_recalculation_sync(
         )
 
     close_old_connections()
+    if not recalculation_enabled():
+        return ScheduledRecalculationStartResult(
+            experiment_id=experiment_id, started=False, skip_reason=SKIP_RECALCULATION_PAUSED
+        )
     # Re-check RUNNING, not just deleted: discovery ran before the exposure query, and an
     # experiment stopped in between should not get a scheduled run.
     experiment = (

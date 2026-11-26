@@ -38,6 +38,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
     SKIP_NO_METRICS,
+    SKIP_RECALCULATION_PAUSED,
     SKIP_RECENT_RUN,
     SKIP_START_WINDOW_ELAPSED,
     SKIP_ZERO_ROLLOUT,
@@ -158,11 +159,25 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert capture.call_args.kwargs["properties"]["reason"] == reason
         assert capture.call_args.kwargs["properties"]["hour"] == 12
 
-    def test_discovery_returns_no_candidates_while_recalculation_is_paused(self):
-        with override_instance_config(RECALCULATION_ENABLED_SETTING, False):
-            discovery = _discover()
-        assert discovery.hour == 12
-        assert discovery.candidates == []
+    @parameterized.expand(
+        [
+            ("discovery", lambda test: _discover().candidates, []),
+            ("exposure_check", lambda test: _check_exposures(test.experiment.id, 12), False),
+            ("start", lambda test: _start_recalculation(test.experiment.id, 12).skip_reason, SKIP_RECALCULATION_PAUSED),
+        ]
+    )
+    def test_activity_reads_only_the_setting_while_recalculation_is_paused(
+        self, _name: str, run: Callable[["TestScheduledRecalculationActivities"], object], expected: object
+    ):
+        with (
+            override_instance_config(RECALCULATION_ENABLED_SETTING, False),
+            patch(f"{MODULE}.count_total_exposures", return_value=120),
+            patch(DISPATCH),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+            assert run(self) == expected
+        assert [q["sql"] for q in queries.captured_queries if "posthog_instancesetting" not in q["sql"]] == []
 
     def test_discovery_query_count_does_not_grow_with_skips(self):
         # Covers the skipped events too: each one reads the team, organization and creator.

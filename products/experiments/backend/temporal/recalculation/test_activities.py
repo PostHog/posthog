@@ -12,7 +12,9 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
@@ -28,7 +30,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
-from posthog.models.instance_setting import override_instance_config
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
@@ -401,6 +403,25 @@ class TestRecalculationActivities(BaseTest):
 
         recalc.refresh_from_db()
         assert recalc.status == ("in_progress" if started_before_pause else "failed")
+        assert recalc.completed_at is None
+
+    def test_discover_while_recalculation_is_paused_fails_the_run_before_reading_it(self):
+        recalc = self._recalc(self._experiment(flag_key="discover-paused"))
+
+        with (
+            override_instance_config(RECALCULATION_ENABLED_SETTING, False),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+            with pytest.raises(ApplicationError) as exc_info:
+                _discover(str(recalc.id))
+
+        assert exc_info.value.type == RECALCULATION_PAUSED_ERROR_TYPE
+        assert exc_info.value.non_retryable
+        other_queries = [q["sql"] for q in queries.captured_queries if "posthog_instancesetting" not in q["sql"]]
+        assert len(other_queries) == 1 and other_queries[0].startswith("UPDATE")
+        recalc.refresh_from_db()
+        assert recalc.status == "failed"
         assert recalc.completed_at is None
 
     @parameterized.expand(
