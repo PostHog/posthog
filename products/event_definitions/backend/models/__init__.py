@@ -2,8 +2,6 @@ from .definition_metadata import EventDefinitionMetadata, PropertyDefinitionMeta
 from .event_definition import EventDefinition, SchemaEnforcementMode
 from .event_property import EventProperty
 from .property_definition import (
-    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
-    PROPERTY_DEFINITIONS_TABLE_SQL,
     PropertyDefinition,
     PropertyFormat,
     PropertyType,
@@ -25,8 +23,6 @@ __all__ = [
     "SchemaPropertyGroup",
     "SchemaPropertyGroupProperty",
     "SchemaPropertyType",
-    "PROPERTY_DEFINITIONS_TABLE_SQL",
-    "DROP_PROPERTY_DEFINITIONS_TABLE_SQL",
     "effective_project_id_expr",
     "group_type_index_key_expr",
 ]
