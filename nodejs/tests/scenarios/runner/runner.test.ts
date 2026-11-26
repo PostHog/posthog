@@ -671,7 +671,13 @@ describe('runner', () => {
                 expect(result).toMatchObject({
                     status: 'invalid',
                     statusReason: expect.stringMatching(new RegExp(`^the run stopped: .*${statusReason.source}`)),
+                    stopped: {
+                        phase: 'seed',
+                        stack: expect.stringMatching(new RegExp(`${statusReason.source}.*\\n +at `)),
+                    },
                 })
+                const ended = readFileSync(path.join(result.evidenceDir, LIVE_FILE), 'utf8').trim().split('\n').at(-1)
+                expect(parseJSON(ended!)).toMatchObject({ type: 'end', stopped: result.stopped })
                 expect(rows).toEqual([])
             } finally {
                 await holder.end()
