@@ -3949,7 +3949,6 @@ def _size_refused_engine_output() -> str:
             _REFUSED_HEADLINE,
             id="migrations-only",
         ),
-        # A gate refusal is stored as a WAIT, so only the verdict tells it apart from a real wait.
         pytest.param(
             _size_refused_engine_output(), "label", "Add the `stamphog` label", _REFUSED_HEADLINE, id="size-refusal"
         ),

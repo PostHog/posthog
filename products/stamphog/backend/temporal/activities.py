@@ -2770,9 +2770,9 @@ def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
     """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
 
     A deny on migrations alone is excluded: a rerun of the `Migration risk` check at the same head can lift it.
+    A WAIT is excluded too: it waits on a pending check that can lift the deny, and re-reviews once that check reports.
     """
     if parsed.verdict not in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
-        # A WAIT on a pending check that can lift the deny re-reviews once the check reports.
         return False
     gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
     failed = {g.get("gate") for g in gates if not g.get("passed", True)}
@@ -2793,8 +2793,10 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     The engine's ``review_body`` is the rich version (reasoning plus the gate table) and the
     ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
     prepended to both, so the outcome is stated whichever one is available.
+
+    A gate refusal is stored as a GATED WAIT, so the headline follows the engine's verdict: a refusal
+    must not read as a wait.
     """
-    # A gate refusal is stored as a GATED WAIT, but the engine refused it, so it must not read as a wait.
     gate_refused = parsed.gate_blocked and parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
     if gate_refused:
         verdict = ReviewVerdict.REFUSED
