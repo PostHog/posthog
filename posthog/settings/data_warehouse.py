@@ -277,6 +277,11 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
     os.getenv("WAREHOUSE_SOURCES_DATABASE_URL") or PRODUCT_DB_WRITER_URLS.get("warehouse_sources_queue") or DATABASE_URL
 )
 
+# Set only while the batch queue moves to another queue: the URL of the queue that takes no new
+# runs and is consumed until it is empty. WAREHOUSE_SOURCES_DATABASE_URL is then the new queue.
+# See "Migrating to another queue" in products/warehouse_sources_queue/backend/README.md.
+WAREHOUSE_SOURCES_DRAINING_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DRAINING_DATABASE_URL", "")
+
 # Warehouse-pipeline and cyclotron Kafka config live in `posthog/settings/kafka.py`
 # (profiles `warehouse_sources` and `cyclotron`) — read from `settings.KAFKA_PROFILES[...]`
 # or via the back-compat top-level names that settings/kafka.py exposes.

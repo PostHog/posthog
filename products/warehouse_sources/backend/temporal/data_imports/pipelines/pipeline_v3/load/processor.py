@@ -136,6 +136,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ExportSignalMessage,
     SyncTypeLiteral,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    all_queue_urls,
+    consuming_queue_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import ReplaceScopeRun
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
     read_parquet,
@@ -726,7 +730,7 @@ def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
     below it loaded in an earlier write.
     """
     unfinished = BatchQueue.get_unfinished_earlier_batches_sync(
-        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        consuming_queue_url(),
         team_id=export_signal.team_id,
         schema_id=export_signal.schema_id,
         run_uuid=export_signal.run_uuid,
@@ -760,13 +764,17 @@ def _refuse_unloaded_continued_jobs(export_signal: ExportSignalMessage) -> None:
     """
     if not export_signal.continued_job_ids:
         return
-    unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
-        settings.WAREHOUSE_SOURCES_DATABASE_URL,
-        team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
-        job_ids=export_signal.continued_job_ids,
-    )
-    if unfinished.count == 0:
+    # A continued job can have started before a queue migration, so its batches can be in either queue.
+    for queue_url in all_queue_urls():
+        unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
+            queue_url,
+            team_id=export_signal.team_id,
+            schema_id=export_signal.schema_id,
+            job_ids=export_signal.continued_job_ids,
+        )
+        if unfinished.count > 0:
+            break
+    else:
         return
 
     INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
@@ -1190,7 +1198,7 @@ def _promote_loaded_prefix(run_signals: list[ExportSignalMessage], schema: Exter
     """
     head = run_signals[0]
     prefix = BatchQueue.get_loaded_prefix_sync(
-        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        consuming_queue_url(),
         team_id=head.team_id,
         schema_id=head.schema_id,
         run_uuid=head.run_uuid,

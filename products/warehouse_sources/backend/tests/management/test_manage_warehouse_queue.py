@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import override_settings
 from django.utils import timezone
 
 import psycopg
@@ -68,7 +69,7 @@ def queue_conn() -> Generator[psycopg.Connection[Any]]:
     with psycopg.connect(url, autocommit=True) as conn:
         _ensure_tables(conn)
         _truncate_tables(conn)
-        with patch(f"{COMMAND_MODULE}.WAREHOUSE_SOURCES_DATABASE_URL", url):
+        with override_settings(WAREHOUSE_SOURCES_DATABASE_URL=url):
             yield conn
 
 

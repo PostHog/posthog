@@ -13,7 +13,6 @@ from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
-from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.logger import get_logger
@@ -26,6 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.organization_state import organization_deactivated
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    all_queue_urls,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
@@ -379,9 +381,14 @@ def _take_over_stale_running_job(
     logger: Any,
 ) -> bool:
     """Consult queue DB for a RUNNING job whose workflow is terminal."""
+    # During a queue migration the holder's batches can be in either queue, or in both.
+    conns: list[psycopg.Connection[Any]] = []
     try:
-        conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        for queue_url in all_queue_urls():
+            conns.append(psycopg.Connection.connect(queue_url, autocommit=True))
     except Exception as e:
+        for conn in conns:
+            conn.close()
         logger.warning(
             "v3_pipeline_lock_takeover_ambiguous",
             schema_id=str(inputs.schema_id),
@@ -395,11 +402,14 @@ def _take_over_stale_running_job(
 
     try:
         try:
-            summary = BatchQueue.get_run_activity_summary(
-                conn,
-                job_id=str(holder_job.id),
-                workflow_run_id=holder,
-            )
+            summaries = [
+                BatchQueue.get_run_activity_summary(
+                    conn,
+                    job_id=str(holder_job.id),
+                    workflow_run_id=holder,
+                )
+                for conn in conns
+            ]
         except Exception as e:
             logger.warning(
                 "v3_pipeline_lock_takeover_ambiguous",
@@ -414,7 +424,10 @@ def _take_over_stale_running_job(
 
         hold_seconds = (datetime.now(UTC) - holder_job.created_at).total_seconds()
 
-        if summary.has_non_terminal and not summary.is_stale:
+        # Progress in one queue is enough to leave the holder alone.
+        live = [found for found in summaries if found.has_non_terminal and not found.is_stale]
+        summary = (live or [found for found in summaries if found.has_batches] or summaries)[0]
+        if live:
             # The loader is making progress on this run's batches - don't steal. Failing its
             # batches does not stop a merge already in flight, so a takeover here lets two
             # runs write the same table.
@@ -436,10 +449,13 @@ def _take_over_stale_running_job(
         # loaded afterwards they could stale-overwrite newer data or flip the
         # FAILED job back to COMPLETED via the final-batch sentinel.
         try:
-            failed_batches = BatchQueue.fail_batches_for_job_sync(
-                conn,
-                job_id=str(holder_job.id),
-                reason=LOCK_TAKEOVER_LATEST_ERROR,
+            failed_batches = sum(
+                BatchQueue.fail_batches_for_job_sync(
+                    conn,
+                    job_id=str(holder_job.id),
+                    reason=LOCK_TAKEOVER_LATEST_ERROR,
+                )
+                for conn in conns
             )
         except Exception as e:
             logger.warning(
@@ -453,7 +469,8 @@ def _take_over_stale_running_job(
                 capture_exception(e)
             return False
     finally:
-        conn.close()
+        for conn in conns:
+            conn.close()
 
     takeover_logger = structlog.get_logger(__name__).bind(team_id=inputs.team_id)
     try:

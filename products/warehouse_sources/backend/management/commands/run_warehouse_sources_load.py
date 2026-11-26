@@ -6,7 +6,6 @@ from django.core.management.base import BaseCommand, CommandError
 import structlog
 
 from posthog.product_db_migrations import collect_unapplied_product_migrations, configured_product_databases
-from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.internal_logs import InternalLogsSink
 from posthog.temporal.common.logger import configure_logger
 
@@ -20,6 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
     process_batches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    active_queue_url,
+    draining_queue_url,
+    set_consuming_queue_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.thread_pools import (
     LoaderThreadPools,
@@ -46,13 +50,27 @@ def parse_sync_types(raw: str | None, flag: str) -> list[str] | None:
     return values
 
 
+def resolve_queue_urls(queue: str) -> tuple[str, str | None]:
+    """The queue this loader consumes, and the draining queue whose leases it must also hold.
+
+    A loader of the draining queue needs no second lease: its own lease table is the one
+    the loaders of the active queue defer to.
+    """
+    draining = draining_queue_url()
+    if queue == "draining":
+        if draining is None:
+            raise CommandError("--queue draining needs WAREHOUSE_SOURCES_DRAINING_DATABASE_URL")
+        return draining, None
+    return active_queue_url(), draining
+
+
 def build_consumer_config(options: dict) -> ConsumerConfig:
     """Translate CLI options into a ConsumerConfig.
 
     Ceiling flags map 0 to None (disabled); unset flags keep the dataclass defaults.
     """
     kwargs: dict = {
-        "database_url": WAREHOUSE_SOURCES_DATABASE_URL,
+        "database_url": resolve_queue_urls(options.get("queue") or "active")[0],
         "max_concurrency": options["max_concurrency"],
         "poll_interval_seconds": options["poll_interval"],
         "poll_limit": options["poll_limit"],
@@ -91,6 +109,7 @@ async def _run_consumer(
     health_reporter,
     claim_sync_types: list[str] | None,
     claim_exclude_sync_types: list[str] | None,
+    draining_database_url: str | None = None,
 ) -> None:
     """Configure the Temporal-style produce path then run the consumer.
 
@@ -114,6 +133,7 @@ async def _run_consumer(
             health_reporter=health_reporter,
             claim_sync_types=claim_sync_types,
             claim_exclude_sync_types=claim_exclude_sync_types,
+            draining_database_url=draining_database_url,
         )
         await consumer.run()
     finally:
@@ -241,6 +261,15 @@ class Command(BaseCommand):
             help="Comma-separated sync types this consumer claims (e.g. 'cdc'). Default: all",
         )
         parser.add_argument(
+            "--queue",
+            choices=["active", "draining"],
+            default="active",
+            help=(
+                "Which queue this consumer claims from. 'draining' is the old queue of a queue migration "
+                "(WAREHOUSE_SOURCES_DRAINING_DATABASE_URL). Default: active"
+            ),
+        )
+        parser.add_argument(
             "--skip-migrations-check",
             action="store_true",
             help="Skip the startup check that the queue DB has this image's migrations applied (emergency escape hatch)",
@@ -282,6 +311,8 @@ class Command(BaseCommand):
         health_timeout = options["health_timeout"]
 
         config = build_consumer_config(options)
+        _, draining_database_url = resolve_queue_urls(options.get("queue") or "active")
+        set_consuming_queue_url(config.database_url)
         pool_sizes = build_thread_pool_sizes(options, config)
 
         # Size deltalite's per-upsert memory slices against this loader's real concurrency (its own
@@ -319,11 +350,20 @@ class Command(BaseCommand):
             poll_failure_liveness_threshold=config.poll_failure_liveness_threshold,
             claim_sync_types=claim_sync_types,
             claim_exclude_sync_types=claim_exclude_sync_types,
+            queue=options.get("queue") or "active",
+            holds_draining_queue_leases=draining_database_url is not None,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)
         start_health_server(port=health_port, health_state=health_state)
 
         asyncio.run(
-            _run_consumer(config, pool_sizes, health_state.report_healthy, claim_sync_types, claim_exclude_sync_types)
+            _run_consumer(
+                config,
+                pool_sizes,
+                health_state.report_healthy,
+                claim_sync_types,
+                claim_exclude_sync_types,
+                draining_database_url,
+            )
         )

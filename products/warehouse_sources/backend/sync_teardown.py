@@ -21,9 +21,10 @@ import psycopg
 import structlog
 from prometheus_client import Counter
 
-from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
-
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    all_queue_urls,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
     release_v3_pipeline_lock,
@@ -161,9 +162,11 @@ def teardown_schema_syncs(
         ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id, status=ExternalDataJob.Status.RUNNING)
     )
 
-    conn: psycopg.Connection[Any] | None = None
+    # During a queue migration the schema's runs can be in either queue, so each queue gets the cleanup.
+    conns: list[psycopg.Connection[Any]] = []
     try:
-        conn = psycopg.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        for queue_url in all_queue_urls():
+            conns.append(psycopg.connect(queue_url, autocommit=True))
     except Exception:
         # Queue-side cleanup will happen on the retry; still finalize jobs and
         # cancel workflows below so the run stops producing work in the meantime.
@@ -172,7 +175,7 @@ def teardown_schema_syncs(
 
     try:
         handled_job_ids: set[str] = set()
-        if conn is not None:
+        for conn in conns:
             try:
                 active_runs = BatchQueue.get_active_runs(conn, team_id=team_id, schema_ids=[schema_id])
             except Exception:
@@ -203,7 +206,7 @@ def teardown_schema_syncs(
             if str(job.id) in handled_job_ids or job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
                 continue
             outcome = teardown_run(
-                conn,
+                None,
                 run_uuid=None,
                 job_id=str(job.id),
                 team_id=team_id,
@@ -218,7 +221,7 @@ def teardown_schema_syncs(
 
         # Only expired leases are dropped: a live lease belongs to a consumer pod that
         # will finish its claimed batches and let the lease lapse once nothing is pending.
-        if conn is not None:
+        for conn in conns:
             try:
                 expired_pairs = [
                     (lease.team_id, lease.schema_id)
@@ -226,14 +229,14 @@ def teardown_schema_syncs(
                     if not lease.is_live
                 ]
                 if expired_pairs:
-                    leases_released = BatchQueue.force_release_leases(conn, pairs=expired_pairs)
+                    leases_released += BatchQueue.force_release_leases(conn, pairs=expired_pairs)
             except Exception:
                 logger.exception(
                     "sync_teardown_lease_release_failed", team_id=team_id, external_data_schema_id=schema_id
                 )
                 errors += 1
     finally:
-        if conn is not None:
+        for conn in conns:
             conn.close()
 
     for job in running_jobs:

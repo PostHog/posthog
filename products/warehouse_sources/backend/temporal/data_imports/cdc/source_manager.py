@@ -27,7 +27,6 @@ from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
-from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -74,6 +73,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    all_queue_urls,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
     DEFAULT_BATCH_BYTE_LIMIT,
@@ -455,14 +457,18 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
 
 def has_queued_batches(schema: ExternalDataSchema) -> bool:
     """Whether any batch of this schema is still waiting or loading in the queue."""
-    conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
-    try:
-        age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
-            conn, team_id=schema.team_id, schema_ids=[str(schema.id)]
-        )
-    finally:
-        conn.close()
-    return age is not None
+    # During a queue migration the schema's batches can be in either queue.
+    for queue_url in all_queue_urls():
+        conn = psycopg.Connection.connect(queue_url, autocommit=True)
+        try:
+            age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                conn, team_id=schema.team_id, schema_ids=[str(schema.id)]
+            )
+        finally:
+            conn.close()
+        if age is not None:
+            return True
+    return False
 
 
 def consolidated_resource_name(schema: ExternalDataSchema) -> str:

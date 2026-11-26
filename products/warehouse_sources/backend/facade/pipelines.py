@@ -19,6 +19,7 @@ _LAZY = {
     "TERMINAL_JOB_STATUSES": "metrics",
     "emit_data_import_app_metrics": "metrics",
     "BatchQueue": "products.warehouse_sources_queue.backend.core.jobs_db",
+    "all_queue_urls": "pipelines.pipeline_v3.postgres_queue.queues",
     "mark_job_failed_if_not_terminal": "pipelines.pipeline_v3.postgres_queue.consumer",
     "destination_named_in_failure": "pipelines.pipeline_v3.destinations_load.errors",
     "is_configuration_failure_of": "pipelines.pipeline_v3.destinations_load.errors",

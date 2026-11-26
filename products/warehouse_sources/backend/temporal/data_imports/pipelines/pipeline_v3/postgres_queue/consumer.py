@@ -109,6 +109,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     clear_queue_sample_gauges,
     observe_queue_query,
 )
+from products.warehouse_sources_queue.backend.core.queue_migration import DrainingQueueLeases
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 logger = structlog.get_logger(__name__)
@@ -268,11 +269,15 @@ class DeltaBatchConsumerAdapter:
         *,
         claim_sync_types: list[str] | None = None,
         claim_exclude_sync_types: list[str] | None = None,
+        draining_leases: DrainingQueueLeases | None = None,
     ) -> None:
         # Fleet partition: the sync_type classes this consumer claims and sweeps.
         # None/None (the default) means the whole queue — a single-fleet deployment.
         self._claim_sync_types = claim_sync_types
         self._claim_exclude_sync_types = claim_exclude_sync_types
+        # Set only on a consumer of the active queue while another queue drains. Every lease
+        # this adapter holds is then paired with the same group's lease in the draining queue.
+        self._draining_leases = draining_leases
         # Stable for the life of the consumer, so the gauge-slot holder can renew its own slot.
         self._gauge_owner_token = str(uuid4())
         self._gauge_slot_key = queue_gauges_slot_key(
@@ -318,6 +323,14 @@ class DeltaBatchConsumerAdapter:
         skip_locked: bool = False,
     ) -> None:
         await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token, skip_locked=skip_locked)
+        if self._draining_leases is not None:
+            try:
+                await self._draining_leases.release(
+                    {(b.team_id, b.schema_id) for b in batches}, owner_token=owner_token
+                )
+            except Exception as e:
+                # The lease expires after its TTL, and until then it only delays the draining queue.
+                logger.warning("draining_queue_lease_release_failed", error=str(e))
 
     async def release_all_owned(
         self,
@@ -326,6 +339,11 @@ class DeltaBatchConsumerAdapter:
         owner_token: str,
     ) -> None:
         await BatchQueue.release_all_owned_leases(conn, owner_token=owner_token)
+        if self._draining_leases is not None:
+            try:
+                await self._draining_leases.release_all(owner_token=owner_token)
+            except Exception as e:
+                logger.warning("draining_queue_lease_release_failed", error=str(e))
 
     async def update_status(
         self,
@@ -463,9 +481,13 @@ class DeltaBatchConsumerAdapter:
         schema_id: str,
         owner_token: str,
     ) -> bool:
-        return await BatchQueue.verify_advisory_lock(
+        if not await BatchQueue.verify_advisory_lock(
             conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token
-        )
+        ):
+            return False
+        if self._draining_leases is None:
+            return True
+        return await self._draining_leases.verify(team_id=team_id, schema_id=schema_id, owner_token=owner_token)
 
     async def renew_lease(
         self,
@@ -476,12 +498,18 @@ class DeltaBatchConsumerAdapter:
         owner_token: str,
         lease_ttl_seconds: int,
     ) -> bool:
-        return await BatchQueue.renew_lease(
+        if not await BatchQueue.renew_lease(
             conn,
             team_id=team_id,
             schema_id=schema_id,
             owner_token=owner_token,
             lease_ttl_seconds=lease_ttl_seconds,
+        ):
+            return False
+        if self._draining_leases is None:
+            return True
+        return await self._draining_leases.renew(
+            team_id=team_id, schema_id=schema_id, owner_token=owner_token, lease_ttl_seconds=lease_ttl_seconds
         )
 
     async def delete_expired_lease(
@@ -1232,7 +1260,14 @@ class BatchConsumer(SharedBatchConsumer):
         claim_sync_types: list[str] | None = None,
         claim_exclude_sync_types: list[str] | None = None,
         process_batches: DeltaProcessBatchesFn | None = None,
+        draining_database_url: str | None = None,
     ) -> None:
+        self._draining_leases = (
+            DrainingQueueLeases(draining_database_url, connect_timeout_seconds=config.connect_timeout_seconds)
+            if draining_database_url
+            else None
+        )
+
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
 
@@ -1247,10 +1282,38 @@ class BatchConsumer(SharedBatchConsumer):
             adapter=DeltaBatchConsumerAdapter(
                 claim_sync_types=claim_sync_types,
                 claim_exclude_sync_types=claim_exclude_sync_types,
+                draining_leases=self._draining_leases,
             ),
             health_reporter=health_reporter,
             process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
+
+    async def _fetch_batches(self, conn: psycopg.AsyncConnection[Any], *, available: int) -> list[PendingBatch]:
+        batches = await super()._fetch_batches(conn, available=available)
+        if self._draining_leases is None or not batches:
+            return batches
+        # A group already in flight holds its draining lease from its own claim, and the heartbeat
+        # renews it. The engine drops these batches without an unlock, so they pass through here.
+        new_groups = {key for key in _group_by_key(batches) if key not in self._in_flight}
+        try:
+            allowed = await self._draining_leases.claim(
+                new_groups, owner_token=self._owner_token, lease_ttl_seconds=self._lease_ttl_seconds
+            )
+        except Exception as e:
+            logger.warning("draining_queue_lease_claim_failed", group_count=len(new_groups), error=str(e))
+            allowed = set()
+        refused = [b for b in batches if (b.team_id, b.schema_id) in new_groups - allowed]
+        if refused:
+            # Free the active-queue leases now. The draining queue loads these groups first, and
+            # a later claim offers them again.
+            await BatchQueue.unlock_for_batches(conn, batches=refused, owner_token=self._owner_token, skip_locked=True)
+            logger.info("groups_held_for_draining_queue", group_count=len(new_groups - allowed))
+        return [b for b in batches if (b.team_id, b.schema_id) not in new_groups - allowed]
+
+    async def _close(self) -> None:
+        await super()._close()
+        if self._draining_leases is not None:
+            await self._draining_leases.close()
 
     async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
         try:
@@ -1263,17 +1326,23 @@ class BatchConsumer(SharedBatchConsumer):
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
         """Sync ownership check for the worker thread: the engine's lease checks bracket
         the batch but can't see a loss mid-write. Fails closed — an unverified lease is lost."""
-        database_url = self._config.database_url
+        # During a queue migration the commit needs both leases of the group.
+        database_urls = [self._config.database_url]
+        if self._draining_leases is not None:
+            database_urls.append(self._draining_leases.database_url)
         connect_timeout = self._config.connect_timeout_seconds
 
         def verify_ownership() -> None:
             try:
-                owns = BatchQueue.verify_group_lease_sync(
-                    database_url,
-                    team_id=batch.team_id,
-                    schema_id=batch.schema_id,
-                    owner_token=self._owner_token,
-                    connect_timeout_seconds=connect_timeout,
+                owns = all(
+                    BatchQueue.verify_group_lease_sync(
+                        database_url,
+                        team_id=batch.team_id,
+                        schema_id=batch.schema_id,
+                        owner_token=self._owner_token,
+                        connect_timeout_seconds=connect_timeout,
+                    )
+                    for database_url in database_urls
                 )
             except Exception as e:
                 raise OwnershipLostError("pre-commit lease verification query failed") from e
