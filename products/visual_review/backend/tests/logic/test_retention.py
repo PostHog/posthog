@@ -211,6 +211,27 @@ class TestRetentionSweep:
 
         assert [Run.objects.filter(id=run.id).exists() for run in (older, latest)] == [latest_kept, latest_kept]
 
+    @pytest.mark.parametrize(
+        "situation", ["undecided_latest_run_kept_by_an_open_approval", "decided_on_a_merge_queue_run_of_an_active_pr"]
+    )
+    def test_a_decided_run_stays_while_the_pull_request_still_counts_its_decisions(self, situation, repo, now):
+        if situation == "undecided_latest_run_kept_by_an_open_approval":
+            latest = self._run(repo, now, age_days=35)
+            decided = self._run(repo, now, age_days=40, superseded_by=latest)
+            _open_approval(repo, now, {"content_hash": "h1"})
+        else:
+            decided = self._run(repo, now, age_days=40, branch="trunk-merge/pr-7/0c0ffee")
+            self._run(repo, now, age_days=1)
+        snapshot = RunSnapshot.objects.create(
+            run=decided, team_id=repo.team_id, identifier="Button", metadata={"review_decisions": [{"seq": 1}]}
+        )
+        RunSnapshot.objects.filter(id=snapshot.id).update(updated_at=now - timedelta(days=40))
+        self._run(repo, now, age_days=1, branch="master", pr_number=None)
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=decided.id).exists()
+
     def test_default_branch_latest_run_survives_any_age(self, repo, now):
         latest = self._run(repo, now, age_days=400, branch="master", pr_number=None)
 

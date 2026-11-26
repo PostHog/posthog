@@ -335,6 +335,16 @@ class RetentionSweep:
             return []
         if members.filter(self._recent_run_on_branch()).exists():
             return []
+        pull_request_runs = self._runs().filter(pr_number=run.pr_number, run_type=run.run_type)
+        # A merge queue run of the pull request is on its own branch, and the runs on the pull
+        # request's branch still count its decisions.
+        if pull_request_runs.filter(created_at__gte=self._quiet_cutoff()).exists():
+            return []
+        # An undecided latest run still counts the group's decisions, so the group stays while that run has to stay.
+        member_ids = decided_ids | {run.id}
+        current_ids = pull_request_runs.filter(superseded_by__isnull=True).values_list("id", flat=True)
+        if any(not self._may_delete(current_id) for current_id in current_ids if current_id not in member_ids):
+            return []
         recent_decision = self._snapshots().filter(
             review_decisions.has_decisions(), run_id__in=decided_ids, updated_at__gte=self._quiet_cutoff()
         )
