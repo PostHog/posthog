@@ -109,10 +109,10 @@ const sesReadAndRefused = (response: unknown): boolean => {
     return statusCode !== undefined && statusCode >= 400 && statusCode < 500
 }
 
-const CONNECT_ERROR_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH']
+const SYSCALLS_BEFORE_THE_REQUEST_IS_WRITTEN = ['connect', 'getaddrinfo']
 
 const neverReachedSes = (error: unknown): boolean =>
-    isOneOf(CONNECT_ERROR_CODES, (error as { code?: string } | undefined)?.code)
+    isOneOf(SYSCALLS_BEFORE_THE_REQUEST_IS_WRITTEN, (error as { syscall?: string } | undefined)?.syscall)
 
 function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
     let attemptsSesMayHaveAccepted = 0
