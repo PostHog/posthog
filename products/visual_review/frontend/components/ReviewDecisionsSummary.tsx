@@ -56,7 +56,7 @@ export function ReviewDecisionsSummary({
                         {one ? 'Show it' : 'Show them'}
                     </Link>
                     {needsReview > 0 && (
-                        <span>{` ${needsReview} ${needsReview === 1 ? 'needs' : 'need'} review.`}</span>
+                        <span>{`. ${needsReview} ${needsReview === 1 ? 'needs' : 'need'} review.`}</span>
                     )}
                 </p>
             )}
