@@ -1333,6 +1333,10 @@ class _Recommender:
         landing_campaigns = self._landing_campaigns()
         impressions = sorted(query.impressions for query in self.organic.values())
         threshold = impressions[int(len(impressions) * 0.95)] if impressions else 0
+        variants_by_stems: dict[frozenset[str], list[_ConvertingSearch]] = defaultdict(list)
+        for search in converting:
+            variants_by_stems[search.stems].append(search)
+        converting_stems: set[str] = set().union(*variants_by_stems)
         recommendations = []
         for query in self.organic.values():
             if (
@@ -1353,14 +1357,14 @@ class _Recommender:
             campaign: CampaignStats | None
             if landing_campaign:
                 # A page the ads link to also ranks for loosely related queries, so one word has to convert already.
-                if not any(stems & search.stems for search in converting):
+                if not stems & converting_stems:
                     continue
                 campaign = landing_campaign
                 evidence = f"It ranks on {page}, which this campaign's ads link to."
                 ad_group = f"the ad group whose ads link to {page}"
             else:
                 # Words that convert only in separate searches, or one word more or less, can change the topic.
-                variants = [search for search in converting if search.stems == stems]
+                variants = variants_by_stems.get(stems, [])
                 if not variants:
                     continue
                 campaign = self._campaign_for_searches(variants, channel)
