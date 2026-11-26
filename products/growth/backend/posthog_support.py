@@ -282,7 +282,7 @@ class SupportDraftStore:
         stored = self._cache.get(self._sent_key(draft_id))
         if stored is None:
             return None
-        return SentSupportTicket(ticket_id=stored["ticket_id"], ticket_number=stored.get("ticket_number"))
+        return SentSupportTicket(ticket_id=stored["ticket_id"])
 
     def _topic_key(self, topic: TicketTopic) -> str:
         # Not per project, so switching projects does not reset the limit

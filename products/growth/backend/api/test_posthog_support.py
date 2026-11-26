@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -16,12 +17,11 @@ from rest_framework import status
 from rest_framework.test import APIClient
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.conversations.backend.services.identity import compute_identity_hash
+from products.conversations.backend.models import Ticket
 from products.growth.backend.api.posthog_support import PostHogSupportDraftCreateSerializer
 from products.growth.backend.posthog_support import (
     SUPPORT_PANEL_URL,
@@ -30,6 +30,7 @@ from products.growth.backend.posthog_support import (
     TicketTopic,
     check_ticket_permission,
 )
+from products.growth.backend.posthog_support_widget import PostHogSupportWidgetClient, SupportWidgetTarget
 
 DRAFT_BODY = {
     "title": "Test events from staging in the live project",
@@ -132,7 +133,6 @@ class TestPostHogSupportAPI(APIBaseTest):
 
 WIDGET_HOST = "https://support.example.com"
 WIDGET_URL = f"{WIDGET_HOST}/api/conversations/v1/widget/message"
-SIGNING_SECRET = "test-signing-secret"
 TICKET_ID = "0b6f0a52-6f43-4a8e-9d2c-3f1e6c8d7a10"
 
 
@@ -141,28 +141,27 @@ class TestPostHogSupportSend(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.base = f"/api/projects/{self.team.id}/posthog_support"
-        self.enterContext(override_instance_config("CONVERSATIONS_HMAC_SIGNING_SECRET", SIGNING_SECRET))
         self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
         self.client.logout()
-        token = self.create_personal_api_key_with_scopes(["posthog_support:write"])
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.token = self.create_personal_api_key_with_scopes(["posthog_support:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}")
 
     def _create_draft(self, **overrides: str) -> dict:
         response = self.client.post(f"{self.base}/drafts/", {**DRAFT_BODY, **overrides}, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
 
-    def test_agent_sends_an_approved_draft_once_as_the_person(self) -> None:
+    def test_agent_sends_an_approved_draft_once_for_the_person(self) -> None:
         draft = self._create_draft()
 
         with responses.RequestsMock() as widget:
-            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID, "ticket_number": 42})
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
             sent = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
             retry = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
             calls = list(widget.calls)
 
         assert draft["can_send"] is True
-        assert (sent.status_code, sent.json()["ticket_number"]) == (200, 42)
+        assert (sent.status_code, sent.json()["ticket_id"]) == (200, TICKET_ID)
         assert sent.json()["support_panel_url"] == SUPPORT_PANEL_URL
         assert sent.json()["next_step"].startswith(f"First tell the person to watch for replies at {SUPPORT_PANEL_URL}")
         assert retry.json()["ticket_id"] == TICKET_ID
@@ -170,11 +169,8 @@ class TestPostHogSupportSend(APIBaseTest):
         request = calls[0].request
         body = json.loads(request.body)
         assert request.headers["X-Conversations-Token"] == "widget-token"
-        assert (body["identity_distinct_id"], body["identity_hash"]) == (
-            self.user.distinct_id,
-            compute_identity_hash(self.user.distinct_id, SIGNING_SECRET),
-        )
-        assert body["sent_by_agent"] is True
+        assert set(body) == {"message", "distinct_id", "widget_session_id", "traits"}
+        assert body["distinct_id"] == self.user.distinct_id
         assert body["message"] == f"{draft['message']}\n\n-----\n{draft['ticket_context']}"
         assert body["message"].endswith(
             f"then sent by the agent. PostHog did not verify the person's approval.\n"
@@ -182,6 +178,50 @@ class TestPostHogSupportSend(APIBaseTest):
             f"Why it was drafted: Only PostHog staff can do or see what the person needs.\n"
             f"Organization id: {self.organization.id}\nProject id: {self.team.id}\nDraft id: {draft['id']}"
         )
+
+    def test_an_mcp_ticket_reaches_support_unverified_and_marked_as_mcp(self) -> None:
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_public_token": "widget-token",
+            "widget_domains": [settings.SITE_URL],
+        }
+        self.team.save()
+        widget_client = APIClient()
+
+        def post_to_the_real_widget(url: str, json: dict, headers: dict, timeout: int) -> requests.Response:
+            answer = widget_client.post(
+                url.removeprefix(WIDGET_HOST),
+                json,
+                format="json",
+                HTTP_X_CONVERSATIONS_TOKEN=headers["X-Conversations-Token"],
+                HTTP_ORIGIN=headers["Origin"],
+            )
+            response = requests.Response()
+            response.status_code = answer.status_code
+            response._content = answer.content
+            return response
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}", HTTP_X_POSTHOG_CLIENT="mcp")
+        teammate = self._create_user("teammate@example.com")
+        with patch("products.growth.backend.posthog_support_widget.requests.post", side_effect=post_to_the_real_widget):
+            sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
+            sent_again = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
+            teammate_client = APIClient()
+            teammate_client.force_login(teammate)
+            teammate_draft = teammate_client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json").json()
+            teammate_sent = teammate_client.post(f"{self.base}/drafts/{teammate_draft['id']}/send/")
+
+        assert [sent.status_code, sent_again.status_code, teammate_sent.status_code] == [200, 200, 200]
+        ticket = Ticket.objects.get(id=sent.json()["ticket_id"])
+        ticket_again = Ticket.objects.get(id=sent_again.json()["ticket_id"])
+        teammate_ticket = Ticket.objects.get(id=teammate_sent.json()["ticket_id"])
+        assert (ticket.distinct_id, ticket.identity_verified, ticket.session_context) == (
+            self.user.distinct_id,
+            False,
+            {"posthog_mcp": True},
+        )
+        assert teammate_ticket.session_context == {}
+        assert ticket.widget_session_id == ticket_again.widget_session_id != teammate_ticket.widget_session_id
 
     @parameterized.expand(
         [
@@ -251,7 +291,7 @@ class TestPostHogSupportSend(APIBaseTest):
         now = timezone.now()
 
         with responses.RequestsMock() as widget:
-            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID, "ticket_number": 42})
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
             sends = [self.client.post(f"{self.base}/drafts/{draft['id']}/send/") for draft in early_drafts]
             calls = len(widget.calls)
             replay = self.client.post(f"{self.base}/drafts/{early_drafts[0]['id']}/send/")
@@ -284,7 +324,7 @@ class TestPostHogSupportSend(APIBaseTest):
         now = timezone.now()
 
         with responses.RequestsMock() as widget:
-            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID, "ticket_number": 42})
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
             for hours in (0, 40, 71):
                 with time_machine.travel(now + timedelta(hours=hours), tick=False):
                     sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
@@ -384,7 +424,7 @@ class TestPostHogSupportSend(APIBaseTest):
         draft = self._create_draft(topic="privacy_or_security_deletion")
 
         with responses.RequestsMock() as widget:
-            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID, "ticket_number": 42})
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
             response = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
 
         assert draft["can_send"] is True
@@ -501,3 +541,23 @@ class TestPostHogSupportDraftCreateSerializer(SimpleTestCase):
 
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["message"].endswith(expected_end)
+
+
+class TestPostHogSupportWidgetSessionId(SimpleTestCase):
+    def _sent_session_id(self, user: User) -> str:
+        with responses.RequestsMock() as widget:
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            PostHogSupportWidgetClient(SupportWidgetTarget(host=WIDGET_HOST, token="widget-token")).send_ticket(
+                user, "Hello", via_mcp=False
+            )
+            body = json.loads(widget.calls[0].request.body)
+        return body["widget_session_id"]
+
+    def test_only_the_server_can_work_out_a_persons_widget_session_id(self) -> None:
+        user = User(distinct_id="person-1")
+        session_id = self._sent_session_id(user)
+
+        with override_settings(SECRET_KEY="another-secret-key"):
+            with_another_key = self._sent_session_id(user)
+
+        assert session_id not in (str(user.uuid), with_another_key)

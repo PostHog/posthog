@@ -692,11 +692,6 @@ export interface PostHogSupportErrorApi {
 export interface PostHogSupportSentTicketApi {
     /** Id of the ticket PostHog support received. */
     ticket_id: string
-    /**
-     * The ticket's number, which the person can quote to support.
-     * @nullable
-     */
-    ticket_number: number | null
     /** Support panel in PostHog, where the person reads replies. */
     support_panel_url: string
     /** What to tell the person now. */

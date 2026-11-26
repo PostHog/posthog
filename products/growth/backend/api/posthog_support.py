@@ -1,7 +1,7 @@
 """Let a logged-in user's agent draft a ticket to PostHog support, for the person to approve.
 
 The agent shows the person the draft in chat. When the person approves it there, the agent sends it,
-and the server posts it to PostHog support as the person.
+and the server posts it to PostHog support for the person.
 """
 
 from __future__ import annotations
@@ -172,9 +172,6 @@ class PostHogSupportDraftSerializer(serializers.Serializer):
 
 class PostHogSupportSentTicketSerializer(serializers.Serializer):
     ticket_id = serializers.CharField(help_text="Id of the ticket PostHog support received.")
-    ticket_number = serializers.IntegerField(
-        allow_null=True, help_text="The ticket's number, which the person can quote to support."
-    )
     support_panel_url = serializers.CharField(help_text="Support panel in PostHog, where the person reads replies.")
     next_step = serializers.CharField(help_text="What to tell the person now.")
 
@@ -273,12 +270,11 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = PostHogSupportSentTicketSerializer(
             {
                 "ticket_id": ticket.ticket_id,
-                "ticket_number": ticket.ticket_number,
                 "support_panel_url": SUPPORT_PANEL_URL,
                 "next_step": (
                     f"First tell the person to watch for replies at {SUPPORT_PANEL_URL}, the support panel in the "
                     "right-hand sidebar of PostHog. They need to log in, and replies don't show up in this "
-                    "conversation. Then give them the ticket number. Don't promise a response time."
+                    "conversation. Don't promise a response time."
                 ),
             }
         ).data
@@ -365,7 +361,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Send a drafted ticket to PostHog support after the person approved it",
         description=(
-            "Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the "
+            "Posts the draft to PostHog support for the person, and returns the ticket. Call it only after the "
             "person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling "
             "again returns the same ticket."
         ),
@@ -414,7 +410,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._send_failed(draft, "already_sending", may_be_sent, status.HTTP_409_CONFLICT)
         try:
             ticket = PostHogSupportWidgetClient(resolve_support_widget_target()).send_ticket(
-                self._user, draft.outgoing_message(self.team)
+                self._user, draft.outgoing_message(self.team), via_mcp=draft.drafted_via == DraftedVia.MCP
             )
         except SupportTicketNotSent:
             store.cancel_send(draft_id)

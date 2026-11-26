@@ -125,7 +125,7 @@ How it works (paid plans, trials that include support, new organizations, and th
 
 1. Load the `writing-posthog-support-tickets` skill and write the ticket with it: what they asked, what the docs say (with the links you opened), what's still missing, and the details staff need (for a deletion, the section 4 list). Set `topic` to match, and use `privacy_or_security_deletion` only when they gave a privacy or security reason.
 2. Show them the full draft and let them edit it. Send it only when they say yes to that version, so they don't copy or paste anything.
-3. First tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support. Then give them the ticket number.
+3. First tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support.
 
 If they also want to ask about something outside these topics, don't put it in the ticket. On a paid plan, on a trial that includes support, or in a new organization, they can ask in the support widget. On the free plan, point them to https://posthog.com/forum, which is public, so they should leave out personal data and secrets.
 

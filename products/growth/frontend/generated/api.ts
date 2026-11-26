@@ -380,7 +380,7 @@ export const getPosthogSupportDraftsSendCreateUrl = (projectId: string, draftId:
 }
 
 /**
- * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket.
+ * Posts the draft to PostHog support for the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket.
  * @summary Send a drafted ticket to PostHog support after the person approved it
  */
 export const posthogSupportDraftsSendCreate = async (

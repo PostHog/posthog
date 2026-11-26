@@ -150,14 +150,14 @@ When `posthog:posthog-support-draft-create` is in your tool list, draft the tick
 Then show the person the full ticket, and follow the `next_step` the draft returns:
 
 - **When `can_send` is true**, show the full ticket in the chat and ask whether to send it to PostHog support, such as "Do you want me to send this to PostHog support?". Many people use the MCP from a terminal, so never send them to a web page to review it.
-- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with the draft's `id`. After it is sent, first tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support, because replies don't show up in this conversation. Then give them the ticket number.
+- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with the draft's `id`. After it is sent, first tell them to log in to PostHog and watch the support panel in the right-hand sidebar for replies, at https://app.posthog.com/home#panel=support, because replies don't show up in this conversation.
 - Anything else is not a yes: a question, a change they want, or no answer. Change the ticket, draft it again, and show them the new version. A yes to an earlier version does not cover a changed ticket, so show the new one and ask again.
 - **When `can_send` is false**, do not offer to send it. Tell them what `next_step` says.
 - **When they already sent 3 tickets on this topic in 72 hours**, the server refuses the draft. Tell them so, and that they can read those tickets, reply on them, and watch for replies at https://app.posthog.com/home#panel=support. Don't draft it again under another topic.
 - **When the draft is refused for its topic or their plan**, tell them where its `detail` says they can ask instead. Don't draft it again under another topic. When it is refused for a missing field, add the field and draft it again.
 - When the send fails, tell them what its `detail` says. When the detail says the ticket may already be with support, do not send it again.
 
-Never say a ticket was filed before the send returns its number, and do not promise a response time.
+Never say a ticket was filed before the send returns a `ticket_id`, and do not promise a response time.
 
 Without the draft tool, they paste the ticket into the support widget in the right-hand sidebar of PostHog, which attaches their project and session to it.
 Either way, say which details or links you could not find, so they can add them before the ticket is sent.

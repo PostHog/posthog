@@ -1,31 +1,25 @@
-"""Send a ticket to PostHog's own support team through its support widget, as the person.
+"""Send a ticket to PostHog's own support team through its support widget, for the person.
 
-The support form in the web app sends through the same widget API from the person's browser. This
-client signs the same identity that the web app gives the browser, so a ticket sent from either place
-lands in the person's own ticket list.
+The ticket is sent unsigned, so the widget files it unverified under the person's distinct_id. When the
+web app signs the browser's identity, which needs CONVERSATIONS_HMAC_SIGNING_SECRET, the person's signed-in
+browser lists the ticket by that id, and their first signed reply from the browser marks it verified.
 """
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from django.conf import settings
+from django.utils.crypto import salted_hmac
 
 import requests
 import structlog
 from urllib3.exceptions import NewConnectionError
 
 from posthog.dataclasses import frozen
-from posthog.models.instance_setting import get_instance_setting
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import resolve_self_flags_team
-
-from products.conversations.backend.services.identity import (
-    compute_identity_hash,
-    sign_email_claim,
-    widget_session_id_for_identity_hash,
-)
 
 WIDGET_MESSAGE_PATH = "/api/conversations/v1/widget/message"
 WIDGET_REQUEST_TIMEOUT_SECONDS = 10
@@ -50,7 +44,6 @@ class SupportWidgetTarget:
 @frozen
 class SentSupportTicket:
     ticket_id: str
-    ticket_number: int | None
 
 
 def resolve_support_widget_target() -> SupportWidgetTarget:
@@ -68,14 +61,6 @@ def resolve_support_widget_target() -> SupportWidgetTarget:
     raise SupportTicketNotSent("PostHog support is not set up on this instance.")
 
 
-def is_support_widget_team(team: Team) -> bool:
-    try:
-        target = resolve_support_widget_target()
-    except SupportTicketNotSent:
-        return False
-    return target.token == (team.conversations_settings or {}).get("widget_public_token")
-
-
 def _never_connected(error: requests.RequestException) -> bool:
     if isinstance(error, requests.ConnectTimeout):
         return True
@@ -89,8 +74,8 @@ class PostHogSupportWidgetClient:
     def __init__(self, target: SupportWidgetTarget) -> None:
         self._target = target
 
-    def send_ticket(self, user: User, message: str) -> SentSupportTicket:
-        payload = self._payload(user, message)
+    def send_ticket(self, user: User, message: str, *, via_mcp: bool) -> SentSupportTicket:
+        payload = self._payload(user, message, via_mcp=via_mcp)
         try:
             response = requests.post(
                 f"{self._target.host}{WIDGET_MESSAGE_PATH}",
@@ -110,8 +95,8 @@ class PostHogSupportWidgetClient:
                 raise SupportTicketNotSent("PostHog support could not be reached.") from e
             raise SupportTicketOutcomeUnknown("The connection to PostHog support failed during the send.") from e
 
-        # The widget checks the token, the origin, the identity, the message and its rate limits before it
-        # creates a ticket, so a 4xx answer means that nothing was created.
+        # The widget checks the token, the origin, the message and its rate limits before it creates a
+        # ticket, so a 4xx answer means that nothing was created.
         if 400 <= response.status_code < 500:
             logger.warning("posthog_support_widget_refused", status=response.status_code)
             raise SupportTicketNotSent("PostHog support refused the ticket.")
@@ -120,31 +105,27 @@ class PostHogSupportWidgetClient:
             raise SupportTicketOutcomeUnknown("PostHog support failed while it handled the ticket.")
         try:
             data = response.json()
-            return SentSupportTicket(ticket_id=str(data["ticket_id"]), ticket_number=data.get("ticket_number"))
+            return SentSupportTicket(ticket_id=str(data["ticket_id"]))
         except (ValueError, KeyError, TypeError) as e:
             raise SupportTicketOutcomeUnknown("PostHog support sent an answer without a ticket.") from e
 
-    def _payload(self, user: User, message: str) -> dict[str, Any]:
-        secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
-        if not secret or not user.distinct_id:
-            raise SupportTicketNotSent("Support identity signing is not set up on this instance.")
-        identity_hash = compute_identity_hash(user.distinct_id, secret)
+    def _payload(self, user: User, message: str, *, via_mcp: bool) -> dict[str, Any]:
+        if not user.distinct_id:
+            raise SupportTicketNotSent("This account has no distinct_id to file the ticket under.")
         payload: dict[str, Any] = {
             "message": message,
-            # The signature proves the token's account, not that the person is there, so the ticket stays unverified.
-            "sent_by_agent": True,
-            "identity_distinct_id": user.distinct_id,
-            "identity_hash": identity_hash,
-            # The widget rate-limits each widget session, or each IP when a request has no session id.
-            # Every send comes from a few server IPs, so without the id all people would share one limit.
-            "widget_session_id": widget_session_id_for_identity_hash(identity_hash),
+            "distinct_id": user.distinct_id,
+            "widget_session_id": _widget_session_id(user),
             "traits": {key: value for key, value in (("name", user.first_name), ("email", user.email)) if value},
         }
-        if user.is_email_verified is True:
-            claim = sign_email_claim(user.distinct_id, user.email, secret)
-            payload |= {
-                "identity_email": claim.value,
-                "identity_hash_email": claim.hash,
-                "identity_exp_email": claim.expires_at,
-            }
+        if via_mcp:
+            payload["session_context"] = {"posthog_mcp": True}
         return payload
+
+
+def _widget_session_id(user: User) -> str:
+    # Anyone holding a ticket's widget_session_id can read and reply on it, even after it is verified, so it
+    # must not be guessable. It stays the same for one person, so the widget's per-session rate limit applies
+    # per person rather than to everyone sending from these servers.
+    digest = salted_hmac("posthog_support.widget_session_id", str(user.uuid)).hexdigest()
+    return str(uuid.UUID(digest[:32]))
