@@ -107,7 +107,6 @@ export function QuillSceneTitleSection({
                     'px-4',
                     !noPadding && '-mt-4'
                 )}
-                // Without a name field the title row holds only buttons, tags and the menu bar, which cannot shrink.
                 rigidTitle={!nameField}
                 back={
                     <QuillSceneTrail

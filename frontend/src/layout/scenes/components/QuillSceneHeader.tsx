@@ -21,7 +21,7 @@ export function QuillSceneHeader({
     icon,
     title,
     actions,
-    rigidTitle = false,
+    rigidTitle,
     className,
 }: QuillSceneHeaderProps): JSX.Element {
     return (
