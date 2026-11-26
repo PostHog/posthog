@@ -11,6 +11,7 @@ from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
 from django.core.cache import caches
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -52,6 +53,7 @@ from products.messaging.backend.models.message_category import MessageCategory, 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.message_templates import (
+    CODE_SEND_CATEGORIES_FLAG,
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     EMAIL_SCHEDULED_SENDS_FLAG,
@@ -733,6 +735,116 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         mock_post.assert_not_called()
+
+    def _category(self, key: str, category_type: str, deleted: bool = False) -> MessageCategory:
+        return MessageCategory.objects.create(
+            team=self.team, key=key, name=key.title(), category_type=category_type, deleted=deleted
+        )
+
+    @parameterized.expand(
+        [(MessageCategoryType.MARKETING, {}), (MessageCategoryType.TRANSACTIONAL, {"cc": ["copy@example.com"]})]
+    )
+    def test_a_code_send_in_a_category_carries_the_category_to_the_pipeline(
+        self, mock_post, _flag, _capture, category_type, fields
+    ):
+        category = self._category("newsletter", category_type)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(category="newsletter", **fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send["category"] for send in pipeline.queued_sends] == [{"id": str(category.id), "type": category_type}]
+
+    @parameterized.expand(
+        [
+            ("unknown_key", {"category": "weekly"}, "json", set(), "category", "category_not_found"),
+            ("deleted_key", {"category": "newsletter"}, "json", set(), "category", "category_not_found"),
+            ("flag_off", {"category": "digest"}, "json", {CODE_SEND_CATEGORIES_FLAG}, "category", "invalid_input"),
+            ("blank_in_a_form", {"category": ""}, "multipart", set(), "category", "invalid_input"),
+            ("marketing_with_cc", {"category": "digest", "cc": ["copy@example.com"]}, "json", set(), "cc", None),
+            ("marketing_with_bcc", {"category": "digest", "bcc": "hidden@example.com"}, "json", set(), "bcc", None),
+        ]
+    )
+    def test_a_code_send_refuses_a_category_it_cannot_use(
+        self, mock_post, flag, _capture, _name, fields, body_format, off, attr, code
+    ):
+        self._category("newsletter", MessageCategoryType.MARKETING, deleted=True)
+        self._category("digest", MessageCategoryType.MARKETING)
+        flag.side_effect = lambda name, *_args, **_kwargs: name not in off
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format=body_format
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"]) == (attr, code or "marketing_copies_unsupported")
+        assert pipeline.queued == []
+
+    @parameterized.expand([("accepted_before", True), ("never_accepted", False)])
+    def test_a_keyed_send_whose_category_was_archived_replays_only_an_accepted_send(
+        self, mock_post, _flag, _capture, _name, accepted_before
+    ):
+        category = self._category("newsletter", MessageCategoryType.MARKETING)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        client = self._psak_client(["hog_flow:write"])
+        key = f"newsletter:{uuid4()}"
+
+        def send() -> Any:
+            body = self._code_send(category="newsletter")
+            return client.post(self.send_email_url, body, format="json", headers={"Idempotency-Key": key})
+
+        first = send() if accepted_before else None
+        MessageCategory.objects.filter(pk=category.pk).update(deleted=True)
+
+        retry = send()
+
+        if first is None:
+            assert (retry.status_code, retry.json()["code"]) == (400, "category_not_found"), retry.json()
+            assert pipeline.queued == []
+        else:
+            assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
+            assert (retry.json()["message_id"], retry.json()["replayed"]) == (first.json()["message_id"], True)
+            assert len(pipeline.queued) == 1
+
+    @parameterized.expand(
+        [
+            ("null", "send_email", None),
+            ("object", "send_email", {"key": "newsletter"}),
+            ("long_key", "send_email", "k" * 65),
+            ("legacy_template_shape", "send_email_nested", None),
+        ]
+    )
+    def test_a_template_send_ignores_category_as_before(self, mock_post, flag, _capture, _name, route, value):
+        flag.side_effect = lambda name, *_args, **_kwargs: name != CODE_SEND_CATEGORIES_FLAG
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._send(self._psak_client(["hog_flow:write"]), route, {**self.body, "category": value})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert len(pipeline.queued) == 1
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
+    def test_a_template_form_send_with_a_file_ignores_category_as_before(self, mock_post, flag, _capture):
+        flag.side_effect = lambda name, *_args, **_kwargs: name != CODE_SEND_CATEGORIES_FLAG
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        form = {name: value for name, value in self._flat(self.body).items() if not isinstance(value, dict)}
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url,
+            {**form, "category": "newsletter", "note": SimpleUploadedFile("note.txt", b"hello")},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert len(pipeline.queued) == 1
 
     def _code_send(self, **fields: Any) -> dict[str, Any]:
         return {
@@ -1960,11 +2072,13 @@ class TestTransactionalEmail(APIBaseTest):
             ("cc", {"cc": ["copy@example.com"]}),
             ("bcc", {"bcc": "hidden@example.com"}),
             ("attachments", {"attachments": TWO_FILES}),
+            ("category", {"category": "newsletter"}),
         ]
     )
     def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(
         self, mock_post, _flag, _capture, field, fields
     ):
+        self._category("newsletter", MessageCategoryType.MARKETING)
         self._without_a_verified_sender(unverified_sender=False)
         pipeline = FakeCdpApi()
         mock_post.side_effect = pipeline.post
