@@ -31,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization, OrganizationIntegration, Team, User
-from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFlagPermission
+from posthog.permissions import OrganizationMemberPermissions
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
 
@@ -56,13 +56,7 @@ from ee.billing.exports import (
     _take_export_stream_slot,
     exportable_team_ids,
 )
-from ee.billing.grants import (
-    ORGANIZATION_BILLING_API_FLAG,
-    BillingEntitlement,
-    EffectiveBillingGrants,
-    effective_billing_grants,
-    visible_team_ids,
-)
+from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, effective_billing_grants, visible_team_ids
 
 BILLING_ACCESS_DENIED = "You do not have access to Billing for this organization."
 
@@ -586,20 +580,15 @@ class BillingInvoiceListParamsSerializer(serializers.Serializer):
     cursor = serializers.CharField(required=False, help_text="The cursor from a previous page.")
 
 
-BETA_NOTICE = (
-    "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 "
-    "without it, so ask support for access. Its shapes may change while it is in beta."
-)
+BETA_NOTICE = "In beta: the organization billing API's shapes may change while it is in beta."
 
 
 class BillingReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """What the organization and project billing routes share. That is the flag, the throttles, the
-    grants in billing's token, the project scoping, and the series and export reads."""
+    """What the organization and project billing routes share. That is the throttles, the grants in
+    billing's token, the project scoping, and the series and export reads."""
 
     scope_object = "billing"
     scope_object_write_actions: list[str] = []
-    # Nothing here answers until the flag is on for the caller's organization.
-    posthog_feature_flag = ORGANIZATION_BILLING_API_FLAG
     throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
     # Opt into the generated schema. The MCP scaffolding and generated clients read it from there.
     force_include_in_api_docs = True
@@ -845,7 +834,7 @@ class OrganizationBillingViewSet(BillingReadViewSet):
         "limits",
         "projects",
     ]
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, PostHogFeatureFlagPermission]
+    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     # The project billing routes share these paths' suffixes, but they read one project, not the organization.
     schema_org_paths_are_not_duplicates = True
 

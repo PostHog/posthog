@@ -139,7 +139,7 @@ export const BillingUsageRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the features the organization's plans include
  */
 export const BillingFeaturesRetrieveParams = () => zod.object({
@@ -151,7 +151,7 @@ export const BillingFeaturesRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the forecast for the rest of the billing period
  */
 export const BillingForecastRetrieveParams = () => zod.object({
@@ -163,7 +163,7 @@ export const BillingForecastRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the organization's spend limits
  */
 export const BillingLimitsRetrieveParams = () => zod.object({
@@ -175,7 +175,7 @@ export const BillingLimitsRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get one product
  */
 export const BillingProductsRetrieveParams = () => zod.object({
@@ -197,7 +197,7 @@ export const BillingProductsRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get every product in summary
  */
 export const BillingProductsSummaryRetrieveParams = () => zod.object({
@@ -209,7 +209,7 @@ export const BillingProductsSummaryRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * In beta: the organization billing API's shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
  * @summary List the projects with usage
  */
 export const BillingProjectListParams = () => zod.object({
@@ -221,7 +221,7 @@ export const BillingProjectListParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get spend so far this billing period
  */
 export const BillingSpendSummaryRetrieveParams = () => zod.object({
@@ -233,7 +233,7 @@ export const BillingSpendSummaryRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Spend over time
  */
 export const BillingSpendTimeseriesRetrieveParams = () => zod.object({
@@ -306,7 +306,7 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the organization's subscription
  */
 export const BillingSubscriptionRetrieveParams = () => zod.object({
@@ -318,7 +318,7 @@ export const BillingSubscriptionRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get usage so far this billing period
  */
 export const BillingUsageSummaryRetrieveParams = () => zod.object({
@@ -330,7 +330,7 @@ export const BillingUsageSummaryRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get usage against limits, without the counts
  */
 export const BillingUsageStatusRetrieveParams = () => zod.object({
@@ -342,7 +342,7 @@ export const BillingUsageStatusRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Usage over time
  */
 export const BillingUsageTimeseriesRetrieveParams = () => zod.object({
