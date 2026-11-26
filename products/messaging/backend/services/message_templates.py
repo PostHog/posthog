@@ -116,6 +116,10 @@ def _filtered(
         queryset = queryset.filter(transactional_hog_flow_id__isnull=not filters.transactional)
     if filters.created_by_id is not None:
         queryset = queryset.filter(created_by_id=filters.created_by_id)
+    if filters.template_type == "push":
+        queryset = queryset.filter(type="push")
+    elif filters.template_type == "email":
+        queryset = queryset.exclude(type="push")
     if filters.tags:
         queryset = queryset.filter(
             pk__in=queryset.filter(tagged_items__tag__name__in=[tagify(tag) for tag in filters.tags]).values("pk")

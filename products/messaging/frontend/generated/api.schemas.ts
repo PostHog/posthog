@@ -2131,7 +2131,24 @@ export type MessagingTemplatesListParams = {
      * @nullable
      */
     transactional?: boolean | null
+    /**
+     * List only templates of this type. Leave out to list every type.
+     *
+     * * `email` - email
+     * * `push` - push
+     * @nullable
+     */
+    type?: MessagingTemplatesListType
 }
+
+export type MessagingTemplatesListType =
+    | (typeof MessagingTemplatesListType)[keyof typeof MessagingTemplatesListType]
+    | null
+
+export const MessagingTemplatesListType = {
+    Email: 'email',
+    Push: 'push',
+} as const
 
 export type TransactionalEmailLogListParams = {
     /**

@@ -27,6 +27,7 @@ class MessageTemplateListFilter:
     search: str = ""
     created_by_id: int | None = None
     tags: tuple[str, ...] = ()
+    template_type: str | None = None
 
 
 @dataclass(frozen=True)

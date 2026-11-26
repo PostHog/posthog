@@ -247,6 +247,12 @@ export const MessagingTemplatesListQueryParams = () => zod.object({
         .describe(
             'With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.'
         ),
+    type: zod
+        .union([zod.literal('email'), zod.literal('push'), zod.literal(null)])
+        .nullish()
+        .describe(
+            'List only templates of this type. Leave out to list every type.\n\n\* `email` - email\n\* `push` - push'
+        ),
 })
 
 export const MessagingTemplatesCreateParams = () => zod.object({

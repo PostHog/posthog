@@ -588,6 +588,13 @@ class MessageTemplateListQuerySerializer(serializers.Serializer):
         default=None,
         help_text="List only templates created by the user with this ID.",
     )
+    type = serializers.ChoiceField(
+        choices=["email", "push"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="List only templates of this type. Leave out to list every type.",
+    )
     tags = serializers.ListField(
         child=serializers.CharField(max_length=255),
         required=False,
@@ -1707,6 +1714,7 @@ class MessageTemplatesViewSet(
             search=query["search"],
             created_by_id=query["created_by"],
             tags=tuple(query["tags"]),
+            template_type=query["type"],
         )
         templates: Sequence[MessageTemplateRow] | Sequence[MessageTemplateBasicRow] = (
             list_basic_templates(self.team_id, filters) if basic else list_templates(self.team_id, filters)
