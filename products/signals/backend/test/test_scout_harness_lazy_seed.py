@@ -29,7 +29,14 @@ from products.signals.backend.scout_harness.lazy_seed import (
     seed_canonical_skills,
     sync_canonical_skills,
 )
-from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.prompt import (
+    DREAM_CANDIDATE_KEY_PREFIX,
+    DREAM_DIGEST_KEY_PREFIX,
+    LEARNED_KEY_KINDS,
+    LEARNED_KEY_PREFIX,
+    MEMORY_UPKEEP_SCOUT,
+)
+from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, skill_uses_report_channel
 from products.signals.backend.scout_harness.tools.structured_output import (
     InvalidStructuredOutputError,
     StructuredOutputRecord,
@@ -813,6 +820,59 @@ class TestShippedStructuredOutputSchemas:
         ):
             with pytest.raises(InvalidStructuredOutputError):
                 _validate_records([StructuredOutputRecord(payload=rejected)], schema)
+
+    def test_dreaming_schema_accepts_a_change_record_and_refuses_entry_content(self) -> None:
+        schema = canonical_structured_output_schema_for(MEMORY_UPKEEP_SCOUT)
+        assert schema is not None
+
+        retire = {
+            "dream_record_version": "1",
+            "dream_owner_skill": "signals-scout-example",
+            "dream_action": "retire",
+            "dream_key": "noise:example:checkout-alert",
+            "dream_reason": "stale",
+            "dream_content_chars_before": 840,
+            "dream_content_chars_after": 840,
+            "dream_entry_age_days": 41.5,
+            "dream_evidence": "alert is deleted, read with alert-get",
+        }
+        candidate = {
+            **retire,
+            "dream_action": "write_candidate",
+            "dream_key": f"{DREAM_CANDIDATE_KEY_PREFIX}area:checkout",
+            "dream_reason": "verdict_placed",
+            "dream_content_chars_before": None,
+            "dream_entry_age_days": None,
+            "dream_evidence": "report 01a2-example dismissed",
+        }
+        promotion = {**candidate, "dream_action": "promote_candidate", "dream_reason": "repeated_feedback"}
+        _validate_records(
+            [
+                StructuredOutputRecord(payload=payload, subject="signals-scout-example")
+                for payload in (retire, candidate, promotion)
+            ],
+            schema,
+        )
+        # Entries can hold customer data, and these records land in the project's event stream,
+        # so the schema stays closed to any field that could carry an entry's content.
+        for rejected in ({**retire, "dream_content": "the entry body"}, {**retire, "dream_action": "forget"}):
+            with pytest.raises(InvalidStructuredOutputError):
+                _validate_records([StructuredOutputRecord(payload=rejected)], schema)
+
+
+class TestShippedMemoryUpkeepScout:
+    def test_skill_matches_the_names_the_harness_prompt_uses(self) -> None:
+        # The run prompt tells every scout which keys this scout writes, and the runner turns that
+        # section on when this scout has written, both from the `prompt.py` constants. A rename on
+        # either side leaves the fleet reading keys nothing writes.
+        (skill,) = [s for s in discover_canonical_skills() if s.name == MEMORY_UPKEEP_SCOUT]
+        named_kinds = set(re.findall(rf"`{re.escape(LEARNED_KEY_PREFIX)}([a-z]+):", skill.body))
+
+        assert skill.source_path.name == MEMORY_UPKEEP_SCOUT
+        assert named_kinds == set(LEARNED_KEY_KINDS)
+        assert f"`{DREAM_DIGEST_KEY_PREFIX}<skill-name>`" in skill.body
+        assert f"`{DREAM_CANDIDATE_KEY_PREFIX}<kind>:<subject>`" in skill.body
+        assert not skill_uses_report_channel(list(skill.allowed_tools))
 
 
 class TestShippedBillingScoutVocabulary:

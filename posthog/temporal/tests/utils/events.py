@@ -12,7 +12,12 @@ from django.conf import settings
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS
+from posthog.clickhouse.events_json import (
+    EVENTS_JSON_DATA_TABLE,
+    EVENTS_JSON_INSERT_SETTINGS,
+    SHARDED_EVENTS_JSON_RECENT_TABLE,
+)
+from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_JSON_EXPORT_CLEANER
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -171,21 +176,43 @@ async def insert_event_values_in_clickhouse(
             for event in events
         ],
     )
-    if table == "sharded_events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        await mirror_events_into_native_json_table(client, [str(event["uuid"]) for event in events])
+    # In production, materialized views fill the new events tables from the same Kafka topic. Tests write to the legacy
+    # tables, so when anything can read the new tables we copy the rows to both the new tables that batch exports reads
+    # from. Batch exports move by their own rollout settings, which do not turn on the project switch.
+    if (
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        or settings.BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE > 0
+        or settings.BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS
+    ):
+        uuids = [str(event["uuid"]) for event in events]
+        if table == "sharded_events":
+            await _mirror_events_into_json_table(
+                client, uuids, source_table=table, target_table=EVENTS_JSON_DATA_TABLE, cleaner=EVENTS_JSON_CLEANER
+            )
+        if table in ("sharded_events", "events_recent", "sharded_events_recent"):
+            await _mirror_events_into_json_table(
+                client,
+                uuids,
+                source_table=table,
+                target_table=SHARDED_EVENTS_JSON_RECENT_TABLE,
+                cleaner=EVENTS_JSON_EXPORT_CLEANER,
+            )
 
 
-async def mirror_events_into_native_json_table(client: ClickHouseClient, uuids: list[str]) -> None:
-    """Copy rows just written to sharded_events into sharded_events_json.
+async def _mirror_events_into_json_table(
+    client: ClickHouseClient, uuids: list[str], *, source_table: str, target_table: str, cleaner: str
+) -> None:
+    """Copy rows just written to `source_table` into a native-JSON events table through its ingest cleaner.
 
-    Native-JSON reads (HogQL models, backfills) target the JSON table. The ingest cleaners are executable
-    UDFs, which a VALUES insert cannot call, so the rows go through a SELECT like bulk_create_events does.
+    sharded_events_json takes typed columns from EVENTS_JSON_CLEANER, and sharded_events_json_recent takes text from
+    EVENTS_JSON_EXPORT_CLEANER, as their materialized views write them. The cleaners are executable UDFs, which a
+    VALUES insert cannot call, so the rows go through a SELECT like bulk_create_events does.
     """
     uuid_list = ", ".join(f"'{event_uuid}'" for event_uuid in uuids)
     await execute_query(
         client,
         f"""
-    INSERT INTO sharded_events_json (
+    INSERT INTO `{target_table}` (
         uuid, event, timestamp, _timestamp, person_id, team_id,
         properties, temporary_properties, properties_null_keys, temporary_properties_null_keys,
         elements_chain, distinct_id, inserted_at, created_at, person_properties, person_properties_null_keys
@@ -196,8 +223,8 @@ async def mirror_events_into_native_json_table(client: ClickHouseClient, uuids: 
         elements_chain, distinct_id, inserted_at, created_at, cleaned.person_properties, cleaned.person_properties_null_keys
     FROM
     (
-        SELECT *, JSONCleanPostHogEvent(properties, person_properties) AS cleaned
-        FROM sharded_events
+        SELECT *, {cleaner}(properties, person_properties) AS cleaned
+        FROM `{source_table}`
         WHERE uuid IN ({uuid_list})
     )
     SETTINGS {EVENTS_JSON_INSERT_SETTINGS}

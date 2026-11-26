@@ -24,9 +24,8 @@ from posthog.api.documentation import extend_schema
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.monitoring import monitor
 from posthog.api.pagination import BoundedLimitOffsetPagination
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import InternalAPIAuthentication
+from posthog.auth import InternalAPIAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -36,6 +35,7 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
     get_authenticator_client,
+    is_service_auth,
 )
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
@@ -97,6 +97,11 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
+from products.ai_observability.backend.presentation.project_keys import (
+    AIObservabilityProjectKeyMixin,
+    attribution_user,
+    project_key_id,
+)
 from products.ai_observability.backend.resource_tags import ResourceTags
 from products.exports.backend.facade.api import get_export_asset_content_response
 
@@ -244,6 +249,7 @@ class DatasetReadSerializer(ResourceTagsReadSerializer, UserAccessControlSeriali
             "created_at",
             "updated_at",
             "created_by",
+            "created_by_project_key_id",
             "team_id",
             "user_access_level",
         ]
@@ -342,7 +348,17 @@ class DatasetRevisionReadSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DatasetRevision
-        fields = ["id", "dataset_id", "revision", "created_at", "created_by", "team_id", "expires_at", "expiring_soon"]
+        fields = [
+            "id",
+            "dataset_id",
+            "revision",
+            "created_at",
+            "created_by",
+            "created_by_project_key_id",
+            "team_id",
+            "expires_at",
+            "expiring_soon",
+        ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
@@ -413,12 +429,18 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
         read_only=True,
         allow_null=True,
     )
+    created_by_project_key_id = serializers.CharField(
+        source="dataset_item.created_by_project_key_id", read_only=True, allow_null=True
+    )
     version_created_at = serializers.DateTimeField(
         source="created_at",
         read_only=True,
         help_text="When this immutable version was created.",
     )
     version_created_by = UserBasicSerializer(source="created_by", read_only=True, allow_null=True)
+    version_created_by_project_key_id = serializers.CharField(
+        source="created_by_project_key_id", read_only=True, allow_null=True
+    )
     team_id = serializers.IntegerField(read_only=True, help_text="Project that owns the item.")
 
     class Meta:
@@ -442,8 +464,10 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "created_by",
+            "created_by_project_key_id",
             "version_created_at",
             "version_created_by",
+            "version_created_by_project_key_id",
             "team_id",
         ]
         read_only_fields = fields
@@ -693,19 +717,12 @@ def _current_item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItem
     )
 
 
-class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericViewSet):
+class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, GenericViewSet):
     scope_object = "dataset"
-    scope_object_read_actions = [
-        "list",
-        "retrieve",
-        "revisions",
-        "exports",
-        "export_status",
-        "export_content",
-        "retention",
-        "extend_retention",
-    ]
+    dataset_read_actions = ["list", "retrieve", "revisions", "retention", "extend_retention"]
+    scope_object_read_actions = [*dataset_read_actions, "exports", "export_status", "export_content"]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
+    psak_allowed_actions = [*dataset_read_actions, *scope_object_write_actions]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetPagination
@@ -716,13 +733,18 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def _should_skip_parents_filter(self) -> bool:
         return True
 
+    def dangerously_get_required_scopes(self, request: Request, view: GenericViewSet) -> list[str] | None:
+        if self.action == "extend_retention" and is_service_auth(request):
+            return ["dataset:write"]
+        return super().dangerously_get_required_scopes(request, view)
+
     def safely_get_queryset(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
         return queryset.filter(team_id=self.team.id)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
         if self.action not in ("list", "retention"):
             return queryset
-        return self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        return self.filter_visible_to_caller(queryset)
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
@@ -846,7 +868,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     @extend_schema(
         request=DatasetExtendRetentionSerializer,
         responses=DatasetRetentionEntrySerializer,
-        description="Refresh retention for a dataset and optionally one revision, with the same access required to read them.",
+        description="Refresh retention for a dataset and optionally one revision. Project secret API keys require dataset:write. Users need read access to the dataset.",
         tags=["AI observability"],
     )
     @action(detail=True, methods=["post"])
@@ -899,14 +921,15 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         data = serializer.validated_data
         max_datasets = max_datasets_for_team(
             team=self.team,
-            user=cast(User, request.user),
+            user=cast(User | ProjectSecretAPIKeyUser, request.user),
             caller_properties=get_authenticator_client(request.successful_authenticator),
         )
         try:
             with transaction.atomic():
                 dataset = create_dataset(
                     team=self.team,
-                    created_by=cast(User, request.user),
+                    created_by=attribution_user(request),
+                    created_by_project_key_id=project_key_id(request),
                     max_datasets=max_datasets,
                     name=data["name"],
                     description=data["description"],
@@ -1124,10 +1147,11 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         return response
 
 
-class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
     scope_object = "dataset"
     scope_object_read_actions = ["list", "retrieve", "versions"]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
+    psak_allowed_actions = [*scope_object_read_actions, *scope_object_write_actions]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetItemPagination
@@ -1155,10 +1179,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         queryset: QuerySet[DatasetItemVersion, DatasetItemVersion],
     ) -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
         accessible_datasets: QuerySet[Dataset, Dataset] = Dataset.objects.for_team(self.team.id, canonical=True)
-        accessible_datasets = self.user_access_control.filter_queryset_by_access_level(
-            accessible_datasets,
-            include_all_if_admin=True,
-        )
+        accessible_datasets = self.filter_visible_to_caller(accessible_datasets)
         return queryset.filter(
             team_id=self.team.id,
             dataset_id__in=Subquery(accessible_datasets.values("id")),
@@ -1329,7 +1350,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             result = create_dataset_item(
                 team_id=self.team.id,
                 dataset_id=dataset.id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 input=data["input"],
                 expected_output=data["expected_output"],
                 source_output=data["source_output"],
@@ -1367,7 +1389,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 base_version=data["base_version"],
                 input=data.get("input", UNSET),
                 expected_output=data.get("expected_output", UNSET),
@@ -1398,7 +1421,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 base_version=serializer.validated_data["base_version"],
             )
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
@@ -1426,7 +1450,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 base_version=serializer.validated_data["base_version"],
                 source_version=serializer.validated_data.get("source_version"),
             )

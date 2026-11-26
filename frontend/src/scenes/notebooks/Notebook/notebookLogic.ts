@@ -1636,7 +1636,7 @@ export const notebookLogic = kea<notebookLogicType>([
             const nextByName = new Map(variables.map((variable) => [variable.name, variable.value]))
             const affected = new Set<string>()
             for (const [name, value] of nextByName) {
-                if (!previousByName.has(name) || previousByName.get(name) !== value) {
+                if (!objectsEqual(previousByName.get(name), value)) {
                     affected.add(name)
                 }
             }

@@ -122,6 +122,31 @@ INSIGHTLY_ENDPOINTS: dict[str, InsightlyEndpointConfig] = {
         "PRICEBOOK_ENTRY_ID",
         incremental_path="/PricebookEntry/Search",
     ),
+    "Milestones": _incremental_endpoint(
+        "Milestones", "/Milestones", "MILESTONE_ID", incremental_path="/Milestones/Search"
+    ),
+    "OpportunityCategories": InsightlyEndpointConfig(
+        name="OpportunityCategories", path="/OpportunityCategories", primary_key="CATEGORY_ID", partition_key=None
+    ),
+    "ProjectCategories": InsightlyEndpointConfig(
+        name="ProjectCategories", path="/ProjectCategories", primary_key="CATEGORY_ID", partition_key=None
+    ),
+    "TaskCategories": InsightlyEndpointConfig(
+        name="TaskCategories", path="/TaskCategories", primary_key="CATEGORY_ID", partition_key=None
+    ),
+    "Teams": InsightlyEndpointConfig(name="Teams", path="/Teams", primary_key="TEAM_ID"),
+    # PERMISSION_ID is the id of one membership row (a user in a team).
+    "TeamMembers": InsightlyEndpointConfig(
+        name="TeamMembers", path="/TeamMembers", primary_key="PERMISSION_ID", partition_key=None
+    ),
+    "Prospect": _incremental_endpoint("Prospect", "/Prospect", "PROSPECT_ID", incremental_path="/Prospect/Search"),
+    # Visits carry no audit timestamps; the first page view of a visit does not change.
+    "MarketingVisits": InsightlyEndpointConfig(
+        name="MarketingVisits",
+        path="/MarketingVisits",
+        primary_key="VISIT_ID",
+        partition_key="FIRST_PAGE_VIEW_DATE_UTC",
+    ),
     # One request per opportunity and no server-side filter, so full refresh only. History rows
     # carry no id of their own; a transition is identified by its opportunity, time, and state.
     "OpportunityStateHistory": InsightlyEndpointConfig(

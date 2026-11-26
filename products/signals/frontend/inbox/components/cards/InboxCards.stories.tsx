@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -7,7 +8,7 @@ import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
 import { RankingOutcomeEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { userEvent } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import {
     makeReport,
@@ -884,6 +885,7 @@ export const ReportCardStates: Story = {
 }
 
 // Tag chips sit under the card body. Past three tags the rest fold into a `+n` chip.
+/** Desktop width: a selected tag leads the line, and tags that do not fit move to the `+n` popover. */
 export const ReportCardWithTags: Story = {
     parameters: { testOptions: { snapshotBrowsers: [] } },
     render: () => (
@@ -895,7 +897,19 @@ export const ReportCardWithTags: Story = {
                     priority: 'P1',
                     source_products: ['error_tracking'],
                     summary: 'Renewals for annual plans charge the card twice when the first attempt times out.',
-                    tags: ['billing', 'silent-failure', 'payments', 'retry-logic', 'customer-impact'],
+                    tags: [
+                        'silent-failure',
+                        'payments',
+                        'retry-logic',
+                        'customer-impact',
+                        'billing',
+                        'annual-plans',
+                        'renewals',
+                        'stripe-webhooks',
+                        'charges-the-card-twice-on-a-slow-retry',
+                        'timeouts',
+                        'revenue',
+                    ],
                 })}
             />
             <ReportCard
@@ -914,11 +928,59 @@ export const ReportCardWithTags: Story = {
                     title: 'Report without tags keeps its height',
                     priority: 'P2',
                     source_products: ['github'],
-                    summary: 'No tag row renders when a report has no tags.',
+                    summary: 'No tag chips render when a report has no tags.',
                 })}
             />
         </CardList>
     ),
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByTitle('Show only reports tagged billing'))
+        await userEvent.click(await canvas.findByLabelText(/^Show \d+ more tags$/))
+    },
+}
+
+const narrowTagged = {
+    title: 'Payment webhook retries stop after one rate limit response',
+    priority: 'P1',
+    source_products: ['logs'],
+    ranking: ranking({ open: 0.8, action: 0.5, fix: 0.3 }, { open: 2.9, action: 3.1, fix: 3.2 }),
+    inbox_merge_key: 0,
+    personal_tier: 'top',
+    personal_reason: 'You changed the webhook retry code this week, so this is close to your current work.',
+} satisfies Partial<SignalReport>
+
+/**
+ * Phone width with the score pill and a personal reason. The tags share the timestamp's line, so the
+ * tagged card is exactly as tall as the same card without tags.
+ */
+export const ReportCardWithTagsNarrow: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => (
+        <div className="bg-primary min-h-screen w-[390px] px-3 py-6">
+            <div className="@container flex flex-col gap-1.5">
+                <div data-testid="card-with-tags">
+                    <ReportCard
+                        showTags
+                        rankingPill
+                        personalSort
+                        report={makeReport({
+                            ...narrowTagged,
+                            tags: ['webhooks', 'rate-limits', 'retries-stop-after-the-first-429-response', 'payments'],
+                        })}
+                    />
+                </div>
+                <div data-testid="card-without-tags">
+                    <ReportCard showTags rankingPill personalSort report={makeReport(narrowTagged)} />
+                </div>
+            </div>
+        </div>
+    ),
+    play: async ({ canvas }) => {
+        const tagged = await canvas.findByTestId('card-with-tags')
+        const untagged = await canvas.findByTestId('card-without-tags')
+        await waitFor(() => expect(tagged.offsetHeight).toBe(untagged.offsetHeight))
+        await userEvent.click(await canvas.findByLabelText(/^Show \d+ more tags$/))
+    },
 }
 
 export const Skeleton: Story = {

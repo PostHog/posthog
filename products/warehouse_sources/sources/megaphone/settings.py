@@ -10,8 +10,9 @@ from products.warehouse_sources.sources.sdk import (
 MEGAPHONE_HOST = "cms.megaphone.fm"
 MEGAPHONE_BASE_URL = f"https://{MEGAPHONE_HOST}/api"
 
-# Megaphone caps `per_page` at 500.
+# Megaphone caps `per_page` at 500, and at 50 on the v2 Direct Sales lists.
 PAGE_SIZE = 500
+V2_DIRECT_SALES_PAGE_SIZE = 50
 
 UPDATED_AT_INCREMENTAL_FIELD: IncrementalField = {
     "label": "updatedAt",
@@ -30,6 +31,8 @@ class MegaphoneEndpointConfig:
     incremental_fields: list[IncrementalField]
     default_incremental_field: Optional[str] = None
     page_size: int = PAGE_SIZE
+    # None for list endpoints that return the whole collection and take no page-size param.
+    page_size_param: Optional[str] = "per_page"
     fanout: Optional[DependentEndpointConfig] = None
     # Query param that carries the organization id, for endpoints scoped by query instead of path.
     organization_param: Optional[str] = None
@@ -47,6 +50,15 @@ PODCASTS_FANOUT = DependentEndpointConfig(
     resolve_param="network_id",
     resolve_field="id",
     include_from_parent=[],
+)
+
+# Orders are only listable per campaign, and an order row does not name its campaign.
+CAMPAIGN_ORDERS_FANOUT = DependentEndpointConfig(
+    parent_name="campaigns",
+    resolve_param="campaign_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "campaign_id"},
 )
 
 MEGAPHONE_ENDPOINTS: dict[str, MegaphoneEndpointConfig] = {
@@ -78,6 +90,37 @@ MEGAPHONE_ENDPOINTS: dict[str, MegaphoneEndpointConfig] = {
         full_refresh_params={"orderBy": "pubdate"},
         incremental_params={"orderBy": "updatedAt", "filterBy": "updatedAt"},
         incremental_param="filterMin",
+    ),
+    # The legacy Direct Sales endpoints stopped working on 2026-07-14, so these read the v2 lists.
+    # None of them filters on a modification time, so they are full refresh only.
+    "advertisers": MegaphoneEndpointConfig(
+        name="advertisers",
+        path="/v2/organizations/{organization_id}/advertisers",
+        primary_keys=["id"],
+        incremental_fields=[],
+        page_size=V2_DIRECT_SALES_PAGE_SIZE,
+    ),
+    "campaigns": MegaphoneEndpointConfig(
+        name="campaigns",
+        path="/v2/organizations/{organization_id}/campaigns",
+        primary_keys=["id"],
+        incremental_fields=[],
+        page_size=V2_DIRECT_SALES_PAGE_SIZE,
+    ),
+    "campaign_orders": MegaphoneEndpointConfig(
+        name="campaign_orders",
+        path="/v2/organizations/{organization_id}/campaigns/{campaign_id}/orders",
+        primary_keys=["campaign_id", "id"],
+        incremental_fields=[],
+        page_size=V2_DIRECT_SALES_PAGE_SIZE,
+        fanout=CAMPAIGN_ORDERS_FANOUT,
+    ),
+    "sponsorships": MegaphoneEndpointConfig(
+        name="sponsorships",
+        path="/v2/organizations/{organization_id}/sponsorships",
+        primary_keys=["id"],
+        incremental_fields=[],
+        page_size_param=None,
     ),
 }
 

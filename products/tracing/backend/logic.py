@@ -10,7 +10,7 @@ import base64
 import decimal
 import datetime as dt
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -47,8 +47,14 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.tracing.backend.facade.contracts import TRACING_QUERY_STATUS_LABEL
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner
 
 
 # Day-range bound on time_bucket, pinned to UTC. With convertToProjectTimezone=False the date
@@ -77,6 +83,9 @@ _ROW_LIMIT = 5000
 # ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
+DEFAULT_SPAN_LIST_LIMIT = 100
+MAX_SPAN_LIST_LIMIT = 1000
+MAX_PREFETCH_SPANS = 100
 
 RECENT_TRACES_SPANS_PER_TRACE = 100
 
@@ -567,15 +576,58 @@ class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
         return response.results
 
 
+def assert_tracing_viewer(user: "User", team: "Team", user_access_control: "UserAccessControl | None" = None) -> bool:
+    """The check the tracing API's permission class makes, so `/query` and dashboard batches gate spans the same way.
+
+    Pass the runner's `user_access_control` so a batch of tiles reads the team's rules once, not once per tile.
+    """
+    from products.access_control.backend.facade.user_access_control import UserAccessControlError  # noqa: PLC0415
+    from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+    from products.authorization.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authorization.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
+
+    with authorization.authorization_session():
+        if user_access_control is not None:
+            authorization.reuse_current_rules(user_access_control)
+        allowed = authorization.check(
+            resource=Resource(type=ResourceType.TRACING, project_id=team.pk),
+            action=Action.VIEW,
+            subject=Subject(user_id=user.pk),
+        )
+    if not allowed:
+        raise UserAccessControlError("tracing", "viewer")
+    return True
+
+
+def span_list_query_runner(
+    query: TraceSpansQuery | dict[str, Any], *, team: "Team", **kwargs
+) -> "TraceSpansQueryRunner":
+    """The span list runner for `/query` and dashboard batches, held to the tracing API's page caps."""
+    query = TraceSpansQuery.model_validate(query)
+    if query.limit is not None:
+        query.limit = min(query.limit, MAX_SPAN_LIST_LIMIT)
+    if query.prefetchSpans is not None:
+        query.prefetchSpans = min(query.prefetchSpans, MAX_PREFETCH_SPANS)
+    return TraceSpansQueryRunner(query, team=team, **kwargs)
+
+
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def validate_query_runner_access(self, user: "User") -> bool:
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # The tracing UI always pages, but a dashboard tile may not, and the query has no LIMIT without one.
+        if self.query.limit is None:
+            self.query.limit = DEFAULT_SPAN_LIST_LIMIT
 
-        raise UserAccessControlError("tracing", "viewer")
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return assert_tracing_viewer(user, self.team, self.user_access_control if self.user == user else None)
+
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status asks for the check again.
+        return [TRACING_QUERY_STATUS_LABEL]
 
     def _calculate(self) -> TraceSpansQueryResponse:
         flat = self._flat_spans
@@ -635,11 +687,6 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             results.append(row)
 
         return TraceSpansQueryResponse(results=results, **self.paginator.response_params())
-
-    def run(self, *args, **kwargs) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
-        response = super().run(*args, **kwargs)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
-        return response
 
     @property
     def _include_events(self) -> bool:
@@ -1456,13 +1503,6 @@ def run_aggregation_query(
     include_health: bool = False,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
-    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
-    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
-
-    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
-    # on its own thread, where a Django read would open a second connection.
-    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
-
     query = TraceSpansAggregationQuery(
         dateRange=date_range,
         compareFilter=compare_filter,
@@ -1472,16 +1512,30 @@ def run_aggregation_query(
         groupByEndpoint=group_by_endpoint,
         includeHealth=include_health,
     )
-    runner = TraceSpansAggregationQueryRunner(
-        query,
-        team,
-        limit=limit,
-        offset=offset,
-        identity_keys=resolved_tracing_identity_attribute_keys(team) if include_impact else None,
-    )
+    runner = aggregation_query_runner(query, team=team, limit=limit, offset=offset)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response
+
+
+def aggregation_query_runner(
+    query: TraceSpansAggregationQuery | dict[str, Any], *, team: "Team", **kwargs
+) -> "TraceSpansAggregationQueryRunner":
+    """The flat span aggregation runner, for the tracing API and for `get_query_runner`."""
+    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
+
+    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
+    # on its own thread, where a Django read would open a second connection.
+    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
+
+    query = TraceSpansAggregationQuery.model_validate(query)
+    return TraceSpansAggregationQueryRunner(
+        query,
+        team=team,
+        identity_keys=resolved_tracing_identity_attribute_keys(team) if query.includeImpact else None,
+        **kwargs,
+    )
 
 
 def run_tree_query(

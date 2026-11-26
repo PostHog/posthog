@@ -304,7 +304,7 @@ class TestMetricCannotCompile(BaseTest):
                     },
                 },
                 None,
-                (NOT_CHECKED, "Couldn't check 1 metric"),
+                (NOT_APPLICABLE, "Doesn't run on metrics from a warehouse-native query"),
             ),
             (
                 "legacy_metrics_only",

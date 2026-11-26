@@ -317,6 +317,15 @@ def test_validate_credentials_reports_an_unreachable_api_instead_of_raising() ->
         assert CloudflareD1Source().validate_credentials(CONFIG, team_id=1) == (False, UNREACHABLE_MESSAGE)
 
 
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504, 520])
+def test_an_exhausted_retry_status_is_retryable_not_a_bug(status: int) -> None:
+    error = str(D1QueryError(f"D1 query failed ({status}): internal error; reference = e_abc123"))
+
+    source = CloudflareD1Source()
+    assert any(pattern in error for pattern in source.get_retryable_errors())
+    assert not any(key in error for key in source.get_non_retryable_errors())
+
+
 def test_an_id_that_could_change_the_api_path_is_refused_without_a_request() -> None:
     config = CloudflareD1SourceConfig(api_token="cf-token", account_id="0123456789abcdef", database_id="../../user")
 

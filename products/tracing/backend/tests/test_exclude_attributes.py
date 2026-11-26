@@ -115,7 +115,7 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
             includeEvents=include_events or None,
             filterGroup={"type": "AND", "values": [{"type": "AND", "values": [prop]}]} if prop else None,
         )
-        return TraceSpansQueryRunner(query, self.team).run().results
+        return TraceSpansQueryRunner(query, self.team).calculate().results
 
     @parameterized.expand(
         [

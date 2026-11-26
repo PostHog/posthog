@@ -93,17 +93,15 @@ FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
 ```
 
 Product configs must use exactly `products/<name>/backend/activity_log_config.py`; other names and locations will not load by convention.
-For a core model, put the config beside it, as in `posthog/models/oauth_activity_log_config.py`, and add the config to the model's `owners.yaml` rule's `match` list.
-Until the discovery follow-up lands, register it with one import and one entry in `MODULES` in `posthog/models/activity_logging/activity_log_config_registry.py`.
-This core list is temporary: it imports product internals outside their facades.
-DevEx plans to replace product registration with `posthog.products.load_product_modules("activity_log_config")`.
-That follow-up removes the registry, its AST guard, and the completeness check; the owner-match check stays.
-That registry file holds only those two things and has no owner on purpose, so registering your own tuning never waits on the activity log team.
-Do not move the merge into it: `activity_log.py` merges the modules and owns the check for a scope tuned twice.
+For a core model, put the config beside it so it inherits the model's owners. If the ownership rule lists explicit files, add the config to its `match` list.
+Installed product apps discover their config automatically.
+If the product narrows its `backend:contract-check` inputs, add `backend/activity_log_config.py` to those inputs in the product's `turbo.json`.
+For a core model, add an import and a `MODULES` entry in `posthog/models/activity_logging/activity_log_config_registry.py`.
+The registry is intentionally unowned so the model team can register its config without a review from the activity-log owners.
 A config module holds no imports: `activity_log.py` merges it at `django.setup()`.
 Use only `FIELD_EXCLUSIONS`, `FIELD_NAME_OVERRIDES`, `FIELD_WITH_MASKED_CONTENTS`, and `SIGNAL_EXCLUSIONS`; omit unused settings.
-Scopes whose model has no product owner keep their tuning in the registries in `activity_log.py`.
-`posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks registration, product config paths, setting names, and ownership matching the model.
+Shared scopes and scopes without clear model ownership keep their tuning in `activity_log.py`.
+`posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks that configs load from the expected paths, use supported settings, and share an owner with their models.
 
 ## Step 8 - Describer (optional)
 

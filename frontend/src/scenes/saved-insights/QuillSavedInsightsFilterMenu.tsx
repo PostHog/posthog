@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconApps } from '@posthog/icons'
@@ -9,13 +9,10 @@ import {
     FilterMenuTrigger,
     FilterOption,
     FilterRadioSubMenu,
-    FilterSearchSubMenu,
 } from '@posthog/quill'
 
 import { QuillTagsFilterSubMenu } from 'lib/components/QuillTagsFilterSubMenu'
-import { fullName } from 'lib/utils/strings'
-import { AnalyticsOwnerAvatar } from 'scenes/analytics/AnalyticsOwner'
-import { userLogic } from 'scenes/userLogic'
+import { AnalyticsCreatedBySubMenu } from 'scenes/analytics/AnalyticsCreatedBySubMenu'
 
 import { membersLogic } from '~/models/membersLogic'
 
@@ -42,10 +39,8 @@ export function QuillSavedInsightsFilterMenu({
     active: boolean
     onClear: () => void
 }): JSX.Element {
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
-    const { user } = useValues(userLogic)
-    const createdBy = filters.createdBy !== 'All users' ? filters.createdBy.map(String) : []
+    const createdBy = filters.createdBy !== 'All users' ? filters.createdBy : []
 
     return (
         <DropdownMenu
@@ -68,26 +63,13 @@ export function QuillSavedInsightsFilterMenu({
                     }}
                     optionDataAttr="saved-insights-modal-type-filter"
                 />
-                <FilterSearchSubMenu
-                    label="Created by"
-                    allLabel="Any user"
-                    pluralNoun="people"
-                    options={meFirstMembers.map((member) => ({
-                        value: String(member.user.id),
-                        label: fullName(member.user) || member.user.email,
-                        icon: <AnalyticsOwnerAvatar owner={member.user} />,
-                        hint: member.user.uuid === user?.uuid ? '(you)' : undefined,
-                    }))}
+                <AnalyticsCreatedBySubMenu
                     selected={createdBy}
-                    onChange={(ids) => {
-                        const createdByValue = ids.length > 0 ? ids.map(Number) : 'All users'
+                    onChange={(userIds) => {
+                        const createdByValue = userIds.length > 0 ? userIds : 'All users'
                         setFilters({ createdBy: createdByValue })
                         posthog.capture('saved insights filtered', { filter_type: 'created_by', value: createdByValue })
                     }}
-                    loading={membersLoading}
-                    searchPlaceholder="Search people"
-                    emptyText="No one matches"
-                    onOpen={ensureAllMembersLoaded}
                     dataAttr="saved-insights-modal-created-by"
                     optionDataAttr="saved-insights-modal-created-by-option"
                 />

@@ -1,5 +1,6 @@
 import Chance from 'chance'
 import { once } from 'events'
+import { monitorEventLoopDelay } from 'perf_hooks'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
@@ -23,15 +24,17 @@ export type DrivenStep = {
     dueUnits: number
     offeredUnits: number
     waitedFor?: number
+    loopLagP99Ms?: number
+    runnerCpuMs?: number
 }
 
-export type DriveSummary = { targetUnits: number; offeredUnits: number; steps: DrivenStep[] }
+export type DriveSummary = { targetUnits: number; offeredUnits: number; sendRetries: number; steps: DrivenStep[] }
 
 export type StepWindow = Omit<DrivenStep, 'offeredUnits' | 'waitedFor'>
 
 export type StepGate = (step: StepWindow, offered: () => number) => Promise<void>
 
-export type DriveContext = OfferContext & { runId: string; halt?: AbortSignal; gate?: StepGate }
+export type DriveContext = OfferContext & { runId: string; startedAt?: number; halt?: AbortSignal; gate?: StepGate }
 
 function trafficKind(name: string): TrafficKind {
     const kind = TRAFFIC.find((traffic) => traffic.name === name)
@@ -55,6 +58,29 @@ async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promis
 }
 
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+type InFlight = { add(work: Promise<unknown>): void; drained(): Promise<void> }
+
+function inFlight(): InFlight {
+    let pending = 0
+    let idle = Promise.withResolvers<void>()
+    const settle = (): void => {
+        pending -= 1
+        if (pending === 0) {
+            idle.resolve()
+        }
+    }
+    return {
+        add(work) {
+            if (pending === 0) {
+                idle = Promise.withResolvers<void>()
+            }
+            pending += 1
+            work.then(settle, settle)
+        },
+        drained: () => (pending === 0 ? Promise.resolve() : idle.promise),
+    }
+}
 
 export async function seed(
     { card, profile }: LoadedCard,
@@ -122,11 +148,12 @@ export async function drive(
     const schedules = stepScheduleOf({ card, profile })
     const chance = new Chance(card.seed)
     let attempted = 0
+    let sendRetries = 0
     const counted: { step: DrivenStep; answeredAt: number }[] = []
     const answeredAts = new Map<DrivenStep, number[]>()
     const steps: DrivenStep[] = []
-    const offers: Promise<void>[] = []
-    const followUps: Promise<unknown>[] = []
+    const offers = inFlight()
+    const followUps = inFlight()
     const failed = new AbortController()
     const stop = AbortSignal.any([signal, failed.signal])
     const halted = context.halt ? AbortSignal.any([stop, context.halt]) : stop
@@ -148,7 +175,7 @@ export async function drive(
         if (kind.intake !== 'event') {
             answeredAts.get(step)?.push(-Infinity)
         }
-        const offer = kind.offer({ unitId, teamId, flowId }, context).then(async (answer) => {
+        const offer = kind.offer({ unitId, teamId, flowId }, context, stop).then(async (answer) => {
             const answeredAt = kind.intake === 'event' ? Date.now() : -Infinity
             const counts = kind.intake !== 'event' || answer.accepted
             if (stop.aborted) {
@@ -160,7 +187,7 @@ export async function drive(
             let followUp: FollowUpAnswer | undefined
             if (kind.followUp && followUpFlowId !== undefined && answer.accepted) {
                 const offered = kind.followUp.offer({ unitId, teamId, flowId: followUpFlowId }, context, stop)
-                followUps.push(offered)
+                followUps.add(offered)
                 followUp = await offered
             }
             if (stop.aborted) {
@@ -176,6 +203,7 @@ export async function drive(
                 expect: { deliveries: kind.deliveries },
                 ...(followUp && { followUp }),
             })
+            sendRetries += retriesOf(answer) + retriesOf(followUp)
             if (counts) {
                 counted.push({ step, answeredAt })
             }
@@ -185,7 +213,7 @@ export async function drive(
                 failed.abort(error)
             }
         })
-        offers.push(offer)
+        offers.add(offer)
     }
 
     const offerSlots = async (
@@ -211,7 +239,7 @@ export async function drive(
 
     const fixedSteps = card.drive.stopOnBreak === true
     const judged: { settled: boolean; done: Promise<void> }[] = []
-    const driveStartedAt = Date.now()
+    const driveStartedAt = context.startedAt ?? Date.now()
     const driveEnd = driveStartedAt + (planned.at(-1)?.toMs ?? 0)
     let stretchedMs = 0
     for (const [index, { scale, fromMs, toMs }] of planned.entries()) {
@@ -222,6 +250,9 @@ export async function drive(
         const lastsMs = toMs - fromMs
         const step: DrivenStep = { index, scale, startedAt, endedAt: startedAt + lastsMs, dueUnits: 0, offeredUnits: 0 }
         steps.push(step)
+        const loopDelay = monitorEventLoopDelay({ resolution: 10 })
+        loopDelay.enable()
+        const cpuAtStart = process.cpuUsage()
         if (context.gate !== undefined) {
             answeredAts.set(step, [])
         }
@@ -249,6 +280,10 @@ export async function drive(
             step.endedAt = Date.now()
             stretchedMs += step.endedAt - (startedAt + lastsMs)
         }
+        loopDelay.disable()
+        const cpu = process.cpuUsage(cpuAtStart)
+        step.runnerCpuMs = Math.round((cpu.user + cpu.system) / 1000)
+        step.loopLagP99Ms = Math.round(loopDelay.percentile(99) / 1e6)
         const cycles = Math.max(1, Math.ceil((step.endedAt - startedAt) / lastsMs))
         step.dueUnits = Math.max(
             sentAt.length,
@@ -260,7 +295,15 @@ export async function drive(
         if (halted.aborted || context.gate === undefined || index === planned.length - 1) {
             continue
         }
-        const window = { index, scale, startedAt, endedAt: step.endedAt, dueUnits: step.dueUnits }
+        const window = {
+            index,
+            scale,
+            startedAt,
+            endedAt: step.endedAt,
+            dueUnits: step.dueUnits,
+            loopLagP99Ms: step.loopLagP99Ms,
+            runnerCpuMs: step.runnerCpuMs,
+        }
         const entry = { settled: false, done: Promise.resolve() }
         entry.done = context
             .gate(window, () => answeredAts.get(step)!.filter((answeredAt) => answeredAt <= step.endedAt).length)
@@ -271,9 +314,9 @@ export async function drive(
     const stoppedEarly = halted.aborted && !stop.aborted
     const end = steps.at(-1)?.endedAt ?? -Infinity
     try {
-        await untilAborted(Promise.all(offers), stop)
+        await untilAborted(offers.drained(), stop)
     } finally {
-        await Promise.allSettled(followUps)
+        await followUps.drained()
     }
     if (failed.signal.aborted) {
         throw failed.signal.reason
@@ -287,5 +330,8 @@ export async function drive(
     }
     const targetUnits =
         stoppedEarly || fixedSteps ? steps.reduce((sum, { dueUnits }) => sum + dueUnits, 0) : schedules.flat().length
-    return { targetUnits, offeredUnits, steps }
+    return { targetUnits, offeredUnits, sendRetries, steps }
 }
+
+const retriesOf = (answer: FollowUpAnswer | undefined): number =>
+    answer !== undefined && 'retries' in answer ? (answer.retries ?? 0) : 0

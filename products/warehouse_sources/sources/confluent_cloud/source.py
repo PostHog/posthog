@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.confluent_cloud.confluent_cloud import (
     validate_credentials as validate_confluent_cloud_credentials,
 )
 from products.warehouse_sources.sources.confluent_cloud.settings import (
+    CLOUD_API_KINDS,
     CONFLUENT_CLOUD_ENDPOINTS,
     DEFAULT_LOOKBACK_DAYS,
     ENDPOINTS,
@@ -31,6 +32,19 @@ from products.warehouse_sources.sources.sdk import (
     SourceSchema,
     detect,
 )
+
+_OPERATOR_ROLE_NOTE = (
+    "Needs a Cloud API key owned by a service account with a role that can view environments and "
+    "clusters, such as Operator."
+)
+_CLOUD_API_DESCRIPTIONS = {
+    "environments": f"Environments in your Confluent Cloud organization. {_OPERATOR_ROLE_NOTE}",
+    "kafka_clusters": f"Kafka clusters in every environment, with their cloud, region, availability and CKUs. {_OPERATOR_ROLE_NOTE}",
+    "costs": (
+        "Daily cost line items per product and resource, for up to one year back. Needs a Cloud API key "
+        "owned by a service account with the BillingAdmin or OrganizationAdmin role."
+    ),
+}
 
 # Used to probe the query endpoint when the user configured no resource ids at all: a genuine key
 # gets 403 (not authorized for this unknown cluster), a bad key gets 401.
@@ -142,6 +156,10 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
             # stable status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.telemetry.confluent.cloud": "Your Confluent Cloud API key or secret is invalid or has been revoked. Create a new Cloud API key and reconnect.",
             "403 Client Error: Forbidden for url: https://api.telemetry.confluent.cloud": "Your Confluent Cloud API key is not authorized for the configured resources. Make sure it is a Cloud API key (not cluster-scoped) owned by a service account with the MetricsViewer role.",
+            # First match wins, so the costs entry must come before the generic Cloud API one.
+            "401 Client Error: Unauthorized for url: https://api.confluent.cloud": "Your Confluent Cloud API key or secret is invalid or has been revoked. Create a new Cloud API key and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.confluent.cloud/billing": "Your Confluent Cloud API key can't read costs. Give its service account the BillingAdmin or OrganizationAdmin role, or turn off the costs table.",
+            "403 Client Error: Forbidden for url: https://api.confluent.cloud": "Your Confluent Cloud API key can't view environments or clusters. Give its service account a role such as Operator, or turn off this table.",
             "No Confluent Cloud resource IDs configured": None,
         }
 
@@ -164,7 +182,8 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CONFLUENT_CLOUD_ENDPOINTS[endpoint]
             is_metrics = endpoint_config.kind == "metrics"
-            description: str | None = None
+            is_cloud_api = endpoint_config.kind in CLOUD_API_KINDS
+            description: str | None = _CLOUD_API_DESCRIPTIONS.get(endpoint)
             if is_metrics:
                 description = (
                     f"Hourly time-series values for every {endpoint_config.resource_type} metric in the "
@@ -174,16 +193,17 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                 )
             return SourceSchema(
                 name=endpoint,
-                supports_incremental=is_metrics,
+                supports_incremental=bool(endpoint_config.incremental_fields),
                 # Incremental syncs re-pull a trailing overlap window that only merge dedupes on the
                 # primary key; append would materialize those re-pulled rows as duplicates.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 # Metrics tables need the matching resource ids to be queryable, so only tables the
-                # user configured ids for start enabled.
+                # user configured ids for start enabled. Cloud API tables need roles beyond
+                # MetricsViewer, so they start disabled.
                 should_sync_default=bool(self._resource_ids_for_endpoint(config, endpoint_config))
                 if is_metrics
-                else True,
+                else not is_cloud_api,
                 description=description,
             )
 

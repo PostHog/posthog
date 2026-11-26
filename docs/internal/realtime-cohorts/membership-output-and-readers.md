@@ -254,10 +254,12 @@ Batch flag evaluation always reads it from Postgres.
 A cache entry without the level reads as `off`.
 
 `condition_type` is derived by Django on save.
+The migration `cohorts.0024_backfill_cohort_condition_type` filled it for the cohorts saved before the column existed, so a team needs no resave to classify its cohorts before it is added to `REALTIME_COHORT_EVALUATION_TEAM_IDS` or granted `serving`.
 A cohort whose `condition_type` is empty is never routed, and resaving it fills the column.
 A behavioral run refuses such a cohort, so it never reads as ready.
 
 Every other non-static cohort is evaluated dynamically from the person's properties, where a behavioral condition can never match.
+When such a cohort includes a routed cohort, it takes the routed cohort's membership from the table, as a flag that targets the routed cohort directly does, so [a failed read](#when-the-read-fails) makes the included cohort false there too.
 
 The team metadata cache that the flags service reads carries the team's access row level as `realtime_cohort_level`, or `off` when the team has no row.
 It carries the row's level, not Django's effective level, because `REALTIME_COHORT_TEAM_ALLOWLIST` can name every team.
@@ -352,6 +354,3 @@ Before the reconcile, both p-2 and p-3 would have matched.
 - A readiness stamp does not mean the consumer has applied the reconcile or that the sweep has run.
 - The partition count, 64, is also a constant in the Node consumer.
   If the processor ran fewer partitions, no run would ever complete its bitmap, and no sweep would ever run.
-- A cohort that references a realtime cohort and is itself evaluated dynamically does not use the table answer for the referenced cohort.
-  The referenced cohort is recomputed dynamically, where its behavioral leaves are false.
-  Django still lets such a flag be saved, because it checks the referenced cohort's readiness, not how it will be read.

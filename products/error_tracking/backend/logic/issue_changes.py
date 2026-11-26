@@ -259,6 +259,20 @@ class ChangeOperation:
         )
 
     @classmethod
+    def for_ingestion(cls, team_id: int, operation_id: UUID) -> "ChangeOperation | None":
+        """Start an operation for a change ingestion made, or return None when the change log is off for the team."""
+        if not issue_change_log_enabled(team_id):
+            return None
+        return cls(
+            id=operation_id,
+            team_id=team_id,
+            actor_type=ErrorTrackingIssueChange.ActorType.INGESTION,
+            actor_user_id=None,
+            actor_automation_id=None,
+            bulk=False,
+        )
+
+    @classmethod
     def for_automation(cls, team_id: int, automation_id: UUID) -> "ChangeOperation | None":
         """Start an operation that no person made, or return None when the change log is off for the team."""
         if not issue_change_log_enabled(team_id):
@@ -278,6 +292,11 @@ class IssueChange:
     # The issue as it is after the change. The snapshot is built from it.
     issue: ErrorTrackingIssue
     data: IssueChangeData
+    # Set by a writer that retries, so a retry finds the row it already wrote.
+    id: UUID | None = None
+    # The exception that caused an ingestion change.
+    event_uuid: UUID | None = None
+    event_timestamp: datetime | None = None
 
 
 def record_issue_changes(operation: ChangeOperation | None, changes: Sequence[IssueChange]) -> None:
@@ -298,6 +317,7 @@ def record_issue_changes(operation: ChangeOperation | None, changes: Sequence[Is
     ErrorTrackingIssueChange.objects.for_team(operation.team_id).bulk_create(
         [
             ErrorTrackingIssueChange(
+                id=change.id or uuid7(),
                 team_id=operation.team_id,
                 issue_id=change.issue.id,
                 kind=change.data.kind,
@@ -312,7 +332,32 @@ def record_issue_changes(operation: ChangeOperation | None, changes: Sequence[Is
                 actor_type=operation.actor_type,
                 actor_user_id=operation.actor_user_id,
                 actor_automation_id=operation.actor_automation_id,
+                event_uuid=change.event_uuid,
+                event_timestamp=change.event_timestamp,
             )
             for change in changes
-        ]
+        ],
+        ignore_conflicts=True,
+    )
+
+
+def record_ingestion_change(
+    *,
+    change_id: UUID,
+    team_id: int,
+    issue_id: UUID,
+    data: IssueChangeData,
+    event_uuid: UUID | None,
+    event_timestamp: datetime | None,
+) -> None:
+    """Write the row for a change ingestion made. A retry with the same `change_id` writes nothing."""
+    operation = ChangeOperation.for_ingestion(team_id, change_id)
+    if operation is None:
+        return
+    issue = ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id).first()
+    if issue is None:
+        return
+    record_issue_changes(
+        operation,
+        [IssueChange(issue=issue, data=data, id=change_id, event_uuid=event_uuid, event_timestamp=event_timestamp)],
     )

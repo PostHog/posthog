@@ -23,6 +23,8 @@ export function AddHeaderFieldButton({ field }: { field: OptionalHeaderField }):
             }}
             // pinned: data-attr values feed autocapture dashboards
             data-attr={`email-header-add-${field.key}`}
+            // Without it the tooltip becomes the accessible name.
+            aria-label={field.label}
         >
             {field.label}
         </LemonButton>

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +23,13 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.util import create_group
 
+from products.ai_observability.backend.logic.traces.trace_paging import (
+    AroundTakes,
+    around_takes,
+    page_after,
+    page_around,
+    rows_to_read,
+)
 from products.ai_observability.backend.logic.traces.trace_selection import (
     CAPTURE_BUFFER,
     InvalidTraceSelectionError,
@@ -34,7 +42,9 @@ from products.ai_observability.backend.logic.traces.trace_selection_queries impo
     SELECTION_QUERY_NAME,
     SelectionCounts,
     _reads_beyond_posthog_tables,
-    load_selection_page,
+    load_rows_after,
+    load_rows_around,
+    load_rows_before,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -59,9 +69,10 @@ def load_cases() -> list[dict[str, Any]]:
       events table and ai_events.
     - `selection`: `date_from` and `date_to` in minutes, and optionally `properties` (property filter objects),
       `filter_test_accounts`, `include_support_traces`, `search`, `quick_filter` (`errors` or `feedback`),
-      `person_id`, and `group` as `{"key", "type_index"}`.
-    - `expected_trace_ids`: the first page, newest first.
-    - `expected_counts`: `total`, `errors` and `feedback` for the selection without its quick filter.
+      `person_id`, `group` as `{"key", "type_index"}`, `order` (`newest_first` or `oldest_first`) and `session_id`.
+    - `expected_trace_ids`: the first page, in the selection's order.
+    - `expected_counts`: `total`, `errors` and `feedback` for the selection without its quick filter, or null for a
+      session scope, which reads no counts.
     """
     return json.loads(CASES_PATH.read_text())
 
@@ -107,6 +118,8 @@ def to_selection(team: Team, selection: dict[str, Any]) -> TraceSelection:
         person_id=selection.get("person_id"),
         group=TraceGroupScope(key=group["key"], type_index=group["type_index"]) if group else None,
         quick_filter=selection.get("quick_filter"),
+        session_id=selection.get("session_id"),
+        order=selection.get("order", "newest_first"),
     )
 
 
@@ -128,13 +141,10 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         self.team.save()
         seed(self.team, case["events"])
 
-        page = load_selection_page(
-            self.team, self.user, to_selection(self.team, case["selection"]), after=None, limit=50
-        )
+        read = load_rows_after(self.team, self.user, to_selection(self.team, case["selection"]), after=None, take=50)
 
-        assert [position.trace_id for position in page.positions] == case["expected_trace_ids"]
-        assert asdict(page.counts) == case["expected_counts"]
-        assert page.has_more is False
+        assert [position.trace_id for position in read.rows.positions] == case["expected_trace_ids"]
+        assert (asdict(read.counts) if read.counts else None) == case["expected_counts"]
 
     def _page_through(self, limit: int, selection: TraceSelection | None = None) -> list[TracePosition]:
         selection = selection or self._selection()
@@ -142,11 +152,13 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         after: TracePosition | None = None
         # Bounded, so a cursor that keeps handing back earlier traces fails instead of paging forever.
         for _ in range(20):
-            page = load_selection_page(self.team, self.user, selection, after=after, limit=limit)
+            page = page_after(
+                load_rows_after(self.team, self.user, selection, after=after, take=rows_to_read(limit)).rows, limit
+            )
             seen += page.positions
-            if not page.has_more:
+            if page.next_after is None:
                 return seen
-            after = page.positions[-1]
+            after = page.next_after
         raise AssertionError(f"Paging did not end after {seen}")
 
     def test_paging_through_equal_timestamps_neither_repeats_nor_skips(self) -> None:
@@ -204,7 +216,7 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         selection = self._selection(quick_filter=quick_filter)
 
         assert [position.trace_id for position in self._page_through(limit=1, selection=selection)] == expected
-        first = load_selection_page(self.team, self.user, selection, after=None, limit=1)
+        first = load_rows_after(self.team, self.user, selection, after=None, take=1)
         assert first.counts == SelectionCounts(total=5, errors=2, feedback=0)
 
     def test_window_bounds_keep_their_microseconds(self) -> None:
@@ -233,9 +245,9 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         selection = self._selection(date_to=60)
         assert selection.window.end.microsecond != 0
 
-        page = load_selection_page(self.team, self.user, selection, after=None, limit=10)
+        page = load_rows_after(self.team, self.user, selection, after=None, take=10)
 
-        assert [position.trace_id for position in page.positions] == [
+        assert [position.trace_id for position in page.rows.positions] == [
             "at-window-end",
             "error-past-read-end",
             "error-at-read-end",
@@ -254,10 +266,10 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         )
         selection = self._selection()
 
-        first = load_selection_page(self.team, self.user, selection, after=None, limit=1)
-        second = load_selection_page(self.team, self.user, selection, after=first.positions[-1], limit=1)
+        first = load_rows_after(self.team, self.user, selection, after=None, take=1)
+        second = load_rows_after(self.team, self.user, selection, after=first.rows.positions[-1], take=1)
 
-        assert [position.trace_id for position in second.positions] == ["second"]
+        assert [position.trace_id for position in second.rows.positions] == ["second"]
         assert first.counts == second.counts == SelectionCounts(total=3, errors=1, feedback=1)
 
     def test_a_trace_id_with_awkward_characters_selects(self) -> None:
@@ -265,9 +277,9 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         trace_id = "a,b'c/d #%"
         seed(self.team, [{"event": "$ai_generation", "trace_id": trace_id, "minutes": 0}])
 
-        page = load_selection_page(self.team, self.user, self._selection(), after=None, limit=10)
+        page = load_rows_after(self.team, self.user, self._selection(), after=None, take=10)
 
-        assert page.positions == (TracePosition(trace_id=trace_id, first_timestamp=T0),)
+        assert page.rows.positions == (TracePosition(trace_id=trace_id, first_timestamp=T0),)
 
     def test_trace_ids_stay_text_when_the_project_types_them_as_numbers(self) -> None:
         PropertyDefinition.objects.create(
@@ -281,12 +293,18 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        page = load_selection_page(self.team, self.user, self._selection(), after=None, limit=10)
+        page = load_rows_after(self.team, self.user, self._selection(), after=None, take=10)
 
-        assert [position.trace_id for position in page.positions] == ["001", "1"]
+        assert [position.trace_id for position in page.rows.positions] == ["001", "1"]
 
-    @parameterized.expand([("listing", None), ("searching", "invoice")])
-    def test_another_teams_traces_never_select(self, _name: str, search: str | None) -> None:
+    @parameterized.expand(
+        [
+            ("listing", {}),
+            ("searching", {"search": "invoice"}),
+            ("one session", {"session_id": "session-1", "order": "oldest_first"}),
+        ]
+    )
+    def test_another_teams_traces_never_select(self, _name: str, scope: dict[str, Any]) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
         seed(
             other_team,
@@ -295,15 +313,15 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
                     "event": "$ai_generation",
                     "trace_id": "foreign",
                     "minutes": 0,
-                    "properties": {"$ai_input": "Send the invoice"},
+                    "properties": {"$ai_input": "Send the invoice", "$ai_session_id": "session-1"},
                 }
             ],
         )
 
-        page = load_selection_page(self.team, self.user, self._selection(search=search), after=None, limit=10)
+        page = load_rows_after(self.team, self.user, self._selection(**scope), after=None, take=10)
 
-        assert page.positions == ()
-        assert page.counts == SelectionCounts(total=0, errors=0, feedback=0)
+        assert page.rows.positions == ()
+        assert page.counts in (None, SelectionCounts(total=0, errors=0, feedback=0))
 
     def test_a_search_combines_with_a_filter_only_the_events_table_resolves(self) -> None:
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org-a", properties={"plan": "enterprise"})
@@ -338,9 +356,9 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        page = load_selection_page(self.team, self.user, selection, after=None, limit=10)
+        page = load_rows_after(self.team, self.user, selection, after=None, take=10)
 
-        assert [position.trace_id for position in page.positions] == ["term-in-enterprise"]
+        assert [position.trace_id for position in page.rows.positions] == ["term-in-enterprise"]
 
     def test_a_person_scoped_search_keeps_traces_stored_under_a_merged_person(self) -> None:
         identified, anonymous, other = (
@@ -379,11 +397,11 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         )
         create_person_id_override_by_distinct_id("anonymous-user", "identified-user", self.team.pk)
 
-        page = load_selection_page(
-            self.team, self.user, self._selection(search="invoice", person_id=identified), after=None, limit=10
+        page = load_rows_after(
+            self.team, self.user, self._selection(search="invoice", person_id=identified), after=None, take=10
         )
 
-        assert [position.trace_id for position in page.positions] == ["after-identify", "before-identify"]
+        assert [position.trace_id for position in page.rows.positions] == ["after-identify", "before-identify"]
 
     @parameterized.expand([("in the selection", False), ("in the test account filters", True)])
     def test_a_hogql_filter_can_read_a_saved_view(self, _name: str, as_test_account_filter: bool) -> None:
@@ -408,22 +426,42 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             properties=[] if as_test_account_filter else [hogql_filter], filter_test_accounts=as_test_account_filter
         )
 
-        page = load_selection_page(self.team, self.user, selection, after=None, limit=10)
+        page = load_rows_after(self.team, self.user, selection, after=None, take=10)
 
-        assert [position.trace_id for position in page.positions] == ["chosen"]
+        assert [position.trace_id for position in page.rows.positions] == ["chosen"]
 
-    def test_the_read_is_tagged(self) -> None:
+    @parameterized.expand(
+        [
+            ("list page", None, "after", SELECTION_QUERY_NAME),
+            ("session page", "session-1", "after", "ai_session_traces_selection"),
+            ("session page before a bound", "session-1", "before", "ai_session_traces_selection_before"),
+            ("session page around a trace", "session-1", "around", "ai_session_traces_selection_around"),
+        ]
+    )
+    def test_each_read_is_tagged_with_its_own_name(
+        self, _name: str, session_id: str | None, read: str, expected_name: str
+    ) -> None:
         comments: list[dict[str, Any]] = []
+        selection = self._selection(session_id=session_id)
+        reads: dict[str, Callable[[], object]] = {
+            "after": lambda: load_rows_after(self.team, self.user, selection, after=None, take=10),
+            "before": lambda: load_rows_before(
+                self.team, self.user, selection, before=TracePosition(trace_id="t1", first_timestamp=T0), take=10
+            ),
+            "around": lambda: load_rows_around(
+                self.team, self.user, selection, trace_id="t1", takes=AroundTakes(before=1, from_anchor=2)
+            ),
+        }
 
         def record_tags(execute: Any, query: str, *args: Any, **kwargs: Any) -> Any:
             comments.append(json.loads((kwargs.get("settings") or {}).get("log_comment", "{}")))
             return execute(query, *args, **kwargs)
 
         with patch_clickhouse_client_execute(record_tags):
-            load_selection_page(self.team, self.user, self._selection(), after=None, limit=10)
+            reads[read]()
 
         assert [(tags.get("name"), tags.get("product")) for tags in comments if tags.get("name")] == [
-            (SELECTION_QUERY_NAME, "llm_analytics")
+            (expected_name, "llm_analytics")
         ]
 
     def test_a_read_past_its_deadline_fails_instead_of_returning_partial_counts(self) -> None:
@@ -436,10 +474,138 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             return execute(query, *args, **kwargs)
 
         with patch_clickhouse_client_execute(record_query):
-            load_selection_page(self.team, self.user, self._selection(), after=None, limit=10)
+            load_rows_after(self.team, self.user, self._selection(), after=None, take=10)
 
         [selection_query] = selection_queries
         assert "timeout_overflow_mode='throw'" in selection_query
+
+    def _seed_five_session_traces(self) -> None:
+        seed(
+            self.team,
+            [
+                {
+                    "event": "$ai_generation",
+                    "trace_id": f"t{index + 1}",
+                    "minutes": index,
+                    "properties": {"$ai_session_id": "session-1"},
+                }
+                for index in range(5)
+            ],
+        )
+        seed(
+            self.team,
+            [
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "elsewhere",
+                    "minutes": 9,
+                    "properties": {"$ai_session_id": "session-2"},
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("oldest first", "oldest_first", "t5", ["t4", "t3"]),
+            ("newest first", "newest_first", "t1", ["t2", "t3"]),
+            ("bound no longer held", "oldest_first", "gone", ["t5", "t4"]),
+        ]
+    )
+    def test_rows_before_read_back_from_the_bound(
+        self, _name: str, order: str, bound: str, expected: list[str]
+    ) -> None:
+        self._seed_five_session_traces()
+        selection = self._selection(session_id="session-1", order=order)
+        minutes = {"t1": 0, "t5": 4, "gone": 30}[bound]
+
+        rows = load_rows_before(
+            self.team,
+            self.user,
+            selection,
+            before=TracePosition(trace_id=bound, first_timestamp=T0 + timedelta(minutes=minutes)),
+            take=2,
+        )
+
+        assert [position.trace_id for position in rows.positions] == expected
+
+    @parameterized.expand(
+        [("from the start", None, None), ("past a bound", "t2", "t2"), ("past a gone bound", "zz-gone", "t2")]
+    )
+    def test_rows_after_carry_the_row_before_the_page(
+        self, _name: str, bound: str | None, expected_previous: str | None
+    ) -> None:
+        self._seed_five_session_traces()
+        selection = self._selection(session_id="session-1", order="oldest_first")
+        minutes = {"t2": 1, "zz-gone": 1}
+        after = TracePosition(trace_id=bound, first_timestamp=T0 + timedelta(minutes=minutes[bound])) if bound else None
+
+        read = load_rows_after(self.team, self.user, selection, after=after, take=2)
+
+        assert (read.rows.previous.trace_id if read.rows.previous else None, read.counts) == (expected_previous, None)
+
+    def test_a_session_page_reads_only_the_events_that_name_the_session(self) -> None:
+        seed(
+            self.team,
+            [
+                {
+                    "event": "$ai_generation",
+                    "trace_id": f"t{index:02d}",
+                    "minutes": index,
+                    "properties": {"$ai_session_id": "session-1"},
+                }
+                for index in range(30)
+            ],
+        )
+        selection = self._selection(session_id="session-1", order="oldest_first")
+
+        with self.capture_select_queries() as queries:
+            read = load_rows_after(self.team, self.user, selection, after=None, take=3)
+
+        [query] = queries
+        assert "globalIn" not in query and "GLOBAL IN" not in query
+        assert [position.trace_id for position in read.rows.positions] == ["t00", "t01", "t02"]
+
+    @parameterized.expand(
+        [
+            ("anchor in the session", "t3", ["t2", "t1"], ["t3", "t4", "t5"]),
+            ("anchor in another session", "elsewhere", [], ["t1", "t2", "t3"]),
+        ]
+    )
+    def test_rows_around_read_both_sides_of_the_anchor(
+        self, _name: str, anchor: str, before: list[str], from_anchor: list[str]
+    ) -> None:
+        self._seed_five_session_traces()
+        selection = self._selection(session_id="session-1", order="oldest_first")
+
+        rows = load_rows_around(
+            self.team, self.user, selection, trace_id=anchor, takes=AroundTakes(before=2, from_anchor=3)
+        )
+
+        assert (
+            [position.trace_id for position in rows.before],
+            [position.trace_id for position in rows.from_anchor],
+        ) == (before, from_anchor)
+
+    def test_rows_around_keep_the_row_past_a_full_page(self) -> None:
+        seed(
+            self.team,
+            [
+                {
+                    "event": "$ai_generation",
+                    "trace_id": f"t{index:03d}",
+                    "minutes": 0,
+                    "microseconds": index * 1000,
+                    "properties": {"$ai_session_id": "session-1"},
+                }
+                for index in range(101)
+            ],
+        )
+        selection = self._selection(session_id="session-1", order="oldest_first")
+
+        rows = load_rows_around(self.team, self.user, selection, trace_id="t000", takes=around_takes(100))
+
+        next_after = page_around(rows, 100).next_after
+        assert next_after is not None and next_after.trace_id == "t099"
 
 
 def test_a_filter_hogql_cannot_express_is_a_selection_error() -> None:
@@ -453,7 +619,7 @@ def test_a_filter_hogql_cannot_express_is_a_selection_error() -> None:
     )
 
     with pytest.raises(InvalidTraceSelectionError):
-        load_selection_page(Team(), None, selection, after=None, limit=10)
+        load_rows_after(Team(), None, selection, after=None, take=10)
 
 
 @pytest.mark.parametrize(

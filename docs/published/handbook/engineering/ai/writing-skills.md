@@ -186,6 +186,11 @@ description: 'Required reading before writing any HogQL/SQL or calling execute-s
 
 Both fields are required and validated at build time.
 
+A skill that a PostHog runtime reads through `skill-get`, not a user's agent, sets `disable-model-invocation: true`.
+These are the signals scouts (`signals-scout-*`) and the PostHog Review perspective, blind-spot, validation and resolution skills.
+The published bundle still ships them, and Claude Code then leaves their descriptions out of the skill listing, which every installed skill shares.
+`hogli lint:skills` fails when a skill with one of those name prefixes leaves the flag out.
+
 ### Progressive disclosure
 
 `SKILL.md` serves as an overview that points agents to detailed materials as needed.

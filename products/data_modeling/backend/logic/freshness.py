@@ -520,11 +520,13 @@ class FloorReason:
 
 def _floor_reason(floor: Bound, names: Mapping[str, str] | None, pinned: Collection[str]) -> FloorReason:
     """The node that sets a floor, and why it holds the floor there: a slow source, or a pinned view."""
-    if floor.blocker is not None and floor.blocker in pinned:
-        view = _describe(floor.blocker, names, "an upstream view")
+    view = (names or {}).get(floor.blocker or "")
+    if view and floor.blocker in pinned:
         return FloorReason(node=view, why=f"{view} is pinned to refresh every {humanize_cadence(floor.value)}")
-    source = _describe(floor.blocker, names, "an upstream source")
-    return FloorReason(node=source, why=f"{source} only syncs every {humanize_cadence(floor.value)}")
+    return FloorReason(
+        node="an upstream source",
+        why=f"no upstream source syncs more often than every {humanize_cadence(floor.value)}",
+    )
 
 
 def _nothing_satisfiable_message(

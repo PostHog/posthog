@@ -76,10 +76,7 @@ export const ContentAutopilotPromptOverview = ({
             />
             <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="By engine"
-                        description="How each engine answered this prompt. Failed checks are left out."
-                    />
+                    <PagePerformanceCardHeader title="By engine" />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompt-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
                     </div>
@@ -104,7 +101,7 @@ export const ContentAutopilotPromptOverview = ({
             <PagePerformanceCard className="min-w-0">
                 <PagePerformanceCardHeader
                     title="Cited sites by engine"
-                    description="The share of each engine's answers that link to a site. A darker cell means the engine links to that site more often."
+                    description="Share of each engine's answers that link to the site."
                     actions={
                         <ViewAllButton
                             label="View sources"
@@ -121,7 +118,6 @@ export const ContentAutopilotPromptOverview = ({
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
                         title="Words the engines searched for"
-                        description="The most common words in the web searches the engines ran before answering."
                         actions={
                             <ViewAllButton
                                 label="View searches"

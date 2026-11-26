@@ -1,11 +1,10 @@
 """Turns a SendGrid template into PostHog's Liquid, and says what did not carry over.
 
 Dynamic templates use Handlebars with SendGrid's own helpers:
-https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates stay as text.
+https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates use `<%...%>` tags
+and `-name-` substitutions, which the app fills when it sends.
 
-Only plain values written with two braces convert, in body text. Any other Handlebars, conditions and loops
-included, keeps the whole template as text with a note, because each other form needs rules of its own to print what
-SendGrid prints.
+Each tag converts on its own (see handlebars_liquid.py), and a tag with no Liquid form stays as written with a note.
 """
 
 import re
@@ -14,44 +13,25 @@ from collections.abc import Iterator
 
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.provider_imports.handlebars_liquid import (
+    HTML_ESCAPE,
+    HandlebarsToLiquid,
+    OutputTooLarge,
+    TextValue,
+)
 from products.messaging.backend.provider_imports.sendgrid_handlebars import (
     _Liquid,
     _Malformed,
-    _Output,
     _parse_nodes,
     _Text,
     _tokenize,
-    _Unconvertible,
     liquid_literal,
 )
 
 _MAX_NOTED_TAGS = 5
-_MIN_OUTPUT_BUDGET = 1_000_000
-_OUTPUT_GROWTH_LIMIT = 20
-# Handlebars also encodes = and `, so a value in an unquoted attribute can't add an attribute of its own.
-_HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
-# Handlebars prints an array with commas between its items, and Liquid prints them run together.
-_AS_TEXT = ' | join: ","'
 
 _UNSUBSCRIBE_VARIABLES = {"unsubscribe", "unsubscribe_preferences"}
 _SENDER_VARIABLES = {"Sender_Name", "Sender_Address", "Sender_City", "Sender_State", "Sender_Zip"}
-_CONTACT_VARIABLES = {
-    "first_name",
-    "last_name",
-    "email",
-    "alternate_emails",
-    "address_line_1",
-    "address_line_2",
-    "city",
-    "state_province_region",
-    "postal_code",
-    "country",
-    "phone_number",
-    "whatsapp",
-    "line",
-    "facebook",
-    "unique_name",
-}
 
 # https://www.twilio.com/docs/sendgrid/ui/sending-email/group-unsubscribes
 _ASM_TAG = re.compile(r"(?:<|&lt;)%\s*([\w.]+)\s*%(?:>|&gt;)")
@@ -76,165 +56,152 @@ class ConvertedSendGridTemplate:
 # Conversion -----------------------------------------------------------------------------------------------------------
 
 
-class _OutputTooLarge(Exception):
-    pass
+class _Found:
+    """What a part of the template uses, for the notes."""
 
-
-class _Converter:
-    def __init__(self, is_html: bool, contact_fields: bool, budget: int = 0) -> None:
-        self._budget = budget
-        self.is_html = is_html
-        self.contact_fields = contact_fields
+    def __init__(self) -> None:
         self.unsupported: list[str] = []
         self.uses_unsubscribe = False
         self.sender_variables: set[str] = set()
-        self.contact_variables: set[str] = set()
         self.web_link = False
+        self.reads_contact = False
+        self.legacy_variables: set[str] = set()
 
-    def nodes(self, nodes: tuple[object, ...]) -> str:
-        return "".join(self.node(node) for node in nodes)
-
-    def node(self, node: object) -> str:
-        converted = self._leaf(node)
-        self._budget -= len(converted)
-        if self._budget < 0:
-            raise _OutputTooLarge
-        return converted
-
-    def _leaf(self, node: object) -> str:
-        if isinstance(node, _Text):
-            # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
-            text = node.text.replace("{%", '{{ "{%" }}')
-            # A trimmed space can put this `{` next to a `{` or `%` from the next node.
-            return f'{text[:-1]}{{{{ "{{" }}}}' if text.endswith("{") else text
-        if isinstance(node, _Liquid):
-            return node.liquid
-        if isinstance(node, _Output):
-            return self.output(node)
-        raise TypeError(type(node).__name__)
-
-    def output(self, node: _Output) -> str:
-        name = node.body
+    def root_value(self, name: str) -> str | None:
         if name in _UNSUBSCRIBE_VARIABLES:
-            self.uses_unsubscribe = True
             return "{{ unsubscribe_url }}"
         if name == "Weblink":
-            self.web_link = True
             return ""
         if name in _SENDER_VARIABLES:
             self.sender_variables.add(name)
-        elif self.contact_fields and name in _CONTACT_VARIABLES:
-            self.contact_variables.add(name)
-        # Handlebars escapes a two-brace value in every part, the subject and plain text included.
-        return f"{{{{ variables.{name}{_AS_TEXT}{_HTML_ESCAPE}{' | raw' if self.is_html else ''} }}}}"
+        return None
 
 
-# Whole templates ------------------------------------------------------------------------------------------------------
+# A tag for an unsubscribe link that is still in the converted text, so it prints as it stands.
+_LEFT_UNSUBSCRIBE_TAG = re.compile(
+    r"(?:<|&lt;|%3C)(?:%25|%)\s{0,5}\w{0,50}(?:unsubscribe|asm_preferences)"
+    r"|(?:\{\{|%7B%7B)\s{0,5}(?:\{|%7B)?\s{0,5}unsubscribe(?:_preferences)?\s{0,5}(?:&nbsp;)?\s{0,5}(?:\}|%7D)"
+    r"|\[\s{0,5}unsubscribe\s{0,5}\](?!\()",
+    re.IGNORECASE,
+)
 
 
-def _convert_asm_tags(text: str, is_html: bool, converter: _Converter) -> str:
-    def convert(match: re.Match[str]) -> str:
+def _split_asm_tags(text: str, is_html: bool) -> Iterator[str | TextValue]:
+    position = 0
+    for match in _ASM_TAG.finditer(text):
+        yield text[position : match.start()]
         name = match.group(1)
         if name in _ASM_URLS:
-            converter.uses_unsubscribe = True
-            return "{{ unsubscribe_url }}"
-        converter.uses_unsubscribe = True
-        return f'<a href="{{{{ unsubscribe_url }}}}">{_ASM_LINKS[name]}</a>' if is_html else "{{ unsubscribe_url }}"
-
-    return _ASM_TAG.sub(convert, text)
-
-
-# Only a plain value converts. Anything else keeps the whole template as text, because each other form needs rules of
-# its own to print what SendGrid prints: a condition reads an empty object differently, and a loop reads an object's
-# values where Liquid reads its pairs.
-# Liquid reads `size`, `first` and `last` as properties of any object or array, where Handlebars finds nothing.
-_SEGMENT = r"(?!(?:this|size|first|last)\b)[A-Za-z_][A-Za-z0-9_]*"
-_ALLOWED_TAG = re.compile(rf"\{{\{{ *{_SEGMENT}(?:\.{_SEGMENT})* *\}}\}}(?!\}})")
-_HELD = re.compile("[\x02\x03]")
-_SCRIPT = re.compile(r"<script\b", re.IGNORECASE)
-_UNCLOSED_TAG = re.compile(r"<[^<>]*(?:<|$)")
-_BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
-_ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"<>]*[<>][^"]*"|'[^'<>]*[<>][^']*')""")
-
-
-def _unsupported_reason(source: str, is_html: bool) -> str | None:
-    """Why the template can't convert, or None when every tag is a supported form in a supported place."""
-    if _BRACE_BEFORE_ASM.search(source):
-        return "put a brace right before an unsubscribe tag"
-    held: list[str] = []
-    position = 0
-    if any(match.group(1) not in _ASM_URLS and match.group(1) not in _ASM_LINKS for match in _ASM_TAG.finditer(source)):
-        return "use <%...%> tags other than unsubscribe links"
-    # `<%...%>` tags hold `<` and `>`, which would read as HTML below. An unsubscribe URL is PostHog's own, so it may
-    # also sit in a tag, and an unsubscribe link may only sit in body text.
-    text = _ASM_TAG.sub(lambda match: "\x04" if match.group(1) in _ASM_URLS else "\x03", source)
-    while (start := text.find("{{", position)) != -1:
-        match = _ALLOWED_TAG.match(text, start)
-        if match is None:
-            return "use Handlebars beyond plain values"
-        held.append(text[position:start] + "\x02")
+            yield TextValue(source=match.group(0), in_attribute=True, liquid="{{ unsubscribe_url }}")
+        elif name in _ASM_LINKS:
+            link = f'<a href="{{{{ unsubscribe_url }}}}">{_ASM_LINKS[name]}</a>' if is_html else "{{ unsubscribe_url }}"
+            yield TextValue(source=match.group(0), in_attribute=False, liquid=link)
+        else:
+            yield TextValue(source=match.group(0), in_attribute=False)
         position = match.end()
-    text = "".join(held) + text[position:]
-    if not is_html:
-        return None
-    # A `<` or `>` in a quoted value hides where the tag ends from the checks below.
-    if _ANGLE_IN_QUOTED_VALUE.search(text):
-        return "have a < or > inside a quoted attribute value"
-    # Email clients don't run scripts, and the browser's rules for where a script ends are too subtle to check here.
-    if _SCRIPT.search(text):
-        return "sit in a template with a script"
-    if _UNCLOSED_TAG.search(text):
-        return "have an HTML tag that never closes"
-    if _has_unclosed_block(text):
-        return "have a comment, style, script or head block that never closes"
-    if _held_in_a_block(text):
-        return "sit inside a comment, style, script or head block"
-    if any(_HELD.search(tag.group(0)) for tag in _HTML_TAG.finditer(text)):
-        return "sit inside an HTML tag"
-    return None
+    yield text[position:]
 
 
-def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool) -> tuple[str, _Converter]:
-    # The placeholders below are marked with NUL, which an email can't hold, so a source with one can't fake them.
-    source = (source or "").replace("\x00", "")
-    # Each value prints with its escaping filters, so output can grow faster than input.
-    converter = _Converter(is_html, contact_fields, budget=max(_MIN_OUTPUT_BUDGET, _OUTPUT_GROWTH_LIMIT * len(source)))
-    if not source:
-        return "", converter
-    reason = _unsupported_reason(source, is_html)
-    if reason:
-        return _kept_as_text(source, is_html, contact_fields, reason)
+# One word between hyphens that no letter, digit or hyphen touches. SendGrid lets an app choose any other delimiter too,
+# and nothing in a template tells those from text.
+_SUBSTITUTION = re.compile(r"(?<![\w-])-([A-Za-z_]\w{0,99})-(?![\w-])")
+_LEGACY_SLOTS = {"subject", "body"}
+_LEGACY_TAG = re.compile(f"{_ASM_TAG.pattern}|{_SUBSTITUTION.pattern}")
+
+
+def _split_legacy_tags(text: str, is_html: bool) -> Iterator[str | TextValue]:
+    position = 0
+    for match in _LEGACY_TAG.finditer(text):
+        yield text[position : match.start()]
+        slot, substitution = match.group(1), match.group(2)
+        # Liquid reads `.size` as how many variables there are.
+        if substitution == "size":
+            yield TextValue(source=match.group(0), in_attribute=True)
+        elif substitution:
+            yield TextValue(
+                source=match.group(0),
+                in_attribute=True,
+                value_path=f"variables.{substitution}",
+                stays_when_missing=True,
+            )
+        elif slot == "subject":
+            yield TextValue(source=match.group(0), in_attribute=True, value_path="variables.subject")
+        elif slot == "body" and is_html:
+            yield TextValue(source=match.group(0), in_attribute=False, value_path="variables.body", raw=True)
+        elif slot == "body":
+            yield TextValue(source=match.group(0), in_attribute=False, liquid="{{ variables.body | strip_html }}")
+        else:
+            yield from _split_asm_tags(match.group(0), is_html)
+        position = match.end()
+    yield text[position:]
+
+
+def _legacy_nodes(source: str) -> Iterator[_Text | _Liquid]:
+    """The template's own braces print as they stand, because a legacy template has no Handlebars."""
+    position = 0
+    for match in _ANY_LIQUID_OPENING.finditer(source):
+        yield _Text(text=source[position : match.start()])
+        yield _Liquid(liquid=liquid_literal(match.group(0)), printed=match.group(0))
+        position = match.end()
+    yield _Text(text=source[position:])
+
+
+def _convert_legacy(source: str, is_html: bool) -> tuple[str, _Found]:
+    found = _Found()
+    converter = HandlebarsToLiquid(
+        is_html=is_html, dialect="sendgrid", split_text=lambda text: _split_legacy_tags(text, is_html)
+    )
     try:
-        tree = _parse_nodes(_tokenize(_convert_asm_placeholders(source), is_html))
-        converted = _restore_asm(converter.nodes(tree), is_html, converter)
-    except (_Malformed, _Unconvertible):
-        return _kept_as_text(source, is_html, contact_fields, "don't form valid Handlebars")
-    except _OutputTooLarge:
-        return _kept_as_text(source, is_html, contact_fields, "nest too deeply")
-    return converted, converter
+        converted = converter.convert(tuple(_legacy_nodes(source)))
+    except OutputTooLarge:
+        return _kept_as_text(source, "make a template too large to convert")
+    found.unsupported = [*converter.unsupported, *(match.group(0) for match in _ANY_LIQUID_OPENING.finditer(source))]
+    for tag in converter.converted:
+        if (match := _LEGACY_TAG.fullmatch(tag)) is None:
+            continue
+        if name := match.group(2) or (match.group(1) if match.group(1) in _LEGACY_SLOTS else None):
+            found.legacy_variables.add(name)
+        else:
+            found.uses_unsubscribe = True
+    return converted, found
 
 
-_LEGACY_REASON = "come from a legacy template"
+def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool) -> tuple[str, _Found]:
+    source = source or ""
+    found = _Found()
+    if not source:
+        return "", found
+    converter = HandlebarsToLiquid(
+        is_html=is_html,
+        dialect="sendgrid",
+        root_value=found.root_value,
+        split_text=lambda text: _split_asm_tags(text, is_html),
+        root_path="person.properties" if contact_fields else "variables",
+        variable_names=_SENDER_VARIABLES,
+        # Anyone can set their own person properties, so their HTML never goes into an email.
+        allows_raw=not contact_fields,
+    )
+    try:
+        converted = converter.convert(_parse_nodes(_tokenize(source, is_html)))
+    except _Malformed:
+        return _kept_as_text(source, "don't form valid Handlebars")
+    except OutputTooLarge:
+        return _kept_as_text(source, "make a template too large to convert")
+    found.unsupported = converter.unsupported
+    # Only the links that converted open PostHog's preferences page.
+    found.uses_unsubscribe = any(
+        tag in _UNSUBSCRIBE_VARIABLES or _ASM_TAG.fullmatch(tag) for tag in converter.converted
+    )
+    found.web_link = "Weblink" in converter.converted
+    found.reads_contact = contact_fields and converter.read_root
+    return converted, found
 
 
-def _kept_as_text(source: str, is_html: bool, contact_fields: bool, reason: str) -> tuple[str, _Converter]:
+def _kept_as_text(source: str, reason: str) -> tuple[str, _Found]:
     """The whole template as text. Its `<%...%>` tags stay text too, so a guarded body can't print unguarded."""
-    converter = _Converter(is_html, contact_fields)
-    converter.unsupported.append(f"this template's tags, which {reason}")
-    return _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source), converter
-
-
-# Set aside while the Handlebars is parsed, because `<%...%>` reads as text to the parser and its result is Liquid.
-_ASM_PLACEHOLDER = "\x00asm:{}\x00"
-_ASM_PLACEHOLDER_PATTERN = re.compile("\x00asm:(.*?)\x00", re.DOTALL)
-
-
-def _convert_asm_placeholders(source: str) -> str:
-    return _ASM_TAG.sub(lambda match: _ASM_PLACEHOLDER.format(match.group(0)), source)
-
-
-def _restore_asm(text: str, is_html: bool, converter: _Converter) -> str:
-    return _ASM_PLACEHOLDER_PATTERN.sub(lambda match: _convert_asm_tags(match.group(1), is_html, converter), text)
+    found = _Found()
+    found.unsupported.append(f"this template's tags, which {reason}")
+    return _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source), found
 
 
 # Tag bodies are capped and stop at the next opening, so text full of unclosed braces scans in linear time.
@@ -274,42 +241,6 @@ def _not_content_spans(html: str) -> Iterator[_Span]:
         position = end
 
 
-_BLOCKS = tuple(
-    (re.compile(opening, re.IGNORECASE), re.compile(closer, re.IGNORECASE))
-    for opening, closer in (
-        (r"<style\b", r"</style\b"),
-        (r"<script\b", r"</script\b"),
-        (r"<title\b", r"</title\b"),
-        (r"<head\b", r"</head\b"),
-        (r"<!--", r"-->"),
-    )
-)
-
-
-def _held_in_a_block(text: str) -> bool:
-    """Whether a value sits inside any kind of block. Each kind is found on its own, so a closing tag written inside
-    another kind of block, such as `</head>` in a CSS string, can't end a block early and hide a value from the check."""
-    for opening, closer in _BLOCKS:
-        position = 0
-        while start := opening.search(text, position):
-            end = closer.search(text, start.end())
-            if end is None or _HELD.search(text, start.start(), end.start()):
-                return True
-            position = end.end()
-    return False
-
-
-def _has_unclosed_block(html: str) -> bool:
-    """Whether a comment, style, script or head block opens and never closes. Every span starts at an opening, so an
-    opening outside all spans is one that never closed."""
-    position = 0
-    for span in _not_content_spans(html):
-        if _NOT_CONTENT_OPENING.search(html, position, span.start):
-            return True
-        position = span.end
-    return _NOT_CONTENT_OPENING.search(html, position) is not None
-
-
 _HTML_LINK = re.compile(
     r"<a\b[^<>]{0,2000}?\bhref\s*=\s*[\"']([^\"'<>]{1,2000})[\"'][^<>]{0,2000}>((?:(?!<a\b).){0,5000}?)</a\s*>",
     re.DOTALL | re.IGNORECASE,
@@ -321,6 +252,11 @@ _HTML_TAG = re.compile(r"<[^<>]*>")
 _LIQUID_TAG = re.compile(
     r"\{\{(?>\"[^\"]{0,2000}\"|'[^']{0,2000}'|(?!\{\{).){0,2000}?\}\}"
     r"|\{%(?>\"[^\"]{0,2000}\"|'[^']{0,2000}'|(?!\{%).){0,2000}?%\}",
+    re.DOTALL,
+)
+# A string is one piece here too. Entities make a tag up to six times longer than what `_LIQUID_TAG` reads after them.
+_ATTRIBUTE_LIQUID = re.compile(
+    r"\{\{(?>&quot;(?:(?!&quot;).){0,2000}&quot;|[^{}]){0,2000}\}\}|\{%(?>&quot;(?:(?!&quot;).){0,2000}&quot;|[^{}]){0,2000}%\}",
     re.DOTALL,
 )
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
@@ -349,7 +285,41 @@ def _without_raw_filter(tag: str) -> str:
         return tag
     head = head[:-1].rstrip()
     # The HTML part escapes what it prints, and plain text shows characters as they are.
-    return f"{{{{{head.removesuffix(_HTML_ESCAPE)} }}}}"
+    if head.endswith(HTML_ESCAPE):
+        return f"{{{{{head.removesuffix(HTML_ESCAPE)} }}}}"
+    # A value the HTML part prints as HTML reads as text once its markup is gone, as SendGrid builds plain text.
+    return f"{{{{{head} | strip_html }}}}"
+
+
+def _control_tags(text: str, span: _Span, tags: list[str]) -> Iterator[str]:
+    for slot in _LIQUID_SLOT.finditer(text, span.start, span.end):
+        tag = tags[int(slot.group(1))]
+        if tag.startswith("{%") and not _RAW_OPEN.match(tag):
+            yield slot.group(0)
+
+
+def _opens_and_closes(slots: Iterator[str], tags: list[str]) -> bool:
+    depth = 0
+    for slot in slots:
+        match = _LIQUID_SLOT.fullmatch(slot)
+        name = tags[int(match.group(1))].strip("{%- \t\r\n").split(" ", 1)[0] if match else ""
+        if name in ("if", "unless", "for"):
+            depth += 1
+        elif name in ("endif", "endunless", "endfor"):
+            depth -= 1
+        elif depth == 0:
+            return False
+        if depth < 0:
+            return False
+    return depth == 0
+
+
+def _without_html_tags(text: str, tags: list[str]) -> str:
+    """Removes HTML tags but keeps the control tags inside them, in order, so a condition that opens inside an
+    attribute still has its opening when it closes in the text."""
+    return _HTML_TAG.sub(
+        lambda match: "".join(_control_tags(text, _Span(start=match.start(), end=match.end()), tags)), text
+    )
 
 
 def plain_text_from_html(html: str) -> str:
@@ -361,27 +331,41 @@ def plain_text_from_html(html: str) -> str:
         tags.append(match.group(0))
         return f"\x01{len(tags) - 1}\x01"
 
+    # In a double-quoted attribute the converter writes a tag's quotes as entities.
+    html = _ATTRIBUTE_LIQUID.sub(lambda match: match.group(0).replace("&quot;", '"'), html)
     # Source text can't hold the slot marker, or it could stand in for a tag held here.
     text = _hold_raw_blocks(html.replace("\x01", ""), tags)
     text = _LIQUID_TAG.sub(hold, text)
     # A `<%...%>` tag in a template kept as text holds `<` and `>`, which would read as HTML below.
     text = _ASM_TAG.sub(hold, text)
     spans = list(_not_content_spans(text))
+    # A condition can open inside a title or head and close after it, so its control tags stay when the block goes.
+    # Values and text in the block go with it.
     text = "".join(
-        text[start:end]
-        for start, end in zip([0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)])
+        text[start:end] + ("".join(_control_tags(text, span, tags)) if span else "")
+        for start, end, span in zip(
+            [0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)], [*spans, None]
+        )
     )
 
-    text = _HTML_LINK.sub(
-        lambda match: (
-            match.group(1)
-            if _HTML_TAG.sub("", match.group(2)).strip() == match.group(1)
-            else f"{_HTML_TAG.sub('', match.group(2)).strip()} ({match.group(1)})"
-        ),
-        text,
-    )
+    def link(match: re.Match[str]) -> str:
+        # A condition can guard the URL. Expanding the link would print the URL outside that condition, unless each
+        # condition is whole inside the URL or inside the label.
+        around_url = (_Span(start=match.start(), end=match.start(1)), _Span(start=match.end(1), end=match.start(2)))
+        if any(slot for span in around_url for slot in _control_tags(match.string, span, tags)) or not all(
+            _opens_and_closes(_control_tags(match.string, span, tags), tags)
+            for span in (
+                _Span(start=match.start(1), end=match.end(1)),
+                _Span(start=match.start(2), end=match.end(2)),
+            )
+        ):
+            return match.group(0)
+        label = _without_html_tags(match.group(2), tags).strip()
+        return match.group(1) if label == match.group(1) else f"{label} ({match.group(1)})"
+
+    text = _HTML_LINK.sub(link, text)
     text = _HTML_LINE_BREAK.sub("\n", text)
-    text = html_lib.unescape(_HTML_TAG.sub("", text))
+    text = html_lib.unescape(_without_html_tags(text, tags))
     lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     # Decoded entities and removed HTML tags can leave braces that read as Liquid, like `&#123;&#123; x &#125;&#125;`.
@@ -394,8 +378,8 @@ def plain_text_from_html(html: str) -> str:
     )
     # A `{` left beside a held tag would join it into `{{{` or `{{%`.
     text = text.replace("{\x01", '{{ "{" }}\x01')
-    # Plain text has no escaping, so `| raw` and the HTML escaping before it have nothing to do in it. Only an output's
-    # last filters go, so a tag kept literally can't turn into another one.
+    # Plain text has no escaping, so `| raw` has nothing to do in it. Only an output's last filter goes, so a tag kept
+    # literally can't turn into another one.
     return _LIQUID_SLOT.sub(lambda match: _without_raw_filter(tags[int(match.group(1))]), text)
 
 
@@ -403,16 +387,17 @@ def convert_version(
     version: dict[str, object], *, generation: str = "dynamic", contact_fields: bool = False
 ) -> ConvertedSendGridTemplate:
     """A template version's subject and bodies in Liquid, with notes on anything to review. `contact_fields` says
-    SendGrid fills its reserved contact fields, as it does for a Single Send."""
+    SendGrid fills the tags from each contact, as it does for a Single Send, so they print the person's
+    properties with the same names."""
     html_source = _as_text(version.get("html_content"))
     text_source = _as_text(version.get("plain_content"))
     subject_source = _as_text(version.get("subject"))
     generates_text = version.get("generate_plain_content", True) is not False or not text_source
 
     if generation == "legacy":
-        subject, subject_state = _kept_as_text(subject_source, False, False, _LEGACY_REASON)
-        html, html_state = _kept_as_text(html_source, True, False, _LEGACY_REASON)
-        text, text_state = _kept_as_text(text_source, False, False, _LEGACY_REASON)
+        subject, subject_state = _convert_legacy(subject_source, False)
+        html, html_state = _convert_legacy(html_source, True)
+        text, text_state = _convert_legacy(text_source, False)
     else:
         subject, subject_state = _convert_handlebars(subject_source, False, contact_fields)
         html, html_state = _convert_handlebars(html_source, True, contact_fields)
@@ -427,7 +412,21 @@ def convert_version(
     if tags := list(dict.fromkeys(tag for state in states for tag in state.unsupported)):
         shown = ", ".join(tags[:_MAX_NOTED_TAGS])
         more = f" and {len(tags) - _MAX_NOTED_TAGS} more" if len(tags) > _MAX_NOTED_TAGS else ""
-        notes.append(f"PostHog can't convert {shown}{more}, so it appears as plain text. Rewrite it in Liquid.")
+        them = "it" if len(tags) == 1 else "them"
+        notes.append(
+            f"PostHog can't convert {shown}{more}, so the email shows {them} as written. Rewrite {them} in Liquid."
+        )
+    bodies = (html,) if generates_text and html else (html, text)
+    if any(_LEFT_UNSUBSCRIBE_TAG.search(body) for body in bodies):
+        notes.append(
+            "An unsubscribe link didn't convert, so it doesn't work. Add {{ unsubscribe_url }} before you "
+            "send it as marketing email."
+        )
+    if generation == "legacy":
+        notes.append(
+            "PostHog converts SendGrid's <%...%> tags and -name- substitutions. If your app replaces text in another "
+            "style, such as %name%, rewrite it as a Liquid variable."
+        )
     if any(state.web_link for state in states):
         notes.append("PostHog has no view in browser link, so the {{{Weblink}}} tag was removed.")
     if any(state.uses_unsubscribe for state in states):
@@ -448,10 +447,16 @@ def convert_version(
         send_notes.append(
             f"SendGrid fills {', '.join(senders)} from the sender. PostHog doesn't, so your app has to pass the value."
         )
-    if contacts := sorted({name for state in states for name in state.contact_variables}):
+    if any(state.reads_contact for state in states):
         send_notes.append(
-            f"SendGrid fills {', '.join(contacts)} from the contact. PostHog doesn't, so this needs a value when you "
-            "send it."
+            "SendGrid's contact fields print the person's property with the same name. Set those properties on your "
+            "people, or the fields print empty. HTML in them prints as text."
+        )
+    if names := sorted({name for state in states for name in state.legacy_variables}):
+        send_notes.append(
+            f"SendGrid fills {', '.join(names)} when your app sends. Pass each one as a variable with that name. "
+            "PostHog prints HTML only from body, and shows other values as text. A name between hyphens that your app "
+            "doesn't pass prints as written."
         )
     return ConvertedSendGridTemplate(
         subject=subject, html=html, text=text, notes=tuple(notes), send_notes=tuple(send_notes)

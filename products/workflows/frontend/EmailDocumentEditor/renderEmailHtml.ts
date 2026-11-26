@@ -1,5 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import {
     EmailBackgroundImage,
     EmailBlockStyle,
@@ -8,10 +10,13 @@ import {
     EmailSides,
     EmailTextAlign,
     EmailVisibility,
+    SECTION_PADDING,
     emailFontUrls,
     isEmailDocEmpty,
     resolvePageStyle,
 } from './emailDocument'
+import { changesLiquidValue, htmlToEmailText } from './htmlToEmailText'
+import { encodeLiquidQuotes } from './liquidQuotes'
 
 const LIQUID_SEGMENT = /(\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/g
 const LIQUID_TAG = /\{%[\s\S]*?%\}/g
@@ -104,6 +109,11 @@ function safeFont(font: string): string {
 function px(value: unknown, fallback = 0): number {
     const number = typeof value === 'number' ? value : Number(value)
     return Number.isFinite(number) ? Math.max(0, Math.round(number * 100) / 100) : fallback
+}
+
+/** A multiple rather than a percentage, which larger text inside the block would inherit as a fixed height and overlap. */
+export function lineHeightCss(percent: unknown, fallback = 0): string {
+    return String(Math.round(px(percent, fallback) * 100) / 10000)
 }
 
 /** Letter spacing is the one length that can tighten text, so it keeps its sign. */
@@ -409,7 +419,7 @@ function textProperties(style: EmailBlockStyle, ctx: RenderContext, fontSize: nu
         'font-family': safeFont(style.fontFamily ?? ctx.page.fontFamily),
         'font-weight': style.fontWeight,
         'font-size': `${px(style.fontSize, fontSize)}px`,
-        'line-height': `${px(style.lineHeight, ctx.page.lineHeight)}%`,
+        'line-height': lineHeightCss(style.lineHeight, ctx.page.lineHeight),
         color: safeColor(style.color, ctx.page.textColor),
         'letter-spacing': style.letterSpacing ? `${signedPx(style.letterSpacing)}px` : undefined,
         'text-transform': style.uppercase ? 'uppercase' : undefined,
@@ -439,7 +449,7 @@ function phoneCss(node: JSONContent, phone: EmailPhoneStyle, className: string):
     }
     const textCss = css({
         'font-size': phone.fontSize ? `${px(phone.fontSize)}px !important` : undefined,
-        'line-height': phone.lineHeight ? `${px(phone.lineHeight)}% !important` : undefined,
+        'line-height': phone.lineHeight ? `${lineHeightCss(phone.lineHeight)} !important` : undefined,
     })
     if (node.type === 'emailImage') {
         const imageCss = [
@@ -531,7 +541,7 @@ function renderList(node: JSONContent, ctx: RenderContext): string {
     return `<${tag}${start > 1 ? ` start="${start}"` : ''} style="${listCss}">${items}</${tag}>`
 }
 
-function headingSize(level: number, page: EmailPageStyle): number {
+export function headingSize(level: number, page: EmailPageStyle): number {
     return level === 1 ? page.h1Size : level === 2 ? page.h2Size : page.h3Size
 }
 
@@ -712,7 +722,7 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                 'vertical-align': 'top',
                 // The cell around the columns zeroes these to close the gaps between inline blocks.
                 'font-size': `${ctx.page.fontSize}px`,
-                'line-height': ctx.page.oldEditorStyles ? 'normal' : `${px(ctx.page.lineHeight)}%`,
+                'line-height': ctx.page.oldEditorStyles ? 'normal' : lineHeightCss(ctx.page.lineHeight),
                 'background-color': background,
                 'box-sizing': 'border-box',
                 padding: sides(columnPadding),
@@ -753,12 +763,25 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
     return blockCell({ ...style, padding }, outer, NO_SIDES)
 }
 
+/** One box behind several blocks. Outlook draws a cell's color and padding, so the cell carries them. */
+function renderSection(node: JSONContent, ctx: RenderContext): string {
+    const style = styleOf(node)
+    const padding = style.padding ?? SECTION_PADDING
+    const contentWidth = Math.max(
+        1,
+        ctx.contentWidth - px(padding.left) - px(padding.right) - px(style.borderWidth) * 2
+    )
+    const cell = blockCell(style, renderBlockTable(node.content, { ...ctx, contentWidth }), SECTION_PADDING)
+    // A cell only rounds its corners in a table with separate borders, and the old editor's page styles collapse them.
+    return `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate">${cell}</table></td></tr>`
+}
+
 /** A whole document can't sit inside the email's table, so next to other blocks only its styles and body are used. */
 function htmlBlockFragment(html: string): string {
     if (!FULL_HTML_DOCUMENT.test(html)) {
         return html
     }
-    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const doc = new DOMParser().parseFromString(encodeLiquidQuotes(html), 'text/html')
     const styles = Array.from(doc.querySelectorAll('style'))
         .map((style) => style.outerHTML)
         .join('')
@@ -839,6 +862,8 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
             return renderButton(node, ctx)
         case 'emailColumns':
             return renderColumns(node, ctx)
+        case 'emailSection':
+            return renderSection(node, ctx)
         case 'emailHtml':
             // Its own markup may not set a font, so it starts from the page's rather than from the email app's. The old
             // editor left the size to the email app, which is 16px.
@@ -929,8 +954,15 @@ table, td { color: ${safeColor(page.textColor, '#000000')}; }
 @media (max-width: 480px) { .hide-mobile { max-height: 0px; overflow: hidden; display: none !important; } }`
 }
 
+const COLUMN_STACK_CSS = `  .ph-col { max-width: 100% !important; }
+  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }`
+
+function columnBreakpoint(page: EmailPageStyle): number {
+    return page.bodyWidth + 20
+}
+
 function responsiveCss(page: EmailPageStyle, extra: string[] = []): string {
-    const breakpoint = page.bodyWidth + 20
+    const breakpoint = columnBreakpoint(page)
     const custom = page.globalCss.replace(/<\/?style/gi, '')
     return `
 body { margin: 0; padding: 0; }
@@ -941,8 +973,7 @@ a { color: ${safeColor(page.linkColor, '#1d4aff')}; }
 a[x-apple-data-detectors='true'] { color: inherit !important; text-decoration: none !important; }
 @media only screen and (max-width: ${breakpoint}px) {
   .ph-body { width: 100% !important; }
-  .ph-col { max-width: 100% !important; }
-  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }
+${COLUMN_STACK_CSS}
 }
 ${page.oldEditorStyles ? oldEditorCss(page) : ''}
 ${extra.filter(Boolean).join('\n')}
@@ -969,7 +1000,18 @@ export function oldEditorBlockHtml(
         return { kind: 'html', html: textFromNodes(node.content).trim() }
     }
     const text = textBlockElement(node, ctx)
-    return text !== null ? { kind: 'text', html: text } : { kind: 'html', html: renderBlockTable([node], ctx) }
+    if (text !== null) {
+        return { kind: 'text', html: text }
+    }
+    // The old editor's export has no rules for the classes in this markup that hide a block or stack columns.
+    const rules = [
+        node.type === 'emailColumns'
+            ? `@media only screen and (max-width: ${columnBreakpoint(page)}px) {\n${COLUMN_STACK_CSS}\n}`
+            : '',
+        usesScreenSizes(node.content) ? SCREEN_SIZE_CSS : '',
+    ].filter(Boolean)
+    const css = rules.length ? `<style>${rules.join('\n')}</style>` : ''
+    return { kind: 'html', html: css + renderBlockTable([node], ctx) }
 }
 
 /** A button's label as markup, with its variables written out. */
@@ -977,24 +1019,34 @@ export function oldEditorInlineHtml(nodes: JSONContent[] | undefined, page: Emai
     return renderInline(nodes, { page, contentWidth: page.bodyWidth })
 }
 
+/** The html of an email that goes out exactly as written, so no page style applies. Null for every other email. */
+export function htmlSentAsWritten(doc: JSONContent): string | null {
+    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
+    const html = String(nodes[0]?.attrs?.html ?? '')
+    const page = doc.attrs?.page
+    if (
+        nodes.length !== 1 ||
+        nodes[0].type !== 'emailHtml' ||
+        page?.wrapFullHtml ||
+        !(isFullHtmlDocument(html) || page?.htmlAsWritten === true)
+    ) {
+        return null
+    }
+    // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
+    return html.trim()
+}
+
 /** The email as it is sent. An empty document renders to nothing, so "no content" checks keep working. */
 export function renderEmailHtml(doc: JSONContent): string {
     if (isEmailDocEmpty(doc)) {
         return ''
     }
-    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
-
-    // An email that is only one HTML block is the author's own document: it goes out exactly as written.
-    if (
-        nodes.length === 1 &&
-        nodes[0].type === 'emailHtml' &&
-        (FULL_HTML_DOCUMENT.test(nodes[0].attrs?.html ?? '') || doc.attrs?.page?.htmlAsWritten === true) &&
-        !doc.attrs?.page?.wrapFullHtml
-    ) {
-        // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
-        return String(nodes[0].attrs?.html).trim()
+    const asWritten = htmlSentAsWritten(doc)
+    if (asWritten !== null) {
+        return asWritten
     }
 
+    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
     const page = resolvePageStyle(doc.attrs?.page)
     const padding = page.bodyPadding
     const bodyWidth = px(page.bodyWidth, 600) || 600
@@ -1063,62 +1115,51 @@ ${blocks}
 </html>`
 }
 
-/** The html without its doctype, `<html>`, `<head>` and `<body>` tags, which only wrap what a person reads. */
-function withoutDocumentWrapper(html: string): string {
-    let rest = html.replace(/<!doctype[^>]*>/gi, '')
-    let start = rest.search(/<head[\s>]/i)
-    while (start !== -1) {
-        const end = rest.toLowerCase().indexOf('</head>', start)
-        rest = end === -1 ? rest.slice(0, start) : rest.slice(0, start) + rest.slice(end + '</head>'.length)
-        start = rest.search(/<head[\s>]/i)
-    }
-    return rest.replace(/<\/?(html|body)(\s[^>]*)?>/gi, '')
+/** What a save stores and a send uses. An email nobody has edited keeps its stored html, not a new render. */
+export function sentEmailHtml(
+    doc: JSONContent,
+    saved: { html: string | null | undefined; doc: JSONContent | null | undefined }
+): string {
+    const blocks = (node: JSONContent): JSONContent[] => withoutTrailingEmptyParagraphs(node.content ?? [])
+    const unedited =
+        saved.doc && objectsEqual(doc.attrs, saved.doc.attrs) && objectsEqual(blocks(doc), blocks(saved.doc))
+    return saved.html && unedited ? saved.html : renderEmailHtml(doc)
 }
 
-function textFromHtml(html: string): string {
-    // The parser moves text between table rows to before the table, which would take a Liquid tag out of the rows it
-    // wraps. A comment stays where it is, so each tag travels as one and turns back into text afterwards.
-    const tags: string[] = []
-    const marked = html.replace(/\{%[\s\S]*?%\}/g, (tag) => `<!--ph-liquid-${tags.push(tag) - 1}-->`)
-    // Every tag has to stay inside the body in its source order, also around a whole document or several of them,
-    // so the document wrapper goes and one body holds it all.
-    const doc = new DOMParser().parseFromString(`<body>${withoutDocumentWrapper(marked)}</body>`, 'text/html')
-    const comments = doc.createTreeWalker(doc, NodeFilter.SHOW_COMMENT)
-    const found: Comment[] = []
-    while (comments.nextNode()) {
-        found.push(comments.currentNode as Comment)
+function inlineNodeText(node: JSONContent): string {
+    return node.type === 'variable' ? renderVariable(node) : node.type === 'hardBreak' ? '\n' : (node.text ?? '')
+}
+
+function linkHref(node: JSONContent): string {
+    return safeEmailLink(node.marks?.find((mark) => mark.type === 'link')?.attrs?.href)
+}
+
+function withLinkAddress(label: string, href: string): string {
+    const name = label.trim()
+    if (!href || href.startsWith('#') || name === href || `mailto:${name}` === href || `tel:${name}` === href) {
+        return label
     }
-    for (const comment of found) {
-        const index = /^ph-liquid-(\d+)$/.exec(comment.data)?.[1]
-        if (index !== undefined && comment.parentNode !== doc) {
-            comment.replaceWith(doc.createTextNode(tags[Number(index)]))
-        }
+    if (changesLiquidValue(label)) {
+        return `${href} ${label}`
     }
-    doc.querySelectorAll('style, script, head, title').forEach((element) => element.remove())
-    // textContent runs neighboring blocks together, so each one gets a line of its own first.
-    doc.querySelectorAll('br, p, div, tr, li, h1, h2, h3, h4, h5, h6').forEach((element) => element.after('\n'))
-    doc.querySelectorAll('td').forEach((element) => element.after(' '))
-    return (doc.body?.textContent ?? '')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/ ?\n ?/g, '\n')
-        .replace(/\n{2,}/g, '\n')
-        .trim()
+    return name ? `${label.trimEnd()} (${href})${label.slice(label.trimEnd().length)}` : `${label}${href}`
 }
 
 function inlineText(nodes: JSONContent[] | undefined): string {
-    return (nodes ?? [])
-        .map((node) => {
-            if (node.type === 'variable') {
-                return renderVariable(node)
-            }
-            if (node.type === 'hardBreak') {
-                return '\n'
-            }
-            const text = node.text ?? ''
-            const href = node.marks?.find((mark) => mark.type === 'link')?.attrs?.href
-            return href && href !== text ? `${text} (${href})` : text
-        })
-        .join('')
+    let text = ''
+    let label = ''
+    let href = ''
+    for (const node of nodes ?? []) {
+        // A link's text is split wherever its formatting changes, and its address belongs after the whole of it.
+        const nodeHref = linkHref(node)
+        if (nodeHref !== href) {
+            text += withLinkAddress(label, href)
+            label = ''
+            href = nodeHref
+        }
+        label += inlineNodeText(node)
+    }
+    return text + withLinkAddress(label, href)
 }
 
 /** The plain-text part goes out too, so a block's condition has to gate its text as well. */
@@ -1149,18 +1190,25 @@ function blockText(node: JSONContent): string {
         case 'horizontalRule':
             return '---'
         case 'emailImage':
-            return String(node.attrs?.alt ?? '')
+            return withLinkAddress(
+                String(node.attrs?.alt ?? ''),
+                safeImage(node.attrs?.src) ? safeEmailLink(node.attrs?.href) : ''
+            )
         case 'emailButton': {
             const href = safeEmailLink(node.attrs?.href)
             const label = inlineText(node.content)
+            if (href && changesLiquidValue(label)) {
+                return `${href} ${label}`
+            }
             return href && label ? `${label}: ${href}` : label
         }
         case 'emailColumns':
             return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailColumn':
+        case 'emailSection':
             return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailHtml':
-            return textFromHtml(String(node.attrs?.html ?? ''))
+            return htmlToEmailText(String(node.attrs?.html ?? ''))
         default:
             return ''
     }

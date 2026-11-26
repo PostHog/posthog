@@ -23,12 +23,14 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.change_wording import duration
 from products.experiments.backend.health.checks.events_received import joined, quoted
+from products.experiments.backend.health.checks.metric_calculation_failed import calculated_metric_values
 from products.experiments.backend.health.context import HealthContext, ZeroMetric
 from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
     CheckRows,
+    CheckValues,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -38,6 +40,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     conversion_window_to_seconds,
     quantile_exact_position,
 )
+from products.experiments.backend.metric_resolution import metric_dict_uses_warehouse_native_source
 
 # pinned: the subcodes and `evidence.metric_N_cause`. The page sends the subcode as `finding_subcode` on its events.
 BLANK_EVENT = "blank_event"
@@ -66,6 +69,19 @@ class _Worded:
     cause: str | None
     # Without the usual causes, which the finding says once for all the metrics that have no cause.
     detail: str
+
+
+def metric_all_zero_values(ctx: HealthContext) -> CheckValues:
+    calculation = ctx.latest_calculation
+    if (
+        ctx.archived
+        or not ctx.is_launched
+        or calculation is None
+        or calculation.metric_count == 0
+        or calculation.finished_at is None
+    ):
+        return {}
+    return calculated_metric_values(calculation)
 
 
 def metric_all_zero_rows(ctx: HealthContext) -> CheckRows:
@@ -253,6 +269,35 @@ def _detail(worded: list[_Worded], *, hours_of_data: float, has_ended: bool) -> 
 
 
 def _usual_causes(metrics: list[ZeroMetric]) -> list[str]:
+    # An experiment with a warehouse-native exposure reads only warehouse-native metrics, which match the exposures on
+    # the `entity_id` column that the metric query and the exposure query both return.
+    warehouse_native = any(metric_dict_uses_warehouse_native_source(dict(metric.definition)) for metric in metrics)
+    sentences = _warehouse_native_id_causes() if warehouse_native else _id_causes(metrics)
+    if any(metric.has_filters for metric in metrics):
+        sentences.append("Check that the metric filters match the data you send.")
+    thresholds = [
+        f'"{metric.name}" ({threshold:g})'
+        for metric in metrics
+        if (threshold := metric.definition.get("threshold")) is not None
+        and metric.definition.get("metric_type") == "mean"
+    ]
+    if thresholds:
+        exposed = "entities" if warehouse_native else "people or groups"
+        sentences.append(f"Check that the exposed {exposed} can reach the threshold of {joined(thresholds)}.")
+    sentences.append("A rare outcome can also read 0 at this sample size.")
+    return sentences
+
+
+def _warehouse_native_id_causes() -> list[str]:
+    return [
+        "PostHog counts a row of a warehouse-native query only for an entity_id that the exposure query returned, and "
+        "only after that entity's first exposure.",
+        "Check that the metric query returns the same entity_id values as the exposure query. PostHog compares them "
+        'as text, so 123 and "0123" don\'t match.',
+    ]
+
+
+def _id_causes(metrics: list[ZeroMetric]) -> list[str]:
     events = tuple(dict.fromkeys(event for metric in metrics for event in metric.events))
     tables = tuple(dict.fromkeys(table for metric in metrics for table in metric.warehouse_tables))
     # A metric on actions names no event, but it still reads events.
@@ -271,17 +316,6 @@ def _usual_causes(metrics: list[ZeroMetric]) -> list[str]:
         sentences.append(
             f"Check that the data warehouse join key of {quoted(tables)} holds the same ID as the exposure."
         )
-    if any(metric.has_filters for metric in metrics):
-        sentences.append("Check that the metric filters match the data you send.")
-    thresholds = [
-        f'"{metric.name}" ({threshold:g})'
-        for metric in metrics
-        if (threshold := metric.definition.get("threshold")) is not None
-        and metric.definition.get("metric_type") == "mean"
-    ]
-    if thresholds:
-        sentences.append(f"Check that the exposed people or groups can reach the threshold of {joined(thresholds)}.")
-    sentences.append("A rare outcome can also read 0 at this sample size.")
     return sentences
 
 

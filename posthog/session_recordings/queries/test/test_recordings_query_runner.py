@@ -44,6 +44,16 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
         assert response.has_next is False
 
+    @parameterized.expand([("v2",), ("v3",), ("unrecognized_V3",)])
+    def test_returns_recordings_for_a_team_with_a_stored_sessions_table_version(self, stored_version: str):
+        self.team.modifiers = {"sessionTableVersion": stored_version}
+        self.team.save()
+        self._produce_replay("session-1")
+
+        response = RecordingsQueryRunner(query=RecordingsQuery(), team=self.team).calculate()
+
+        assert [recording.id for recording in response.results] == ["session-1"]
+
     def test_result_field_mapping(self):
         self._produce_replay("session-1", first_url="https://posthog.com")
 

@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
-FanoutParent = Literal["applications", "endpoints"]
+FanoutParent = Literal["applications", "endpoints", "streams"]
 
 
 @frozen
@@ -21,6 +21,9 @@ class SvixEndpointConfig:
     partition_key: str | None = None
     # The endpoint answers one object per parent instead of a `{"data": [...]}` list.
     single_object: bool = False
+    # Response fields left out of the table. Only one-level fan-out children (parent `applications` or
+    # `streams`) apply it, and setting it also turns off HTTP sample capture for the table.
+    excluded_fields: tuple[str, ...] = ()
 
 
 # Paths are relative to the Management API base URL (`/api/v1`).
@@ -58,6 +61,23 @@ SVIX_ENDPOINTS: dict[str, SvixEndpointConfig] = {
         primary_keys=["app_id", "endpoint_id"],
         parent="endpoints",
         single_object=True,
+    ),
+    "integrations": SvixEndpointConfig(
+        name="integrations",
+        path="/app/{app_id}/integration",
+        primary_keys=["app_id", "id"],
+        parent="applications",
+        partition_key="createdAt",
+    ),
+    "streams": SvixEndpointConfig(name="streams", path="/stream", primary_keys=["id"], partition_key="createdAt"),
+    "stream_sinks": SvixEndpointConfig(
+        name="stream_sinks",
+        path="/stream/{stream_id}/sink",
+        primary_keys=["stream_id", "id"],
+        parent="streams",
+        partition_key="createdAt",
+        # The destination config can hold connection URLs with passwords and auth headers.
+        excluded_fields=("config",),
     ),
 }
 

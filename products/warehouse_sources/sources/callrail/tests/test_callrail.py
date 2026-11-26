@@ -100,17 +100,26 @@ class TestGetRows:
         assert result.params("page") == ["5"]
         assert "/a/ACC9/" in result.urls[0]
 
-    def test_resolves_account_when_not_resuming(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, response_key, path",
+        [
+            ("users", "users", "/v3/a/RESOLVED/users.json"),
+            ("message_flows", "message-flows", "/v3/a/RESOLVED/message-flows.json"),
+            ("notifications", "notifications", "/v3/a/RESOLVED/notifications.json"),
+        ],
+    )
+    def test_resolves_account_when_not_resuming(self, endpoint: str, response_key: str, path: str) -> None:
         result = _driver(account_id=None).run(
-            "users",
+            endpoint,
             [
                 _accounts(["RESOLVED"]),
-                _page("users", [{"id": "u1"}], total_pages=1),
+                _page(response_key, [{"id": "r1"}], total_pages=1),
             ],
         )
 
         assert result.raised is None
-        assert "/a/RESOLVED/users.json" in result.urls[1]
+        assert result.paths[1] == path
+        assert [row["id"] for row in result.rows] == ["r1"]
 
     def test_start_date_omitted_when_last_value_missing(self) -> None:
         result = _driver().run(
@@ -235,24 +244,54 @@ class TestFanoutEndpoints:
         assert result.requests[1].param("created_at") is None
 
 
-class TestOutboundCallerIdsEndpoint:
-    def test_binds_each_company_as_the_required_query_param(self) -> None:
+_COMPANY_CHILD_ROW = {
+    "id": 13,
+    "created_at": "2026-01-01T00:00:00Z",
+    "type": "Webhooks",
+    "state": "active",
+    "config": {"api_key": "fake-key", "pre_call_webhook": ["https://example.com/hook"]},
+    "signing_key": "fake-signing-key",
+}
+
+
+class TestCompanyFanoutEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, response_key, path, expected_columns",
+        [
+            (
+                "outbound_caller_ids",
+                "caller_ids",
+                "/v3/a/ACC/caller_ids.json",
+                {"company_id", "id", "created_at", "type", "state", "config", "signing_key"},
+            ),
+            # The integration config holds third-party API keys and the signing key is a webhook secret.
+            (
+                "integrations",
+                "integrations",
+                "/v3/a/ACC/integrations.json",
+                {"company_id", "id", "created_at", "type", "state"},
+            ),
+        ],
+    )
+    def test_binds_each_company_as_the_required_query_param(
+        self, endpoint: str, response_key: str, path: str, expected_columns: set[str]
+    ) -> None:
         result = _driver().run(
-            "outbound_caller_ids",
+            endpoint,
             [
                 _page("companies", [{"id": "COM1"}, {"id": "COM2"}], total_pages=1),
-                _page("caller_ids", [{"id": 13, "created_at": "2026-01-01T00:00:00Z"}], total_pages=1),
-                _page("caller_ids", [{"id": 13, "created_at": "2026-01-02T00:00:00Z"}], total_pages=1),
+                _page(response_key, [_COMPANY_CHILD_ROW], total_pages=1),
+                _page(response_key, [_COMPANY_CHILD_ROW], total_pages=1),
             ],
         )
 
         assert result.raised is None
-        assert result.paths[1:] == ["/v3/a/ACC/caller_ids.json"] * 2
+        assert result.paths[1:] == [path] * 2
         assert result.params("company_id")[1:] == ["COM1", "COM2"]
         assert result.requests[1].param("per_page") == "250"
-        # Caller ID ids are not documented as unique across companies, so company_id joins the key.
+        # Child ids are not documented as unique across companies, so company_id joins the key.
         assert [(row["company_id"], row["id"]) for row in result.rows] == [("COM1", 13), ("COM2", 13)]
-        assert not any(key.startswith("_companies_") for row in result.rows for key in row)
+        assert [set(row) for row in result.rows] == [expected_columns] * 2
 
 
 _NOW = datetime(2026, 3, 15, 12, 0, tzinfo=UTC)

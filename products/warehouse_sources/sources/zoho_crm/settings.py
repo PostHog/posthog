@@ -14,11 +14,13 @@ AUDITED_TIME_FIELD = "audited_time"
 TERRITORIES_ENDPOINT = "Territories"
 PIPELINES_ENDPOINT = "Pipelines"
 DEAL_TIMELINE_ENDPOINT = "Deal_Timeline"
+DEAL_CONTACT_ROLES_ENDPOINT = "Deal_Contact_Roles"
 DEALS_MODULE = "Deals"
 # Zoho lists pipelines per Deals layout, so each pipeline row carries its layout ID.
 PIPELINE_LAYOUT_ID_FIELD = "layout_id"
-# Timeline entries do not carry the record they belong to, so the timeline table adds it.
-TIMELINE_DEAL_ID_FIELD = "deal_id"
+# Rows read per deal (timeline entries, contact roles) do not carry the deal they belong to, so
+# those tables add it.
+DEAL_ID_FIELD = "deal_id"
 
 # Module kinds that hold an org's own records and are readable through Get Records.
 CUSTOM_MODULE_GENERATED_TYPES = frozenset({"custom", "linking"})
@@ -82,6 +84,9 @@ ZOHO_CRM_ENDPOINTS: dict[str, ZohoCRMEndpointConfig] = {
     "Invoices": _module("Invoices", should_sync_default=False),
     "Cases": _module("Cases", should_sync_default=False),
     "Solutions": _module("Solutions", should_sync_default=False),
+    # Appointment management modules. Their API names carry a `__s` suffix.
+    "Appointments": ZohoCRMEndpointConfig(name="Appointments", path="Appointments__s", should_sync_default=False),
+    "Services": ZohoCRMEndpointConfig(name="Services", path="Services__s", should_sync_default=False),
     # Org users are served by a dedicated endpoint, not the Get Records API.
     "Users": ZohoCRMEndpointConfig(
         name="Users",
@@ -123,7 +128,18 @@ ZOHO_CRM_ENDPOINTS: dict[str, ZohoCRMEndpointConfig] = {
         incremental_field_name=AUDITED_TIME_FIELD,
         partition_key=AUDITED_TIME_FIELD,
         should_sync_default=False,
-        primary_keys=(TIMELINE_DEAL_ID_FIELD, "id"),
+        primary_keys=(DEAL_ID_FIELD, "id"),
+        sort_mode=None,
+    ),
+    # One request per deal, and Zoho has no modified-since filter for contact roles.
+    DEAL_CONTACT_ROLES_ENDPOINT: ZohoCRMEndpointConfig(
+        name=DEAL_CONTACT_ROLES_ENDPOINT,
+        path="Contact_Roles",
+        is_module=False,
+        incremental=False,
+        partition_key=None,
+        should_sync_default=False,
+        primary_keys=(DEAL_ID_FIELD, "id"),
         sort_mode=None,
     ),
 }

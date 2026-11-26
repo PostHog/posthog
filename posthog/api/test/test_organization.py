@@ -19,9 +19,12 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.admin.admins.organization_admin import OrganizationAdminForm
+from posthog.admin.admins.organization_ai_terms_admin import OrganizationAITermsForm
 from posthog.api.organization import (
     OrganizationMemberNoticeSerializer,
     OrganizationSerializer,
+    OrganizationViewSet,
     _fetch_member_count,
     _org_serializer_cache_version,
 )
@@ -29,7 +32,9 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationAITerms
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_external_project_link import OrganizationExternalProjectLink
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
@@ -37,9 +42,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.feature_flag_role_access import FeatureFlagRoleAccess
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 
@@ -81,6 +84,33 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
         teams = {team["id"]: team for team in organization.json()["teams"]}
         self.assertEqual(teams[self.team.id]["project_group"], "production-apps")
+
+    def test_external_project_links_are_read_only_and_listed_for_their_organization_only(self) -> None:
+        link = OrganizationExternalProjectLink.objects.create(
+            organization=self.organization, name="Hedgebox (EU)", url="https://eu.posthog.com/project/2"
+        )
+        other_organization = Organization.objects.create(name="Other")
+        OrganizationExternalProjectLink.objects.create(
+            organization=other_organization, name="Other (EU)", url="https://eu.posthog.com/project/3"
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        patched = self.client.patch(
+            "/api/organizations/@current",
+            {"external_project_links": [{"name": "Phishing", "url": "https://example.com"}]},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, status.HTTP_200_OK, patched.json())
+
+        response = self.client.get("/api/organizations/@current")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["external_project_links"],
+            [{"id": str(link.id), "name": "Hedgebox (EU)", "url": "https://eu.posthog.com/project/2"}],
+        )
+        self.assertEqual(OrganizationExternalProjectLink.objects.count(), 2)
 
     def test_project_logo_changes_show_in_organization_projects(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -341,6 +371,75 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "locked")
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.is_ai_training_opted_in, False)
+
+    @parameterized.expand(
+        [
+            ("locked_and_off_cannot_turn_on", True, False, True, status.HTTP_400_BAD_REQUEST, False),
+            ("locked_and_on_can_turn_off", True, True, False, status.HTTP_200_OK, False),
+            ("unlocked_can_turn_on", False, False, True, status.HTTP_200_OK, True),
+        ]
+    )
+    def test_ai_data_processing_lock(self, _name, locked, approved, requested, expected_status, expected_approved):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_ai_data_processing_locked = locked
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": requested}
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["code"], "locked")
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_data_processing_approved, expected_approved)
+
+    def test_update_from_a_stale_instance_keeps_a_new_ai_data_processing_lock(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        stale = Organization.objects.get(id=self.organization.id)
+        Organization.objects.filter(id=self.organization.id).update(
+            is_ai_data_processing_locked=True, is_ai_data_processing_approved=False
+        )
+
+        with patch.object(OrganizationViewSet, "get_object", return_value=stale):
+            response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"name": "Renamed"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "Renamed")
+        self.assertTrue(self.organization.is_ai_data_processing_locked)
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+    def test_locking_in_the_organization_admin_turns_ai_data_processing_off(self):
+        form = OrganizationAdminForm(instance=self.organization)
+        form.cleaned_data = {"is_ai_data_processing_locked": True, "is_ai_data_processing_approved": True}
+
+        self.assertFalse(form.clean()["is_ai_data_processing_approved"])
+
+    def test_ai_terms_admin_cannot_turn_on_ai_data_processing_for_a_locked_organization(self):
+        self.organization.is_ai_data_processing_locked = True
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        form = OrganizationAITermsForm(
+            instance=OrganizationAITerms.objects.get(pk=self.organization.pk),
+            data={"is_ai_data_processing_approved": True},
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("is_ai_data_processing_approved", form.errors)
+
+    def test_ai_data_processing_lock_is_read_only(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.patch(f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_locked": True})
+
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_ai_data_processing_locked)
 
     def test_listing_organizations_reads_the_baa_once_regardless_of_count(self):
         Organization.objects.bootstrap(self.user)
@@ -1177,11 +1276,23 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
 
+    @parameterized.expand(
+        [
+            ("posthog_billing", {}, "billing page"),
+            (
+                "vercel_billing",
+                {"billing_provider": "vercel"},
+                "uninstall the PostHog integration from your Vercel team",
+            ),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_cannot_delete_organization_with_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_cannot_delete_organization_with_active_subscription(
+        self, _name, billing_extra, expected_detail, mock_get_license, mock_get_billing
+    ):
         mock_get_license.return_value = True
-        mock_get_billing.return_value = {"has_active_subscription": True}
+        mock_get_billing.return_value = {"has_active_subscription": True, **billing_extra}
 
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -1190,7 +1301,7 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("active subscription", response.json()["detail"])
+        self.assertIn(expected_detail, response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
@@ -1244,11 +1355,16 @@ class TestOrganizationAPI(APIBaseTest):
         self.client.delete(f"/api/organizations/{self.organization.id}")
 
         response = self.client.get(f"/api/organizations/{self.organization.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["is_pending_deletion"])
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "organization_pending_deletion")
+
+        listing = self.client.get("/api/organizations/")
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        organization = next(org for org in listing.json()["results"] if org["id"] == str(self.organization.id))
+        self.assertTrue(organization["is_pending_deletion"])
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
-    def test_delete_organization_already_pending_deletion_returns_400(self, mock_delete_task):
+    def test_delete_organization_already_pending_deletion_is_forbidden(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
 
@@ -1256,8 +1372,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.save(update_fields=["is_pending_deletion"])
 
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already being deleted", response.json()["detail"])
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "organization_pending_deletion")
         mock_delete_task.assert_not_called()
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
@@ -1649,76 +1765,6 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
 
     @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_feature_flags_rbac_as_admin(self, mock_report_action):
-        self.client.force_login(self.admin_user)
-
-        # Create a test feature flag
-        feature_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.admin_user, key="test-flag", name="Test Flag"
-        )
-        FeatureFlagRoleAccess.objects.create(
-            feature_flag=feature_flag,
-            role=self.admin_role,
-        )
-
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        feature_flag_access = FeatureFlagRoleAccess.objects.first()
-        self.assertIsNone(feature_flag_access)
-
-        access_control = AccessControl.objects.get(resource="feature_flag")
-        self.assertEqual(access_control.access_level, "editor")
-        self.assertEqual(access_control.role, self.admin_role)
-        self.assertEqual(access_control.resource, "feature_flag")
-        self.assertEqual(access_control.resource_id, str(feature_flag.id))
-
-        # Verify reporting calls
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
-
-    @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_feature_flags_rbac_with_specific_role_access(self, mock_report_action):
-        self.client.force_login(self.admin_user)
-
-        # Create a test feature flag
-        feature_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.admin_user, key="test-flag", name="Test Flag"
-        )
-
-        # Create specific role access
-        FeatureFlagRoleAccess.objects.create(
-            feature_flag=feature_flag,
-            role=self.admin_role,
-        )
-
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        # Verify specific role access was migrated
-        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
-        access_control = AccessControl.objects.get(
-            resource="feature_flag",
-            resource_id=str(feature_flag.id),
-            role=self.admin_role,
-        )
-        self.assertEqual(access_control.access_level, "editor")
-
-        # Add verification of reporting calls at the end
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
-
-    @patch("posthog.api.organization.report_organization_action")
     def test_migrate_team_rbac_as_admin(self, mock_report_action):
         # Create a new team with access control enabled
         team_with_access_control = Team.objects.create(
@@ -1832,103 +1878,6 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_both_feature_flags_and_team_rbac(self, mock_report_action):
-        """Test that both feature flag and team RBAC migrations can be performed in a single call."""
-        # Create a new team with access control enabled
-        team_with_access_control = Team.objects.create(
-            organization=self.organization, name="Team with Access Control", access_control=True
-        )
-
-        # Set up users
-        self.admin_user = self._create_user("rbac_admin+5@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        self.member_user = self._create_user("rbac_member+5@posthog.com")
-
-        self.client.force_login(self.admin_user)
-
-        # Create explicit team memberships
-        ExplicitTeamMembership.objects.create(
-            team=team_with_access_control,
-            parent_membership=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
-            level=ExplicitTeamMembership.Level.ADMIN,
-        )
-        ExplicitTeamMembership.objects.create(
-            team=team_with_access_control,
-            parent_membership=cast(OrganizationMembership, self.member_user.organization_memberships.first()),
-            level=ExplicitTeamMembership.Level.MEMBER,
-        )
-
-        # Create feature flags with role access
-        feature_flags = []
-        for i in range(2):
-            feature_flag = FeatureFlag.objects.create(
-                team=team_with_access_control,
-                created_by=self.admin_user,
-                key=f"test-flag-{i}",
-                name=f"Test Flag {i}",
-            )
-            feature_flags.append(feature_flag)
-            FeatureFlagRoleAccess.objects.create(
-                feature_flag=feature_flag,
-                role=self.admin_role,
-            )
-
-        # Perform migration
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        # Verify feature flag access controls
-        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
-        self.assertEqual(AccessControl.objects.filter(resource="feature_flag").count(), 2)
-
-        for feature_flag in feature_flags:
-            access_control = AccessControl.objects.get(resource="feature_flag", resource_id=str(feature_flag.id))
-            self.assertEqual(access_control.access_level, "editor")
-            self.assertEqual(access_control.role, self.admin_role)
-
-        # Verify team access controls
-        self.assertEqual(ExplicitTeamMembership.objects.count(), 0)
-        base_access = AccessControl.objects.get(
-            team=team_with_access_control,
-            organization_member__isnull=True,
-            access_level="none",
-            resource="project",
-            resource_id=str(team_with_access_control.id),
-        )
-        self.assertIsNotNone(base_access)
-
-        admin_access = AccessControl.objects.filter(
-            team=team_with_access_control,
-            organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
-            access_level="admin",
-            resource="project",
-            resource_id=str(team_with_access_control.id),
-        )
-        # Shouldn't exist
-        self.assertEqual(admin_access.count(), 0)
-
-        member_access = AccessControl.objects.get(
-            team=team_with_access_control,
-            organization_member=cast(OrganizationMembership, self.member_user.organization_memberships.first()),
-            access_level="member",
-            resource="project",
-            resource_id=str(team_with_access_control.id),
-        )
-        self.assertIsNotNone(member_access)
-
-        # Verify total number of access controls
-        # 2 feature flags + 2 team access controls (base + member)
-        self.assertEqual(AccessControl.objects.count(), 4)
-
-        # Add verification of reporting calls at the end
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
-
-    @patch("posthog.api.organization.report_organization_action")
     def test_migrate_team_rbac_fails_with_error(self, mock_report_action):
         """Test that errors during migration are properly handled and reported."""
         self.client.force_login(self.admin_user)
@@ -2000,6 +1949,17 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         response = self.client.post(self._url())
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_cannot_request_ai_access_when_locked(self, mock_task):
+        self.organization.is_ai_data_processing_locked = True
+        self.organization.save()
+
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "locked"
         mock_task.delay.assert_not_called()
 
     @patch("posthog.api.organization.send_posthog_ai_access_request")

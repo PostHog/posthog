@@ -11,7 +11,7 @@ facade boundary instead of producing a malformed payload further downstream.
 
 from dataclasses import field
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -117,14 +117,31 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearExternalReferenceJob:
+    team_id: int
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The immutable ticket id survives moves between Linear teams.
+    ticket_id: UUID
+    actor_id: UUID
+    identifier: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
+
+
+@dataclass(frozen=True)
 class LinearStatusSyncJob:
     # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
     organization_id: str
     # The ticket's identifier first, then any identifiers it had before it moved between Linear teams.
     identifiers: tuple[str, ...]
     # The workflow state the ticket left. The task reads its category to tell a reopen from a move
-    # between two open states.
-    previous_state_id: str
+    # between two open states. None reconciles a newly linked ticket without inferring a reopen.
+    previous_state_id: str | None
 
     def __post_init__(self) -> None:
         if not self.identifiers:
@@ -564,6 +581,7 @@ class IssueSummaryUnavailableReason(LabeledStrEnum):
     RESTRICTED = "restricted"
     DISABLED = "disabled"
     AI_NOT_APPROVED = "ai_not_approved"
+    SETTING_OFF = "setting_off"
 
 
 @dataclass(frozen=True)
@@ -572,3 +590,108 @@ class IssueSummaryRead:
     summary: ErrorTrackingIssueSummary | None
     # Set only when the status is unavailable.
     reason: IssueSummaryUnavailableReason | None
+
+
+class IssueSummarizeOutcome(LabeledStrEnum):
+    READY = "ready"
+    DISABLED = "disabled"
+    RESTRICTED = "restricted"
+    SETTING_OFF = "setting_off"
+    AI_NOT_APPROVED = "ai_not_approved"
+    OUT_OF_CREDITS = "out_of_credits"
+    RATE_LIMITED = "rate_limited"
+    IN_PROGRESS = "in_progress"
+    ISSUE_MISSING = "issue_missing"
+    NO_EXCEPTION = "no_exception"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class IssueSummarize:
+    outcome: IssueSummarizeOutcome
+    # Set only when the outcome is ready.
+    summary: ErrorTrackingIssueSummary | None
+
+
+class SentryMigrationCategory(LabeledStrEnum):
+    RATE_LIMIT = "rate_limit", "Rate limit"
+    ERROR_MESSAGE = "error_message", "Error message filter"
+    RELEASE = "release", "Release filter"
+    INBOUND_FILTER = "inbound_filter", "Inbound filter"
+
+
+class SentryMigrationFit(LabeledStrEnum):
+    GOOD = "good", "Good"
+    PARTIAL = "partial", "Partial"
+    UNSUPPORTED = "unsupported", "Unsupported"
+
+
+@dataclass(frozen=True)
+class SentryConnection:
+    """Credentials for one Sentry API. The token is used for the request and never stored."""
+
+    auth_token: str = field(repr=False)
+    base_url: str
+
+
+@dataclass(frozen=True)
+class SentryProjectRef:
+    organization_slug: str
+    project_slug: str
+    # Sentry hosts each organization in a region, for example https://de.sentry.io.
+    region_url: str | None
+
+
+@dataclass(frozen=True)
+class SentryProject:
+    organization_slug: str
+    organization_name: str
+    project_slug: str
+    project_name: str
+    platform: str | None
+    region_url: str | None
+
+
+@dataclass(frozen=True)
+class SentryMigrationRateLimit:
+    value: int
+    bucket_size_minutes: int
+
+
+@dataclass(frozen=True)
+class SentryMigrationBuiltInFilter:
+    """An automatic suppression rule that PostHog maintains, which the import turns on."""
+
+    key: str
+    name: str
+    description: str
+    # Short points on what the PostHog rule adds to the Sentry filter, or does differently.
+    compared_with_sentry: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SentryMigrationItem:
+    """One Sentry setting and the PostHog configuration it becomes."""
+
+    id: str
+    category: SentryMigrationCategory
+    sentry_setting: str
+    sentry_value: str
+    fit: SentryMigrationFit
+    note: str | None
+    suppression_rule_filters: dict[str, Any] | None
+    rate_limit: SentryMigrationRateLimit | None
+    built_in_filter: SentryMigrationBuiltInFilter | None
+    already_in_posthog: bool
+    limits_other_client_keys: bool = False
+
+    @property
+    def importable(self) -> bool:
+        return self.fit != SentryMigrationFit.UNSUPPORTED
+
+
+@dataclass(frozen=True)
+class SentryMigrationResult:
+    suppression_rules_created: int
+    built_in_filters_enabled: int
+    rate_limit_updated: bool

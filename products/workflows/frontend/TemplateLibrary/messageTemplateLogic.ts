@@ -13,6 +13,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { objectsEqual } from 'lib/utils/objects'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -60,6 +61,18 @@ const TRANSACTIONAL_TEMPLATE_TABS: TransactionalTemplateTab[] = [
 
 type TemplateContent = MessageTemplate['content']
 
+// By template id. Outside the logic, because a write outlives the page it started on.
+const pendingTagWrites = new Map<string, Promise<string[] | undefined>>()
+
+function warnAboutPendingTags(event: BeforeUnloadEvent): void {
+    event.preventDefault()
+}
+
+/** Content as the server stores it: without unset keys or a null design, which the form may still hold. */
+function asStored(content: TemplateContent | null): TemplateContent | null {
+    return content ? JSON.parse(JSON.stringify({ ...content, email: omitNullDesign(content.email) })) : null
+}
+
 /** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function splitDraft(template: MessageTemplate): {
     form: MessageTemplate
@@ -85,6 +98,7 @@ export interface messageTemplateLogicValues {
     draftOutOfDate: boolean
     draftsEnabled: boolean
     externallyEdited: boolean
+    failedTagSaves: number
     hasDraft: boolean
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
@@ -102,6 +116,8 @@ export interface messageTemplateLogicValues {
     originalTemplate: MessageTemplate
     publishedContent: TemplateContent | null
     savedDraft: TemplateContent | null
+    savedTemplate: MessageTemplate | null
+    savedTemplateLoading: boolean
     section: TemplateSection
     showTemplateErrors: boolean
     template: MessageTemplate
@@ -272,7 +288,10 @@ export interface messageTemplateLogicActions {
     saveTags: (tags: string[]) => {
         tags: string[]
     }
-    saveTemplate: (template: any) => any
+    saveTagsFailed: () => {
+        value: true
+    }
+    saveTemplate: (template: MessageTemplate) => MessageTemplate
     saveTemplateFailure: (
         error: string,
         errorObject?: any
@@ -281,11 +300,11 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     saveTemplateSuccess: (
-        template: MessageTemplate,
-        payload?: any
+        savedTemplate: MessageTemplate,
+        payload?: MessageTemplate
     ) => {
-        template: MessageTemplate
-        payload?: any
+        savedTemplate: MessageTemplate
+        payload?: MessageTemplate
     }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
@@ -525,6 +544,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         saveTags: (tags: string[]) => ({ tags }),
+        saveTagsFailed: true,
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
         setDeferredExternalEdit: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredExternalEdit: true,
@@ -642,6 +662,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 setTransactionalTab: (_, { tab }) => tab,
             },
         ],
+        failedTagSaves: [
+            0,
+            {
+                saveTagsFailed: (count) => count + 1,
+            },
+        ],
         templatePickerOpen: [
             false,
             {
@@ -746,11 +772,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
+                // The person can come back before the tags they left with are saved.
+                await pendingTagWrites.get(props.id)
                 const { form, draft, published } = splitDraft(await api.messaging.getTemplate(props.id))
                 actions.setDraftState(draft, published)
                 return form
             },
-            saveTemplate: async (template) => {
+        },
+        // Apart from `template`, so a save neither reads as a load nor replaces what is typed while it runs.
+        savedTemplate: {
+            __default: null as MessageTemplate | null,
+            saveTemplate: async (template: MessageTemplate) => {
                 // Saving the content publishes it, and the server clears the draft. The sensitive setting
                 // and the tags each save on their own, so a publish never sends them and can't undo a
                 // change made in another tab since this one loaded the template.
@@ -776,7 +808,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         setTransactionalTab: ({ tab }) => {
             const { tab: _shownTab, ...searchParams } = router.values.searchParams
             const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
@@ -790,24 +822,36 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.templateEditedElsewhere(event)
             }
         },
-        templateEditedElsewhere: ({ event }) => {
+        templateEditedElsewhere: async ({ event }) => {
             // The echo of our own save can arrive before its response. Parked until the flight settles,
             // it then compares equal to the loaded stamp and is dropped.
-            if (
-                values.templateLoading ||
-                values.isMakingTransactional ||
-                values.isSavingSensitive ||
-                values.isSavingDraft ||
-                values.isDiscardingDraft
-            ) {
-                actions.setDeferredExternalEdit(event)
+            const parkedOrStale = (): boolean => {
+                if (
+                    values.templateLoading ||
+                    values.savedTemplateLoading ||
+                    values.isMakingTransactional ||
+                    values.isSavingSensitive ||
+                    values.isSavingDraft ||
+                    values.isDiscardingDraft
+                ) {
+                    actions.setDeferredExternalEdit(event)
+                    return true
+                }
+                const loadedUpdatedAt = values.originalTemplate.updated_at
+                return !loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))
+            }
+            if (parkedOrStale()) {
                 return
             }
-            const loadedUpdatedAt = values.originalTemplate.updated_at
-            if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
-                return
+            // The canvas hands its edits over late, so the form can look clean while it holds one.
+            const templater = emailTemplaterLogic.findMounted()
+            if (templater) {
+                await templater.asyncActions.flushPendingDesignEdit()
+                if (!messageTemplateLogic.isMounted(props) || parkedOrStale()) {
+                    return
+                }
             }
-            if (values.hasUnsavedChanges) {
+            if (values.hasUnsavedChanges || (templater?.isMounted() && templater.values.latestEditUnsaved)) {
                 actions.setExternallyEdited(true)
             } else {
                 actions.syncExternalEdit()
@@ -820,7 +864,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.templateEditedElsewhere(event)
             }
         },
+        setDraftState: ({ draft }) => {
+            cache.serverDraft = draft
+        },
         syncExternalEdit: () => {
+            // A draft only holds what the person typed, so a reload that finds it gone must not take the text with it.
+            // Reload from the banner is the person choosing the other version, so it takes nothing along.
+            // The server's own copy of the draft, which it stores normalized, so a reload compares like with like.
+            const serverDraft = cache.serverDraft !== undefined ? cache.serverDraft : values.savedDraft
+            cache.beforeSync = values.externallyEdited ? null : { draft: serverDraft, content: values.template.content }
             actions.setSyncingExternalEdit(true)
             actions.loadTemplate()
         },
@@ -829,30 +881,57 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.autoSaveDraft()
         },
         setTemplateValue: () => actions.autoSaveDraft(),
-        saveTags: async ({ tags }, breakpoint) => {
+        saveTags: async ({ tags }) => {
             // An unsaved template has no row yet, so its tags ride the create.
             if (!props.id || props.id === 'new') {
                 actions.setTemplateValue('tags', tags)
                 return
             }
-            // The editor fires one save per tag added or removed. Without this, a burst of clicks puts
-            // several writes in flight at once, and the one that lands last wins rather than the latest
-            // selection. The wait collapses the burst into a single write.
-            await breakpoint(300)
-            // Tags are metadata: they apply live and must not publish a transactional template's draft,
-            // which a full form save would.
-            let updated: MessageTemplate
-            try {
-                updated = await api.messaging.updateTemplate(props.id, { tags })
-            } catch (error: any) {
-                lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
+            const { id } = props
+            const showTags = (shown: string[] | undefined): void => {
+                actions.setTemplate({ ...values.template, tags: shown })
+                actions.setOriginalTemplate({ ...values.originalTemplate, tags: shown })
+            }
+            // One write at a time, so an older one can't land last. Without a breakpoint, leaving the page
+            // can't cancel a tag that already looks saved.
+            const writeBefore: Promise<string[] | undefined> =
+                pendingTagWrites.get(id) ?? Promise.resolve(values.originalTemplate.tags)
+            let failed = false
+            const write: Promise<string[] | undefined> = writeBefore.then(async (saved) => {
+                // A newer edit already holds these tags.
+                if (pendingTagWrites.get(id) !== write) {
+                    return saved
+                }
+                try {
+                    // Tags are metadata: they apply live and must not publish a transactional template's draft,
+                    // which a full form save would.
+                    return (await api.messaging.updateTemplate(id, { tags })).tags
+                } catch (error: any) {
+                    failed = true
+                    if (pendingTagWrites.get(id) === write) {
+                        lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
+                    }
+                    return saved
+                }
+            })
+            pendingTagWrites.set(id, write)
+            window.addEventListener('beforeunload', warnAboutPendingTags)
+            // Shown at once, so the next tag adds to this one instead of replacing it.
+            showTags(tags)
+            const saved = await write
+            if (pendingTagWrites.get(id) !== write) {
                 return
             }
-            // Outside the catch: a breakpoint throws to unwind a superseded listener, and catching that
-            // would report it as a failed save.
-            breakpoint()
-            actions.setTemplate({ ...values.template, tags: updated.tags })
-            actions.setOriginalTemplate({ ...values.originalTemplate, tags: updated.tags })
+            pendingTagWrites.delete(id)
+            if (!pendingTagWrites.size) {
+                window.removeEventListener('beforeunload', warnAboutPendingTags)
+            }
+            if (messageTemplateLogic.isMounted(props)) {
+                showTags(saved)
+                if (failed) {
+                    actions.saveTagsFailed()
+                }
+            }
         },
         setTemplateValues: () => actions.autoSaveDraft(),
         autoSaveDraft: async (_, breakpoint) => {
@@ -866,6 +945,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 !values.draftOutOfDate ||
                 values.externallyEdited ||
                 values.isTemplateSubmitting ||
+                values.savedTemplateLoading ||
                 values.isSavingDraft ||
                 values.isDiscardingDraft
             ) {
@@ -878,8 +958,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             try {
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     // The form type still allows the legacy 'hog' templating, which templates never use.
-                    draft_content: content as MessageTemplateContentApi,
+                    draft_content: { ...content, email: omitNullDesign(content.email) } as MessageTemplateContentApi,
                 })
+                cache.serverDraft = (updated.draft_content as TemplateContent | null | undefined) ?? null
                 actions.saveDraftDone(content, updated.updated_at)
             } catch {
                 actions.saveDraftFailed()
@@ -909,7 +990,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         confirmDiscardDraft: async (_, breakpoint) => {
             // A draft save that lands after the discard would bring the draft back, so let it finish first.
-            while (values.isSavingDraft) {
+            while (values.isSavingDraft || values.savedTemplateLoading) {
                 await breakpoint(100)
             }
             try {
@@ -1000,10 +1081,21 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         loadTemplateSuccess: ({ template }) => {
             if (values.isSyncingExternalEdit) {
+                const beforeSync = cache.beforeSync as {
+                    draft: TemplateContent | null
+                    content: TemplateContent
+                } | null
+                cache.beforeSync = null
+                const draftLostElsewhere =
+                    !!beforeSync?.draft &&
+                    !objectsEqual(asStored(beforeSync.draft), asStored(values.savedDraft ?? values.publishedContent))
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
-                actions.resetTemplate(template)
+                // A draft replaced or removed elsewhere held the person's typing, so it stays and the banner asks.
+                actions.resetTemplate(
+                    draftLostElsewhere && beforeSync ? { ...template, content: beforeSync.content } : template
+                )
                 actions.setSyncingExternalEdit(false)
-                actions.setExternallyEdited(false)
+                actions.setExternallyEdited(draftLostElsewhere)
             }
             actions.replayDeferredExternalEdit()
         },
@@ -1016,6 +1108,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             } else if (typeof errors?.content?.email?.from === 'object' && errors.content.email.from.email) {
                 lemonToast.error(errors.content.email.from.email)
             }
+        },
+        saveTemplate: () => {
+            cache.formWhenSaving = values.template
         },
         saveTemplateFailure: ({ errorObject }) => {
             actions.replayDeferredExternalEdit()
@@ -1031,15 +1126,30 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             lemonToast.error('Failed to save template. Please try again.')
+            actions.autoSaveDraft()
         },
-        saveTemplateSuccess: async ({ template }) => {
+        saveTemplateSuccess: async ({ savedTemplate: template }) => {
+            const current = values.template
+            const sent: MessageTemplate = cache.formWhenSaving ?? current
+            // Create leaves the page, so it has nothing to keep.
+            const typedMeanwhile: Partial<Pick<MessageTemplate, 'name' | 'description' | 'content'>> =
+                props.id === 'new'
+                    ? {}
+                    : {
+                          ...(current.name !== sent.name ? { name: current.name } : {}),
+                          ...(current.description !== sent.description ? { description: current.description } : {}),
+                          ...(objectsEqual(current.content, sent.content) ? {} : { content: current.content }),
+                      }
             lemonToast.success(
                 props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
             )
+            // Tags save on their own, so the answer to this save can hold older ones.
+            const tagsChanged = current.tags !== sent.tags || pendingTagWrites.has(template.id)
+            const saved = props.id !== 'new' && tagsChanged ? { ...template, tags: current.tags } : template
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
-            actions.resetTemplate(template)
-            actions.setOriginalTemplate(template)
+            actions.resetTemplate(saved)
+            actions.setOriginalTemplate(saved)
             if (values.transactionalHogFlowId) {
                 // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
                 workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
@@ -1048,6 +1158,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 router.actions.push(urls.workflows('library'))
             } else if (template.id) {
                 router.actions.replace(templateUrlInSection(template.id, values.section))
+            }
+            // After the navigation, which would otherwise ask to discard them.
+            if (Object.keys(typedMeanwhile).length > 0) {
+                actions.setTemplateValues(typedMeanwhile)
             }
             actions.replayDeferredExternalEdit()
         },

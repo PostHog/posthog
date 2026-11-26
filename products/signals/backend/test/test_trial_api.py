@@ -16,6 +16,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend, SignalTeamConfig
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial.experiment import TRIAL_REPORT_LIMIT_EXPERIMENT
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import PRICING_LAUNCHED_AT, TrialPolicy
 from products.signals.backend.usage import trial_usage
@@ -346,6 +347,8 @@ class TestTrialAPI(APIBaseTest):
                 return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
             ),
             patch("products.signals.backend.trial.service.report_user_action", new=capture),
+            patch("products.signals.backend.trial.experiment.posthoganalytics.get_feature_flag", return_value="test"),
+            patch("products.signals.backend.trial.experiment.ph_background_capture") as exposure,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
@@ -355,6 +358,7 @@ class TestTrialAPI(APIBaseTest):
             )
         assert response.status_code == 400, response.content
         self.enqueue_grant.assert_not_called()
+        exposure.assert_not_called()
         assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == ["attempted", "failed"]
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
         assert (
@@ -414,7 +418,7 @@ class TestTrialAPI(APIBaseTest):
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
             patch(
-                "products.signals.backend.trial.billing.BillingManager.get_billing",
+                "products.signals.backend.trial.billing.BillingManager.get_billing_read_only",
                 return_value=customer,
             ),
         ):
@@ -477,6 +481,64 @@ class TestTrialAPI(APIBaseTest):
         assert first.json()["paid_continuation"] == continuation
         assert first.json()["legacy_pr_restricted"] is False
         assert SignalTrialGrant.objects.unscoped().filter(organization_id=self.organization.id).count() == 1
+
+    @parameterized.expand([("explicit", "control", 5), ("activation", "test", 10), ("explicit", "test", 10)])
+    def test_trial_limit_exposure_follows_committed_claim(self, source: str, variant: str, reports: int) -> None:
+        exposure = Mock()
+        with (
+            patch(
+                "products.signals.backend.trial.experiment.posthoganalytics.get_feature_flag", return_value=variant
+            ) as flag,
+            patch("products.signals.backend.trial.experiment.ph_background_capture", return_value=exposure),
+            patch("products.signals.backend.trial.service.report_user_action") as enrollment,
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                assert self.client.get(self.url).json()["report_limit"] == reports
+            exposure.assert_not_called()
+            with self.captureOnCommitCallbacks(execute=True):
+                if source == "explicit":
+                    response = self.client.post(self.url, {}, format="json")
+                else:
+                    response = self.client.post(
+                        f"/api/projects/{self.team.pk}/signals/source_configs/",
+                        {"source_product": "error_tracking", "source_type": "issue_created", "enabled": True},
+                        format="json",
+                    )
+                assert response.status_code in (200, 201), response.content
+                exposure.assert_not_called()
+            grant = SignalTrialGrant.objects.for_team(self.team.pk).get()
+            assert (grant.report_limit, grant.allowance_microusd) == (reports, 10_000_000)
+            activated = [
+                c.kwargs for c in enrollment.call_args_list if c.kwargs["properties"]["outcome"] == "activated"
+            ]
+            assert len(activated) == 1
+            assert activated[0]["organization"] == self.organization
+            props = activated[0]["properties"]
+            assert (props["grant_id"], props["experiment_variant"], props["report_limit"]) == (
+                str(grant.id),
+                variant,
+                reports,
+            )
+            flag.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                assert self.client.post(self.url, {}, format="json").json()["report_limit"] == reports
+            flag.assert_not_called()
+            org = str(self.organization.id)
+            exposure.assert_called_once_with(
+                distinct_id=org,
+                event="$experiment_exposure",
+                groups={"organization": org},
+                properties={
+                    "$feature_flag": TRIAL_REPORT_LIMIT_EXPERIMENT,
+                    "$feature_flag_response": variant,
+                    f"$feature/{TRIAL_REPORT_LIMIT_EXPERIMENT}": variant,
+                    "grant_id": str(grant.id),
+                },
+            )
 
     def test_member_activation_with_unready_billing_does_not_consume_grant(self) -> None:
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)

@@ -2408,6 +2408,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "sha2 0.10.9",
  "siphasher 1.0.4",
  "snap",
  "thiserror 2.0.21",
@@ -3030,6 +3031,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-ingestion-response"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "common-ingestion-warnings"
 version = "0.1.0"
 dependencies = [
@@ -3624,6 +3636,8 @@ dependencies = [
  "common-continuous-profiling",
  "common-database",
  "common-dns",
+ "common-ingestion-response",
+ "common-ingestion-warnings",
  "common-kafka",
  "common-metrics",
  "common-posthog",
@@ -5822,6 +5836,7 @@ dependencies = [
  "quick_cache",
  "rand 0.8.8",
  "regex",
+ "regex-syntax",
  "ring 0.17.14",
  "serde",
  "serde_json",

@@ -88,6 +88,14 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
+export interface OrganizationExternalProjectLinkApi {
+    readonly id: string
+    /** Name shown for the project in the project switcher. */
+    readonly name: string
+    /** Full URL of the project on the other PostHog instance. */
+    readonly url: string
+}
+
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
@@ -150,6 +158,11 @@ export interface OrganizationApi {
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked: boolean | null
+    /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
      */
@@ -206,6 +219,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly ip_restrictions_warning: string | null
+    /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+    readonly external_project_links: readonly OrganizationExternalProjectLinkApi[]
 }
 
 export interface PaginatedOrganizationListApi {
@@ -279,6 +294,11 @@ export interface PatchedOrganizationApi {
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked?: boolean | null
+    /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
      */
@@ -335,6 +355,8 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly ip_restrictions_warning?: string | null
+    /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+    readonly external_project_links?: readonly OrganizationExternalProjectLinkApi[]
 }
 
 export interface OrganizationRemoveBlockedMembersResponseApi {
@@ -1665,6 +1687,8 @@ export type ActivityLogListParams = {
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
+     * * `TraceReview` - TraceReview
+     * * `ScoreDefinition` - ScoreDefinition
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -1790,6 +1814,8 @@ export const ActivityLogListScope = {
     LLMPromptLabel: 'LLMPromptLabel',
     LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
+    TraceReview: 'TraceReview',
+    ScoreDefinition: 'ScoreDefinition',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
@@ -1902,6 +1928,8 @@ export const ActivityLogListScope = {
  * * `LLMPromptLabel` - LLMPromptLabel
  * * `LLMSkill` - LLMSkill
  * * `LLMTrace` - LLMTrace
+ * * `TraceReview` - TraceReview
+ * * `ScoreDefinition` - ScoreDefinition
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -2015,6 +2043,8 @@ export const ActivityLogListScopesItem = {
     LLMPromptLabel: 'LLMPromptLabel',
     LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
+    TraceReview: 'TraceReview',
+    ScoreDefinition: 'ScoreDefinition',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
