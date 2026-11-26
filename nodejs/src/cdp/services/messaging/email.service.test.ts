@@ -3185,12 +3185,14 @@ describe('EmailService', () => {
                     () => {
                         ses.failWith('no-answer')
                     },
+                    0,
                 ],
                 [
                     'SES answers 200 and its body stalls',
                     () => {
                         ses.failWith('stalled-body')
                     },
+                    0,
                 ],
                 [
                     'the connection drops after the request went out and the SDK is still backing off',
@@ -3198,25 +3200,45 @@ describe('EmailService', () => {
                         ses.failWith('drop-connection')
                         emailService.sesTransport = sesTransportFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
+                    0,
+                ],
+                [
+                    'SES records the email, answers 500 and the SDK is still backing off',
+                    (emailService: EmailService) => {
+                        ses.failWith({
+                            acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' },
+                        })
+                        emailService.sesTransport = sesTransportFor(ses, { retryStrategy: oneRetryAfter(2_000) })
+                    },
+                    1,
                 ],
             ])(
                 'when %s past the deadline, fails the send without a retry, because SES may have sent it',
-                async (_name, fault) => {
+                async (_name, fault, recorded) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     fault(emailService)
+                    const mayHaveSentBefore = await metricValue('cdp_ses_send_results_total', {
+                        result: 'may_have_sent',
+                    })
 
                     const result = await emailService.executeSendEmail(invocation)
 
                     expect({
                         finished: result.finished,
+                        rescheduledAt: result.invocation.queueScheduledAt,
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        delivered: deliveredTo(ses, recipient),
+                        mayHaveSent:
+                            (await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })) -
+                            mayHaveSentBefore,
+                        recorded: deliveredTo(ses, recipient).length,
                     }).toEqual({
                         finished: true,
+                        rescheduledAt: invocation.queueScheduledAt,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
-                        delivered: [],
+                        mayHaveSent: 1,
+                        recorded,
                     })
                 }
             )
