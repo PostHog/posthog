@@ -116,9 +116,13 @@ def copy_images(
 
 
 def _download(url: str, deadline: float) -> bytes | None:
-    fetched = fetch_image(url, deadline=min(deadline, time.monotonic() + _MAX_SECONDS_PER_IMAGE), max_bytes=_MAX_BYTES)
-    if fetched.content is None:
-        logger.info("workflows.import.image_download_failed", status=fetched.status, reason=fetched.failure)
+    deadline = min(deadline, time.monotonic() + _MAX_SECONDS_PER_IMAGE)
+    fetched = fetch_image(url, deadline=deadline, max_bytes=_MAX_BYTES)
+    # The last read can end past the deadline, after `fetch_image` stopped checking it.
+    failure = "too_slow" if fetched.content is not None and time.monotonic() > deadline else fetched.failure
+    if failure is not None:
+        logger.info("workflows.import.image_download_failed", status=fetched.status, reason=failure)
+        return None
     return fetched.content
 
 
