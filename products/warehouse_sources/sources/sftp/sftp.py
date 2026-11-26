@@ -115,9 +115,7 @@ def approved_addresses(host: str, team_id: int | None) -> tuple[str, ...]:
 def _open_socket(host: str, port: int, team_id: int | None, timeout: int) -> socket.socket:
     addresses = approved_addresses(host, team_id)
 
-    # Dial the addresses the check approved, never the hostname. A second lookup can get a
-    # different answer from a short-TTL record, public for the check and internal for the connect.
-    # No egress proxy sees this socket, so the check is the only control on where it goes.
+    # Never dial the hostname, because a second lookup of a short-TTL record can return an internal address.
     last_error: OSError | None = None
     for address in addresses:
         try:

@@ -335,8 +335,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
         return schemas
 
     def source_for_pipeline(self, config: SFTPSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # Refuse the host here, before the pipeline starts, because a full-refresh sync deletes the
-        # existing table before it reads the first item.
+        # A full-refresh sync deletes the table before it reads items, so refuse the host first.
         approved_addresses(config.host, inputs.team_id)
 
         return sftp_source(
