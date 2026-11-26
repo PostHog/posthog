@@ -5,14 +5,16 @@ from typing import Any
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils import timezone
 
+from posthog.api.cohort import CohortSerializer
 from posthog.models import TaggedItem
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import strict_fetch
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade.contracts import ExperimentListFilters, ListAccess
+from products.experiments.backend.facade.contracts import ExperimentListFilters, ExperimentNotFound, ListAccess
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     resolve_default_exposure_event,
@@ -21,6 +23,7 @@ from products.experiments.backend.logic.list_access import visible_to
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
+    ExperimentSavedMetric,
     ExperimentToSavedMetric,
     get_experiment_rule,
 )
@@ -98,6 +101,72 @@ def get_detail(*, team: Team, experiment_id: int, include_deleted: bool) -> Expe
         queryset, action="retrieve", include_deleted=include_deleted
     )
     return strict_fetch(queryset).first()
+
+
+def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
+    """The live experiment of the project with the id, with only the columns that `ExperimentHandle` reads."""
+    return (
+        Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
+        .exclude(deleted=True)
+        .select_related("feature_flag")
+        .only(
+            "id",
+            "team_id",
+            "created_by_id",
+            "holdout_id",
+            "flag_cleanup_task_id",
+            "exposure_criteria",
+            "feature_flag__created_by_id",
+        )
+        .first()
+    )
+
+
+def get_for_action(*, team: Team, experiment_id: int) -> Experiment:
+    """The live experiment of the project with the id, with the joins and prefetches of the experiment viewset's
+    queryset, which the `ExperimentService` methods of its detail actions read.
+
+    Raises ExperimentNotFound when the project has no live experiment with the id.
+    """
+    experiment = (
+        Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
+        .exclude(deleted=True)
+        .select_related("team", "feature_flag", "created_by", "exposure_cohort", "holdout__created_by")
+        .prefetch_related(
+            Prefetch(
+                "feature_flag__flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            # order_by("id") keeps the shared metrics in insertion order, because the select_related joins would
+            # otherwise leave the row order unspecified.
+            Prefetch(
+                "experimenttosavedmetric_set",
+                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team").order_by(
+                    "id"
+                ),
+            ),
+        )
+        .first()
+    )
+    if experiment is None:
+        raise ExperimentNotFound()
+    return experiment
+
+
+def linked_saved_metric_ids(experiment_id: int) -> list[int]:
+    return list(ExperimentSavedMetric.objects.filter(experiments=experiment_id).values_list("id", flat=True))
+
+
+def create_exposure_cohort(
+    experiment: Experiment, *, team: Team, user: User, serializer_context: dict[str, Any]
+) -> dict[str, Any]:
+    """Create the exposure cohort of the experiment, and return it as the cohort API shows it."""
+    cohort = ExperimentService(team=team, user=user).create_exposure_cohort(
+        experiment, serializer_context=serializer_context
+    )
+    return CohortSerializer(
+        cohort, context={"request": serializer_context["request"], "team": serializer_context["team"]}
+    ).data
 
 
 def list_page(

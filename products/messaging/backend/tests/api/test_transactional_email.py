@@ -2710,6 +2710,27 @@ class TestTransactionalEmail(APIBaseTest):
         after = self._workflow(self.hog_flow_id)
         assert (after["version"], after["updated_at"]) == (before["version"], before["updated_at"])
 
+    def test_click_tracking_setting_syncs_to_the_transactional_workflow(self, mock_post, _flag, _capture):
+        url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/"
+
+        opted_in = self.client.patch(url, {"sensitive": True, "click_tracking_enabled": True}, format="json")
+        assert opted_in.status_code == status.HTTP_200_OK, opted_in.json()
+        config = self._workflow(self.hog_flow_id)["actions"][1]["config"]
+        assert config["sensitive"] is True
+        assert config["click_tracking_enabled"] is True
+
+        unprotected = self.client.patch(url, {"sensitive": False}, format="json")
+        assert unprotected.status_code == status.HTTP_200_OK, unprotected.json()
+        assert unprotected.json()["click_tracking_enabled"] is None
+        config = self._workflow(self.hog_flow_id)["actions"][1]["config"]
+        assert config["sensitive"] is False
+        assert "click_tracking_enabled" not in config
+
+        disabled = self.client.patch(url, {"click_tracking_enabled": False}, format="json")
+        assert disabled.status_code == status.HTTP_200_OK, disabled.json()
+        config = self._workflow(self.hog_flow_id)["actions"][1]["config"]
+        assert config["click_tracking_enabled"] is False
+
     @parameterized.expand(
         [
             ("marketing_category", "marketing_template"),
