@@ -1,5 +1,9 @@
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
+from functools import partial
 from typing import Any, Literal
 
 import structlog
@@ -130,7 +134,35 @@ def compare_precomputed_values(
     )
 
 
+# The shadow comparisons that the check in progress asked for. A build can take a minute, so `run_extractor`
+# collects them while it holds the ClickHouse query slot and runs them after it released the slot.
+_requested: ContextVar[list[Callable[[], None]] | None] = ContextVar("series_values_shadow_requests", default=None)
+
+
+@contextmanager
+def collecting_shadow_comparisons() -> Iterator[list[Callable[[], None]]]:
+    requested: list[Callable[[], None]] = []
+    token = _requested.set(requested)
+    try:
+        yield requested
+    finally:
+        _requested.reset(token)
+
+
 def compare_series_values_shadow(
+    alert: AlertConfiguration,
+    query: TrendsQuery,
+    filters_override: dict | None,
+    calculation_result: InsightResult,
+    *,
+    alert_kind: AlertKind,
+) -> None:
+    requested = _requested.get()
+    if requested is not None:
+        requested.append(partial(_compare, alert, query, filters_override, calculation_result, alert_kind=alert_kind))
+
+
+def _compare(
     alert: AlertConfiguration,
     query: TrendsQuery,
     filters_override: dict | None,
@@ -145,6 +177,10 @@ def compare_series_values_shadow(
         live = calculation_result.result
         if not live:
             comparison = ShadowComparison(outcome="unavailable", reason="no_live_result")
+        elif len(live) > 1:
+            # The comparison takes the first series of both results. An alert on a result with several may
+            # watch another one, and a match on the first would say nothing about it.
+            comparison = ShadowComparison(outcome="unavailable", reason="multiple_series")
         elif not attempt_outlasts(SHADOW_BUILD_BUDGET_SECONDS + SHADOW_ATTEMPT_MARGIN_SECONDS):
             # The build runs before the check is recorded. An attempt that ends during the build loses the
             # live result, and leaves an INSERT running that no cleanup stops.
