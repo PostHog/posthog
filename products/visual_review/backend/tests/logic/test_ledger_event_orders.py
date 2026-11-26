@@ -33,6 +33,7 @@ from products.visual_review.backend.tests.logic.ci_workflow import (
 from products.visual_review.backend.tests.logic.event_orders import (
     CI_GAP_SCENARIOS,
     CI_SCENARIOS,
+    CLOSE_SCENARIOS,
     SCENARIOS,
     Layer,
     Scenario,
@@ -65,6 +66,10 @@ GUARANTEE_UNRELATED_NOT_BOTH = (
 GUARANTEE_GREEN_HEAD = (
     "A pull request head whose last gate status is success has a run that passes against the ledger and the "
     "approvals now, or the pull request changes no picture against its base"
+)
+GUARANTEE_NO_CLOSED_APPROVAL = (
+    "An open pull request head whose last gate status is success does not rest on an approval that closed without "
+    "a ledger entry: not for the picture it renders, and not for the picture a layer of its stack approved over"
 )
 
 REASON_APPROVED = "every picture it renders was approved"
@@ -178,6 +183,8 @@ class OrderPlayer:
         self.bot_heads: set[str] = set()
         self.workflows: dict[str, list[Workflow]] = {layer.name: [] for layer in scenario.layers}
         self.green_head_breaks: list[str] = []
+        self.closed_approval_breaks: list[str] = []
+        self.closed: set[str] = set()
         self.master_changes: frozenset[str] = frozenset()
         self.heads: dict[str, str] = {}
         self.runs: dict[str, Run] = {}
@@ -239,6 +246,8 @@ class OrderPlayer:
         return frozenset(names)
 
     def _approval_in_tree(self, name: str, sha: str) -> bool:
+        if name in self.closed:
+            return False
         ancestors = self.git.ancestors(sha)
         return bool(self.approved_pictures[name]) and (
             self.heads[name] in ancestors or bool(self.approved_commits[name] & ancestors)
@@ -406,6 +415,14 @@ class OrderPlayer:
             )
         return f"{sha} recheck {result.outcome}, gate {self.gate(sha)}"
 
+    def close(self, name: str) -> str:
+        self.git.close_pull_request(self.scenario.layer(name).pr_number)
+        self.closed.add(name)
+        with self.capture(using=WRITER_DB, execute=True):
+            ledger_advance.reconcile_open_approvals(self.repo)
+        gates = [(layer.name, self.gate(self.heads[layer.name])) for layer in self.scenario.layers]
+        return f"closed without merging, gates {gates}"
+
     def _changes_a_picture(self, name: str, sha: str) -> bool:
         base = self._open_base(name)
         base_changes = self.master_changes if base is None else self.changes[self.heads[base]] | self.master_changes
@@ -413,7 +430,7 @@ class OrderPlayer:
 
     def check_green_heads(self, event: str) -> None:
         for layer in self.scenario.layers:
-            if layer.name in self.landed:
+            if layer.name in self.landed or layer.name in self.closed:
                 continue
             sha = self.heads[layer.name]
             state, description = self.gate(sha)
@@ -426,6 +443,35 @@ class OrderPlayer:
                 f"{GUARANTEE_GREEN_HEAD}: after '{event}', {layer.name} head {sha} shows '{description}', "
                 f"and its verdict now is {verdict.state} '{verdict.description}'"
             )
+
+    # Read from the model's own record of who approved which picture over which, never from the code's verdict.
+    def _rests_on_closed_approval(self, name: str, picture: str) -> bool:
+        if picture == self._picture(self.master_changes):
+            return False
+        approvers = [below for below in self._chain(name) if picture in self.approved_pictures[below]]
+        if not approvers:
+            return False
+        open_approvers = [approver for approver in approvers if approver not in self.closed]
+        if not open_approvers:
+            return True
+        return all(
+            self.approved_over[approver] != picture
+            and self._rests_on_closed_approval(approver, self.approved_over[approver])
+            for approver in open_approvers
+        )
+
+    def check_closed_approvals(self, event: str) -> None:
+        for layer in self.scenario.layers:
+            if layer.name in self.landed or layer.name in self.closed:
+                continue
+            sha = self.heads[layer.name]
+            state, description = self.gate(sha)
+            picture = self._renders(sha)["Button"]
+            if state == "success" and self._rests_on_closed_approval(layer.name, picture):
+                self.closed_approval_breaks.append(
+                    f"{GUARANTEE_NO_CLOSED_APPROVAL}: after '{event}', {layer.name} head {sha} renders {picture} "
+                    f"and shows '{description}', closed layers {sorted(self.closed)}"
+                )
 
     def _expect_after_restack(self, layer: Layer) -> tuple[bool, str]:
         if layer.name not in self.approved_over:
@@ -586,14 +632,17 @@ class OrderPlayer:
             outcome = self.queue(tuple(names))
         elif verb == "land":
             outcome = self.land(tuple(names))
+        elif verb == "close":
+            outcome = self.close(names[0])
         else:
             raise ValueError(f"Unknown event {event!r}")
         self.trace.append(f"{event}: {outcome}")
         self.check_green_heads(event)
+        self.check_closed_approvals(event)
 
 
 def broken_guarantees(player: OrderPlayer) -> list[str]:
-    broken = list(player.green_head_breaks)
+    broken = [*player.green_head_breaks, *player.closed_approval_breaks]
     for attempt in player.attempts:
         if attempt.passed != attempt.expected.gets_through:
             broken.append(
@@ -689,7 +738,7 @@ def play_order(
 
 CASES = [
     pytest.param(scenario, order, id=f"{scenario.key}-{index:03d}")
-    for scenario in (*SCENARIOS, *CI_SCENARIOS)
+    for scenario in (*SCENARIOS, *CLOSE_SCENARIOS, *CI_SCENARIOS)
     for index, order in enumerate(scenario.every_order())
 ]
 
