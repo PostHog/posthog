@@ -65,14 +65,16 @@ export type RoleId = ReplicaOf<Role>
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
 const SECRET_OR_PLACE_SETTING =
-    /SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|SALT|TOKEN|SIGNING|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_URLS?$|_DSN$|_BROKERS?$|BROKER_LIST$|_DIR$|_LOCATION$/
-const URL_OR_CREDENTIALS_SHAPED = /\/\/|@|(PASS(WOR)?D|SECRET|TOKEN|KEY)\s*=/i
+    /SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|SALT|TOKEN|SIGNING|USER(NAME)?$|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_ADDR(ESS)?$|_ENDPOINTS?$|_URLS?$|_DSN$|_BROKERS?$|BROKER_LIST$|_DIR$|_LOCATION$/
+const LIST_SETTING = /_KEYS$|_HOSTS$|_URLS$|_BROKERS$|BROKER_LIST$/
+const PLAIN_VALUE = /^[\w.-]*$/
 
-const presenceOf = (list: string): string => (list.split(',').some((part) => part.trim()) ? 'set' : '')
+const presenceOf = (key: string, value: string): string =>
+    (LIST_SETTING.test(key) ? value.split(',').some((part) => part.trim()) : value !== '') ? 'set' : ''
 
 const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
-    value !== undefined && (SECRET_OR_PLACE_SETTING.test(key) || URL_OR_CREDENTIALS_SHAPED.test(value))
-        ? presenceOf(value)
+    value !== undefined && (SECRET_OR_PLACE_SETTING.test(key) || !PLAIN_VALUE.test(value))
+        ? presenceOf(key, value)
         : value
 
 export function configHashOf(specs: RoleSpec[]): string {

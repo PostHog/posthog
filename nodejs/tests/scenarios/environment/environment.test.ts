@@ -663,6 +663,7 @@ describe('scenario environment', () => {
                 certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
                 sealingOff: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
                 sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: ',,' }, STATE_DIR),
+                commaPassword: withSetting({ POSTHOG_DB_PASSWORD: ',' }),
                 certificateCheckOff: withSetting({
                     KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'false',
                 }),
@@ -677,6 +678,7 @@ describe('scenario environment', () => {
                 certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'YW5vdGhlci1rZXk=' }),
                 sealingOff: expect.not.stringMatching(here),
                 sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                commaPassword: expect.not.stringMatching(withSetting({ POSTHOG_DB_PASSWORD: '' })),
                 certificateCheckOff: expect.not.stringMatching(
                     withSetting({ KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'true' })
                 ),
@@ -755,6 +757,14 @@ describe('scenario environment', () => {
                 'CDP_WATCHER_HOG_COST_TIMING',
                 'user:one@host-a',
                 'other:two@host-b',
+            ],
+            ['SASL user name', 'KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME', 'reader-a', 'reader-b'],
+            ['bare address', 'PERSONHOG_LEADER_ADDR', 'router-a:50051', 'router-b:50052'],
+            [
+                'host and port under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'router-a:50051',
+                'router-b:50052',
             ],
         ])('keeps every part of a %s out of the config hash', (_class, key, value, other) => {
             expect(withSetting({ [key]: value })).toEqual(withSetting({ [key]: other }))
