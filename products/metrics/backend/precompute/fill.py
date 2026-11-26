@@ -19,6 +19,7 @@ from typing import Any
 from django.core.cache import cache
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -73,6 +74,8 @@ MAX_REFILL_STEP = dt.timedelta(days=1)
 UNUSED_AFTER = dt.timedelta(days=14)
 PAUSE_AFTER_FAILURES = 10
 PASS_BUDGET = dt.timedelta(minutes=4)
+# Indexing runs after the fill budget, so the two together stay under the task's six-minute soft limit.
+INDEX_BUDGET = dt.timedelta(minutes=1)
 # A larger Snuffle response splits the fill's range, as too many rows does, before it is decoded.
 MAX_FILL_RESPONSE_BYTES = 50_000_000
 _LOCK_TIMEOUT_SECONDS = 10 * 60
@@ -370,6 +373,8 @@ def fill_precomputed_metrics(
             for precomputed_metric in list(pending):
                 try:
                     did_work = fill_step(team, precomputed_metric, now, deadline=deadline)
+                except SoftTimeLimitExceeded:
+                    raise
                 except (TooManySeriesError, UnstorableLabelError) as error:
                     _record_failure(precomputed_metric, error, pause=True)
                     did_work = False
@@ -385,7 +390,7 @@ def fill_precomputed_metrics(
                     pending.remove(precomputed_metric)
                 if time.monotonic() >= deadline:
                     break
-        index_team_filled_days(team, FINAL_AFTER)
+        index_team_filled_days(team, FINAL_AFTER, time.monotonic() + INDEX_BUDGET.total_seconds())
     finally:
         cache.delete(lock_key)
 

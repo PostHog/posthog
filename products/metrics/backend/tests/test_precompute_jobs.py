@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 
 import time_machine
@@ -46,8 +47,9 @@ class TestIndexFilledDays(BaseTest):
         )
 
     def test_indexes_only_whole_stored_days_and_reuses_them_on_the_next_pass(self):
-        # Stored from 06:00 three days ago to 11:00 today: the partial first and last days are not indexed.
-        metric = self._metric(PrecomputedMetricKind.SUM_OVER_TIME, MIDNIGHT - 3 * DAY + dt.timedelta(hours=6))
+        # Stored from 06:00 four days ago to 11:00 today: the partial first and last days are not indexed, and
+        # the two settled days share a TTL but still get one job each.
+        metric = self._metric(PrecomputedMetricKind.SUM_OVER_TIME, MIDNIGHT - 4 * DAY + dt.timedelta(hours=6))
 
         first = index_filled_days(self.team, metric, FINAL_AFTER)
         second = index_filled_days(self.team, metric, FINAL_AFTER)
@@ -55,6 +57,7 @@ class TestIndexFilledDays(BaseTest):
         assert first is not None and second is not None
         assert [job.id for job in second] == [job.id for job in first]
         assert self._jobs() == [
+            (MIDNIGHT - 3 * DAY, MIDNIGHT - 2 * DAY, PreaggregationJob.Status.READY),
             (MIDNIGHT - 2 * DAY, MIDNIGHT - DAY, PreaggregationJob.Status.READY),
             (MIDNIGHT - DAY, MIDNIGHT, PreaggregationJob.Status.READY),
         ]
@@ -74,10 +77,11 @@ class TestIndexFilledDays(BaseTest):
         by_start = {job.time_range_start: job.id for job in later}
         assert by_start[settled.time_range_start] == settled.id
         assert by_start[yesterday.time_range_start] != yesterday.id
+        assert not PreaggregationJob.objects.filter(id=yesterday.id).exists()
 
     def test_kinds_that_stay_on_postgres_are_not_indexed(self):
         self._metric(PrecomputedMetricKind.INCREASE, MIDNIGHT - 3 * DAY)
 
-        index_team_filled_days(self.team, FINAL_AFTER)
+        index_team_filled_days(self.team, FINAL_AFTER, time.monotonic() + 60)
 
         assert self._jobs() == []

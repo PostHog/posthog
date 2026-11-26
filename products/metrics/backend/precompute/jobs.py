@@ -7,14 +7,18 @@ has already stored, so job identity, windows and rebuild cadence run in producti
 Nothing reads these jobs.
 """
 
+import time
 import datetime as dt
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -71,34 +75,46 @@ def job_query_hash(precomputed_metric: MetricPrecomputedMetric) -> str:
     return compute_query_hash(job_query(precomputed_metric))
 
 
-def _executor(settling_period: dt.timedelta) -> LazyComputationExecutor:
+def _executor(settling_period: dt.timedelta, wait_timeout_seconds: float) -> LazyComputationExecutor:
     # Built per call: the rule cutoffs are relative to now.
     return LazyComputationExecutor(
-        wait_timeout_seconds=_WAIT_TIMEOUT_SECONDS,
+        wait_timeout_seconds=wait_timeout_seconds,
         ttl_schedule=parse_ttl_schedule(
             {"1d": RECENT_TTL_SECONDS, "default": SETTLED_TTL_SECONDS},
             settling_period_seconds=int(settling_period.total_seconds()),
             default_ttl_jitter_seconds=SETTLED_TTL_JITTER_SECONDS,
+            # Without the cap, adjacent settled days with the same TTL merge into one job and rebuild together.
+            max_window_days=1,
         ),
     )
 
 
-def _whole_days(start: dt.datetime, end: dt.datetime) -> tuple[dt.datetime, dt.datetime] | None:
+@frozen
+class _DayRange:
+    start: dt.datetime
+    end: dt.datetime
+
+
+def _whole_days(start: dt.datetime, end: dt.datetime) -> _DayRange | None:
     first = dt.datetime.combine(start.astimezone(dt.UTC).date(), dt.time(), tzinfo=dt.UTC)
     if first < start:
         first += DAY
     last = dt.datetime.combine(end.astimezone(dt.UTC).date(), dt.time(), tzinfo=dt.UTC)
-    return (first, last) if first < last else None
+    return _DayRange(start=first, end=last) if first < last else None
 
 
 def index_filled_days(
-    team: Team, precomputed_metric: MetricPrecomputedMetric, settling_period: dt.timedelta
+    team: Team,
+    precomputed_metric: MetricPrecomputedMetric,
+    settling_period: dt.timedelta,
+    wait_timeout_seconds: float = _WAIT_TIMEOUT_SECONDS,
 ) -> list[PreaggregationJob] | None:
     """Make sure every whole UTC day the metric has stored has a fresh job, and return the jobs that cover them.
 
     A missing or expired day gets a new job whose build counts the stored buckets of that day. Returns None
     when the metric isn't indexed, has no whole stored day, or the executor didn't finish. A day built before
     `settling_period` has passed since its end is rebuilt once it has, as late samples can still change it.
+    Jobs the returned ones replaced are deleted, as the framework has no eviction and nothing reads them.
     """
     if precomputed_metric.kind not in INDEXED_KINDS:
         return None
@@ -119,8 +135,9 @@ def index_filled_days(
             .count()
         )
 
-    result = _executor(settling_period).execute(
-        team, job_query(precomputed_metric), *days, run_insert=count_stored_buckets
+    query = job_query(precomputed_metric)
+    result = _executor(settling_period, wait_timeout_seconds).execute(
+        team, query, days.start, days.end, run_insert=count_stored_buckets
     )
     if not result.ready:
         logger.warning(
@@ -129,18 +146,31 @@ def index_filled_days(
             errors=result.errors,
         )
         return None
+    PreaggregationJob.objects.filter(team=team, query_hash=compute_query_hash(query)).filter(
+        Q(expires_at__lt=timezone.now()) | Q(status=PreaggregationJob.Status.FAILED)
+    ).exclude(id__in=result.job_ids).delete()
     return list(PreaggregationJob.objects.filter(team=team, id__in=result.job_ids).order_by("time_range_start"))
 
 
-def index_team_filled_days(team: Team, settling_period: dt.timedelta) -> None:
-    """Index every active metric's stored days. A failure is logged and never stops the fill pass."""
+def index_team_filled_days(team: Team, settling_period: dt.timedelta, deadline: float) -> None:
+    """Index every active metric's stored days until `deadline`, a `time.monotonic()` value.
+
+    A failure is logged and never stops the fill pass. A soft time limit still propagates, so the task's
+    `finally` releases the team lock before the worker is killed.
+    """
     metrics = MetricPrecomputedMetric.objects.for_team(team.pk).filter(
         state=MetricPrecomputedMetric.State.ACTIVE, kind__in=INDEXED_KINDS
     )
     started = timezone.now()
     for precomputed_metric in metrics:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.warning("metrics_precompute_index_out_of_time", team_id=team.pk)
+            break
         try:
-            index_filled_days(team, precomputed_metric, settling_period)
+            index_filled_days(team, precomputed_metric, settling_period, min(_WAIT_TIMEOUT_SECONDS, remaining))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception("metrics_precompute_index_failed", precomputed_metric_id=str(precomputed_metric.pk))
     logger.info(
