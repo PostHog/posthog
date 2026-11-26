@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.schema import (
     AccountsQuery,
     AccountsTableQuery,
+    DataVisualizationNode,
     DataWarehouseNode,
     EntityType,
     EventsNode,
@@ -80,6 +81,11 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("trace_spans", "select * from posthog.trace_spans", {"tracing"}),
+            (
+                "join_condition_subquery",
+                "select * from events e join persons p on e.person_id = p.id and p.x = (select count() from posthog.trace_spans)",
+                {"tracing"},
+            ),
             ("placeholder_table", "select * from {table}", None),
             ("placeholder_join", "select * from events join {table} on 1", None),
             ("placeholder_outside_from", "select * from events where {filters}", set()),
@@ -214,11 +220,24 @@ class TestQueriedAccessControlledResources(BaseTest):
         [
             ("math_hogql", "sum(1) + (select count() from posthog.trace_spans)", {"tracing"}),
             ("reads_no_scoped_table", "sum(1) + (select count() from events)", set()),
+            ("comment_after_select", "1 + (select/**/count() from posthog.trace_spans)", {"tracing"}),
+            (
+                "saved_view",
+                "sum(1) + (select count() from span_view)",
+                {"tracing", "warehouse_view", "warehouse_table", "external_data_source"},
+            ),
         ]
     )
     def test_structured_query_embedded_hogql_reads_are_detected(self, _name, math_hogql, expected):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="span_view", query={"kind": "HogQLQuery", "query": "select * from posthog.trace_spans"}
+        )
         query = TrendsQuery(series=[EventsNode(event="$pageview", math="hogql", math_hogql=math_hogql)])
         assert queried_access_controlled_resources(query, self.team) == expected
+
+    def test_structured_query_with_nested_placeholder_table_fails_closed(self):
+        query = DataVisualizationNode(source=HogQLQuery(query="select * from {table}"))
+        assert queried_access_controlled_resources(query, self.team) is None
 
     def test_nested_data_warehouse_node_is_detected(self):
         # The node is two levels deep (actors query -> source insight -> series), so a shallow

@@ -250,7 +250,6 @@ def queried_access_controlled_resources(
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
-    from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
@@ -292,7 +291,7 @@ def queried_access_controlled_resources(
         if _has_placeholder_table(select):
             return None  # the table is unknown until the placeholder expands -> fail closed
 
-        table_names = set(get_table_names(select))
+        table_names = _table_names_including_join_constraints(select)
         system_scopes = _table_scopes()
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
         scopes_from_system_tables = set(scopes)
@@ -380,14 +379,17 @@ def queried_access_controlled_resources(
 
         return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
 
-    # HogQL embedded in a structured query (a `math_hogql` expression, a nested HogQLQuery) reads tables too.
-    # A system table's scope stays even when bypassed on warehouse objects, as for tables a HogQL query names.
+    # HogQL embedded in a structured query (a `math_hogql` expression, a nested HogQLQuery) reads tables too,
+    # so each piece gets the same analysis as a raw HogQL query: placeholders fail closed and saved views are walked.
     scoped_tables = _table_scopes()
     embedded_scopes: set[str] = set()
-    for name in _embedded_hogql_table_names(query):
-        if name in scoped_tables:
-            embedded_scopes.add(scoped_tables[name])
-        embedded_scopes |= _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(name, frozenset())
+    for embedded_sql in _embedded_hogql(query):
+        nested = queried_access_controlled_resources(
+            HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes
+        )
+        if nested is None:
+            return None
+        embedded_scopes |= nested
 
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     if not _references_data_warehouse(query):
@@ -441,31 +443,50 @@ def _table_scopes() -> dict[str, str]:
     }
 
 
-def _embedded_hogql_table_names(value) -> Iterator[str]:
-    """Table names read by HogQL strings anywhere in a structured query's tree."""
+def _embedded_hogql(value) -> Iterator[str]:
+    """SQL for each piece of HogQL in a structured query's tree: a nested HogQLQuery as written, and any
+    other string that parses as an expression and contains parentheses (a subquery needs them) wrapped
+    into a select so one analysis covers both. Comments can split keywords, so no keyword filter applies."""
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
-    from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
-    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr  # noqa: PLC0415
 
-    if isinstance(value, str):
-        if "select" not in value.lower():
+    if isinstance(value, HogQLQuery):
+        if isinstance(value.query, str):
+            yield value.query
+    elif isinstance(value, str):
+        if "(" not in value:
             return
-        for parse in (parse_expr, parse_select):
-            try:
-                yield from get_table_names(parse(value))
-                return
-            except BaseHogQLError:
-                continue
+        try:
+            parse_expr(value)
+        except BaseHogQLError:
+            return
+        yield f"select (\n{value}\n)"
     elif isinstance(value, BaseModel):
         for item in value.__dict__.values():
-            yield from _embedded_hogql_table_names(item)
+            yield from _embedded_hogql(item)
     elif isinstance(value, (list, tuple)):
         for item in value:
-            yield from _embedded_hogql_table_names(item)
+            yield from _embedded_hogql(item)
     elif isinstance(value, dict):
         for item in value.values():
-            yield from _embedded_hogql_table_names(item)
+            yield from _embedded_hogql(item)
+
+
+def _table_names_including_join_constraints(select) -> set[str]:
+    """Tables a select reads, including those in subqueries inside `JOIN ... ON`, which `get_table_names` skips."""
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
+
+    class _Collector(TableCollector):
+        def visit_join_expr(self, node: ast.JoinExpr):
+            super().visit_join_expr(node)
+            self.visit(node.constraint)
+
+    collector = _Collector()
+    collector.visit(select)
+    return collector.table_names - collector.ctes
 
 
 def _has_placeholder_table(select) -> bool:
