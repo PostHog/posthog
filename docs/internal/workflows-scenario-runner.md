@@ -58,6 +58,7 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | `journal.json`    | Every unit the generator offered, the intake's answer, and what it expects                                     |
 | `truth.json`      | Every request the provider edge took or answered, and its answer; a refused ambiguous request leaves none      |
 | `writer-cpu.json` | Each read of the Aurora writer's CPU for a writer CPU bar: its window, and a point a minute or why it has none |
+| `counters.json`   | For a `counter_drift` card, the email counters read from ClickHouse, or why they could not be read             |
 | `logs/<role>.log` | Each role's log lines from this run                                                                            |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it                              |
 | `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second                                      |
@@ -894,6 +895,20 @@ export type JournalEntry = {
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
+  - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.
+    - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered` and `email_failed`.
+    - The sink's count for each counter comes from the truth of this run's units:
+      - `email_sent`: 2xx `ses.send` records.
+      - `email_delivered`: 0, because the edge publishes no delivery notifications.
+      - `email_failed`: not counted for now, see below.
+    - Metrics arrive late: the worker flushes them after each batch, and ClickHouse consumes them from Kafka. So the runner reads again every second. It stops when no counter changed for 15 seconds, even when the counts already match the sink, so a late duplicate still shows. After a failed read, the 15 seconds start again at the next read that succeeds. After 60 seconds it keeps the last read and marks it incomplete. The reading is saved as `counters.json`.
+    - Keys: `owed`, the email messages the journal owes by the recovery horizon, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift.
+    - On the local stack, which cloud run hosts also start, ClickHouse reads the `clickhouse_app_metrics2` topic through two Kafka tables, `kafka_app_metrics2` and `kafka_app_metrics2_ws`, and both point at the same broker. Most counts land twice. So the runner also counts the materialized views that read a Kafka table and write into `app_metrics2`, `writable_app_metrics2` or `sharded_app_metrics2`, saved in `counters.json` as `consumers`. When that read fails, `counters.json` keeps its error as `consumersUnread`, and the drift's `_unmeasured` reason quotes it. Unless exactly one view feeds it, the drift is unknown, and both sides stay. To read the drift with one consumer, detach `posthog.app_metrics2_ws_mv` for the run and attach it again after.
+    - A side that cannot be read is `null` and censored, and its `_unmeasured` property says why. When ClickHouse cannot be read, the drift and `<counter>_counted` hold the read's last error, and `owed` and the sink counts stay. When the truth cannot be read, the drift and `<counter>_sink` are unknown, and `<counter>_counted` stays. When the run did not converge, or the edge kept accepting sends through the final truth reads, sends could still land while the counters were read, so the drift is unknown and both sides stay. A send that the edge accepts only while the counters are read, such as a replay of an event still in Kafka, reaches the counters but not the sink, so it shows as positive drift. Without a recovery horizon, `owed` is unknown.
+    - Some keys are always `null` and censored for now, and their `_unmeasured` property says why:
+      - `email_sent_events`, the count of `$workflows_email_sent` events: the stack runs no ingestion, so the events that capture accepts never reach ClickHouse.
+      - `email_bounced`: the edge records a bounce only after the SES webhook answers, so the sink can trail the counter while the read settles.
+      - `email_failed` and `email_failed_sink`: the sink cannot tell a refused send that the worker retried and sent from a refused send that another invocation of the same unit sent, so it can miss a failure the counter holds. `email_failed_counted` stays.
   - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
 
 ### Cyclotron probe
@@ -1047,6 +1062,7 @@ Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `
 The unit is in the measurement's definition and in the evidence.
 A per-role value that may be short also carries `m_<name>_<role>_incomplete: true`. For `role_rss_max_bytes`, a scrape of that role was missed. For `role_cpu_seconds`, the role restarted, or a scrape after its last sample was missed.
 A complete value has no `_incomplete` property, so compare a flagged value with care.
+A value the run could not measure is `null` and carries `_censored: true`. When the measurement knows why, `_unmeasured` holds the reason as a string.
 
 ## Provisioning the scorecard project
 

@@ -1165,7 +1165,7 @@ describe('runner through seed, drive and judge', () => {
         {
             replicas = {},
             parks = 0,
-            measures = SMOKE.card.measure,
+            measures = SMOKE.card.measure.filter(({ name }) => name !== 'counter_drift'),
             load: loadTargets,
             backlog,
             ramp,
@@ -1343,6 +1343,7 @@ describe('runner through seed, drive and judge', () => {
         const result = await createRunner(environmentOf(delivering), env, {
             topologyWithinMs: 1000,
             topologyEveryMs: 10,
+            counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
         }).run(shortSmoke(valves, traffic, options), signal)
         results.push(result)
         return result
@@ -1457,6 +1458,38 @@ describe('runner through seed, drive and judge', () => {
                     : [],
             })
             expect(api.captured[0]?.properties.topology_hash).toEqual(expect.stringMatching(/^[0-9a-f]{12}$/))
+        },
+        30_000
+    )
+    it.each<['all' | 'all, leaving one job running', (sent: number) => number | null]>([
+        ['all', (sent) => -sent],
+        ['all, leaving one job running', () => null],
+    ])(
+        'scores the email sends no app metric counted when delivering %s',
+        async (delivering, drift) => {
+            const result = await run(delivering, [], 'event_email', {
+                measures: [{ name: 'counter_drift', params: {} }],
+                ...(delivering !== 'all' && { convergeWithin: '1s' }),
+            })
+
+            const sent = (evidenceOf(result, 'truth.json') as TruthRecord[]).filter(
+                ({ kind, status }) => kind === 'ses.send' && status === 200
+            )
+            const owed = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(
+                ({ answer, expect }) => answer.accepted && expect.deliveries.includes('email')
+            )
+            expect(sent).not.toHaveLength(0)
+            expect(api.captured[0]?.properties).toMatchObject({
+                ...(delivering === 'all' && { m_counter_drift_owed: owed.length }),
+                m_counter_drift_email_sent: drift(sent.length),
+                m_counter_drift_email_sent_counted: 0,
+                m_counter_drift_email_sent_sink: sent.length,
+                m_counter_drift_email_failed_counted: 0,
+            })
+            expect(evidenceOf(result, 'counters.json')).toEqual({
+                counted: { email_sent: 0, email_delivered: 0, email_failed: 0 },
+                consumers: 1,
+            })
         },
         30_000
     )
