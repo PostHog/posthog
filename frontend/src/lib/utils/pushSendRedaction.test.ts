@@ -22,6 +22,7 @@ describe('push send redaction', () => {
         ['a send with a query', '/api/projects/1/messaging/send/push?x=1', REDACTED],
         ['a broadcast test send', 'https://us.posthog.com/api/projects/1/hog_flows/new/invocations/', REDACTED],
         ['a saved workflow test send', '/api/environments/1/hog_flows/0190-abc/invocations', REDACTED],
+        ['a destination test send', '/api/projects/1/hog_functions/0190-abc/invocations/', REDACTED],
         ['the workflow list', '/api/projects/1/hog_flows/', BODY],
         ['an email send', '/api/projects/1/messaging/send/email/', BODY],
         ['the push numbers', '/api/projects/1/transactional_push_log/stats/', BODY],
