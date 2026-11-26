@@ -17,7 +17,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.schema import QueryStatus
 
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, record_posthog_table_scopes
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client import connection
@@ -26,6 +26,7 @@ from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchL
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.query_status_access import read_scopes_from_labels
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, ClickHouseTooManyRowsOrBytesError
@@ -535,6 +536,21 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
 
         assert printed.passes == expected_passes
         assert ("toString" in printed.sql) is (expected_passes == 2)
+
+    def test_status_carries_the_scopes_the_query_read(self):
+        # A materialized view over trace tables records its scopes while it resolves; stand in for that.
+        def print_passes(*_args, **_kwargs):
+            record_posthog_table_scopes({"tracing"})
+            return _printed_sql()
+
+        with patch.object(frame_materialize, "_print_clickhouse_sql_passes", side_effect=print_passes):
+            printed = frame_materialize._print_clickhouse_sql(
+                lambda _sql, _values: [], self.team, self.user, "select 1", output_format=None
+            )
+        inputs, manager = _registered_inputs(self.team.id, "nbscope", self.user.id)
+        frame_materialize._finalize_status(manager, inputs, results={}, read_scopes=printed.read_scopes)
+
+        assert read_scopes_from_labels(manager.get_query_status().labels) == {"tracing"}
 
     def test_both_print_passes_share_one_database(self):
         # The executor keeps the database it builds on a private copy of the context, so the

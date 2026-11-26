@@ -39,7 +39,7 @@ import hashlib
 import datetime as dt
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import IO, cast
 
 from django.conf import settings
@@ -53,6 +53,7 @@ from posthog.schema import QueryStatus
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import READ_SCOPE_QUERY_STATUS_LABEL_PREFIX, read_posthog_table_scopes
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
@@ -546,9 +547,19 @@ class _PrintedFrameSQL:
     print_seconds: float
     describe_seconds: float
     resolve_seconds: float
+    # Resources gating the `posthog.*` tables the query read; the status carries them to readers.
+    read_scopes: frozenset[str] = frozenset()
 
 
 def _print_clickhouse_sql(
+    describe: _DescribeFn, team: Team, user: User | None, query: str, *, output_format: str | None
+) -> _PrintedFrameSQL:
+    with read_posthog_table_scopes() as read_scopes:
+        printed = _print_clickhouse_sql_passes(describe, team, user, query, output_format=output_format)
+    return replace(printed, read_scopes=frozenset(read_scopes))
+
+
+def _print_clickhouse_sql_passes(
     describe: _DescribeFn, team: Team, user: User | None, query: str, *, output_format: str | None
 ) -> _PrintedFrameSQL:
     """Print the HogQL to guarded ClickHouse SQL with the standing caps.
@@ -749,6 +760,7 @@ def _finalize_status(
     *,
     results: dict[str, object] | None = None,
     error_message: str | None = None,
+    read_scopes: frozenset[str] = frozenset(),
 ) -> None:
     """Write the terminal query status and release the dedup mapping."""
     try:
@@ -765,6 +777,10 @@ def _finalize_status(
     status.error = error_message is not None
     status.error_message = error_message
     status.results = results
+    status.labels = [
+        *(status.labels or []),
+        *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
+    ]
     status.end_time = dt.datetime.now(dt.UTC)
     manager.store_query_status(status)
     manager.unregister_cache_key_mapping(inputs.cache_key)
@@ -1141,7 +1157,12 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
 
     # The bucket travels with the key: a status outlives the deploy that changes
     # NOTEBOOKS_FRAME_STORE_S3_BUCKET, and the key alone does not say where the object went.
-    _finalize_status(manager, inputs, results={"object_key": key, "bucket": settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET})
+    _finalize_status(
+        manager,
+        inputs,
+        results={"object_key": key, "bucket": settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET},
+        read_scopes=printed.read_scopes,
+    )
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="succeeded", mode=mode).inc()
     FRAME_OBJECT_BYTES_HISTOGRAM.observe(object_bytes)
     FRAME_MATERIALIZE_SECONDS_HISTOGRAM.observe((dt.datetime.now(dt.UTC) - started_at).total_seconds())

@@ -342,6 +342,8 @@ class S3Table(FunctionCallTable):
     source_type: Optional[str] = None
     # Set when this table backs a materialized saved query, so a query that reads the table is attributed to the view.
     saved_query_id: Optional[str] = None
+    # The definition the copy was built from; the tables it reads gate the copy (materialized_view_read_scopes).
+    saved_query_sql: Optional[str] = None
     # Set when the table keeps every version of a row, so a query that reads it counts as history usage.
     is_history_table: bool = False
 
