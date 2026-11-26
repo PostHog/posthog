@@ -165,8 +165,8 @@ export const defaultMocks: Mocks = {
         '/api/projects/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,
         // Property values endpoints - prevent 'Failed to load property values' error toasts
-        '/api/event/values/': [],
-        '/api/person/values/': [],
+        '/api/projects/:team_id/events/values/': [],
+        '/api/projects/:team_id/persons/values/': [],
         '/api/group/values/': [],
         '/api/environments/:team_id/sessions/values/': [],
         '/api/projects/:team_id/flag_value/values/': [],

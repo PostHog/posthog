@@ -31,7 +31,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.recalculation import active_recalculation_filter, get_active_recalculation
+from products.experiments.backend.recalculation.runs import active_recalculation_filter, get_active_recalculation
 from products.experiments.backend.temporal.timeseries.utils import recalculation_hour_filter
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage

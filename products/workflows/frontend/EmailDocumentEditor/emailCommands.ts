@@ -1,6 +1,7 @@
 import type { Editor, JSONContent } from '@tiptap/core'
-import { Fragment, Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { Fragment, NodeType, Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
+import { findWrapping } from '@tiptap/pm/transform'
 
 import { EmailBlockStyle, EmailPageStyle, resolvePageStyle } from './emailDocument'
 import { headingSize } from './renderEmailHtml'
@@ -8,16 +9,16 @@ import { headingSize } from './renderEmailHtml'
 export interface EmailBlockAt {
     node: ProseMirrorNode
     pos: number
-    /** The containing node: the document, or a column. */
+    /** The containing node: the document, a column or a section. */
     parent: ProseMirrorNode
     index: number
 }
 
 function isBlockContainer(node: ProseMirrorNode): boolean {
-    return node.type.name === 'doc' || node.type.name === 'emailColumn'
+    return ['doc', 'emailColumn', 'emailSection'].includes(node.type.name)
 }
 
-/** The movable block at a document position: the deepest one directly inside the document or a column. */
+/** The movable block at a document position: the deepest one directly inside the document, a column or a section. */
 export function blockAtPos(doc: ProseMirrorNode, pos: number): EmailBlockAt | null {
     const $pos = doc.resolve(Math.min(Math.max(0, pos), doc.content.size))
     for (let depth = $pos.depth; depth >= 0; depth--) {
@@ -50,6 +51,21 @@ export function enclosingColumns(editor: Editor): { node: ProseMirrorNode; pos: 
     for (let depth = $from.depth; depth > 0; depth--) {
         if ($from.node(depth).type.name === 'emailColumns') {
             return { node: $from.node(depth), pos: $from.before(depth), columnIndex: $from.index(depth) }
+        }
+    }
+    return null
+}
+
+/** The section around the cursor, so a block inside it can also reach its settings. */
+export function enclosingSection(editor: Editor): { node: ProseMirrorNode; pos: number } | null {
+    const { selection } = editor.state
+    if (selection instanceof NodeSelection && selection.node.type.name === 'emailSection') {
+        return { node: selection.node, pos: selection.from }
+    }
+    const { $from } = selection
+    for (let depth = $from.depth; depth > 0; depth--) {
+        if ($from.node(depth).type.name === 'emailSection') {
+            return { node: $from.node(depth), pos: $from.before(depth) }
         }
     }
     return null
@@ -138,16 +154,39 @@ export function selectInserted(editor: Editor, pos: number): void {
     editor.view.focus()
 }
 
-const COLUMN_FORBIDDEN = new Set(['emailColumns'])
+/** The block itself, or the closest one around it that another block of this type can go next to. */
+function blockThatCanPrecede(doc: ProseMirrorNode, block: EmailBlockAt | null, type: NodeType): EmailBlockAt | null {
+    let candidate = block
+    while (candidate && !candidate.parent.canReplaceWith(candidate.index + 1, candidate.index + 1, type)) {
+        const $pos = doc.resolve(candidate.pos)
+        candidate = $pos.depth > 0 ? blockAtPos(doc, $pos.before()) : null
+    }
+    return candidate
+}
+
+/** Puts the selected blocks in a section. False unless the selection covers several blocks that can share one. */
+function wrapSelectionInSection(editor: Editor, content: JSONContent): boolean {
+    const { selection, schema, tr } = editor.state
+    const range = selection.$from.blockRange(selection.$to)
+    const type = schema.nodes.emailSection
+    const wrapping = range && range.endIndex - range.startIndex > 1 ? findWrapping(range, type, content.attrs) : null
+    // A longer wrapping puts something else around the section to make it fit.
+    if (!range || wrapping?.length !== 1) {
+        return false
+    }
+    editor.view.dispatch(tr.wrap(range, wrapping).scrollIntoView())
+    editor.view.focus()
+    return true
+}
 
 /** Adds a block after the current one, or in place of it when that block is an empty line. */
 export function insertBlock(editor: Editor, content: JSONContent): void {
     const { doc, selection } = editor.state
-    let block = blockAtPos(doc, selection.from)
-    if (block && block.parent.type.name === 'emailColumn' && COLUMN_FORBIDDEN.has(content.type ?? '')) {
-        block = blockAtPos(doc, doc.resolve(selection.from).before(1))
+    if (content.type === 'emailSection' && wrapSelectionInSection(editor, content)) {
+        return
     }
     const node = doc.type.schema.nodeFromJSON(content)
+    const block = blockThatCanPrecede(doc, blockAtPos(doc, selection.from), node.type)
     if (!block) {
         editor.view.dispatch(editor.state.tr.insert(doc.content.size, node))
         selectInserted(editor, doc.content.size)

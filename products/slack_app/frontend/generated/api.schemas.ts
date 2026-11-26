@@ -134,6 +134,11 @@ export interface SlackAppPersonalSettingsApi {
     auto_model_choice: boolean
     /** Whether PostHog sends this person short tips about Slack app features. */
     feature_tips_enabled: boolean
+    /**
+     * Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Null when this person has no ChatGPT plan that Slack tasks can use.
+     * @nullable
+     */
+    chatgpt_apps_enabled: boolean | null
 }
 
 export interface SlackAppSettingsApi {
@@ -249,6 +254,8 @@ export interface PatchedSlackAppPersonalSettingsUpdateApi {
     auto_model_choice?: boolean
     /** Whether PostHog sends this person short tips about Slack app features. */
     feature_tips_enabled?: boolean
+    /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change. */
+    chatgpt_apps_enabled?: boolean
 }
 
 export interface SlackAppRepositoryOptionsApi {

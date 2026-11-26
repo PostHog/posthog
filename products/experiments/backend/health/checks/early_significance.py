@@ -19,8 +19,10 @@ from products.experiments.backend.health.context import HealthContext, PrimaryMe
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     NEEDS_PRIMARY_METRIC,
+    NEEDS_PRIMARY_METRIC_RESULTS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    PRIMARY_METRIC_UNREADABLE,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
     CheckRows,
@@ -101,21 +103,17 @@ def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
         return not_applicable(FUNNEL_ONLY)
     metric = ctx.primary_metric
     if metric is None:
-        return not_checked("Couldn't read the results of the primary metric")
+        return not_checked(PRIMARY_METRIC_UNREADABLE)
     if not metric.is_funnel:
         return not_applicable(FUNNEL_ONLY)
-    result = metric.result
-    if result is None:
-        return not_applicable("Runs once the primary metric has results")
-    samples = _total_samples(result)
-    if samples < MIN_SAMPLES_FOR_RESULTS:
+    result, samples = metric.result, metric.samples
+    if result is None or samples is None:
+        return not_applicable(NEEDS_PRIMARY_METRIC_RESULTS)
+    if result.number_of_samples < MIN_SAMPLES_FOR_RESULTS:
         return not_applicable(NEEDS_EXPOSURES)
     control_rate = result.baseline.mean or 0
     if not 0 < control_rate < 1:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
-    # The running time estimate's "Target reached" compares the same total, so the note and the estimate agree.
-    if metric.target.current_sample_size is not None:
-        samples = metric.target.current_sample_size
     return _Readout(
         metric=metric,
         samples=samples,
@@ -199,7 +197,3 @@ def _comparisons(result: MetricResultStats, control_rate: float, target: Running
                 )
             )
     return comparisons
-
-
-def _total_samples(result: MetricResultStats) -> int:
-    return result.baseline.number_of_samples + sum(variant.number_of_samples for variant in result.variants)

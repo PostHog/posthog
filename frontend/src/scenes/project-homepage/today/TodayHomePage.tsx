@@ -8,6 +8,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { useTodayHomePaneEnabled } from '~/layout/today/useTodayHomePaneEnabled'
+
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 
 import { TodayExplore } from './TodayExplore'
@@ -69,6 +71,8 @@ export function TodayHomePage(): JSX.Element {
     const rootRef = useRef<HTMLDivElement>(null)
     const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
+    // The Home pane lists recents and pins for the whole project, so the page drops its own recents.
+    const recentsInSidebar = useTodayHomePaneEnabled()
     const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
 
     useLayoutEffect(() => {
@@ -154,7 +158,7 @@ export function TodayHomePage(): JSX.Element {
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
                 {isNewProject ? <TodayForYou /> : null}
                 {isNewProject ? null : <TodayPrimaryDashboard />}
-                {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
+                {recentsInSidebar ? null : recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
                     <TodayExplore />
                 ) : (
                     <TodayRecents />

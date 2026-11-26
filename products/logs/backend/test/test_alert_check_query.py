@@ -16,6 +16,7 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
@@ -1046,15 +1047,16 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
         nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
         date_from = nca - dt.timedelta(minutes=15 + 2 * 5)
 
-        batched = BatchedAlertCheckQuery(
-            team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=nca
-        ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
-
-        for alert in (alert_a, alert_b):
-            single = AlertCheckQuery(
-                team=self.team, alert=alert, date_from=date_from, date_to=nca
+        with patch.object(Database, "create_for", side_effect=AssertionError("built the full HogQL catalog")):
+            batched = BatchedAlertCheckQuery(
+                team=self.team, alerts=[alert_a, alert_b], date_from=date_from, date_to=nca
             ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
-            assert batched.per_alert[str(alert.id)] == single
+
+            for alert in (alert_a, alert_b):
+                single = AlertCheckQuery(
+                    team=self.team, alert=alert, date_from=date_from, date_to=nca
+                ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
+                assert batched.per_alert[str(alert.id)] == single
 
     @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_each_group_counts_what_its_own_single_alert_query_counts(self):

@@ -28,6 +28,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
+
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
@@ -36,6 +38,10 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DIMENSIONAL_INELIGIBLE_REASON_TAG,
+    WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG,
+    WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+    DimensionalIneligibleReason,
     DimensionalStatsTableQueryBuilder,
     ready_dimensional_job_ids,
 )
@@ -84,19 +90,21 @@ def _runner(
     date_to: datetime | None = None,
     compare_to: datetime | None = None,
     custom_channel_rules: list[CustomChannelRule] | None = None,
-    breakdown_by: WebStatsBreakdown = WebStatsBreakdown.PAGE,
+    breakdown_by: WebStatsBreakdown = WebStatsBreakdown.DEVICE_TYPE,
+    team_id: int = 1,
     properties: list | None = None,
     kind: str = "WebStatsTableQuery",
     modifiers: HogQLQueryModifiers | None = None,
 ) -> MagicMock:
     runner = MagicMock()
-    runner.team.pk = 1
+    runner.team.pk = team_id
     runner.query.kind = kind
     runner.query.webQueryModifiers = (
         None if opted_in is None else WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
     )
     runner.query.properties = properties or []
     runner.query.breakdownBy = breakdown_by
+    runner._effective_breakdown.return_value = breakdown_by
     runner.modifiers = modifiers or HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules)
     runner._test_account_filters = test_account_filters or []
     # A project-local range: the current day in New York ends after the UTC now below.
@@ -123,13 +131,18 @@ def _result(
 @time_machine.travel(datetime(2026, 3, 31, 12, tzinfo=UTC), tick=False)
 class TestDimensionalReadSelection(SimpleTestCase):
     def setUp(self) -> None:
+        reset_query_tags()
+        self.addCleanup(reset_query_tags)
         retention_patcher = patch(f"{_READ}.events_retention_months_for_team", return_value=None)
         self.retention_months = retention_patcher.start()
         self.addCleanup(retention_patcher.stop)
         insert_modifiers_patcher = patch(f"{_READ}.dimensional_insert_modifiers", return_value=HogQLQueryModifiers())
         insert_modifiers_patcher.start()
         self.addCleanup(insert_modifiers_patcher.stop)
-        flag_patcher = patch(f"{_READ}.feature_enabled_or_false", return_value=True)
+        self.flags = {WEB_ANALYTICS_QUERY_MODIFIERS_FLAG: True, WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG: False}
+        flag_patcher = patch(
+            f"{_READ}.feature_enabled_or_false", side_effect=lambda key, *args, **kwargs: self.flags[key]
+        )
         self.flag_enabled = flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
 
@@ -158,16 +171,28 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_modifiers", _runner(None), False, _JOB_IDS),
-            ("opted_out", _runner(False), False, _JOB_IDS),
-            ("property_access_rules", _runner(True), True, _JOB_IDS),
-            ("test_account_filters", _runner(True, test_account_filters=_TEST_ACCOUNT_FILTERS), False, _JOB_IDS),
-            ("half_hour_timezone", _runner(True, tz=ZoneInfo("Asia/Kolkata")), False, _JOB_IDS),
+            ("opted_out", _runner(False), False, _JOB_IDS, None),
+            ("property_access_rules", _runner(True), True, _JOB_IDS, DimensionalIneligibleReason.PROPERTY_ACCESS_RULES),
+            (
+                "test_account_filters",
+                _runner(True, test_account_filters=_TEST_ACCOUNT_FILTERS),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.TEST_ACCOUNT_FILTERS,
+            ),
+            (
+                "half_hour_timezone",
+                _runner(True, tz=ZoneInfo("Asia/Kolkata")),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.PARTIAL_HOUR_RANGE,
+            ),
             (
                 "half_hour_timezone_in_compare_period_only",
                 _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=ZoneInfo("Asia/Kolkata"))),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.PARTIAL_HOUR_RANGE,
             ),
             (
                 "start_inside_an_hour",
@@ -178,6 +203,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 ),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.PARTIAL_HOUR_RANGE,
             ),
             (
                 "past_end_inside_an_hour",
@@ -188,6 +214,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 ),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.PARTIAL_HOUR_RANGE,
             ),
             (
                 "past_end_on_an_hour_boundary",
@@ -198,6 +225,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 ),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.PARTIAL_HOUR_RANGE,
             ),
             (
                 "compare_end_inside_an_hour",
@@ -208,31 +236,111 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 ),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.PARTIAL_HOUR_RANGE,
             ),
-            ("not_ready", _runner(True), False, None),
-            ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
+            (
+                "page_breakdown_over_a_week",
+                _runner(True, breakdown_by=WebStatsBreakdown.PAGE),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+            ),
+            (
+                "entry_page_breakdown_over_a_week",
+                _runner(True, breakdown_by=WebStatsBreakdown.INITIAL_PAGE),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+            ),
+            (
+                "exit_page_breakdown_over_a_week",
+                _runner(True, breakdown_by=WebStatsBreakdown.EXIT_PAGE),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+            ),
+            (
+                "page_directory_over_a_week",
+                _runner(True, kind="WebPageDirectoryQuery"),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+            ),
+            (
+                "page_breakdown_with_a_compare_period_over_a_week",
+                _runner(
+                    True,
+                    breakdown_by=WebStatsBreakdown.PAGE,
+                    date_from=datetime(2026, 3, 24, tzinfo=_NEW_YORK),
+                    compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK),
+                ),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.PAGE_TILE_RANGE,
+            ),
+            ("not_ready", _runner(True), False, None, DimensionalIneligibleReason.NOT_READY),
+            (
+                "lookup_fails",
+                _runner(True),
+                False,
+                RuntimeError("postgres down"),
+                DimensionalIneligibleReason.LOOKUP_FAILED,
+            ),
             (
                 "event_referring_domain_filter",
                 _runner(True, properties=[_event_filter("$referring_domain", "example.com")]),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER,
             ),
-            ("entry_gclid_value_filter", _runner(True, properties=[_session_filter("$entry_gclid")]), False, _JOB_IDS),
+            (
+                "entry_gclid_value_filter",
+                _runner(True, properties=[_session_filter("$entry_gclid")]),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER,
+            ),
             (
                 "entry_fbclid_value_filter",
                 _runner(True, properties=[_session_filter("$entry_fbclid")]),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER,
             ),
-            ("browser_version_filter", _runner(True, properties=[_event_filter("$browser_version")]), False, _JOB_IDS),
-            ("os_version_filter", _runner(True, properties=[_event_filter("$os_version")]), False, _JOB_IDS),
-            ("country_name_filter", _runner(True, properties=[_event_filter("$geoip_country_name")]), False, _JOB_IDS),
-            ("time_zone_filter", _runner(True, properties=[_event_filter("$geoip_time_zone")]), False, _JOB_IDS),
+            (
+                "browser_version_filter",
+                _runner(True, properties=[_event_filter("$browser_version")]),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER,
+            ),
+            (
+                "os_version_filter",
+                _runner(True, properties=[_event_filter("$os_version")]),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER,
+            ),
+            (
+                "country_name_filter",
+                _runner(True, properties=[_event_filter("$geoip_country_name")]),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER,
+            ),
+            (
+                "time_zone_filter",
+                _runner(True, properties=[_event_filter("$geoip_time_zone")]),
+                False,
+                _JOB_IDS,
+                DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER,
+            ),
             (
                 "persons_on_events_mode_differs_from_the_build",
                 _runner(True, modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.MODIFIER_OVERRIDE,
             ),
             (
                 "materialization_mode_differs_from_the_build",
@@ -242,26 +350,101 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 ),
                 False,
                 _JOB_IDS,
+                DimensionalIneligibleReason.MODIFIER_OVERRIDE,
             ),
         ]
     )
-    def test_query_falls_back(self, _name, runner, has_rules, job_ids):
+    def test_query_falls_back(self, _name, runner, has_rules, job_ids, reason):
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=has_rules),
             patch(f"{_READ}.dimensional_job_ids", side_effect=[job_ids]),
         ):
             assert ready_dimensional_job_ids(runner, _BOTH_TABLES) is None
 
-    def test_request_modifier_is_ignored_when_the_flag_is_off(self):
-        self.flag_enabled.return_value = False
+        assert get_query_tag_value(DIMENSIONAL_INELIGIBLE_REASON_TAG) == reason
+
+    def test_served_query_clears_the_reason_an_earlier_read_tagged(self):
         with (
+            patch(f"{_READ}.team_has_property_access_rules", return_value=False),
+            patch(f"{_READ}.dimensional_job_ids", side_effect=[None, _JOB_IDS]),
+        ):
+            assert ready_dimensional_job_ids(_runner(True), _BOTH_TABLES) is None
+            assert get_query_tag_value(DIMENSIONAL_INELIGIBLE_REASON_TAG) == DimensionalIneligibleReason.NOT_READY
+            assert ready_dimensional_job_ids(_runner(True), _BOTH_TABLES) == _JOB_IDS
+
+        assert get_query_tag_value(DIMENSIONAL_INELIGIBLE_REASON_TAG) is None
+
+    @parameterized.expand(
+        [
+            ("page_breakdown_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1, "EU", True),
+            ("page_directory_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 1, "EU", True),
+            ("live_page_team_on_a_page_breakdown", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1589, "EU", False),
+            (
+                "live_page_team_on_the_page_directory",
+                WebStatsBreakdown.PAGE,
+                "WebPageDirectoryQuery",
+                1589,
+                "EU",
+                False,
+            ),
+            (
+                "live_page_team_on_a_device_breakdown",
+                WebStatsBreakdown.DEVICE_TYPE,
+                "WebStatsTableQuery",
+                1589,
+                "EU",
+                True,
+            ),
+            ("live_page_team_id_in_the_other_region", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1589, "US", True),
+        ]
+    )
+    def test_page_tiles_serve_up_to_a_week_except_for_live_page_teams(
+        self, _name, breakdown_by, kind, team_id, region, serves
+    ):
+        runner = _runner(
+            True,
+            breakdown_by=breakdown_by,
+            kind=kind,
+            team_id=team_id,
+            date_from=datetime(2026, 3, 24, tzinfo=_NEW_YORK),
+            compare_from=datetime(2026, 3, 17, tzinfo=_NEW_YORK),
+            compare_to=datetime(2026, 3, 24, tzinfo=_NEW_YORK) - timedelta(microseconds=1),
+        )
+        with (
+            override_settings(CLOUD_DEPLOYMENT=region),
+            patch(f"{_READ}.is_cloud", return_value=True),
+            patch(f"{_READ}.team_has_property_access_rules", return_value=False),
+            patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS),
+        ):
+            assert ready_dimensional_job_ids(runner, _BOTH_TABLES) == (_JOB_IDS if serves else None)
+
+    @parameterized.expand(
+        [
+            ("team_on_and_request_unset", None, True, True, False, True),
+            ("team_off_and_request_unset_with_the_modifiers_flag", None, False, True, False, True),
+            ("team_off_and_request_unset_without_the_modifiers_flag", None, False, False, False, False),
+            ("team_on_and_request_opts_out", False, True, True, False, False),
+            ("team_off_and_request_opts_in_with_the_modifiers_flag", True, False, True, False, True),
+            ("team_off_and_request_opts_in_without_the_modifiers_flag", True, False, False, False, False),
+            ("team_on_and_request_opts_in_without_the_modifiers_flag", True, True, False, False, True),
+            ("team_on_and_reads_disabled", None, True, True, True, False),
+            ("request_opts_in_and_reads_disabled", True, False, True, True, False),
+        ]
+    )
+    def test_opt_in_follows_the_request_then_the_writer_team_list(
+        self, _name, requested, enrolled, modifiers_flag, reads_disabled, serves
+    ):
+        self.flags[WEB_ANALYTICS_QUERY_MODIFIERS_FLAG] = modifiers_flag
+        self.flags[WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG] = reads_disabled
+        runner = _runner(requested)
+        with (
+            patch(f"{_READ}.dimensional_team_ids", return_value=[runner.team.pk] if enrolled else []),
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
         ):
-            assert ready_dimensional_job_ids(_runner(True), _BOTH_TABLES) is None
+            assert ready_dimensional_job_ids(runner, _BOTH_TABLES) == (_JOB_IDS if serves else None)
 
-        assert self.flag_enabled.call_args.args[0] == "web-analytics-query-modifiers"
-        mock_job_ids.assert_not_called()
+        assert mock_job_ids.called == serves
 
     @parameterized.expand(
         [

@@ -49,7 +49,7 @@ import structlog
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding, generate_embedding
 from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 from posthog.models.scoping import team_scope, with_team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
@@ -3130,7 +3130,7 @@ def rerank_chunks(
     id_to_result = {result.chunk_id: result for result in results}
 
     try:
-        client = build_ai_gateway_anthropic_client(
+        client = build_anthropic_client(
             ai_product=llm_telemetry.BK_AI_PRODUCT,
             trace_id=trace.trace_id,
             distinct_id=team_distinct_id(team.id),

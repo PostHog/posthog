@@ -46,6 +46,7 @@ class IssueTagDefinition:
     enabled_flag: str
     # The taggers that may answer this tag, highest rank first. Manual is not listed because it always ranks first.
     taggers: tuple[TaggerConfig, ...]
+    color: str | None = None
 
     def sources_ranked_above(self, source: ErrorTrackingIssueTag.Source) -> tuple[ErrorTrackingIssueTag.Source, ...]:
         """The sources whose answers `source` cannot replace. A source this definition does not list ranks lowest."""

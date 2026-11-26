@@ -21,22 +21,26 @@ Reference: <https://docs.withpersona.com/reference> · Base URL: `https://api.wi
 
 ## Endpoints synced
 
-| Endpoint                    | Path                                                          | Sync mode    | Primary key | Partition key        |
-| --------------------------- | ------------------------------------------------------------- | ------------ | ----------- | -------------------- |
-| `inquiries`                 | `/inquiries`                                                  | Incremental  | `id`        | `created_at`         |
-| `verifications`             | `/inquiries/{id}?include=verifications`                       | Incremental  | `id`        | `inquiry_created_at` |
-| `accounts`                  | `/accounts`                                                   | Incremental  | `id`        | `created_at`         |
-| `cases`                     | `/cases`                                                      | Incremental  | `id`        | `created_at`         |
-| `transactions`              | `/transactions`                                               | Incremental  | `id`        | `created_at`         |
-| `events`                    | `/events`                                                     | Append only  | `id`        | `created_at`         |
-| `inquiry_templates`         | `/inquiry-templates`                                          | Full refresh | `id`        | —                    |
-| `inquiry_template_versions` | `/inquiry-template-versions?filter[inquiry-template-id]={id}` | Full refresh | `id`        | —                    |
-| `reports`                   | `/reports`                                                    | Full refresh | `id`        | `created_at`         |
-| `workflow_runs`             | `/workflow-runs`                                              | Full refresh | `id`        | `created_at`         |
-| `inquiry_sessions`          | `/inquiry-sessions`                                           | Full refresh | `id`        | `created_at`         |
+| Endpoint                    | Path                                                          | Sync mode    | Primary key                | Partition key        |
+| --------------------------- | ------------------------------------------------------------- | ------------ | -------------------------- | -------------------- |
+| `inquiries`                 | `/inquiries`                                                  | Incremental  | `id`                       | `created_at`         |
+| `verifications`             | `/inquiries/{id}?include=verifications`                       | Incremental  | `id`                       | `inquiry_created_at` |
+| `accounts`                  | `/accounts`                                                   | Incremental  | `id`                       | `created_at`         |
+| `cases`                     | `/cases`                                                      | Incremental  | `id`                       | `created_at`         |
+| `transactions`              | `/transactions`                                               | Incremental  | `id`                       | `created_at`         |
+| `events`                    | `/events`                                                     | Append only  | `id`                       | `created_at`         |
+| `inquiry_templates`         | `/inquiry-templates`                                          | Full refresh | `id`                       | —                    |
+| `inquiry_template_versions` | `/inquiry-template-versions?filter[inquiry-template-id]={id}` | Full refresh | `id`                       | —                    |
+| `reports`                   | `/reports`                                                    | Full refresh | `id`                       | `created_at`         |
+| `workflow_runs`             | `/workflow-runs`                                              | Full refresh | `id`                       | `created_at`         |
+| `inquiry_sessions`          | `/inquiry-sessions`                                           | Full refresh | `id`                       | `created_at`         |
+| `lists`                     | `/lists`                                                      | Full refresh | `id`                       | `created_at`         |
+| `devices`                   | `/devices?filter[inquiry-session-id]={id}`                    | Full refresh | `inquiry_session_id`, `id` | —                    |
+| `report_history`            | `/reports/{id}/history`                                       | Full refresh | `report_id`, `id`          | —                    |
 
 Object ids are globally unique and type-prefixed (`inq_`, `ver_`, `acc_`, `case_`, `txn_`, `evt_`,
-`itmpl_`, `itmplv_`, `rep_`, `wfr_`, `iqse_`), so `id` is a safe standalone primary key. Persona kebab-case attributes (`created-at`)
+`itmpl_`, `itmplv_`, `rep_`, `wfr_`, `iqse_`), so `id` is a safe standalone primary key for the
+top-level lists. The per-parent tables below add the parent id to the key. Persona kebab-case attributes (`created-at`)
 normalize to the snake_case warehouse columns (`created_at`).
 
 ## Verifications are a fan-out, not a list endpoint
@@ -77,6 +81,30 @@ endpoint that lists workflows, so there is no set of workflow ids to fan out ove
 of them takes a created-at window. Their only filters are `reference-id`/`account-id`, `status`, and
 `inquiry-id`. So they are full refresh only, partitioned on the immutable `created_at`. Inquiry sessions
 are roughly one row per attempt at every inquiry, so that table is off by default.
+
+## Lists are full refresh
+
+`GET /lists` returns the organization's blocklists and allowlists. Its only filter is `status`, so the
+table is full refresh only, partitioned on the immutable `created_at`.
+
+## Devices are a per-session list
+
+`GET /devices` requires `filter[inquiry-session-id]`
+([reference](https://docs.withpersona.com/api-reference/devices/list-all-devices)). So `devices` walks
+`/inquiry-sessions` and lists the devices of each session, copying the session id onto every row as
+`inquiry_session_id`. One device can appear in many sessions, so the key is `inquiry_session_id` plus
+`id`. Device rows have no `created-at`, so the table is not partitioned. It costs one request per session,
+so it is off by default.
+
+## Report history is a per-report list
+
+`GET /reports/{report-id}/history` returns the runs and reviewer actions of one report, newest first
+([reference](https://docs.withpersona.com/api-reference/reports/list-report-history)). Entries are not
+JSON:API objects: each is a flat object with `type` (`run`, `dismiss`, `pause`, `resume`, `review`) and
+`id`. Only the action entries carry `created-at`, so the table is not partitioned. `report_history` walks
+`/reports`, pages through the history of each report, and copies the report id onto every row as
+`report_id`. The key is `report_id` plus `id`. The last page sends `"links": null`. The table costs one
+request per report, so it is off by default.
 
 ## Account relations are not synced
 

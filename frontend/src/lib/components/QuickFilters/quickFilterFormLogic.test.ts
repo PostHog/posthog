@@ -17,7 +17,7 @@ describe('quickFilterFormLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/quick_filters/': { results: [] },
-                '/api/event/values/': { results: [], refreshing: false },
+                '/api/projects/:team_id/events/values/': { results: [], refreshing: false },
             },
             post: {
                 '/api/environments/:team_id/quick_filters/': async ({ request }) => {
