@@ -1,3 +1,5 @@
+import '@testing-library/jest-dom'
+
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import { createElement, createRef } from 'react'
