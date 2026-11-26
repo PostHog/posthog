@@ -857,8 +857,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates()
-                    return response.results
+                    return await api.messaging.getAllTemplates()
                 },
             },
         ],
