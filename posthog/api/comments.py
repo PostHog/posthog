@@ -52,7 +52,6 @@ from posthog.models.comment.utils import (
     send_mention_notifications,
 )
 from posthog.models.integration import SlackIntegration
-from posthog.models.integration.slack import SlackMembershipUnknown
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import is_scout_sandbox_request
 from posthog.slack.channels import is_internal_channel, is_shared_channel
@@ -1512,10 +1511,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         # The timeout keeps a slow Slack workspace from pinning the request worker.
         slack = SlackIntegration(integration, source=LINK_SLACK_THREAD_SOURCE, timeout_seconds=10)
         client = slack.client
+        # Spent before the first Slack call, so a refused request still counts against the workspace's quota.
+        take_slack_channels_info_budget(integration.id)
         # Linking reads the thread with the bot's access, which reaches every channel the bot is in.
         # Only someone who could read the thread in Slack themselves may bring it into PostHog.
-        slack_member_id = self._require_full_slack_member(slack, user)
-        channel_name = self._require_linkable_channel(slack, link.channel_id, user, slack_member_id)
+        self._require_full_slack_member(slack, user)
+        channel_name = self._require_linkable_channel(slack, link.channel_id)
         root_message = self._fetch_slack_thread_root(client, link)
 
         thread_ts = str(root_message["ts"])
@@ -1609,9 +1610,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         description=(
             "Undo link_slack_thread on a discussion's opening comment: stop syncing the Slack thread and "
             "remove the discussion it created, opening comment and replies. The thread stays in Slack and "
-            "can be linked again. 400 for a discussion that wasn't linked from an existing thread. 403 for someone who couldn't link it: "
-            "only full members of the connected Slack workspace can. 404 when the feature is not enabled for "
-            "the team."
+            "can be linked again. 400 for a discussion that wasn't linked from an existing thread. 403 for "
+            "anyone but the person who linked it. 404 when the feature is not enabled for the team."
         ),
     )
     @action(methods=["POST"], detail=True)
@@ -1631,11 +1631,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if root.source_comment_id is not None or mirror is None or context.get("from_slack") is not True:
             raise exceptions.ValidationError("Only a discussion linked from an existing Slack thread can be unlinked")
         user = cast(User, request.user)
-        # Whoever can link a thread can unlink one. The mirror goes with its integration, so it is still here.
-        integration = IntegrationManager.slack.oauth.get(self.team_id, mirror.integration_id)
-        self._require_full_slack_member(
-            SlackIntegration(integration, source=LINK_SLACK_THREAD_SOURCE, timeout_seconds=10), user
-        )
+        # Unlinking removes everyone's replies, so it is the linker's call, as sending to Slack is the author's.
+        if mirror.created_by_id != user.id:
+            raise exceptions.PermissionDenied("Only the person who linked this Slack thread can unlink it.")
         with transaction.atomic():
             # Root before mirror, the order a Slack reply is saved in, so the two can't deadlock.
             list(Comment.objects.filter(team_id=self.team_id, id=root.id).select_for_update().values_list("id"))
@@ -1654,8 +1652,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @staticmethod
-    def _require_full_slack_member(slack: SlackIntegration, user: User) -> str:
-        """The requester's Slack id, once Slack confirms they are a full member of the connected workspace.
+    def _require_full_slack_member(slack: SlackIntegration, user: User) -> None:
+        """Refuse anyone Slack doesn't confirm as a full member of the connected workspace.
 
         Matched by email, as Slack replies are matched to PostHog users. A guest can't read every
         public channel, and someone outside the workspace can read none of them.
@@ -1667,42 +1665,38 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             raise exceptions.ValidationError(f"Couldn't check your Slack membership ({slack_error})")
         if member is None or not member.get("id"):
             raise exceptions.PermissionDenied(
-                f"Only full members of the connected Slack workspace can link or unlink its threads, and "
+                f"Only full members of the connected Slack workspace can link its threads, and "
                 f"{user.email} isn't one. Ask a teammate who is."
             )
-        return str(member["id"])
 
     @staticmethod
-    def _require_linkable_channel(slack: SlackIntegration, channel_id: str, user: User, slack_member_id: str) -> str:
-        """The channel's name ("" for a private one), once it is an internal channel the requester can read.
+    def _require_linkable_channel(slack: SlackIntegration, channel_id: str) -> str:
+        """The channel's name, once it is a public channel inside the workspace.
 
         Every reply on the discussion is posted back into the thread, so a channel anyone outside the
-        workspace can read would carry internal discussion to them. A private channel follows
-        send_to_slack's rule, and linking also needs the requester in it, because it copies the
-        channel's history with the bot's access.
+        workspace can read would carry internal discussion to them. A private channel's history would
+        become readable by everyone in the project, most of whom aren't in the channel.
         """
-        take_slack_channels_info_budget(slack.integration.id)
         try:
             channel = slack.client.conversations_info(channel=channel_id)["channel"]
-            if not is_internal_channel(channel):
-                raise exceptions.ValidationError(
-                    "Only threads in internal Slack channels can be linked, because replies on the discussion "
-                    "are posted back into the thread."
-                )
-            if not channel.get("is_private"):
-                return channel.get("name") or ""
-            if slack.integration.created_by_id != user.id:
-                raise exceptions.PermissionDenied(
-                    "Only the user who connected this Slack workspace can link a thread from a private channel"
-                )
-            if not slack.is_channel_member(channel_id, slack_member_id):
-                raise exceptions.PermissionDenied("You aren't in that private channel, so you can't link its threads")
         except SlackApiError as e:
             slack_error = (e.response.get("error") if e.response else None) or "unknown error"
             raise exceptions.ValidationError(f"Could not look up the Slack channel ({slack_error})")
-        except SlackMembershipUnknown:
-            raise exceptions.ValidationError("Slack didn't say who is in that channel. Try again in a minute.")
-        return ""
+        if not is_internal_channel(channel):
+            raise exceptions.ValidationError(
+                "Only threads in internal Slack channels can be linked, because replies on the discussion "
+                "are posted back into the thread."
+            )
+        if channel.get("is_private"):
+            raise exceptions.ValidationError(
+                "Only threads in public Slack channels can be linked, because everyone in the project can read "
+                "the discussion."
+            )
+        if channel.get("is_archived"):
+            raise exceptions.ValidationError(
+                "That Slack channel is archived, so replies on the discussion couldn't be posted to it."
+            )
+        return channel.get("name") or ""
 
     @staticmethod
     def _fetch_slack_thread_root(client: WebClient, link: SlackMessageLink) -> dict[str, Any]:

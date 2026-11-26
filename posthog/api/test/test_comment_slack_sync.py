@@ -5,12 +5,15 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import Throttled
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.comments import _slack_thread_url
@@ -28,6 +31,7 @@ from posthog.tasks.comment_slack_sync import (
     LINKED_THREAD_IMPORT_MESSAGE_LIMIT,
     SLACK_SYNCED_TS_KEY,
     _save_slack_reply_once,
+    _stamp_import_state,
     backfill_comment_slack_thread,
     import_linked_slack_thread,
     ingest_slack_discussion_reply,
@@ -939,6 +943,27 @@ class TestLinkSlackThread(APIBaseTest):
         client.conversations_replies.assert_not_called()
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
 
+    # A private channel's history would be readable by everyone in the project, most of whom aren't in it.
+    # Slack still lets the bot read an archived channel's history, but refuses every reply posted to it.
+    @parameterized.expand(
+        [
+            ("private", {"is_private": True, "is_group": True}, "Only threads in public Slack channels can be linked"),
+            ("archived", {"is_archived": True}, "That Slack channel is archived"),
+        ]
+    )
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_a_private_or_archived_channel(self, _name, flags, expected_detail, mock_slack, _flag):
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        client.conversations_info.return_value["channel"].update(flags)
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_detail in str(res.json())
+        client.conversations_replies.assert_not_called()
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
     # Linking it would post internal discussion replies to the customer. A ticket in another project of
     # the org and a deleted one still own their thread.
     @parameterized.expand([("this_project",), ("another_project_in_the_org",), ("deleted_ticket",)])
@@ -1048,31 +1073,18 @@ class TestLinkSlackThread(APIBaseTest):
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
         assert self._link().status_code == status.HTTP_201_CREATED
 
-    # The bot can be in private channels the person who connected the workspace isn't in. Linking reads
-    # the history with the bot's access, so the requester must be able to read it in Slack too.
-    @parameterized.expand([("member_of_the_channel", True), ("not_in_the_channel", False)])
-    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
-    @patch("posthog.api.comments.resolve_slack_user")
+    # Each request reaches Slack, so it spends the workspace's lookup budget before the first call.
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
-    def test_links_a_private_channel_thread_only_for_someone_in_it(
-        self, _name, in_channel, mock_slack, _flag, mock_profile, _import
-    ):
-        mock_profile.return_value = self.slack_profile
-        Integration.objects.filter(id=self.integration.id).update(created_by=self.user)
+    def test_a_link_over_the_lookup_budget_never_reaches_slack(self, mock_slack, _flag):
         client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
-        self.integration.refresh_from_db()
-        client.conversations_info.return_value["channel"].update({"is_private": True, "is_group": True})
-        mock_slack.return_value.is_channel_member.return_value = in_channel
 
-        res = self._link()
+        with patch("posthog.api.comments.take_slack_channels_info_budget", side_effect=Throttled()):
+            res = self._link()
 
-        assert res.status_code == (status.HTTP_201_CREATED if in_channel else status.HTTP_403_FORBIDDEN), res.json()
-        mock_slack.return_value.is_channel_member.assert_called_once_with(CHANNEL, "U9")
-        assert CommentSlackThread.objects.for_team(self.team.id).exists() == in_channel
-        if not in_channel:
-            assert "aren't in that private channel" in str(res.json())
-            client.conversations_replies.assert_not_called()
+        assert res.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_slack.return_value.get_member_by_email.assert_not_called()
+        client.conversations_info.assert_not_called()
 
     @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.resolve_slack_user")
@@ -1095,20 +1107,26 @@ class TestLinkSlackThread(APIBaseTest):
         context = Comment.objects.get(id=root_id).item_context or {}
         assert (context.get("from_slack"), context.get("slack_import_state")) == (True, "pending")
 
+    # Unlinking removes everyone's replies, including ones written in PostHog, so it's the linker's call.
     @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.resolve_slack_user")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
-    def test_unlinking_needs_the_same_slack_membership_as_linking(self, mock_slack, _flag, mock_profile, _import):
+    def test_only_the_person_who_linked_a_thread_can_unlink_it(self, mock_slack, _flag, mock_profile, _import):
         mock_profile.return_value = self.slack_profile
         self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
         root_id = self._link().json()["id"]
-        mock_slack.return_value.get_member_by_email.return_value = None
+        unlink_url = f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/"
+        mock_slack.reset_mock()
 
-        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+        self.client.force_login(User.objects.create_and_join(self.organization, "teammate@example.com", "password"))
+        refused = self.client.post(unlink_url)
+        self.client.force_login(self.user)
+        unlinked = self.client.post(unlink_url)
 
-        assert res.status_code == status.HTTP_403_FORBIDDEN
-        assert CommentSlackThread.objects.for_team(self.team.id).exists()
+        assert (refused.status_code, unlinked.status_code) == (status.HTTP_403_FORBIDDEN, status.HTTP_204_NO_CONTENT)
+        assert "Only the person who linked this Slack thread can unlink it" in str(refused.json())
+        mock_slack.assert_not_called()
 
     # Agents call these through the MCP server with OAuth tokens, and a custom action the scope check
     # doesn't know resolves to no scope, which refuses every scoped token.
@@ -1163,11 +1181,11 @@ class TestLinkSlackThread(APIBaseTest):
     @patch("posthog.api.comments.SlackIntegration")
     def test_linking_and_unlinking_a_ticket_thread_needs_editor_access(self, mock_slack, _flag, mock_profile, _import):
         mock_profile.return_value = self.slack_profile
-        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE), _thread_page(ROOT_MESSAGE))
-        root_id = self._link().json()["id"]
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
         self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
         self.organization.save()
         member = User.objects.create_and_join(self.organization, "ticket-viewer@example.com", "password")
+        access = AccessControl.objects.filter(resource="ticket", resource_id=str(self.ticket.id))
         AccessControl.objects.create(
             resource="ticket",
             resource_id=str(self.ticket.id),
@@ -1176,13 +1194,19 @@ class TestLinkSlackThread(APIBaseTest):
             access_level="viewer",
         )
         self.client.force_login(member)
-        unlink_url = f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/"
 
         assert self._link().status_code == status.HTTP_403_FORBIDDEN
+        access.update(access_level="editor")
+        linked = self._link()
+        assert linked.status_code == status.HTTP_201_CREATED, linked.json()
+        unlink_url = f"/api/projects/{self.team.id}/comments/{linked.json()['id']}/unlink_slack_thread/"
+
+        # The person who linked it, but a viewer now.
+        access.update(access_level="viewer")
         assert self.client.post(unlink_url).status_code == status.HTTP_403_FORBIDDEN
         assert CommentSlackThread.objects.for_team(self.team.id).exists()
 
-        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        access.update(access_level="editor")
         assert self.client.post(unlink_url).status_code == status.HTTP_204_NO_CONTENT
 
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
@@ -1404,6 +1428,21 @@ class TestImportLinkedSlackThread(APIBaseTest):
 
         assert first is not None and second is None
         assert Comment.objects.filter(source_comment=self.root).count() == 1
+
+    def test_the_import_state_is_written_under_the_lock_an_edit_takes(self):
+        # An edit of the opening comment (a Replay discussion's timestamp, say) locks it while it merges
+        # item_context. Taking the same lock means neither write can drop the other's change.
+        Comment.objects.filter(id=self.root.id).update(
+            item_context={"from_slack": True, "slack_import_state": "pending", "time": "00:42"}
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            _stamp_import_state(self.mirror, "done")
+
+        assert any(
+            '"posthog_comment"' in query["sql"] and "FOR UPDATE" in query["sql"] for query in queries.captured_queries
+        )
+        assert self._root_context() == {"from_slack": True, "slack_import_state": "done", "time": "00:42"}
 
 
 class TestIngestSlackDiscussionReply(APIBaseTest):
