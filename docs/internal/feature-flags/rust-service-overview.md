@@ -329,6 +329,10 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 | `FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED` | `false`                     | Rebuild definitions after an S3 hit and a confirmed Redis miss. Requires `FLAG_DEFINITIONS_SELF_HEAL_ENABLED=true`. See [the rebuild queue](hypercache-system.md#dedicated-flags-redis) |
 | `REDIS_RESPONSE_TIMEOUT_MS`                  | `100`                       | Redis response timeout (capped at 30s)                                                                                                                                                  |
 | `REDIS_CONNECTION_TIMEOUT_MS`                | `5000`                      | Redis connection timeout (capped at 60s)                                                                                                                                                |
+| `QUOTA_LIMITING_REDIS_URL`                   | (empty)                     | URL of the quota limiting Redis. Setting it moves no read path                                                                                                                          |
+| `QUOTA_LIMITING_REDIS_READ_MODE`             | `disabled`                  | `disabled` or an unknown value: the quota limiters read the shared Redis. `shadow`: same, and an observation reads the quota limiting Redis. `live`: they read the quota limiting Redis |
+| `QUOTA_LIMITING_REDIS_RESPONSE_TIMEOUT_MS`   | `0`                         | Quota limiting Redis response timeout. `0` uses `REDIS_RESPONSE_TIMEOUT_MS`                                                                                                             |
+| `QUOTA_LIMITING_REDIS_CONNECTION_TIMEOUT_MS` | `0`                         | Quota limiting Redis connection timeout. `0` uses `REDIS_CONNECTION_TIMEOUT_MS`                                                                                                         |
 
 ### S3 / HyperCache
 

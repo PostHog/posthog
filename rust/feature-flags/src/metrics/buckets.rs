@@ -90,6 +90,10 @@ const REALTIME_COHORT_DB_QUERY_BUCKETS_MS: &[f64] = &[
     0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
 ];
 
+// Seconds, not ms: `limiters::observation` records its read duration in seconds.
+const QUOTA_OBSERVATION_BUCKETS_SECONDS: &[f64] =
+    &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0];
+
 /// Returns the bucket-override matrix for the feature-flags recorder.
 ///
 /// `Matcher::Suffix` is used for `_queue_time_ms` / `_pre_handler_time_ms`
@@ -151,6 +155,10 @@ pub fn bucket_overrides() -> Vec<(Matcher, &'static [f64])> {
         (
             Matcher::Full("flags_realtime_cohort_db_query_time".into()),
             REALTIME_COHORT_DB_QUERY_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("feature_flags_billing_limits_observe_duration_seconds".into()),
+            QUOTA_OBSERVATION_BUCKETS_SECONDS,
         ),
     ]
 }

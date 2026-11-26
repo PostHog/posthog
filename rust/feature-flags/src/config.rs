@@ -577,6 +577,22 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
+    // Setting it alone moves no read: QUOTA_LIMITING_REDIS_READ_MODE does.
+    #[envconfig(from = "QUOTA_LIMITING_REDIS_URL", default = "")]
+    pub quota_limiting_redis_url: String,
+
+    // `disabled`: the two quota limiters read the shared Redis. `shadow`: also observe the quota
+    // limiting Redis. `live`: read the quota limiting Redis. Other values act as `disabled`.
+    #[envconfig(from = "QUOTA_LIMITING_REDIS_READ_MODE", default = "disabled")]
+    pub quota_limiting_redis_read_mode: String,
+
+    // 0 uses REDIS_RESPONSE_TIMEOUT_MS and REDIS_CONNECTION_TIMEOUT_MS.
+    #[envconfig(from = "QUOTA_LIMITING_REDIS_RESPONSE_TIMEOUT_MS", default = "0")]
+    pub quota_limiting_redis_response_timeout_ms: u64,
+
+    #[envconfig(from = "QUOTA_LIMITING_REDIS_CONNECTION_TIMEOUT_MS", default = "0")]
+    pub quota_limiting_redis_connection_timeout_ms: u64,
+
     // Maximum time for a /flags request before the server aborts it (milliseconds).
     // Must be below Envoy's route timeout (5s) so the server cleans up resources
     // (connections, queries) before Envoy kills the downstream connection.
@@ -1317,6 +1333,10 @@ impl Config {
             flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
+            quota_limiting_redis_url: "".to_string(),
+            quota_limiting_redis_read_mode: "disabled".to_string(),
+            quota_limiting_redis_response_timeout_ms: 0,
+            quota_limiting_redis_connection_timeout_ms: 0,
             write_database_url: database_url.clone(),
             read_database_url: database_url.clone(),
             persons_write_database_url: persons_database_url.clone(),
@@ -1482,6 +1502,14 @@ impl Config {
         }
     }
 
+    pub fn get_quota_limiting_redis_url(&self) -> Option<&str> {
+        if self.quota_limiting_redis_url.is_empty() {
+            None
+        } else {
+            Some(&self.quota_limiting_redis_url)
+        }
+    }
+
     pub fn get_redis_cookieless_url(&self) -> String {
         format!(
             "redis://{}:{}",
@@ -1619,6 +1647,7 @@ mod tests {
         assert_eq!(config.skip_writes, FlexBool(false));
         // Cloud billing reads these counters, so they must stay on unless a deploy turns them off.
         assert_eq!(config.billing_counters_enabled, FlexBool(true));
+        assert_eq!(config.quota_limiting_redis_read_mode, "disabled");
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.

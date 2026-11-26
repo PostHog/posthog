@@ -24,11 +24,12 @@ use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader, S3Client};
 use common_metrics::gauge;
 use common_redis::{
-    Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
+    Client, CompressionConfig, LazyRedisClient, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
 use governor::clock;
 use lifecycle::{ComponentOptions, Handle, LivenessHandler, Manager, ReadinessHandler};
-use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
+use limiters::observation::spawn_observation;
+use limiters::redis::{QuotaResource, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
@@ -275,9 +276,12 @@ pub async fn serve_with_rate_limiter_clock<C>(
             Arc::new(NoOpCohortMembershipProvider)
         };
 
+    let billing_limiter_interval = Duration::from_secs(config.billing_limiter_cache_ttl_secs);
+    let quota_limiter_clients = resolve_quota_limiter_clients(&config, &redis_client);
+
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
-        Duration::from_secs(config.billing_limiter_cache_ttl_secs),
-        redis_client.clone(), // Limiter only reads from redis, ReadWriteClient automatically routes reads to replica
+        billing_limiter_interval,
+        quota_limiter_clients.limiter_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
     ) {
@@ -290,8 +294,8 @@ pub async fn serve_with_rate_limiter_clock<C>(
     };
 
     let session_replay_billing_limiter = match SessionReplayLimiter::new(
-        Duration::from_secs(config.billing_limiter_cache_ttl_secs),
-        redis_client.clone(), // Limiter only reads from redis, ReadWriteClient automatically routes reads to replica
+        billing_limiter_interval,
+        quota_limiter_clients.limiter_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
     ) {
@@ -677,6 +681,20 @@ pub async fn serve_with_rate_limiter_clock<C>(
         },
     );
 
+    // Started here for the same reason, so the first observation's metrics are not lost.
+    if let Some(observation_client) = quota_limiter_clients.observation_client {
+        for resource in [QuotaResource::FeatureFlags, QuotaResource::Recordings] {
+            spawn_observation(
+                billing_limiter_interval,
+                observation_client.clone(),
+                QUOTA_LIMITER_CACHE_KEY.to_string(),
+                None,
+                resource,
+                ServiceName::FeatureFlags,
+            );
+        }
+    }
+
     tracing::info!(
         service_mode = ?service_mode,
         "listening on {:?}",
@@ -853,6 +871,132 @@ fn resolve_flag_definitions_redis_client(
             FlagDefinitionsCluster::Disabled,
         ),
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuotaLimitingRedisReadMode {
+    Disabled,
+    Shadow,
+    Live,
+}
+
+impl QuotaLimitingRedisReadMode {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "disabled" => Some(Self::Disabled),
+            "shadow" => Some(Self::Shadow),
+            "live" => Some(Self::Live),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Shadow => "shadow",
+            Self::Live => "live",
+        }
+    }
+}
+
+struct QuotaLimiterClients {
+    mode: QuotaLimitingRedisReadMode,
+    limiter_client: Arc<dyn Client + Send + Sync>,
+    observation_client: Option<Arc<dyn Client + Send + Sync>>,
+}
+
+fn resolve_quota_limiter_clients(
+    config: &Config,
+    shared_redis_client: &Arc<dyn Client + Send + Sync>,
+) -> QuotaLimiterClients {
+    use QuotaLimitingRedisReadMode::{Disabled, Live, Shadow};
+
+    let configured_mode = QuotaLimitingRedisReadMode::parse(&config.quota_limiting_redis_read_mode)
+        .unwrap_or_else(|| {
+            tracing::error!(
+                "QUOTA_LIMITING_REDIS_READ_MODE is not disabled, shadow or live. \
+                 The quota limiters keep reading the shared Redis."
+            );
+            Disabled
+        });
+    let quota_limiting_client = match (configured_mode, config.get_quota_limiting_redis_url()) {
+        (Disabled, _) => None,
+        (_, None) => {
+            tracing::error!(
+                mode = configured_mode.as_str(),
+                "QUOTA_LIMITING_REDIS_URL is not set. \
+                 The quota limiters keep reading the shared Redis."
+            );
+            None
+        }
+        (_, Some(url)) => build_quota_limiting_redis_client(config, url),
+    };
+
+    let clients = match (configured_mode, quota_limiting_client) {
+        (Live, Some(client)) => QuotaLimiterClients {
+            mode: Live,
+            limiter_client: client,
+            observation_client: None,
+        },
+        (Shadow, Some(client)) => QuotaLimiterClients {
+            mode: Shadow,
+            limiter_client: shared_redis_client.clone(),
+            observation_client: Some(client),
+        },
+        _ => QuotaLimiterClients {
+            mode: Disabled,
+            limiter_client: shared_redis_client.clone(),
+            observation_client: None,
+        },
+    };
+    tracing::info!(
+        mode = clients.mode.as_str(),
+        "Quota limiters Redis read mode"
+    );
+    clients
+}
+
+fn build_quota_limiting_redis_client(
+    config: &Config,
+    url: &str,
+) -> Option<Arc<dyn Client + Send + Sync>> {
+    let Some((response_timeout, connection_timeout)) = quota_limiting_redis_timeouts(config) else {
+        tracing::error!(
+            "The quota limiting Redis needs non-zero timeouts. \
+             The quota limiters keep reading the shared Redis."
+        );
+        return None;
+    };
+    match LazyRedisClient::new(url.to_string(), response_timeout, connection_timeout) {
+        Ok(client) => Some(Arc::new(client)),
+        Err(error) => {
+            tracing::error!(
+                %error,
+                "QUOTA_LIMITING_REDIS_URL is not a valid Redis URL. \
+                 The quota limiters keep reading the shared Redis."
+            );
+            None
+        }
+    }
+}
+
+/// None when a timeout resolves to 0, which fails every connect.
+fn quota_limiting_redis_timeouts(config: &Config) -> Option<(Duration, Duration)> {
+    let nonzero_or = |value: u64, fallback: u64| if value == 0 { fallback } else { value };
+    let response_timeout_ms = nonzero_or(
+        config.quota_limiting_redis_response_timeout_ms,
+        config.redis_response_timeout_ms,
+    );
+    let connection_timeout_ms = nonzero_or(
+        config.quota_limiting_redis_connection_timeout_ms,
+        config.redis_connection_timeout_ms,
+    );
+    (response_timeout_ms > 0 && connection_timeout_ms > 0).then(|| {
+        (
+            Duration::from_millis(response_timeout_ms),
+            Duration::from_millis(connection_timeout_ms),
+        )
+    })
 }
 
 /// Create dedicated ReadWriteClient for flags cache with graceful fallback
@@ -1093,6 +1237,129 @@ mod tests {
         // sends them to the wrong Redis endpoint during the cutover.
         assert_eq!(cluster.reason(), expected_reason);
         assert_eq!(cluster.cluster(), expected_redis);
+    }
+
+    const CLOSED_PORT_REDIS_URL: &str = "redis://127.0.0.1:1";
+
+    fn quota_limiting_config(mode: &str, url: &str) -> Config {
+        Config {
+            quota_limiting_redis_read_mode: mode.to_string(),
+            quota_limiting_redis_url: url.to_string(),
+            ..Config::default_test_config()
+        }
+    }
+
+    #[rstest]
+    #[case::empty("", CLOSED_PORT_REDIS_URL, QuotaLimitingRedisReadMode::Disabled)]
+    #[case::disabled(
+        "disabled",
+        CLOSED_PORT_REDIS_URL,
+        QuotaLimitingRedisReadMode::Disabled
+    )]
+    #[case::shadow("shadow", CLOSED_PORT_REDIS_URL, QuotaLimitingRedisReadMode::Shadow)]
+    #[case::live("live", CLOSED_PORT_REDIS_URL, QuotaLimitingRedisReadMode::Live)]
+    #[case::capitalized("Live", CLOSED_PORT_REDIS_URL, QuotaLimitingRedisReadMode::Disabled)]
+    #[case::padded(" live ", CLOSED_PORT_REDIS_URL, QuotaLimitingRedisReadMode::Disabled)]
+    #[case::unknown("observe", CLOSED_PORT_REDIS_URL, QuotaLimitingRedisReadMode::Disabled)]
+    #[case::shadow_without_url("shadow", "", QuotaLimitingRedisReadMode::Disabled)]
+    #[case::live_without_url("live", "", QuotaLimitingRedisReadMode::Disabled)]
+    #[case::live_with_bad_url("live", "absolutegarbage", QuotaLimitingRedisReadMode::Disabled)]
+    fn test_resolve_quota_limiter_clients(
+        #[case] mode: &str,
+        #[case] url: &str,
+        #[case] expected_mode: QuotaLimitingRedisReadMode,
+    ) {
+        let shared: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+
+        let clients = resolve_quota_limiter_clients(&quota_limiting_config(mode, url), &shared);
+
+        assert_eq!(clients.mode, expected_mode);
+        assert_eq!(
+            Arc::ptr_eq(&clients.limiter_client, &shared),
+            expected_mode != QuotaLimitingRedisReadMode::Live
+        );
+        assert_eq!(
+            clients.observation_client.is_some(),
+            expected_mode == QuotaLimitingRedisReadMode::Shadow
+        );
+    }
+
+    #[rstest]
+    #[case::shared_timeouts((0, 0), (100, 5000), Some((100, 5000)))]
+    #[case::own_timeouts((250, 2000), (100, 5000), Some((250, 2000)))]
+    #[case::no_response_timeout((0, 2000), (0, 5000), None)]
+    #[case::no_connection_timeout((250, 0), (100, 0), None)]
+    fn test_quota_limiting_redis_timeouts(
+        #[case] own_ms: (u64, u64),
+        #[case] shared_ms: (u64, u64),
+        #[case] expected_ms: Option<(u64, u64)>,
+    ) {
+        let config = Config {
+            quota_limiting_redis_response_timeout_ms: own_ms.0,
+            quota_limiting_redis_connection_timeout_ms: own_ms.1,
+            redis_response_timeout_ms: shared_ms.0,
+            redis_connection_timeout_ms: shared_ms.1,
+            ..Config::default_test_config()
+        };
+
+        assert_eq!(
+            quota_limiting_redis_timeouts(&config),
+            expected_ms.map(|(response, connection)| (
+                Duration::from_millis(response),
+                Duration::from_millis(connection)
+            ))
+        );
+    }
+
+    /// Disabled and shadow show the wait covers a refresh of the shared set.
+    #[rstest]
+    #[case::disabled("disabled", true)]
+    #[case::shadow("shadow", true)]
+    #[case::live("live", false)]
+    #[tokio::test(start_paused = true)]
+    async fn test_quota_limiters_while_quota_limiting_redis_is_down(
+        #[case] mode: &str,
+        #[case] expected_limited: bool,
+    ) {
+        let shared: Arc<dyn Client + Send + Sync> = Arc::new(
+            MockRedisClient::new()
+                .zrangebyscore_ret(
+                    "@posthog/quota-limits/feature_flag_requests",
+                    vec!["limited_token".to_string()],
+                )
+                .zrangebyscore_ret(
+                    "@posthog/quota-limits/recordings",
+                    vec!["limited_token".to_string()],
+                ),
+        );
+        let config = quota_limiting_config(mode, CLOSED_PORT_REDIS_URL);
+
+        let clients = resolve_quota_limiter_clients(&config, &shared);
+        let interval = Duration::from_secs(config.billing_limiter_cache_ttl_secs);
+        let feature_flags_limiter = FeatureFlagsLimiter::new(
+            interval,
+            clients.limiter_client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+        )
+        .unwrap();
+        let session_replay_limiter = SessionReplayLimiter::new(
+            interval,
+            clients.limiter_client,
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+        )
+        .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        assert_eq!(
+            feature_flags_limiter.is_limited("limited_token").await,
+            expected_limited
+        );
+        assert_eq!(
+            session_replay_limiter.is_limited("limited_token").await,
+            expected_limited
+        );
     }
 
     #[tokio::test]
