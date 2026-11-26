@@ -30,7 +30,7 @@ from products.metrics.backend.facade.enums import (
     MetricType,
 )
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
-from products.metrics.backend.models import MetricPrecomputedMetric
+from products.metrics.backend.models import MetricDailyQueryCount, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import get_or_create_precomputed_metric, leaf_for_clause
 from products.metrics.backend.precompute.fill import fill_precomputed_metrics
 from products.metrics.backend.precompute.shadow import SHADOW_EVENT
@@ -197,18 +197,23 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
         clause = _counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE)
         self._precompute(clause)
 
+        request = self._request(clause, "hour")
         with (
             patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
             patch("products.metrics.backend.facade.api.current_app.send_task") as queued,
         ):
-            result = run_precomputed_metric_query(team=self.team, request=self._request(clause, "hour"))
+            result = run_precomputed_metric_query(team=self.team, request=request)
+            assert not run_precomputed_metric_query(team=self.team, request=request).shadow_scheduled
         assert result.shadow_scheduled
+        assert queued.call_count == 1
 
+        counts_before = list(MetricDailyQueryCount.objects.values_list("metric_name", "query_count"))
         team_id, kind, payload = queued.call_args.kwargs["args"]
-        with patch("products.metrics.backend.facade.api.report_team_action") as report:
+        with patch("products.metrics.backend.facade.api.ph_scoped_capture") as scoped_capture:
             run_shadow_check(team_id=team_id, kind=kind, payload=payload)
 
-        assert report.call_args.args[1:] == (
+        captured = scoped_capture.return_value.__enter__.return_value.call_args.kwargs
+        assert (captured["event"], captured["properties"]) == (
             SHADOW_EVENT,
             {
                 "kind": "builder",
@@ -217,6 +222,12 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
                 "mismatched_points": 0,
             },
         )
+        assert list(MetricDailyQueryCount.objects.values_list("metric_name", "query_count")) == counts_before
+        with (
+            patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
+            patch("products.metrics.backend.facade.api.current_app.send_task"),
+        ):
+            assert run_precomputed_metric_query(team=self.team, request=request).shadow_scheduled
 
     def test_stored_data_over_the_points_budget_runs_raw(self):
         clause = _counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE)

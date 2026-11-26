@@ -19,6 +19,7 @@ from django.db import connection
 
 import structlog
 from celery import current_app
+from redis import Redis
 
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource, MetricsQuery
 
@@ -28,10 +29,12 @@ from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_ME
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog import redis
 from posthog.clickhouse.client.connection import Workload
-from posthog.event_usage import AnalyticsProps, report_team_action
+from posthog.event_usage import AnalyticsProps, groups
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
+from posthog.ph_client import ph_scoped_capture
 from posthog.scopes.catalog import APIScopeObject
 
 from products.error_tracking.backend.facade.api import list_latest_spike_events
@@ -133,6 +136,7 @@ from products.metrics.backend.precompute.shadow import (
     BUILDER,
     PROMQL,
     SHADOW_CHECK_QUEUE,
+    SHADOW_CHECK_SLOT_SECONDS,
     SHADOW_CHECK_TASK,
     SHADOW_EVENT,
     builder_payload,
@@ -159,6 +163,8 @@ logger = structlog.get_logger(__name__)
 # are apart.
 PRECOMPUTE_SHADOW_CHECK_RATE = 0.1
 _PRECOMPUTE_OFF = "precomputing is off for this project"
+# A stalled Redis or broker must not hold a tile that already has its answer.
+_SHADOW_IO_TIMEOUT_SECONDS = 1.0
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -513,7 +519,12 @@ def run_precomputed_metric_query(
 
 
 def run_planned_metric_query(
-    *, team: Team, request: MetricQueryRequest, record_use: bool = True, check_shadow: bool = True
+    *,
+    team: Team,
+    request: MetricQueryRequest,
+    record_use: bool = True,
+    check_shadow: bool = True,
+    record_query: bool = True,
 ) -> MetricQueryResult | MetricQueryProvenance:
     """`run_precomputed_metric_query` when a precomputed metric covers at least one clause. Otherwise it runs
     nothing and returns the raw provenance, with why each clause has no plan, so the caller picks the raw path.
@@ -538,7 +549,7 @@ def run_planned_metric_query(
         runners[clause.name] = PrecomputedClauseRunner(team, request, plan, entries)
     if not plans:
         return MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=tuple(reasons))
-    series = _run_metric_query(team, request, runners)
+    series = _run_metric_query(team, request, runners, record_query=record_query)
     provenance = MetricQueryProvenance(
         mode=provenance_mode(plans, len(reasons), request.date_to),
         precomputed_until=min(plan.cut for plan in plans),
@@ -557,11 +568,12 @@ def run_precomputed_promql_query(
     interval: str | None,
     record_use: bool = True,
     check_shadow: bool = True,
+    record_query: bool = True,
 ) -> MetricQueryResult:
     """`run_promql_range` for a dashboard-v2 tile: a planned query reads its stored buckets and only the newer
     buckets raw. The first long-range tile that needs a precomputed metric creates it and runs raw meanwhile."""
 
-    def raw(record_query: bool = True) -> list[MetricSeries]:
+    def raw() -> list[MetricSeries]:
         return run_promql_range(team, promql, date_from, date_to, interval, record_query=record_query)
 
     def raw_result(reason: str) -> MetricQueryResult:
@@ -583,7 +595,8 @@ def run_precomputed_promql_query(
     except (MetricQueryTooManyRowsError, TooManySeriesError):
         return raw_result("the newest buckets have too many label sets")
     # The raw tail doesn't record the query, so a tile answered fully from storage still counts as a query.
-    _record_promql_query(team, plan.expr)
+    if record_query:
+        _record_promql_query(team, plan.expr)
     series = series_from_results(team, promql, results)
     provenance = MetricQueryProvenance(
         mode=MetricQueryProvenanceMode.MIXED if plan.cut < plan.last_step else MetricQueryProvenanceMode.PRECOMPUTED,
@@ -603,25 +616,67 @@ def run_precomputed_promql_query(
 
 
 def _defer_shadow_check(team: Team, kind: str, payload: dict[str, Any]) -> bool:
-    """Queue a sampled tile's shadow check. The viewer doesn't wait for it, and a queue failure never fails the tile."""
+    """Queue a sampled tile's shadow check. The viewer doesn't wait for it, and a queue failure never fails the tile.
+
+    A team has at most one check queued or running: the checks read whole windows outside the query rate limits,
+    so a busy dashboard skips samples instead of piling full reads onto the shared queue."""
     if random.random() >= PRECOMPUTE_SHADOW_CHECK_RATE:
         return False
     try:
-        current_app.send_task(SHADOW_CHECK_TASK, args=[team.pk, kind, payload], queue=SHADOW_CHECK_QUEUE)
+        if not _shadow_redis().set(_shadow_slot_key(team.pk), 1, nx=True, ex=SHADOW_CHECK_SLOT_SECONDS):
+            return False
+    except Exception:
+        logger.exception("metrics_precompute_shadow_check_slot_failed", team_id=team.pk)
+        return False
+    try:
+        current_app.send_task(
+            SHADOW_CHECK_TASK,
+            args=[team.pk, kind, payload],
+            queue=SHADOW_CHECK_QUEUE,
+            retry=False,
+            timeout=_SHADOW_IO_TIMEOUT_SECONDS,
+        )
     except Exception:
         logger.exception("metrics_precompute_shadow_check_not_queued", team_id=team.pk)
+        _release_shadow_slot(team.pk)
         return False
     return True
 
 
+def _shadow_redis() -> Redis:
+    return redis.get_client(
+        socket_timeout=_SHADOW_IO_TIMEOUT_SECONDS, socket_connect_timeout=_SHADOW_IO_TIMEOUT_SECONDS
+    )
+
+
+def _shadow_slot_key(team_id: int) -> str:
+    return f"metrics:precompute:shadow_check:{team_id}"
+
+
+def _release_shadow_slot(team_id: int) -> None:
+    try:
+        _shadow_redis().delete(_shadow_slot_key(team_id))
+    except Exception:
+        logger.exception("metrics_precompute_shadow_check_slot_failed", team_id=team_id)
+
+
 def run_shadow_check(*, team_id: int, kind: str, payload: dict[str, Any]) -> None:
     """Run a queued shadow check: the tile's precomputed answer against the same query run raw, reported as an event."""
+    try:
+        _run_shadow_check(team_id, kind, payload)
+    finally:
+        _release_shadow_slot(team_id)
+
+
+def _run_shadow_check(team_id: int, kind: str, payload: dict[str, Any]) -> None:
     team = Team.objects.filter(pk=team_id).first()
     if team is None:
         return
     if kind == BUILDER:
         request = builder_request(payload)
-        planned = run_planned_metric_query(team=team, request=request, record_use=False, check_shadow=False)
+        planned = run_planned_metric_query(
+            team=team, request=request, record_use=False, check_shadow=False, record_query=False
+        )
         if isinstance(planned, MetricQueryProvenance):
             return
         result = planned
@@ -639,6 +694,7 @@ def run_shadow_check(*, team_id: int, kind: str, payload: dict[str, Any]) -> Non
             interval=payload["interval"],
             record_use=False,
             check_shadow=False,
+            record_query=False,
         )
         run_raw = partial(
             run_promql_range, team, payload["promql"], date_from, date_to, payload["interval"], record_query=False
@@ -657,7 +713,9 @@ def run_shadow_check(*, team_id: int, kind: str, payload: dict[str, Any]) -> Non
         "mismatched_points": check.mismatched_points,
     }
     logger.info("metrics_precompute_shadow_check", team_id=team.pk, **properties)
-    report_team_action(team, SHADOW_EVENT, properties)
+    # The worker can exit before the global client flushes, so the event goes through a client this task flushes.
+    with ph_scoped_capture() as capture:
+        capture(distinct_id=str(team.uuid), event=SHADOW_EVENT, properties=properties, groups=groups(team=team))
 
 
 def _run_metric_query(

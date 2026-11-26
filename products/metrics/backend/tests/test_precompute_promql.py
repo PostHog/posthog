@@ -432,10 +432,14 @@ class TestPrecomputedPromQL(APIBaseTest):
         assert len(self.snuffle.queries) - queried_before == 1, self.snuffle.queries[queried_before:]
 
         team_id, kind, payload = queued.call_args.kwargs["args"]
-        with fake_snuffle(self.snuffle), patch("products.metrics.backend.facade.api.report_team_action") as report:
+        with (
+            fake_snuffle(self.snuffle),
+            patch("products.metrics.backend.facade.api.ph_scoped_capture") as scoped_capture,
+        ):
             run_shadow_check(team_id=team_id, kind=kind, payload=payload)
 
-        event, properties = report.call_args.args[1:]
+        captured = scoped_capture.return_value.__enter__.return_value.call_args.kwargs
+        event, properties = captured["event"], captured["properties"]
         assert event == SHADOW_EVENT
         assert (properties["kind"], properties["mode"]) == ("promql", result.provenance.mode.value)
         assert properties["max_relative_difference"] == pytest.approx(0.0, abs=EXACT)

@@ -31,6 +31,9 @@ SHADOW_CHECK_TASK = "products.metrics.backend.tasks.tasks.check_precomputed_shad
 SHADOW_CHECK_QUEUE = "long_running"
 BUILDER = "builder"
 PROMQL = "promql"
+# How long a team's queued or running check holds its one slot. It outlasts the task's hard time limit, so a check
+# whose worker died frees the slot by expiring.
+SHADOW_CHECK_SLOT_SECONDS = 4 * 60
 
 
 def builder_payload(request: MetricQueryRequest) -> dict[str, Any]:
