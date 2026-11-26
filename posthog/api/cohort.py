@@ -3517,7 +3517,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         fingerprint = hashlib.sha256(json.dumps([data["name"], person_ids]).encode()).hexdigest()
         lookup = {"team_id": self.team_id, "actor": request.user, "request_id": data["request_id"]}
         with transaction.atomic():
-            receipt, created = CohortSelectionSubmission.objects.get_or_create(
+            receipt, created = CohortSelectionSubmission.objects.for_team(self.team_id).get_or_create(
                 **lookup, defaults={"fingerprint": fingerprint}
             )
             if receipt.fingerprint != fingerprint:
@@ -3540,7 +3540,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # Membership also lives outside this transaction. Keep the same cohort ID if a write needs to be retried.
         with transaction.atomic():
-            receipt = CohortSelectionSubmission.objects.select_for_update().get(**lookup)
+            receipt = CohortSelectionSubmission.objects.for_team(self.team_id).select_for_update().get(**lookup)
             if not receipt.completed_at:
                 if receipt.cohort_id is None:
                     raise Conflict("The cohort created by this submission was deleted.")
