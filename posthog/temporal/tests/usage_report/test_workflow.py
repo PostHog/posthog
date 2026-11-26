@@ -65,7 +65,6 @@ from posthog.temporal.usage_report.workflow import (
     RunUsageReportsWorkflow,
     _dispatched_queries,
     _queries_for_ai_overage_bytes_patch,
-    _queries_for_broadcast_emails_patch,
     _queries_for_business_knowledge_usage_patch,
     _queries_for_local_evaluation_not_modified_patch,
     _queries_for_logs_distinct_patterns_patch,
@@ -110,7 +109,6 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
             LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
         ),
         ("ai_overage_bytes", _queries_for_ai_overage_bytes_patch, AI_OVERAGE_BYTES_QUERY_NAME),
-        ("broadcast_emails", _queries_for_broadcast_emails_patch, BROADCAST_EMAILS_QUERY_NAME),
     ]
 )
 def test_single_query_is_versioned_for_existing_histories(
