@@ -4,6 +4,8 @@ import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 
+import { admissionsOf } from '../runner/status'
+
 const card = {
     id: 'test-card',
     version: 1,
@@ -58,6 +60,23 @@ const emailWorkerKill = {
 }
 
 const edgeAccepted = { name: 'edge_accepted', params: { channel: 'ses' } }
+
+const fullTraffic = {
+    ...profile,
+    traffic: {
+        event_email: { ratePerSecond: 3, parks: 1 },
+        event_webhook: { ratePerSecond: 2 },
+        transactional_email: { ratePerSecond: 1, parks: 2 },
+    },
+    settings: sesSettings,
+    load: { targets: { claimsPerSecond: { hogflow: 8, email: 6 }, newJobsPerSecond: 6 }, tolerance: 0.1 },
+}
+
+const hogflowChaos = {
+    ...card,
+    drive: { ...card.drive, for: '60s', traffic: [{ name: 'event_email' }, { name: 'event_webhook' }] },
+    valves: [{ ...emailWorkerKill, at: '37s' }],
+}
 
 describe('load', () => {
     let dir: string
@@ -528,6 +547,18 @@ describe('load', () => {
             'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
         ],
         [
+            'a card whose traffic never reaches a queue load admission judges',
+            { ...hogflowChaos, drive: { ...hogflowChaos.drive, traffic: [{ name: 'event_webhook' }] } },
+            fullTraffic,
+            'drive.traffic: event_webhook makes no email claims, and load admission would judge the card on them (profile.load.targets.claimsPerSecond.email); drive traffic that reaches the email queue, or run the card on a profile without that target',
+        ],
+        [
+            'a card on a load profile whose traffic load admission cannot derive targets from',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'bounce_followup' }] } },
+            { ...fullTraffic, traffic: { ...fullTraffic.traffic, bounce_followup: { ratePerSecond: 1 } } },
+            'profile.traffic.bounce_followup: load admission cannot derive targets from bounce_followup, since its claims per unit are not modelled',
+        ],
+        [
             'a load block without an email claim target and an SES limiter capacity under one batch',
             card,
             { ...profile, load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 } },
@@ -820,6 +851,36 @@ describe('load', () => {
         ...readdirSync(path.join(__dirname, 'dev')).map((file) => [path.join('dev', file), 'dev'] as const),
     ])('loads the shipped card %s on the %s target with the shipped definitions and profile', (file, target) => {
         expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
+    })
+
+    it('admits a chaos card on a full-traffic profile against the targets its own traffic derives', () => {
+        const { admission } = loadCard(hogflowChaos, fullTraffic)
+        const baseline = {
+            seconds: 30,
+            scrapedSeconds: 30,
+            claimsPerSecond: { hogflow: 8, email: 3 },
+            newJobsPerSecond: 5,
+        }
+
+        expect(admissionsOf(admission, baseline)).toEqual([
+            { name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' },
+        ])
+    })
+
+    it("derives the profile's own targets for a card that drives its full traffic", () => {
+        const { admission } = loadCard(
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    traffic: [{ name: 'transactional_email' }, { name: 'event_webhook' }, { name: 'event_email' }],
+                },
+                invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
+            },
+            fullTraffic
+        )
+
+        expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
     })
 
     it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(

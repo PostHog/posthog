@@ -640,7 +640,7 @@ export function createRunner(
                               samples: () => sampling.sampler.taken(),
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
-                              profile,
+                              admission: loaded.admission,
                               writerCpu: (window) => readWriterCpu(window, liveSignal),
                               targetLimit: opened.limit,
                           },
@@ -700,7 +700,7 @@ export function createRunner(
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
-                    profile,
+                    loaded.admission,
                     baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
                     units.steps[0]?.scale
                 )

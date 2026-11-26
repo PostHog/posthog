@@ -152,7 +152,7 @@ const pairProperties = ({
 
 export function scorecardOf(
     result: RunVerdict,
-    { card, profile }: LoadedCard,
+    { card, profile, admission }: LoadedCard,
     provenance: Provenance,
     pair?: ScorecardPair
 ): ScorecardProperties {
@@ -202,6 +202,7 @@ export function scorecardOf(
         ...(card.drive.stopOnBreak === true ? rampProperties(result, { card }) : {}),
         ...(pair && pairProperties(pair)),
         admissions: result.admissions,
+        load_targets: admission.load?.derived ?? null,
         bars: result.bars,
         valve_timeline: result.timeline,
         role_restarts: result.restarts ?? [],

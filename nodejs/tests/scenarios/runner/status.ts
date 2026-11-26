@@ -1,4 +1,4 @@
-import type { Profile } from '../cards/schema'
+import type { AdmissionTargets } from '../cards/load-targets'
 import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
@@ -40,11 +40,7 @@ const percent = (share: number): string => `${Number((share * 100).toFixed(1))}%
 const rate = (perSecond: number): string => `${Number(perSecond.toFixed(2))}/s`
 
 // A profile measures its load targets at 1x, and a ramp that opens higher drives that many times the load.
-export function admissionsOf(
-    { load, host }: Pick<Profile, 'load' | 'host'>,
-    baseline: Baseline,
-    openingScale = 1
-): Admission[] {
+export function admissionsOf({ load, host }: AdmissionTargets, baseline: Baseline, openingScale = 1): Admission[] {
     const admissions: Admission[] = []
     const unmeasurable =
         baseline.seconds <= 0

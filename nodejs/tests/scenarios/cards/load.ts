@@ -12,7 +12,8 @@ import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
 import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
-import { Card, Named, Profile, stepsOf } from './schema'
+import { AdmissionTargets, loadTargetsOf } from './load-targets'
+import { Card, Load, Named, Profile, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
@@ -20,7 +21,13 @@ export const ROLE_RESTART_BACKOFF_MS = 2000
 const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
 export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
-export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
+export type LoadedCard = {
+    card: Card
+    profile: Profile
+    admission: AdmissionTargets
+    cardHash: string
+    profileHash: string
+}
 
 export type LoadOptions = { profilePath?: string; target?: Target }
 
@@ -264,18 +271,18 @@ const SES_SHARE = 0.5
 
 const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
 
-function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): string[] {
+function checkSesLimiter(card: Card, profile: Profile, load: Load | undefined, defaults: Settings): string[] {
     const sendsEmail = card.drive.traffic.some(({ name }) =>
         TRAFFIC.find((traffic) => traffic.name === name)?.deliveries.includes(EMAIL_ACTION)
     )
-    if (profile.load === undefined || !sendsEmail) {
+    if (load === undefined || !sendsEmail) {
         return []
     }
     const capacity = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_CAPACITY')
     const replicas = profile.replicas['cdp-cyclotron-worker-email'] ?? 1
     const burst = replicas * settingOf(profile, defaults, 'CONSUMER_BATCH_SIZE')
     return [
-        ...checkSesRefill(card, profile, defaults, profile.load.targets.claimsPerSecond.email, profile.load.tolerance),
+        ...checkSesRefill(card, profile, defaults, load.targets.claimsPerSecond.email, load.tolerance),
         ...(capacity >= burst
             ? []
             : [
@@ -364,6 +371,7 @@ function check(
     const card = parsed.data
     const loaded = profileFor(card)
     const defaults = getDefaultConfig() as unknown as Settings
+    const derived = 'profile' in loaded ? loadTargetsOf(card, loaded.profile) : { problems: [] }
 
     const problems = [
         ...checkNames(card, DEFINITIONS),
@@ -375,7 +383,8 @@ function check(
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
-                  ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...derived.problems,
+                  ...checkSesLimiter(card, loaded.profile, derived.load ?? loaded.profile.load, defaults),
                   ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
@@ -392,6 +401,7 @@ function check(
     return {
         card,
         profile: loaded.profile,
+        admission: { load: derived.load, host: loaded.profile.host },
         profileHash,
         cardHash: cardHashOf(card, profileHash),
     }

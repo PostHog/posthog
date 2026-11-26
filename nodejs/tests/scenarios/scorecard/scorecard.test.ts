@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
-import { LoadedCard, load } from '../cards'
+import { LoadedCard, load, loadText } from '../cards'
 import type { InvariantResult } from '../judge/judge'
 import { RunResult } from '../runner/runner'
 import { FakeProjectApi, TOKEN, startFakeProjectApi } from './fake-project-api'
@@ -177,6 +177,7 @@ describe('scorecard', () => {
                     m_drain_seconds: null,
                     m_drain_seconds_censored: true,
                     admissions: RESULT.admissions,
+                    load_targets: null,
                     bars: RESULT.bars,
                     valve_timeline: [],
                     role_restarts: RESULT.restarts,
@@ -209,6 +210,36 @@ describe('scorecard', () => {
             unfinished_jobs: null,
             invariants_failed: [],
         })
+    })
+
+    it("records the load targets a card's own traffic derives from its profile's targets", () => {
+        const loaded = loadText('chaos card', {
+            card: JSON.stringify({
+                ...SMOKE.card,
+                drive: { for: '30s', traffic: [{ name: 'event_email' }, { name: 'event_webhook' }] },
+            }),
+            profile: JSON.stringify({
+                name: 'full-traffic',
+                traffic: {
+                    event_email: { ratePerSecond: 3, parks: 1 },
+                    event_webhook: { ratePerSecond: 2 },
+                    transactional_email: { ratePerSecond: 1, parks: 2 },
+                },
+                settings: { CDP_SES_RATE_LIMIT_CAPACITY: '500' },
+                load: { targets: { claimsPerSecond: { hogflow: 8, email: 6 } }, tolerance: 0.1 },
+            }),
+        })
+
+        expect(scorecardOf(RESULT, loaded, PROVENANCE).load_targets).toEqual([
+            {
+                rate: 'claimsPerSecond.hogflow',
+                from: ['event_email', 'event_webhook'],
+                profileTarget: 8,
+                share: 1,
+                target: 8,
+            },
+            { rate: 'claimsPerSecond.email', from: ['event_email'], profileTarget: 6, share: 0.5, target: 3 },
+        ])
     })
 
     it.each<[string, InvariantResult, object]>([
