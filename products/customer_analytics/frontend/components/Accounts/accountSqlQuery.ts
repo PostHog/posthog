@@ -131,10 +131,35 @@ function collectAccountSqlQueryAliases(value: unknown, aliases: Set<string>): vo
         return
     }
     const node = value as ASTNode
+    if (node.node === 'SelectQuery' || node.node === 'SelectSetQuery') {
+        return
+    }
     if (node.node === 'Alias' || node.node === 'CTE') {
         aliases.add(node.node === 'Alias' ? node.alias : node.name)
     }
     Object.values(value).forEach((child) => collectAccountSqlQueryAliases(child, aliases))
+}
+
+function isAccountSqlQuerySource(node: ASTNode): boolean {
+    return (
+        ['Field', 'SelectQuery', 'SelectSetQuery'].includes(node.table?.node) &&
+        !node.table_args?.length &&
+        !node.column_aliases?.length
+    )
+}
+
+function isAccountSqlSelectScoped(node: ASTNode, aliases: Set<string>): boolean {
+    const source = node.select_from
+    if (!source) {
+        return false
+    }
+    if (source.next_join) {
+        return isAccountSqlJoinScoped(node, aliases)
+    }
+    return (
+        ['SelectQuery', 'SelectSetQuery'].includes(source.table?.node) ||
+        isAccountSqlQueryFilter(node.where, aliases, getAccountSqlQueryAllowedFields(source))
+    )
 }
 
 function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boolean {
@@ -149,24 +174,13 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
             node.expr.chain[0] === ACCOUNT_SQL_QUERY_PLACEHOLDER_NAME
         )
     }
-    if (
-        node.node === 'JoinExpr' &&
-        (!['Field', 'SelectQuery', 'SelectSetQuery'].includes(node.table?.node) ||
-            node.table_args?.length ||
-            node.column_aliases?.length)
-    ) {
+    if (node.node === 'JoinExpr' && !isAccountSqlQuerySource(node)) {
         return false
     }
     if (node.node === 'SelectQuery') {
-        const source = node.select_from
-        const allowedFields = source ? getAccountSqlQueryAllowedFields(source) : undefined
-        const readsValidatedSubquery = ['SelectQuery', 'SelectSetQuery'].includes(source?.table?.node)
-        if (
-            !source ||
-            (source.next_join
-                ? !isAccountSqlJoinScoped(node, aliases)
-                : !readsValidatedSubquery && !isAccountSqlQueryFilter(node.where, aliases, allowedFields))
-        ) {
+        aliases = new Set(aliases)
+        Object.values(node).forEach((child) => collectAccountSqlQueryAliases(child, aliases))
+        if (!isAccountSqlSelectScoped(node, aliases)) {
             return false
         }
     }
@@ -220,9 +234,7 @@ export function createAccountSqlVisualizationNode(
 async function isAccountSqlQueryScoped(query: string): Promise<boolean> {
     try {
         const ast = await parseSelectAst(query)
-        const aliases = new Set<string>()
-        collectAccountSqlQueryAliases(ast, aliases)
-        return ['SelectQuery', 'SelectSetQuery'].includes(ast.node) && isAccountSqlQueryAstScoped(ast, aliases)
+        return ['SelectQuery', 'SelectSetQuery'].includes(ast.node) && isAccountSqlQueryAstScoped(ast, new Set())
     } catch {
         return false
     }

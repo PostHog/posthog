@@ -240,6 +240,21 @@
         "valid": false
     },
     {
+        "name": "nested column alias matches outer table alias",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT DISTINCT id AS project_id FROM example_projects WHERE account_id = {account_external_id}) project_id ON e.project_id = project_id.project_id",
+        "valid": true
+    },
+    {
+        "name": "sibling union column alias matches table alias",
+        "query": "SELECT account_id AS p FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "inherited scalar alias cannot scope joined subquery",
+        "query": "WITH {account_external_id} AS account_id SELECT e.event FROM example_events e JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "valid": false
+    },
+    {
         "name": "joined scalar alias shadows account column",
         "query": "SELECT {account_external_id} AS `p.account_id`, e.event FROM example_events e JOIN example_projects p ON e.project_id = p.id WHERE p.account_id = {account_external_id}",
         "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",

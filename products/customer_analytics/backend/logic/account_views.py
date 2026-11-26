@@ -173,8 +173,9 @@ def is_account_sql_join_scoped(node: ast.SelectQuery, aliases: set[str]) -> bool
 
 
 class AccountSqlQueryAliasCollector(TraversingVisitor):
-    def __init__(self) -> None:
+    def __init__(self, select: ast.SelectQuery) -> None:
         super().__init__()
+        self.select = select
         self.aliases: set[str] = set()
 
     def visit_alias(self, node: ast.Alias) -> None:
@@ -182,16 +183,28 @@ class AccountSqlQueryAliasCollector(TraversingVisitor):
         super().visit_alias(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.aliases.update(node.ctes or {})
-        super().visit_select_query(node)
+        if node is self.select:
+            self.aliases.update(node.ctes or {})
+            super().visit_select_query(node)
 
 
 class AccountSqlQueryScopeValidator(TraversingVisitor):
-    def __init__(self, aliases: set[str]) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.aliases = aliases
+        self.aliases: set[str] = set()
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
+        collector = AccountSqlQueryAliasCollector(node)
+        collector.visit(node)
+        parent_aliases = self.aliases
+        self.aliases = parent_aliases | collector.aliases
+        try:
+            self.validate_select_query(node)
+            super().visit_select_query(node)
+        finally:
+            self.aliases = parent_aliases
+
+    def validate_select_query(self, node: ast.SelectQuery) -> None:
         if node.select_from and node.select_from.next_join:
             if not is_account_sql_join_scoped(node, self.aliases):
                 raise InvalidAccountViewContent(
@@ -199,7 +212,6 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
                         "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source."
                     ]
                 )
-            super().visit_select_query(node)
             return
         allowed_fields = get_account_sql_query_allowed_fields(node.select_from) if node.select_from else None
         reads_validated_subquery = node.select_from is not None and isinstance(
@@ -213,7 +225,6 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
                     ["SQL queries on system.accounts must filter external_id by {account_external_id}."]
                 )
             raise InvalidAccountViewContent(["SQL query must filter by {account_external_id} in every SELECT's WHERE."])
-        super().visit_select_query(node)
 
     def visit_placeholder(self, node: ast.Placeholder) -> None:
         if not isinstance(node.expr, ast.Field) or node.expr.chain != ["account_external_id"]:
@@ -412,9 +423,7 @@ def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
     except ExposedHogQLError:
         return ["Enter a valid SQL query."]
     try:
-        aliases = AccountSqlQueryAliasCollector()
-        aliases.visit(select)
-        AccountSqlQueryScopeValidator(aliases.aliases).visit(select)
+        AccountSqlQueryScopeValidator().visit(select)
     except InvalidAccountViewContent as error:
         return error.errors
     if "visualization" in config:
