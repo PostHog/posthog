@@ -98,6 +98,7 @@ class TestWrappedAPI(APIBaseTest):
         [
             ("tool_names_hidden", "$mcp_tool_name", False),
             ("models_hidden", "$mcp_llm_model", False),
+            ("exec_verb_hidden", "$mcp_exec_verb", False),
             ("unrelated_property_hidden", "$mcp_intent", True),
         ]
     )
@@ -109,16 +110,28 @@ class TestWrappedAPI(APIBaseTest):
 
         assert (wrapped is not None) is wrap_shown
 
-    def test_a_child_environment_reads_its_parents_wrap(self) -> None:
+    @parameterized.expand(
+        [
+            ("unrestricted", False),
+            ("restricted_on_the_parent", True),
+        ]
+    )
+    def test_a_child_environment_reads_its_parents_wrap(self, _name: str, restrict_parent: bool) -> None:
         self._store(MCPAnalyticsWrapped.Status.READY, days_ago=1)
         child = Team.objects.create(
             organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
         )
+        if restrict_parent:
+            self._restrict("$mcp_tool_name")
 
         response = self._get(child.id)
 
         assert response.status_code == 200, response.json()
-        assert response.json()["wrapped"]["cards"] == CARDS
+        wrapped = response.json()["wrapped"]
+        if restrict_parent:
+            assert wrapped is None
+        else:
+            assert wrapped["cards"] == CARDS
 
     def test_the_flag_gates_the_endpoint(self) -> None:
         self._store(MCPAnalyticsWrapped.Status.READY, days_ago=1)

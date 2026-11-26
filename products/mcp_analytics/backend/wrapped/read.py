@@ -23,6 +23,7 @@ WRAPPED_SOURCE_PROPERTIES = frozenset(
     {
         "$mcp_tool_name",
         "$mcp_exec_target_tool",
+        "$mcp_exec_verb",
         "$mcp_exec_tool_call_name",
         "$mcp_client_name",
         "$mcp_client_user_agent",
@@ -37,16 +38,19 @@ WRAPPED_SOURCE_PROPERTIES = frozenset(
 
 
 def get_fresh_wrapped(team: Team, user: User | None) -> WrappedSnapshot | None:
-    restricted = split_restricted_property_names(
-        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
-    ).event
-    if WRAPPED_SOURCE_PROPERTIES & restricted:
-        return None
+    # The job saves a project's wrap under its parent team, which a child environment reads too. Restrictions are
+    # set per environment, so the parent's rules apply to that read as well as the child's own.
+    data_team_id = team.parent_team_id or team.pk
+    for team_id in {team.pk, data_team_id}:
+        restricted = split_restricted_property_names(
+            get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        ).event
+        if WRAPPED_SOURCE_PROPERTIES & restricted:
+            return None
     with team_scope(team.id):
         snapshot = (
             MCPAnalyticsWrapped.objects.filter(
-                # The job saves a project's wrap under its parent team, which a child environment reads too.
-                team_id=team.parent_team_id or team.pk,
+                team_id=data_team_id,
                 status=MCPAnalyticsWrapped.Status.READY,
                 generated_at__gte=timezone.now() - DISPLAY_WINDOW,
             )
