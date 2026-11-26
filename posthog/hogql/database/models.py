@@ -1,5 +1,6 @@
 import re
 import datetime
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -327,6 +328,8 @@ class EventsRetentionTable(Table):
 
 
 _CI_INDEX_CACHE_KEY = "_case_insensitive_index_cache"
+_COPY_ON_WRITE_KEY = "_children_copy_on_write"
+_copy_on_write_lock = threading.Lock()
 
 
 class TableNode(BaseModel):
@@ -409,12 +412,41 @@ class TableNode(BaseModel):
 
         return child.get_child(rest_of_path)
 
+    def copy_children_on_write(self) -> None:
+        """Make add_child swap in a new `children` dict instead of changing it, for a catalog that concurrent queries
+        share. A query that registers a table at resolution time then cannot break another query that is iterating
+        this node. Set after the build, which adds a child per table and would otherwise copy the dict each time."""
+        object.__setattr__(self, _COPY_ON_WRITE_KEY, True)
+
     def add_child(
         self,
         child: "TableNode",
         *,
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
+    ):
+        if not self.__dict__.get(_COPY_ON_WRITE_KEY):
+            self._add_child(
+                child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
+            )
+            return
+        with _copy_on_write_lock:
+            shared = self.children
+            object.__setattr__(self, "children", dict(shared))
+            try:
+                self._add_child(
+                    child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
+                )
+            except BaseException:
+                object.__setattr__(self, "children", shared)
+                raise
+
+    def _add_child(
+        self,
+        child: "TableNode",
+        *,
+        table_conflict_mode: Literal["override", "ignore"],
+        children_conflict_mode: Literal["override", "merge", "ignore"],
     ):
         # A same-name replacement changes neither the `children` dict nor its length, so the
         # lookup cache cannot detect it. Drop the cache here.

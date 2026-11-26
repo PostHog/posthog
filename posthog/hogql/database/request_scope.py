@@ -44,8 +44,9 @@ class SharedDatabases:
     """Databases built once and handed to every query in one scope, such as one dashboard query batch.
 
     Lives only as long as its owner, so a warehouse or saved-query change is seen by the next request.
-    A Database is built to be read by concurrent query threads (its deferred builds take their own locks),
-    so the only coordination needed here is that one thread builds each key while the others wait.
+    A Database is built to be read by concurrent query threads (its deferred builds take their own locks). Queries
+    that register a table at resolution time write to its root, so a stored catalog's root is copy-on-write.
+    Beyond that, one thread builds each key while the others wait.
 
     `enabled` is asked once, at the first build, so a caller on an event loop can pass a check that reads the database.
     Each stored catalog can be large, so past max_databases distinct keys a build is handed out but not kept.
@@ -90,6 +91,7 @@ class SharedDatabases:
             if database is not None:
                 return database
             database = build()
+            database.tables.copy_children_on_write()
             with self._lock:
                 self._databases[key] = (database, monotonic())
             return database

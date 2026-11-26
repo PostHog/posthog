@@ -5239,6 +5239,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 assert Database.create_for(team=self.team, user=self.user) is first
                 assert Database.create_for(team=self.team, user=self.user) is not first
 
+    def test_a_shared_database_survives_a_query_registering_a_table_while_another_walks_its_root(self) -> None:
+        with sharing_databases(SharedDatabases()):
+            database = Database.create_for(team=self.team, user=self.user)
+        walk = iter(database.tables.children.items())
+        next(walk)
+
+        database.tables.add_child(TableNode(name="registered_mid_walk", hidden=True))
+
+        list(walk)
+        assert "registered_mid_walk" in database.tables.children
+
     def test_a_sharing_scope_stops_keeping_databases_past_its_limit(self) -> None:
         modifiers = [
             HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
