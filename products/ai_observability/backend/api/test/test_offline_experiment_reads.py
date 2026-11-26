@@ -26,7 +26,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
 )
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.models.score_definitions import ExperimentScoreSuiteDefault, ScoreDefinition
 from products.ai_observability.backend.resource_tags import ResourceTags
 
 
@@ -86,9 +86,10 @@ class TestOfflineExperimentReads(APIBaseTest):
         return f"/api/projects/{team_id or self.team.id}/ai_observability/offline_experiments/{suffix}"
 
     def test_experiment_score_preview_is_read_only_and_requires_both_read_scopes(self) -> None:
-        endpoint = self._endpoint(f"{self.experiment.id}/preview_score/")
+        endpoint = self._endpoint(f"{self.experiment.id}/score_previews/")
         body = {
             "kind": "boolean",
+            "config": {"true_label": "Flagged", "true_is_failure": True},
             "composition": {
                 "expression": "correct >= 0.9",
                 "inputs": [{"alias": "correct", "scorer_version_id": str(self.version.id), "statistic": "pass_rate"}],
@@ -98,11 +99,40 @@ class TestOfflineExperimentReads(APIBaseTest):
         preview = self.client.post(endpoint, body, format="json")
         self.assertEqual(preview.status_code, 200, preview.data)
         self.assertIs(preview.data["value"], True)
+        self.assertIs(preview.data["passed"], False)
+        self.assertEqual(preview.data["config"], body["config"])
+        self.assertEqual(preview.data["kind"], "boolean")
         self.assertEqual(preview.data["inputs"][0]["sources"][0]["successful_items"], 1)
         self.experiment.refresh_from_db()
         self.assertIsNone(self.experiment.experiment_scorer_version_id)
         self._authenticate("personal_key", ["evaluation:read"])
         self.assertEqual(self.client.post(endpoint, body, format="json").status_code, 403)
+
+    def test_historical_run_can_show_a_visible_future_default_without_pinning_it(self) -> None:
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Release", scope="experiment", kind="numeric", calculation="composite"
+        )
+        version = definition.create_new_version(
+            config={},
+            composition={
+                "expression": "correct",
+                "inputs": [{"alias": "correct", "statistic": "pass_rate", "scorer_version_id": str(self.version.id)}],
+            },
+            created_by=self.user,
+        )
+        self.experiment.suite_key = "support"
+        self.experiment.save(update_fields=["suite_key"])
+        ExperimentScoreSuiteDefault.objects.for_team(self.team.id).create(
+            team=self.team, suite_key="support", scorer_version=version
+        )
+        endpoint = self._endpoint(f"{self.experiment.id}/")
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
+        detail = self.client.get(endpoint)
+        self.assertEqual(detail.status_code, 200, detail.data)
+        self.assertIs(detail.data["suite_has_score"], True)
+        self.assertIsNone(detail.data["experiment_score"])
+        self._authenticate("personal_key", ["evaluation:read"])
+        self.assertIsNone(self.client.get(endpoint).data["suite_has_score"])
 
     def _history(self, definition_id: str | None = None, team_id: int | None = None) -> str:
         return (

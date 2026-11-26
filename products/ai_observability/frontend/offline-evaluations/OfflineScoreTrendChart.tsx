@@ -128,7 +128,7 @@ export function OfflineScoreTrendChart({
                                                 <div>
                                                     {score.name} · v{score.version}
                                                 </div>
-                                                <strong>{experimentScoreLabel(score)}</strong>
+                                                <strong>{experimentScoreLabel(score, true)}</strong>
                                                 <div>
                                                     {dayjs(experiment.started_at)
                                                         .tz(timezone)

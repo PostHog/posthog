@@ -692,27 +692,6 @@ export const aiObservabilityOfflineExperimentsItemsResultsList = async (
     )
 }
 
-export const getAiObservabilityOfflineExperimentsPreviewScoreCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/preview_score/`
-}
-
-export const aiObservabilityOfflineExperimentsPreviewScoreCreate = async (
-    projectId: string,
-    id: string,
-    compositeValidationApi: CompositeValidationApi,
-    options?: RequestInit
-): Promise<ExperimentScorePreviewApi> => {
-    return apiMutator<ExperimentScorePreviewApi>(
-        getAiObservabilityOfflineExperimentsPreviewScoreCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(compositeValidationApi),
-        }
-    )
-}
-
 export const getAiObservabilityOfflineExperimentsResultCellsRetrieveUrl = (
     projectId: string,
     id: string,
@@ -890,6 +869,27 @@ export const aiObservabilityOfflineExperimentsResultsPayloadDestroy = async (
         {
             ...options,
             method: 'DELETE',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsScorePreviewsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/score_previews/`
+}
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreate = async (
+    projectId: string,
+    id: string,
+    compositeValidationApi: CompositeValidationApi,
+    options?: RequestInit
+): Promise<ExperimentScorePreviewApi> => {
+    return apiMutator<ExperimentScorePreviewApi>(
+        getAiObservabilityOfflineExperimentsScorePreviewsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(compositeValidationApi),
         }
     )
 }

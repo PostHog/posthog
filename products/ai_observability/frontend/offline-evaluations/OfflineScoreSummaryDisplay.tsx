@@ -17,12 +17,14 @@ function SummaryMetric({
     percent,
     color,
     title,
+    passed,
 }: {
     label: string
     value: string
     percent: number | null
     color?: string
     title?: string
+    passed?: boolean | null
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -35,6 +37,7 @@ function SummaryMetric({
                 <strong className="tabular-nums font-semibold">{value}</strong>
             </Tooltip>
             <span className="text-xs text-muted break-words min-w-0">{label}</span>
+            {passed != null && <span className="text-xs">{passed ? 'Passed' : 'Failed'}</span>}
         </div>
     )
 }
@@ -117,6 +120,7 @@ export function OfflineSummaryMetrics({
     return (
         <SummaryMetric
             label={offlineScoreMetricLabel(scorer)}
+            passed={passed}
             value={formatOfflineScore(summary)}
             percent={
                 numeric

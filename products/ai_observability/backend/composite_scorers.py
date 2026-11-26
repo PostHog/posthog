@@ -23,6 +23,18 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
+class ExperimentScoreStatus(models.TextChoices):
+    OK = "ok"
+    MIXED_VERSIONS = "mixed_versions"
+    MISSING_INPUT = "missing_input"
+    NO_SUCCESSFUL_ITEMS = "no_successful_items"
+    UNAVAILABLE_STATISTIC = "unavailable_statistic"
+    OVERLAPPING_ITEMS = "overlapping_items"
+    FORMULA_ERROR = "formula_error"
+    PENDING = "pending"
+    FAILED = "failed"
+
+
 class ExperimentScoreStatistic(models.TextChoices):
     PASS_RATE = "pass_rate", "pass_rate"
     MEAN = "mean", "mean"

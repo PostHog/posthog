@@ -118,12 +118,14 @@ class ExperimentScore:
     name: str
     status: str
     value: ResultValue | None
+    passed: bool | None
     inputs: list[ExperimentScoreInput]
 
 
 @frozen
 class OfflineExperimentRead:
     experiment_score: ExperimentScore | None = None
+    suite_has_score: bool | None = None
     updated_at: datetime | None = None
     closed_item_count: int | None = None
     tags: tuple[str, ...] = ()

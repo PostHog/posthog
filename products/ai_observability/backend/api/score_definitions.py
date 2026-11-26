@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from django.contrib.postgres.expressions import ArraySubquery
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Prefetch, Q, QuerySet, prefetch_related_objects
+from django.db.models import Count, F, OuterRef, Prefetch, Q, QuerySet, prefetch_related_objects
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
@@ -77,6 +78,11 @@ class CompositeInputReadSerializer(serializers.Serializer):
 
 
 class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSerializer):
+    assigned_suite_keys = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Suite defaults across all visible versions. Included on retrieve.",
+    )
     suite_keys = serializers.SlugRelatedField[ExperimentScoreSuiteDefault](
         source="current_version.suite_defaults",
         slug_field="suite_key",
@@ -144,6 +150,7 @@ class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSer
             "kind",
             "scope",
             "suite_keys",
+            "assigned_suite_keys",
             "calculation",
             "composition",
             "input_scorers",
@@ -509,6 +516,19 @@ class ScoreDefinitionViewSet(
             .order_by("name", "id")
         )
 
+        if self.action == "retrieve":
+            queryset = queryset.annotate(
+                assigned_suite_keys=ArraySubquery(
+                    ExperimentScoreSuiteDefault.objects.for_team(self.team_id)
+                    .filter(
+                        scorer_version__definition_id=OuterRef("pk"),
+                        scorer_version__in=CompositeScorers.accessible_versions(accessible, team_id=self.team_id),
+                    )
+                    .order_by("suite_key")
+                    .values("suite_key")
+                )
+            )
+
         # List defaults to active scorers to mirror the UI; non-boolean `?archived=` values keep that default.
         if self.action == "list":
             archived_param = (self.request.query_params.get("archived") or "").strip().lower()
@@ -578,7 +598,12 @@ class ScoreDefinitionViewSet(
         return definition
 
     def _apply_suites(
-        self, definition: ScoreDefinition, keys: list[str] | None, *, version_id: UUID | None = None
+        self,
+        definition: ScoreDefinition,
+        keys: list[str] | None,
+        *,
+        version_id: UUID | None = None,
+        previous_version_id: UUID | None = None,
     ) -> Change | None:
         if keys is None:
             if version_id is not None:
@@ -600,22 +625,31 @@ class ScoreDefinitionViewSet(
                 raise serializers.ValidationError({"suite_version_id": "Select an accessible version of this scorer."})
         bindings = ExperimentScoreSuiteDefault.objects.for_team(self.team_id)
         own = bindings.filter(scorer_version__definition=definition)
-        current = own.filter(scorer_version_id=version_id)
-        previous_keys = set(current.values_list("suite_key", flat=True))
+        previous = own.filter(scorer_version_id=previous_version_id or version_id)
+        previous_keys = set(previous.values_list("suite_key", flat=True))
         selected_keys = set(keys)
-        if previous_keys == selected_keys:
+        to_assign = selected_keys if previous_version_id is not None else selected_keys - previous_keys
+        to_release = previous_keys - selected_keys
+        if not to_assign and not to_release:
             return None
-        current.filter(suite_key__in=previous_keys - selected_keys).delete()
+        previous.filter(suite_key__in=to_release).delete()
         try:
             with transaction.atomic():
-                for key in sorted(selected_keys - previous_keys):
+                for key in sorted(to_assign):
                     binding, _ = bindings.select_for_update().get_or_create(
                         team_id=self.team_id, suite_key=key, defaults={"scorer_version_id": version_id}
                     )
                     if binding.scorer_version_id != version_id:
                         if not own.filter(pk=binding.pk).update(scorer_version_id=version_id):
+                            holder = (
+                                CompositeScorers.accessible_versions(self._visible_definitions(), team_id=self.team_id)
+                                .filter(pk=binding.scorer_version_id)
+                                .values_list("definition__name", flat=True)
+                                .first()
+                            )
+                            owner = f"“{holder}”" if holder else "another scorer"
                             raise serializers.ValidationError(
-                                {"apply_to_suite_keys": "A selected suite already has another default."}
+                                {"apply_to_suite_keys": f"Suite “{key}” already uses {owner}."}
                             )
         except IntegrityError as error:
             raise serializers.ValidationError(
@@ -625,15 +659,38 @@ class ScoreDefinitionViewSet(
             type="ScoreDefinition",
             action="changed",
             field="suite_keys",
-            before={"version_id": str(version_id), "suite_keys": sorted(previous_keys)},
+            before={"version_id": str(previous_version_id or version_id), "suite_keys": sorted(previous_keys)},
             after={"version_id": str(version_id), "suite_keys": sorted(selected_keys)},
         )
 
+    def _release_suite_defaults(self, definition: ScoreDefinition) -> Change | None:
+        defaults = ExperimentScoreSuiteDefault.objects.for_team(self.team_id).filter(
+            scorer_version__definition=definition
+        )
+        released = [
+            {"suite_key": key, "version_id": str(version_id)}
+            for key, version_id in defaults.order_by("suite_key").values_list("suite_key", "scorer_version_id")
+        ]
+        if not released:
+            return None
+        defaults.delete()
+        return Change(type="ScoreDefinition", action="changed", field="suite_keys", before=released, after=[])
+
     @transaction.atomic
-    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[Change]:
+    def _update_definition_metadata(
+        self, definition: ScoreDefinition, validated_data: dict[str, Any], *, previous_version_id: UUID | None = None
+    ) -> list[Change]:
         definition_data = dict(validated_data)
         keys = definition_data.pop("apply_to_suite_keys", None)
-        suite_change = self._apply_suites(definition, keys, version_id=definition_data.pop("suite_version_id", None))
+        version_id = definition_data.pop("suite_version_id", None)
+        if definition_data.get("archived") and definition.scope == "experiment":
+            if keys or version_id:
+                raise serializers.ValidationError({"apply_to_suite_keys": "Archiving releases all suite assignments."})
+            suite_change = self._release_suite_defaults(definition)
+        else:
+            suite_change = self._apply_suites(
+                definition, keys, version_id=version_id, previous_version_id=previous_version_id
+            )
         if suite_change and definition.current_version:
             definition.current_version.refresh_from_db()
             prefetch_related_objects([definition.current_version], _suite_defaults_prefetch(self.team_id))
@@ -726,6 +783,7 @@ class ScoreDefinitionViewSet(
             user_access_control=self.reference_access_control,
         )
         previous_editor_id = definition.updated_by_id
+        previous_version_id = definition.current_version_id
         definition.create_new_version(
             config=validated_data["config"],
             created_by=attribution_user(self.request),
@@ -741,6 +799,7 @@ class ScoreDefinitionViewSet(
                 for field in ("name", "short_name", "description", "apply_to_suite_keys")
                 if field in validated_data
             },
+            previous_version_id=previous_version_id,
         )
         self._audit_scorer_edit(
             definition,

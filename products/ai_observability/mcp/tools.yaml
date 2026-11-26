@@ -1260,7 +1260,7 @@ tools:
         title: Update offline experiment result
         description: Update a reported score. The server recalculates its existing composite results.
     llma-offline-experiment-score-preview:
-        operation: ai_observability_offline_experiments_preview_score_create
+        operation: ai_observability_offline_experiments_score_previews_create
         enabled: true
         scopes:
             - evaluation:read

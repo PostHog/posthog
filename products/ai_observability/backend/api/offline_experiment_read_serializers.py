@@ -19,7 +19,12 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
 )
 from products.ai_observability.backend.api.query import validate_query_parameters
 from products.ai_observability.backend.api.resource_tags import ResourceTagFilterField
-from products.ai_observability.backend.composite_scorers import CompositeConfigSerializer
+from products.ai_observability.backend.composite_scorers import (
+    CompositeConfigSerializer,
+    ExperimentScoreStatistic,
+    ExperimentScoreStatus,
+    ExperimentScoreVersionPolicy,
+)
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
@@ -238,29 +243,37 @@ class ExperimentScoreSourceSerializer(serializers.Serializer):
 
 class ExperimentScoreInputSerializer(serializers.Serializer):
     alias = serializers.CharField()
-    statistic = serializers.CharField()
-    version_policy = serializers.CharField()
-    status = serializers.CharField()
+    statistic = serializers.ChoiceField(choices=ExperimentScoreStatistic.choices)
+    version_policy = serializers.ChoiceField(choices=ExperimentScoreVersionPolicy.choices)
+    status = serializers.ChoiceField(choices=ExperimentScoreStatus.choices)
     value = serializers.FloatField(allow_null=True)
     sources = ExperimentScoreSourceSerializer(many=True)
 
 
 class ExperimentScorePreviewSerializer(serializers.Serializer):
-    status = serializers.CharField()
+    status = serializers.ChoiceField(choices=ExperimentScoreStatus.choices)
+    kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices)
+    config = ScoreDefinitionConfigField(help_text="Output configuration used to interpret the result.")
+    passed = serializers.BooleanField(
+        allow_null=True, help_text="Passing verdict, or null without a value or passing rule."
+    )
     value = ResultValueField(allow_null=True)
     inputs = ExperimentScoreInputSerializer(many=True)
 
 
 class ExperimentScoreSerializer(ExperimentScorePreviewSerializer):
     definition_id = serializers.UUIDField(help_text="Definition of the experiment scorer pinned to this run.")
-    kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices)
-    config = ScoreDefinitionConfigField(help_text="Pinned output configuration for interpreting the experiment score.")
     scorer_version_id = serializers.UUIDField()
     version = serializers.IntegerField()
     name = serializers.CharField()
 
 
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    suite_has_score = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this suite has a visible default for future runs. Checked on experiment detail.",
+    )
     experiment_score = ExperimentScoreSerializer(
         required=False,
         allow_null=True,

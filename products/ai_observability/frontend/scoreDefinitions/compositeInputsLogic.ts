@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import type { ResourceTagFilters } from '../components/resourceTagFilters'
 import {
-    aiObservabilityOfflineExperimentsPreviewScoreCreate,
+    aiObservabilityOfflineExperimentsScorePreviewsCreate,
     llmAnalyticsScoreDefinitionsList,
     llmAnalyticsScoreDefinitionsVersionsList,
     llmAnalyticsScoreDefinitionsValidateCompositionCreate,
@@ -299,7 +299,7 @@ export const compositeInputsLogic = kea<compositeInputsLogicType>([
                     })
                     try {
                         if (props.experimentId && draft.scope === 'experiment') {
-                            const preview = await aiObservabilityOfflineExperimentsPreviewScoreCreate(
+                            const preview = await aiObservabilityOfflineExperimentsScorePreviewsCreate(
                                 getCurrentProjectId(),
                                 props.experimentId,
                                 body

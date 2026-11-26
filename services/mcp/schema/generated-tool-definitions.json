@@ -11183,7 +11183,7 @@
         "summary": "Preview experiment score",
         "title": "Preview experiment score",
         "required_scopes": ["evaluation:read", "llm_analytics:read"],
-        "api_operations": ["POST /api/projects/{project_id}/ai_observability/offline_experiments/{id}/preview_score/"],
+        "api_operations": ["POST /api/projects/{project_id}/ai_observability/offline_experiments/{id}/score_previews/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

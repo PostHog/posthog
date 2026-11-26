@@ -226,27 +226,79 @@ export const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody = /*
         .describe('Top-level fields to update. Omitted fields keep their current values.'),
 })
 
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyScopeDefault = `item`
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneExpressionMax = 1024
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin = 0
 
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasMax = 32
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax = 128
 
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax = 128
+
+export const AiObservabilityOfflineExperimentsResultsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin)
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    status: zod
+        .enum(['ok', 'error', 'skipped', 'not_applicable'])
+        .describe('\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable')
+        .optional()
+        .describe(
+            'Execution status for this reported result.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
+        ),
+    value: zod
+        .union([
+            zod.number(),
+            zod.boolean(),
+            zod
+                .array(zod.string().max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax))
+                .min(1),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Score for a successful result, validated against the pinned version.'),
+    error_code: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax)
+        .nullish()
+        .describe('Error code for a failed execution.'),
+})
+
+export const aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin = 0
+
+export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin)
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    payload: zod
+        .object({
+            reasoning: zod.string().nullish(),
+            error_message: zod.string().nullish(),
+            metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+        })
+        .describe('Top-level fields to update. Omitted fields keep their current values.'),
+})
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault = `item`
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax = 1024
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemCategoryMax = 128
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax = 128
 
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemKeyMax = 128
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemLabelMax = 256
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
-export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PURE__ */ zod.object({
+export const AiObservabilityOfflineExperimentsScorePreviewsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['item', 'experiment'])
         .describe('\* `item` - Item\n\* `experiment` - Experiment')
-        .default(aiObservabilityOfflineExperimentsPreviewScoreCreateBodyScopeDefault),
+        .default(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault),
     kind: zod
         .enum(['categorical', 'numeric', 'boolean'])
         .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
@@ -257,7 +309,7 @@ export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PUR
         .object({
             expression: zod
                 .string()
-                .max(aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneExpressionMax)
+                .max(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax)
                 .describe(
                     'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
                 ),
@@ -267,10 +319,10 @@ export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PUR
                         alias: zod
                             .string()
                             .max(
-                                aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasMax
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax
                             )
                             .regex(
-                                aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasRegExp
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp
                             )
                             .describe(
                                 'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
@@ -293,7 +345,7 @@ export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PUR
                         category: zod
                             .string()
                             .max(
-                                aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemCategoryMax
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax
                             )
                             .optional(),
                     })
@@ -312,7 +364,7 @@ export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PUR
                             key: zod
                                 .string()
                                 .max(
-                                    aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemKeyMax
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax
                                 )
                                 .describe(
                                     'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
@@ -320,7 +372,7 @@ export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PUR
                             label: zod
                                 .string()
                                 .max(
-                                    aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemLabelMax
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax
                                 )
                                 .describe('Human-readable option label.'),
                         })
@@ -355,7 +407,7 @@ export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PUR
                                     zod
                                         .string()
                                         .max(
-                                            aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                            aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
                                         )
                                 )
                                 .describe(
@@ -409,58 +461,6 @@ export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = /* @__PUR
         ])
         .optional()
         .describe('Output configuration to check literal categories and composite scoring rules.'),
-})
-
-export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin = 0
-
-export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax = 128
-
-export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax = 128
-
-export const AiObservabilityOfflineExperimentsResultsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    revision: zod
-        .number()
-        .min(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin)
-        .describe('Revision returned by the latest read of this item, result, or payload.'),
-    status: zod
-        .enum(['ok', 'error', 'skipped', 'not_applicable'])
-        .describe('\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable')
-        .optional()
-        .describe(
-            'Execution status for this reported result.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
-        ),
-    value: zod
-        .union([
-            zod.number(),
-            zod.boolean(),
-            zod
-                .array(zod.string().max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax))
-                .min(1),
-            zod.null(),
-        ])
-        .optional()
-        .describe('Score for a successful result, validated against the pinned version.'),
-    error_code: zod
-        .string()
-        .max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax)
-        .nullish()
-        .describe('Error code for a failed execution.'),
-})
-
-export const aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin = 0
-
-export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = /* @__PURE__ */ zod.object({
-    revision: zod
-        .number()
-        .min(aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin)
-        .describe('Revision returned by the latest read of this item, result, or payload.'),
-    payload: zod
-        .object({
-            reasoning: zod.string().nullish(),
-            error_message: zod.string().nullish(),
-            metadata: zod.record(zod.string(), zod.unknown()).nullish(),
-        })
-        .describe('Top-level fields to update. Omitted fields keep their current values.'),
 })
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemModelVersionMax = 255

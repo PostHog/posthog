@@ -29,6 +29,7 @@ import type {
     PaginatedScoreDefinitionListApi,
     ScoreDefinitionApi,
 } from '../generated/api.schemas'
+import { confirmScorerArchive } from './confirmScorerArchive'
 import { getApiErrorDetail, getCurrentProjectId } from './scoreDefinitionModalUtils'
 
 export const SCORE_DEFINITIONS_PER_PAGE = 30
@@ -407,9 +408,18 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
             }
         },
 
-        toggleArchive: async ({ scoreDefinition }) => {
+        toggleArchive: async ({ scoreDefinition }, breakpoint) => {
+            const teamId = getCurrentProjectId()
             try {
-                await aiObservabilityScoreDefinitionsPartialUpdate(getCurrentProjectId(), scoreDefinition.id, {
+                if (scoreDefinition.scope === 'experiment' && !scoreDefinition.archived) {
+                    const confirmed = await confirmScorerArchive(teamId, scoreDefinition)
+                    breakpoint()
+                    if (!confirmed || teamId !== getCurrentProjectId()) {
+                        actions.toggleArchiveFailure(scoreDefinition.id)
+                        return
+                    }
+                }
+                await aiObservabilityScoreDefinitionsPartialUpdate(teamId, scoreDefinition.id, {
                     archived: !scoreDefinition.archived,
                 })
                 actions.toggleArchiveSuccess(scoreDefinition.id)

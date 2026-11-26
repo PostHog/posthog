@@ -186,21 +186,27 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                 </details>
                 {experiment && !experiment.experiment_score && (
                     <div className="flex border-t px-4 py-2">
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                data-attr="aio-set-up-experiment-score"
-                                tooltipPlacement="top-start"
-                                tooltip="Combine results from item scorers, such as their pass rates, into one score for the whole experiment."
-                                to={`${urls.aiObservabilityScorer('new')}?${new URLSearchParams({ experiment: experiment.id, ...(experiment.suite_key ? { suite: experiment.suite_key } : {}) })}`}
+                        {experiment.suite_has_score ? (
+                            <span className="py-1 text-sm text-muted">
+                                Future runs of {experiment.suite_key} have an experiment score.
+                            </span>
+                        ) : (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Set up experiment score
-                            </LemonButton>
-                        </AccessControlAction>
+                                <LemonButton
+                                    size="small"
+                                    type="tertiary"
+                                    data-attr="aio-set-up-experiment-score"
+                                    tooltipPlacement="top-start"
+                                    tooltip="Preview a formula using this run’s item scores, then save it for future runs."
+                                    to={`${urls.aiObservabilityScorer('new')}?${new URLSearchParams({ experiment: experiment.id, ...(experiment.suite_key ? { suite: experiment.suite_key } : {}) })}`}
+                                >
+                                    {experiment.suite_key ? 'Set up experiment score' : 'Create experiment scorer'}
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                     </div>
                 )}
             </section>

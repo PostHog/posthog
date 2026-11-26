@@ -117,11 +117,13 @@ Other inputs include a numeric mean, the fraction of Boolean values that are tru
 successful items with a selected category. An item composite can supply any statistic its output supports.
 
 A suite key can have one default experiment scorer version per environment. The first successful experiment
-creation pins that version. Supply `experiment_scorer_version_id` in Python or the API, or
-`experimentScorerVersionId` in JavaScript, to select a specific version. Changing a suite default applies
-to future runs. A preview on a historical run leaves its official score unchanged.
+creation pins that version. The HTTP creation endpoint accepts `experiment_scorer_version_id` to select a
+specific version. Suite defaults apply automatically to SDK-created runs. When publishing a new version,
+selected suites move to it and deselected suites on the previous version lose their default. Archiving a
+scorer releases its suites. These changes affect future runs. Previewing a formula on a historical run leaves
+its official score unchanged.
 
-By default an input uses the scorer version observed in the run. If several versions contributed, the
+By default an input uses the version that successfully scored items in the run. If several versions contributed, the
 experiment shows each version's statistic and successful item count and leaves the score unset. Choose
 an exact version to use just its results, or **Combine versions** to pool the successful items across versions.
 For example, 9 passes out of 10 on v3 and 1 out of 2 on v4 give 10/12 overall. If v3 scores an item

@@ -75,11 +75,12 @@ describe.each([false, true])('scorer scene with Today navigation: %s', (todayRai
 
     it.each([
         [
-            { experiment: 'origin-run' },
+            { experiment: '08b13acc-f998-5208-9d45-4114c633ba9e' },
             'Back to experiment',
-            urls.aiObservabilityOfflineEvaluationExperiment('origin-run'),
+            urls.aiObservabilityOfflineEvaluationExperiment('08b13acc-f998-5208-9d45-4114c633ba9e'),
         ],
         [{}, 'Back to scorers', urls.aiObservabilityScorers()],
+        [{ experiment: 'unknown-run' }, 'Back to scorers', urls.aiObservabilityScorers()],
     ] as const)('returns Back and Cancel to the origin for %j', async (searchParams, backLabel, destination) => {
         const params = { scorerId: 'new' }
         router.actions.push(urls.aiObservabilityScorer('new'), searchParams)

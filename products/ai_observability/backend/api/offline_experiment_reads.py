@@ -85,7 +85,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         "item_payload",
         "result_payload",
         "scorer_summaries",
-        "preview_score",
+        "score_previews",
         "history",
     ]
     throttle_classes = [
@@ -105,7 +105,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
             "result_payload",
             "scorer_summaries",
             "history",
-            "preview_score",
+            "score_previews",
         ]:
             return ["evaluation:read", "llm_analytics:read"]
         if self.action in self.scope_object_read_actions or self.action == "metadata":
@@ -148,8 +148,8 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
         request_serializer=CompositeValidationSerializer,
         responses={200: ExperimentScorePreviewSerializer, **READ_ERROR_RESPONSES},
     )
-    @action(detail=True, methods=["post"], url_path="preview_score")
-    def preview_score(self, request: ValidatedRequest, **kwargs: object) -> Response:
+    @action(detail=True, methods=["post"], url_path="score_previews")
+    def score_previews(self, request: ValidatedRequest, **kwargs: object) -> Response:
         data = request.validated_data
         return self._read_response(
             lambda: self._read_service().preview_experiment_score(

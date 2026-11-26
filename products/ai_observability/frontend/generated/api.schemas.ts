@@ -307,23 +307,31 @@ export interface InstrumentationCheckActionApi {
     check: AIObservabilityInstrumentationCheckEnumApi
 }
 
-export interface ExperimentScoreSourceApi {
-    version_id: string
-    version: number
-    successful_items: number
-    /** @nullable */
-    value: number | null
-}
+/**
+ * * `ok` - Ok
+ * * `mixed_versions` - Mixed Versions
+ * * `missing_input` - Missing Input
+ * * `no_successful_items` - No Successful Items
+ * * `unavailable_statistic` - Unavailable Statistic
+ * * `overlapping_items` - Overlapping Items
+ * * `formula_error` - Formula Error
+ * * `pending` - Pending
+ * * `failed` - Failed
+ */
+export type ExperimentScoreStatusEnumApi =
+    (typeof ExperimentScoreStatusEnumApi)[keyof typeof ExperimentScoreStatusEnumApi]
 
-export interface ExperimentScoreInputApi {
-    alias: string
-    statistic: string
-    version_policy: string
-    status: string
-    /** @nullable */
-    value: number | null
-    sources: ExperimentScoreSourceApi[]
-}
+export const ExperimentScoreStatusEnumApi = {
+    Ok: 'ok',
+    MixedVersions: 'mixed_versions',
+    MissingInput: 'missing_input',
+    NoSuccessfulItems: 'no_successful_items',
+    UnavailableStatistic: 'unavailable_statistic',
+    OverlappingItems: 'overlapping_items',
+    FormulaError: 'formula_error',
+    Pending: 'pending',
+    Failed: 'failed',
+} as const
 
 /**
  * * `categorical` - categorical
@@ -453,15 +461,68 @@ export type ScoreDefinitionConfigApi =
     | NumericScoreDefinitionConfigApi
     | BooleanScoreDefinitionConfigApi
 
+/**
+ * * `pass_rate` - pass_rate
+ * * `mean` - mean
+ * * `true_rate` - true_rate
+ * * `category_rate` - category_rate
+ */
+export type ExperimentScoreStatisticEnumApi =
+    (typeof ExperimentScoreStatisticEnumApi)[keyof typeof ExperimentScoreStatisticEnumApi]
+
+export const ExperimentScoreStatisticEnumApi = {
+    PassRate: 'pass_rate',
+    Mean: 'mean',
+    TrueRate: 'true_rate',
+    CategoryRate: 'category_rate',
+} as const
+
+/**
+ * * `run` - run
+ * * `exact` - exact
+ * * `combine` - combine
+ */
+export type ExperimentScoreVersionPolicyEnumApi =
+    (typeof ExperimentScoreVersionPolicyEnumApi)[keyof typeof ExperimentScoreVersionPolicyEnumApi]
+
+export const ExperimentScoreVersionPolicyEnumApi = {
+    Run: 'run',
+    Exact: 'exact',
+    Combine: 'combine',
+} as const
+
+export interface ExperimentScoreSourceApi {
+    version_id: string
+    version: number
+    successful_items: number
+    /** @nullable */
+    value: number | null
+}
+
+export interface ExperimentScoreInputApi {
+    alias: string
+    statistic: ExperimentScoreStatisticEnumApi
+    version_policy: ExperimentScoreVersionPolicyEnumApi
+    status: ExperimentScoreStatusEnumApi
+    /** @nullable */
+    value: number | null
+    sources: ExperimentScoreSourceApi[]
+}
+
 export interface ExperimentScoreApi {
-    status: string
+    status: ExperimentScoreStatusEnumApi
+    kind: ScoreDefinitionKindEnumApi
+    /** Output configuration used to interpret the result. */
+    config: ScoreDefinitionConfigApi
+    /**
+     * Passing verdict, or null without a value or passing rule.
+     * @nullable
+     */
+    passed: boolean | null
     value: number | boolean | string[] | null
     inputs: ExperimentScoreInputApi[]
     /** Definition of the experiment scorer pinned to this run. */
     definition_id: string
-    kind: ScoreDefinitionKindEnumApi
-    /** Pinned output configuration for interpreting the experiment score. */
-    config: ScoreDefinitionConfigApi
     scorer_version_id: string
     version: number
     name: string
@@ -553,6 +614,11 @@ export const OfflineExperimentStatusEnumApi = {
 } as const
 
 export interface OfflineExperimentReadApi {
+    /**
+     * Whether this suite has a visible default for future runs. Checked on experiment detail.
+     * @nullable
+     */
+    suite_has_score?: boolean | null
     /** Overall score from the run's pinned experiment formula, when visible. */
     experiment_score?: ExperimentScoreApi | null
     /**
@@ -1030,36 +1096,6 @@ export const ScoreDefinitionCalculationEnumApi = {
     Composite: 'composite',
 } as const
 
-/**
- * * `pass_rate` - pass_rate
- * * `mean` - mean
- * * `true_rate` - true_rate
- * * `category_rate` - category_rate
- */
-export type ExperimentScoreStatisticEnumApi =
-    (typeof ExperimentScoreStatisticEnumApi)[keyof typeof ExperimentScoreStatisticEnumApi]
-
-export const ExperimentScoreStatisticEnumApi = {
-    PassRate: 'pass_rate',
-    Mean: 'mean',
-    TrueRate: 'true_rate',
-    CategoryRate: 'category_rate',
-} as const
-
-/**
- * * `run` - run
- * * `exact` - exact
- * * `combine` - combine
- */
-export type ExperimentScoreVersionPolicyEnumApi =
-    (typeof ExperimentScoreVersionPolicyEnumApi)[keyof typeof ExperimentScoreVersionPolicyEnumApi]
-
-export const ExperimentScoreVersionPolicyEnumApi = {
-    Run: 'run',
-    Exact: 'exact',
-    Combine: 'combine',
-} as const
-
 export interface CompositeInputApi {
     /**
      * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
@@ -1345,37 +1381,6 @@ export interface OfflineResultPageApi {
     results: OfflineResultReadApi[]
 }
 
-/**
- * * `item` - Item
- * * `experiment` - Experiment
- */
-export type ScoreDefinitionScopeEnumApi = (typeof ScoreDefinitionScopeEnumApi)[keyof typeof ScoreDefinitionScopeEnumApi]
-
-export const ScoreDefinitionScopeEnumApi = {
-    Item: 'item',
-    Experiment: 'experiment',
-} as const
-
-export interface CompositeValidationApi {
-    scope?: ScoreDefinitionScopeEnumApi
-    /** Expected formula output kind.
-     *
-     * * `categorical` - categorical
-     * * `numeric` - numeric
-     * * `boolean` - boolean */
-    kind: ScoreDefinitionKindEnumApi
-    /** Formula and pinned input versions to validate without saving. */
-    composition: CompositeConfigApi
-    /** Output configuration to check literal categories and composite scoring rules. */
-    config?: ScoreDefinitionConfigApi
-}
-
-export interface ExperimentScorePreviewApi {
-    status: string
-    value: number | boolean | string[] | null
-    inputs: ExperimentScoreInputApi[]
-}
-
 export interface OfflineResultCellsApi {
     /** Selected authorized versions, including versions with no results for these items. */
     scorer_versions: OfflineScorerVersionReadApi[]
@@ -1456,6 +1461,45 @@ export interface PatchedOfflineResultPayloadUpdateApi {
     revision: number
     /** Top-level fields to update. Omitted fields keep their current values. */
     payload: OfflineEvaluationResultPayloadInputApi
+}
+
+/**
+ * * `item` - Item
+ * * `experiment` - Experiment
+ */
+export type ScoreDefinitionScopeEnumApi = (typeof ScoreDefinitionScopeEnumApi)[keyof typeof ScoreDefinitionScopeEnumApi]
+
+export const ScoreDefinitionScopeEnumApi = {
+    Item: 'item',
+    Experiment: 'experiment',
+} as const
+
+export interface CompositeValidationApi {
+    scope?: ScoreDefinitionScopeEnumApi
+    /** Expected formula output kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Formula and pinned input versions to validate without saving. */
+    composition: CompositeConfigApi
+    /** Output configuration to check literal categories and composite scoring rules. */
+    config?: ScoreDefinitionConfigApi
+}
+
+export interface ExperimentScorePreviewApi {
+    status: ExperimentScoreStatusEnumApi
+    kind: ScoreDefinitionKindEnumApi
+    /** Output configuration used to interpret the result. */
+    config: ScoreDefinitionConfigApi
+    /**
+     * Passing verdict, or null without a value or passing rule.
+     * @nullable
+     */
+    passed: boolean | null
+    value: number | boolean | string[] | null
+    inputs: ExperimentScoreInputApi[]
 }
 
 export interface OfflineStatusCountsApi {
@@ -6136,6 +6180,8 @@ export interface ScoreDefinitionApi {
     readonly scope: ScoreDefinitionScopeEnumApi
     /** Suites that currently use this exact version for new experiments. */
     readonly suite_keys: readonly string[]
+    /** Suite defaults across all visible versions. Included on retrieve. */
+    assigned_suite_keys?: string[]
     /** Whether results are reported by the caller or calculated with a formula.
      *
      * * `reported` - Reported

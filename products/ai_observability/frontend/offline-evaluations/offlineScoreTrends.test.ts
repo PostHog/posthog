@@ -1,3 +1,4 @@
+import { experimentScoreLabel } from './ExperimentScoreResult'
 import {
     aggregateOfflineScoreHistory,
     buildOfflineTrendPanels,
@@ -10,6 +11,29 @@ import {
 import { makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
 
 describe('offline score trends', () => {
+    it('keeps full precision in tooltips and identifies a missing formula input', () => {
+        const score = { status: 'ok', kind: 'numeric', config: {}, inputs: [], passed: null } as const
+        expect(experimentScoreLabel({ ...score, inputs: [], value: 0.901 })).toBe('0.9')
+        expect(experimentScoreLabel({ ...score, inputs: [], value: 0.901 }, true)).toBe('0.901')
+        expect(experimentScoreLabel({ ...score, inputs: [], value: 0.904 }, true)).toBe('0.904')
+        expect(
+            experimentScoreLabel({
+                ...score,
+                value: null,
+                status: 'no_successful_items',
+                inputs: [
+                    {
+                        alias: 'grounded',
+                        status: 'no_successful_items',
+                        statistic: 'true_rate',
+                        version_policy: 'run',
+                        value: null,
+                        sources: [],
+                    },
+                ],
+            })
+        ).toBe('No successful items · grounded')
+    })
     it('plots a numeric experiment score of zero and skips an unavailable score from the same pinned version', () => {
         const { experiment, summary } = makeOfflineHistoryPoint(1)
         const score = {
@@ -19,7 +43,8 @@ describe('offline score trends', () => {
             kind: 'numeric' as const,
             name: 'Release score',
             config: { min: 0, max: 100 },
-            status: 'ok',
+            status: 'ok' as const,
+            passed: null,
             value: 0,
             inputs: [],
         }
@@ -28,7 +53,7 @@ describe('offline score trends', () => {
             {
                 experiment: {
                     ...makeOfflineHistoryPoint(2).experiment,
-                    experiment_score: { ...score, status: 'mixed_versions', value: null },
+                    experiment_score: { ...score, status: 'mixed_versions' as const, value: null },
                 },
                 summary: null,
             },

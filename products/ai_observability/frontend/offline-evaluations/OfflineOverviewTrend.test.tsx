@@ -43,14 +43,14 @@ describe('OfflineOverviewTrend', () => {
                 {
                     experiment: {
                         ...overviewExperiments[1],
-                        experiment_score: { ...score, status: 'ok', value: false },
+                        experiment_score: { ...score, status: 'ok', value: false, passed: false },
                     },
                     summary: null,
                 },
                 {
                     experiment: {
                         ...overviewExperiments[2],
-                        experiment_score: { ...score, status: 'missing_input', value: null },
+                        experiment_score: { ...score, status: 'missing_input', value: null, passed: null },
                     },
                     summary: null,
                 },
@@ -66,7 +66,7 @@ describe('OfflineOverviewTrend', () => {
             />
         )
         expect(await screen.findByText('1 of 2 runs scored')).toBeInTheDocument()
-        expect(screen.getByText('False')).toBeVisible()
+        expect(screen.getByText('Ungrounded')).toBeVisible()
         expect(screen.getByText('Missing scorer results')).toBeVisible()
         expect(screen.getByText(overviewExperiments[1].name).closest('a')).toHaveAttribute(
             'href',

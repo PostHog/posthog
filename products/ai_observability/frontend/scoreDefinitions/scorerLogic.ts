@@ -19,6 +19,7 @@ import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { CategoricalScoreOptionApi } from '../generated/api.schemas'
 import type { CompositeInputReadApi } from '../generated/api.schemas'
 import { updateScorerDraft } from './compositeFormulaDefaults'
+import { confirmScorerArchive } from './confirmScorerArchive'
 import { getBooleanConfig } from './scoreDefinitionConfigUtils'
 import {
     buildConfigFromDraft,
@@ -427,8 +428,17 @@ export const scorerLogic = kea<scorerLogicType>([
                     calculation: saved.calculation,
                     scope: draft.scope,
                 })
-                lemonToast.success(isNew ? 'Scorer created.' : 'Scorer saved.')
-                router.actions.replace(urls.aiObservabilityScorers())
+                if (isNew && props.experimentId) {
+                    const suites = draft.suiteKeys.join(', ')
+                    lemonToast.success(
+                        suites
+                            ? `Scorer created for future runs of ${suites}. This run keeps its original scores.`
+                            : 'Scorer created. This run keeps its original scores.'
+                    )
+                } else {
+                    lemonToast.success(isNew ? 'Scorer created.' : 'Scorer saved.')
+                }
+                router.actions.replace(values.parentBreadcrumb.path)
             } catch (error) {
                 breakpoint()
                 const stale = typeof error === 'object' && error !== null && 'status' in error && error.status === 409
@@ -504,6 +514,13 @@ export const scorerLogic = kea<scorerLogicType>([
             const teamId = getCurrentProjectId()
             actions.setError(null)
             try {
+                if (definition.scope === 'experiment' && !definition.archived) {
+                    const confirmed = await confirmScorerArchive(teamId, definition)
+                    breakpoint()
+                    if (!confirmed || teamId !== getCurrentProjectId()) {
+                        return
+                    }
+                }
                 const saved = await llmAnalyticsScoreDefinitionsPartialUpdate(teamId, definition.id, {
                     archived: !definition.archived,
                 })

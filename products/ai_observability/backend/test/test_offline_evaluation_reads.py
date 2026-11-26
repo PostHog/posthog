@@ -137,6 +137,69 @@ class TestOfflineEvaluationReads(TestCase):
         assert failed is not None
         self.assertEqual((failed.status, failed.value), ("failed", None))
 
+    def test_only_successful_versions_contribute_and_pending_and_formula_errors_have_no_verdict(self) -> None:
+        run = self._experiment(status="uploading")
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Ratio", scope="experiment", kind="numeric", calculation="composite"
+        )
+        run.experiment_scorer_version = definition.create_new_version(
+            config={},
+            composition={
+                "expression": "1 / quality",
+                "inputs": [{"alias": "quality", "scorer_version_id": str(self.numeric.id), "statistic": "mean"}],
+            },
+            created_by=None,
+        )
+        run.save(update_fields=["experiment_scorer_version"])
+
+        def check(expected: str):
+            score = self.service.get_experiment(run.id).experiment_score
+            assert score is not None
+            self.assertEqual((score.status, score.value, score.passed), (expected, None, None))
+            return score
+
+        check("pending")
+        run.status = "completed"
+        run.finished_at = self.now
+        run.save(update_fields=["status", "finished_at"])
+        self._result(self._item(run), self.numeric, status="error")
+        self._result(self._item(run), self.numeric_v2, status="skipped")
+        empty = check("no_successful_items")
+        self.assertEqual([s.successful_items for s in empty.inputs[0].sources], [0, 0])
+        self._result(self._item(run), self.numeric, 0.0)
+        invalid = check("formula_error")
+        self.assertEqual(invalid.inputs[0].status, "ok")
+        self.assertEqual([s.successful_items for s in invalid.inputs[0].sources], [1, 0])
+
+    def test_pooled_pass_rate_uses_exact_counts_at_the_threshold(self) -> None:
+        run = self._experiment()
+        newer = self.boolean.definition.create_new_version(config={}, created_by=None)
+        for version, values in [(self.boolean, [True, False]), (newer, [True, False, False])]:
+            for value in values:
+                self._result(self._item(run), version, value)
+        scorer = ScoreDefinition.objects.create(
+            team=self.team, scope="experiment", name="Gate", calculation="composite", kind="numeric"
+        )
+        run.experiment_scorer_version = scorer.create_new_version(
+            config={"passing_rule": {"operator": "gte", "threshold": 0.4}},
+            composition={
+                "expression": "rate",
+                "inputs": [
+                    {
+                        "alias": "rate",
+                        "statistic": "pass_rate",
+                        "version_policy": "combine",
+                        "scorer_version_id": str(self.boolean.id),
+                    }
+                ],
+            },
+            created_by=None,
+        )
+        run.save(update_fields=["experiment_scorer_version"])
+        score = self.service.get_experiment(run.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value, score.passed), ("ok", 0.4, True))
+
     def test_pooled_mean_stays_finite_at_the_numeric_limit(self) -> None:
         experiment = self._experiment()
         formula = ScoreDefinition.objects.create(

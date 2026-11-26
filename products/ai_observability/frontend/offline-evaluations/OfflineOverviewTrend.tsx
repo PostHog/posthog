@@ -141,7 +141,9 @@ export function OfflineOverviewTrend(
                                             className="flex flex-wrap items-baseline gap-x-2 text-sm"
                                         >
                                             {!latestScore && (
-                                                <strong className="tabular-nums">{experimentScoreLabel(score)}</strong>
+                                                <strong className="tabular-nums">
+                                                    {experimentScoreLabel(score, true)}
+                                                </strong>
                                             )}
                                             <Link
                                                 subtle

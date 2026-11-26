@@ -554,200 +554,6 @@ export const AiObservabilityOfflineExperimentsItemsResultsListQueryParams = () =
         .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
 })
 
-export const AiObservabilityOfflineExperimentsPreviewScoreCreateParams = () => zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyScopeDefault = `item`
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneExpressionMax = 1024
-
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasMax = 32
-
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
-    '^[a-z][a-z0-9_]{0,31}$'
-)
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemCategoryMax = 128
-
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemKeyMax = 128
-
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemLabelMax = 256
-
-export const aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
-
-export const AiObservabilityOfflineExperimentsPreviewScoreCreateBody = () => zod.object({
-    scope: zod
-        .enum(['item', 'experiment'])
-        .describe('\* `item` - Item\n\* `experiment` - Experiment')
-        .default(aiObservabilityOfflineExperimentsPreviewScoreCreateBodyScopeDefault),
-    kind: zod
-        .enum(['categorical', 'numeric', 'boolean'])
-        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
-        .describe(
-            'Expected formula output kind.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
-        ),
-    composition: zod
-        .object({
-            expression: zod
-                .string()
-                .max(aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneExpressionMax)
-                .describe(
-                    'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
-                ),
-            inputs: zod
-                .array(
-                    zod.object({
-                        alias: zod
-                            .string()
-                            .max(
-                                aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasMax
-                            )
-                            .regex(
-                                aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemAliasRegExp
-                            )
-                            .describe(
-                                'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
-                            ),
-                        scorer_version_id: zod
-                            .string()
-                            .describe(
-                                "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
-                            ),
-                        statistic: zod
-                            .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
-                            .optional()
-                            .describe(
-                                '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
-                            ),
-                        version_policy: zod
-                            .enum(['run', 'exact', 'combine'])
-                            .optional()
-                            .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
-                        category: zod
-                            .string()
-                            .max(
-                                aiObservabilityOfflineExperimentsPreviewScoreCreateBodyCompositionOneInputsItemCategoryMax
-                            )
-                            .optional(),
-                    })
-                )
-                .describe(
-                    'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
-                ),
-        })
-        .describe('Formula and pinned input versions to validate without saving.'),
-    config: zod
-        .union([
-            zod.object({
-                options: zod
-                    .array(
-                        zod.object({
-                            key: zod
-                                .string()
-                                .max(
-                                    aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemKeyMax
-                                )
-                                .describe(
-                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
-                                ),
-                            label: zod
-                                .string()
-                                .max(
-                                    aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOneOptionsItemLabelMax
-                                )
-                                .describe('Human-readable option label.'),
-                        })
-                    )
-                    .describe('Ordered categorical options available to the scorer.'),
-                selection_mode: zod
-                    .enum(['single', 'multiple'])
-                    .describe('\* `single` - single\n\* `multiple` - multiple')
-                    .optional()
-                    .describe(
-                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
-                    ),
-                min_selections: zod
-                    .number()
-                    .min(1)
-                    .nullish()
-                    .describe(
-                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
-                    ),
-                max_selections: zod
-                    .number()
-                    .min(1)
-                    .nullish()
-                    .describe(
-                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
-                    ),
-                passing_rule: zod
-                    .union([
-                        zod.object({
-                            categories: zod
-                                .array(
-                                    zod
-                                        .string()
-                                        .max(
-                                            aiObservabilityOfflineExperimentsPreviewScoreCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
-                                        )
-                                )
-                                .describe(
-                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
-                                ),
-                        }),
-                        zod.null(),
-                    ])
-                    .optional()
-                    .describe(
-                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
-                    ),
-            }),
-            zod.object({
-                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
-                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
-                step: zod
-                    .number()
-                    .nullish()
-                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
-                passing_rule: zod
-                    .union([
-                        zod.object({
-                            operator: zod
-                                .enum(['gte', 'lte'])
-                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
-                                .describe(
-                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
-                                ),
-                            threshold: zod
-                                .number()
-                                .describe('Finite passing threshold within any configured score bounds.'),
-                        }),
-                        zod.null(),
-                    ])
-                    .optional()
-                    .describe(
-                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
-                    ),
-            }),
-            zod.object({
-                true_is_failure: zod
-                    .boolean()
-                    .nullish()
-                    .describe(
-                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
-                    ),
-                true_label: zod.string().optional().describe('Optional label for a true value.'),
-                false_label: zod.string().optional().describe('Optional label for a false value.'),
-            }),
-        ])
-        .optional()
-        .describe('Output configuration to check literal categories and composite scoring rules.'),
-})
-
 export const AiObservabilityOfflineExperimentsResultCellsRetrieveParams = () => zod.object({
     id: zod.string().describe('Experiment UUID.'),
     project_id: zod
@@ -854,6 +660,200 @@ export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = 
             metadata: zod.record(zod.string(), zod.unknown()).nullish(),
         })
         .describe('Top-level fields to update. Omitted fields keep their current values.'),
+})
+
+export const AiObservabilityOfflineExperimentsScorePreviewsCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault = `item`
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax = 1024
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax = 128
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
+export const AiObservabilityOfflineExperimentsScorePreviewsCreateBody = () => zod.object({
+    scope: zod
+        .enum(['item', 'experiment'])
+        .describe('\* `item` - Item\n\* `experiment` - Experiment')
+        .default(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault),
+    kind: zod
+        .enum(['categorical', 'numeric', 'boolean'])
+        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
+        .describe(
+            'Expected formula output kind.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
+        ),
+    composition: zod
+        .object({
+            expression: zod
+                .string()
+                .max(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax)
+                .describe(
+                    'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
+                ),
+            inputs: zod
+                .array(
+                    zod.object({
+                        alias: zod
+                            .string()
+                            .max(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax
+                            )
+                            .regex(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp
+                            )
+                            .describe(
+                                'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                            ),
+                        scorer_version_id: zod
+                            .string()
+                            .describe(
+                                "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                            ),
+                        statistic: zod
+                            .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                            .optional()
+                            .describe(
+                                '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                            ),
+                        version_policy: zod
+                            .enum(['run', 'exact', 'combine'])
+                            .optional()
+                            .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                        category: zod
+                            .string()
+                            .max(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax
+                            )
+                            .optional(),
+                    })
+                )
+                .describe(
+                    'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
+                ),
+        })
+        .describe('Formula and pinned input versions to validate without saving.'),
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax
+                                )
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax
+                                )
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .optional()
+        .describe('Output configuration to check literal categories and composite scoring rules.'),
 })
 
 export const AiObservabilityOfflineExperimentsScorerSummariesListParams = () => zod.object({

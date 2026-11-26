@@ -334,6 +334,38 @@ describe('scorer editor', () => {
         }
     )
 
+    it('returns to the original experiment after creating its suite default', async () => {
+        const experimentId = '08b13acc-f998-5208-9d45-4114c633ba9e'
+        create.mockResolvedValue({ ...definition, scope: 'experiment' })
+        const logic = scorerLogic({ scorerId: 'new', experimentId, suiteKey: 'support' })
+        logic.mount()
+        logic.actions.setDraftField('name', 'Support score')
+        logic.actions.setDraftField('inputs', [
+            {
+                alias: 'quality',
+                statistic: 'mean',
+                definition_id: definition.id,
+                scorer_version_id: 'v1',
+                name: 'Quality',
+                kind: 'numeric',
+                version: 1,
+                latest_version: 1,
+                latest_version_id: 'v1',
+                config: {},
+            },
+        ])
+        logic.actions.setDraftField('expression', 'quality')
+        await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+        expect(create).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ apply_to_suite_keys: ['support'] })
+        )
+        expect(router.values.location.pathname).toBe(
+            `/project/${MOCK_DEFAULT_TEAM.id}${urls.aiObservabilityOfflineEvaluationExperiment(experimentId)}`
+        )
+        logic.unmount()
+    })
+
     it('duplicates a scorer with its boolean polarity without updating the source', async () => {
         const existing: ScoreDefinitionApi = {
             ...definition,

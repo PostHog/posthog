@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { getAccessControlDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isUUIDLike } from 'lib/utils/guards'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +32,9 @@ export const scene: SceneExport<ScorerLogicProps> = {
     paramsToProps: ({ params, searchParams }) => ({
         scorerId: params.scorerId || 'new',
         experimentId:
-            params.scorerId === 'new' && typeof searchParams.experiment === 'string'
+            params.scorerId === 'new' &&
+            typeof searchParams.experiment === 'string' &&
+            isUUIDLike(searchParams.experiment)
                 ? searchParams.experiment
                 : undefined,
         suiteKey: params.scorerId === 'new' && typeof searchParams.suite === 'string' ? searchParams.suite : undefined,

@@ -45,12 +45,16 @@ function explainedOption<T extends string>(value: T, label: string, example: str
 }
 
 const versionPolicies = [
-    explainedOption('run', 'One version per run', 'Use v3 or v4. If the run contains both, the score is unavailable.'),
+    explainedOption(
+        'run',
+        'One version per run',
+        'Use v3 or v4. If both return scores, this input is unavailable. Errors and skips do not count.'
+    ),
     explainedOption('exact', 'Exact version', 'Choose v3 to count only the items scored by v3.'),
     explainedOption(
         'combine',
         'Combine versions',
-        'Pool items from v3 and v4. Each item must appear in only one version.'
+        'Pool scores from v3 and v4. Each item can contribute one successful score.'
     ),
 ]
 

@@ -33788,7 +33788,7 @@
         "uiApp": null,
         "request": {
             "method": "POST",
-            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/preview_score/",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/score_previews/",
             "pathParams": ["id"],
             "fallbacks": [],
             "query": null,

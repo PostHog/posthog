@@ -3,45 +3,54 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import type { ExperimentScoreApi, ExperimentScorePreviewApi } from '../generated/api.schemas'
-import { getCategoricalConfig, getNumericConfig } from '../scoreDefinitions/scoreDefinitionConfigUtils'
+import {
+    getBooleanConfig,
+    getCategoricalConfig,
+    getNumericConfig,
+} from '../scoreDefinitions/scoreDefinitionConfigUtils'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { explainMixedScorerVersions } from './offlineExperimentPresentation'
 import { boundedScorePercent, offlineNumericPassingRule, offlineScorePasses } from './offlineScoreInterpretation'
 import { formatOfflineNumericScore, formatOfflinePercentage } from './offlineScoreTrends'
 
-const statusLabels: Record<string, string> = {
+const statusLabels = {
     mixed_versions: 'Not calculated',
     missing_input: 'Missing scorer results',
     no_successful_items: 'No successful items',
     unavailable_statistic: 'Statistic unavailable for this version',
     overlapping_items: 'Multiple versions scored the same item',
-    formula_error: 'Formula output is outside its configuration',
+    formula_error: 'The formula couldn’t produce a valid score for this run',
     pending: 'Waiting for completion',
     failed: 'Experiment failed',
-}
+} satisfies Record<Exclude<ExperimentScorePreviewApi['status'], 'ok'>, string>
 
-export function experimentScoreLabel(score: ExperimentScorePreviewApi | ExperimentScoreApi): string {
-    if (score.status !== 'ok' || score.value === null) {
-        return statusLabels[score.status] ?? 'Unavailable'
+export function experimentScoreLabel(score: ExperimentScorePreviewApi, exact = false): string {
+    if (score.status !== 'ok') {
+        const aliases = score.inputs.filter((input) => input.status === score.status).map((input) => input.alias)
+        return [statusLabels[score.status], aliases.join(', ')].filter(Boolean).join(' · ')
+    }
+    if (score.value === null) {
+        return 'Unavailable'
     }
     if (Array.isArray(score.value)) {
-        const options = 'config' in score ? getCategoricalConfig(score.config).options : []
+        const options = getCategoricalConfig(score.config).options
         return (
             score.value.map((key) => options.find((option) => option.key === key)?.label ?? key).join(', ') ||
             'No categories'
         )
     }
     if (typeof score.value === 'number') {
+        if (exact) {
+            return String(score.value)
+        }
         const rounded = Number(score.value.toFixed(2))
-        if (
-            (rounded === 0 && score.value !== 0) ||
-            ('config' in score && offlineScorePasses(score.value, score) !== offlineScorePasses(rounded, score))
-        ) {
-            return formatOfflineNumericScore(score.value, 'config' in score ? offlineNumericPassingRule(score) : null)
+        if ((rounded === 0 && score.value !== 0) || score.passed !== offlineScorePasses(rounded, score)) {
+            return formatOfflineNumericScore(score.value, offlineNumericPassingRule(score))
         }
         return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 })
     }
-    return score.value ? 'True' : 'False'
+    const config = getBooleanConfig(score.config)
+    return score.value ? config.true_label || 'True' : config.false_label || 'False'
 }
 
 export function ExperimentScoreResult({
@@ -52,9 +61,9 @@ export function ExperimentScoreResult({
     historyUrl?: string
 }): JSX.Element {
     const scorer = 'scorer_version_id' in score ? score : null
-    const numeric = scorer?.kind === 'numeric' ? getNumericConfig(scorer.config) : null
+    const numeric = score.kind === 'numeric' ? getNumericConfig(score.config) : null
     const percent = numeric && typeof score.value === 'number' ? boundedScorePercent(score.value, numeric) : null
-    const passes = scorer && score.status === 'ok' ? offlineScorePasses(score.value, scorer) : null
+    const passes = score.passed
     const mixedInputs =
         score.status === 'mixed_versions' ? score.inputs.filter((input) => input.status === 'mixed_versions') : []
     return (

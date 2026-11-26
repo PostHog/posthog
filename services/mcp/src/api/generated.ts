@@ -52176,6 +52176,32 @@ export namespace Schemas {
       readonly linked_experiments: readonly ExperimentSavedMetricLinkedExperiment[];
     }
 
+    /**
+     * * `ok` - Ok
+     * * `mixed_versions` - Mixed Versions
+     * * `missing_input` - Missing Input
+     * * `no_successful_items` - No Successful Items
+     * * `unavailable_statistic` - Unavailable Statistic
+     * * `overlapping_items` - Overlapping Items
+     * * `formula_error` - Formula Error
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type ExperimentScoreStatusEnum = typeof ExperimentScoreStatusEnum[keyof typeof ExperimentScoreStatusEnum];
+
+
+    export const ExperimentScoreStatusEnum = {
+      Ok: 'ok',
+      MixedVersions: 'mixed_versions',
+      MissingInput: 'missing_input',
+      NoSuccessfulItems: 'no_successful_items',
+      UnavailableStatistic: 'unavailable_statistic',
+      OverlappingItems: 'overlapping_items',
+      FormulaError: 'formula_error',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
     export interface ExperimentScoreSource {
       version_id: string;
       version: number;
@@ -52186,30 +52212,43 @@ export namespace Schemas {
 
     export interface ExperimentScoreInput {
       alias: string;
-      statistic: string;
-      version_policy: string;
-      status: string;
+      statistic: ExperimentScoreStatisticEnum;
+      version_policy: ExperimentScoreVersionPolicyEnum;
+      status: ExperimentScoreStatusEnum;
       /** @nullable */
       value: number | null;
       sources: ExperimentScoreSource[];
     }
 
     export interface ExperimentScore {
-      status: string;
+      status: ExperimentScoreStatusEnum;
+      kind: ScoreDefinitionKindEnum;
+      /** Output configuration used to interpret the result. */
+      config: ScoreDefinitionConfig;
+      /**
+         * Passing verdict, or null without a value or passing rule.
+         * @nullable
+         */
+      passed: boolean | null;
       value: number | boolean | string[] | null;
       inputs: ExperimentScoreInput[];
       /** Definition of the experiment scorer pinned to this run. */
       definition_id: string;
-      kind: ScoreDefinitionKindEnum;
-      /** Pinned output configuration for interpreting the experiment score. */
-      config: ScoreDefinitionConfig;
       scorer_version_id: string;
       version: number;
       name: string;
     }
 
     export interface ExperimentScorePreview {
-      status: string;
+      status: ExperimentScoreStatusEnum;
+      kind: ScoreDefinitionKindEnum;
+      /** Output configuration used to interpret the result. */
+      config: ScoreDefinitionConfig;
+      /**
+         * Passing verdict, or null without a value or passing rule.
+         * @nullable
+         */
+      passed: boolean | null;
       value: number | boolean | string[] | null;
       inputs: ExperimentScoreInput[];
     }
@@ -79158,6 +79197,11 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineExperimentRead {
+      /**
+         * Whether this suite has a visible default for future runs. Checked on experiment detail.
+         * @nullable
+         */
+      suite_has_score?: boolean | null;
       /** Overall score from the run's pinned experiment formula, when visible. */
       experiment_score?: ExperimentScore | null;
       /**
@@ -84765,6 +84809,8 @@ export namespace Schemas {
       readonly scope: ScoreDefinitionScopeEnum;
       /** Suites that currently use this exact version for new experiments. */
       readonly suite_keys: readonly string[];
+      /** Suite defaults across all visible versions. Included on retrieve. */
+      assigned_suite_keys?: string[];
       /** Whether results are reported by the caller or calculated with a formula.
        *
        * * `reported` - Reported

@@ -25,7 +25,11 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
     PayloadState,
 )
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from products.ai_observability.backend.models.score_definitions import (
+    ExperimentScoreSuiteDefault,
+    ScoreDefinition,
+    ScoreDefinitionVersion,
+)
 from products.ai_observability.backend.offline_evaluation_read_types import (
     ExperimentScore,
     OfflineCategorySummary,
@@ -413,7 +417,19 @@ class OfflineEvaluationReadService:
         return CursorPage(count=page.count, next_cursor=page.next_cursor, results=self._experiment_reads(page.results))
 
     def get_experiment(self, experiment_id: UUID) -> OfflineExperimentRead:
-        return self._experiment_reads([self._require_experiment(experiment_id)])[0]
+        run = self._experiment_reads([self._require_experiment(experiment_id)])[0]
+        if run.suite_key and self.can_read_scores:
+            has_default = (
+                ExperimentScoreSuiteDefault.objects.for_team(self.team_id)
+                .filter(
+                    suite_key=run.suite_key,
+                    scorer_version__definition__archived=False,
+                    scorer_version__in=self._versions(),
+                )
+                .exists()
+            )
+            return replace(run, suite_has_score=has_default)
+        return run
 
     def _version_read(self, version: ScoreDefinitionVersion) -> OfflineScorerVersionRead:
         definition = version.definition

@@ -99,7 +99,10 @@ export const FromExperiment: Story = {
                 },
             },
             post: {
-                '/api/projects/:team/ai_observability/offline_experiments/:id/preview_score/': {
+                '/api/projects/:team/ai_observability/offline_experiments/:id/score_previews/': {
+                    kind: 'numeric',
+                    config: {},
+                    passed: null,
                     status: 'mixed_versions',
                     value: null,
                     inputs: [

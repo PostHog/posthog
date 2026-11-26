@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from products.ai_observability.backend.composite_formula import CompositeFormula, CompositeFormulaError, FormulaValue
+from products.ai_observability.backend.models.evaluation_configs import CategoricalPassingRule, NumericPassingRule
 from products.ai_observability.backend.models.score_definitions import ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_types import (
     ExperimentScore,
@@ -14,21 +15,21 @@ from products.ai_observability.backend.offline_evaluation_read_types import (
 from products.ai_observability.backend.score_validation import validate_score_value
 
 
-def _statistic(summary: OfflineScorerSummary, statistic: str, category: str | None) -> tuple[bool, float | None]:
+def _statistic_total(summary: OfflineScorerSummary, statistic: str, category: str | None) -> int | Fraction | None:
     match statistic:
         case "category_rate":
             for option in summary.categories:
                 if option.key == category:
-                    return True, option.rate
-            return False, None
+                    return option.count
+            return None
         case "mean":
-            return summary.scorer.kind == "numeric", summary.mean
+            return Fraction(summary.mean) * summary.status_counts.ok if summary.mean is not None else None
         case "true_rate":
-            return summary.scorer.kind == "boolean", summary.true_rate
+            return summary.true_count
         case "pass_rate":
-            return summary.pass_count is not None, summary.pass_rate
+            return summary.pass_count
         case _:
-            return False, None
+            return None
 
 
 def _resolve_input(
@@ -37,36 +38,35 @@ def _resolve_input(
     policy = spec.get("version_policy", "run")
     matched = [row for row in summaries if policy != "exact" or str(row.scorer.id) == spec["scorer_version_id"]]
     sources = []
-    available = True
+    totals = []
     for row in sorted(matched, key=lambda summary: summary.scorer.version):
-        supported, value = _statistic(row, spec["statistic"], spec.get("category"))
-        available &= supported
+        count = row.status_counts.ok
+        total = _statistic_total(row, spec["statistic"], spec.get("category")) if count else None
+        if total is not None:
+            totals.append(total)
         sources.append(
             ExperimentScoreSource(
-                version_id=row.scorer.id, version=row.scorer.version, successful_items=row.status_counts.ok, value=value
+                version_id=row.scorer.id,
+                version=row.scorer.version,
+                successful_items=count,
+                value=float(total / count) if total is not None else None,
             )
         )
-    count = sum(source.successful_items for source in sources)
+    contributing = [source for source in sources if source.successful_items]
     value = None
     if not matched:
         status = "missing_input"
-    elif policy == "run" and len(matched) > 1:
+    elif not contributing:
+        status = "no_successful_items"
+    elif policy == "run" and len(contributing) > 1:
         status = "mixed_versions"
     elif policy == "combine" and overlap:
         status = "overlapping_items"
-    elif not available:
+    elif len(totals) != len(contributing):
         status = "unavailable_statistic"
-    elif not count:
-        status = "no_successful_items"
     else:
         status = "ok"
-        if len(sources) == 1:
-            value = sources[0].value
-        else:
-            weighted_total = sum(
-                Fraction(source.value) * source.successful_items for source in sources if source.value is not None
-            )
-            value = float(weighted_total / count)
+        value = float(sum(totals) / sum(source.successful_items for source in contributing))
     return ExperimentScoreInput(
         alias=spec["alias"],
         statistic=spec["statistic"],
@@ -75,6 +75,18 @@ def _resolve_input(
         value=value,
         sources=sources,
     )
+
+
+def _passes(value: FormulaValue | None, config: dict) -> bool | None:
+    if isinstance(value, bool):
+        return value != (config.get("true_is_failure") is True)
+    rule = config.get("passing_rule")
+    if rule is not None:
+        if isinstance(value, float):
+            return NumericPassingRule.model_validate(rule).passes(value)
+        if isinstance(value, list):
+            return CategoricalPassingRule.model_validate(rule).passes(value)
+    return None
 
 
 def calculate_experiment_score(
@@ -128,5 +140,6 @@ def calculate_experiment_score(
         name=version.definition.name,
         status=status,
         value=value,
+        passed=_passes(value, version.config),
         inputs=inputs,
     )

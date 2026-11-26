@@ -2167,12 +2167,12 @@ const llmaOfflineExperimentResultUpdate = (): ToolBase<
 })
 
 const LlmaOfflineExperimentScorePreviewSchema = () => {
-    const AiObservabilityOfflineExperimentsPreviewScoreCreateBody =
-        orvalSchemas.AiObservabilityOfflineExperimentsPreviewScoreCreateBody()
-    const AiObservabilityOfflineExperimentsPreviewScoreCreateParams =
-        orvalSchemas.AiObservabilityOfflineExperimentsPreviewScoreCreateParams()
-    return AiObservabilityOfflineExperimentsPreviewScoreCreateParams.omit({ project_id: true }).extend(
-        AiObservabilityOfflineExperimentsPreviewScoreCreateBody.shape
+    const AiObservabilityOfflineExperimentsScorePreviewsCreateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsScorePreviewsCreateBody()
+    const AiObservabilityOfflineExperimentsScorePreviewsCreateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsScorePreviewsCreateParams()
+    return AiObservabilityOfflineExperimentsScorePreviewsCreateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsScorePreviewsCreateBody.shape
     )
 }
 
@@ -2199,7 +2199,7 @@ const llmaOfflineExperimentScorePreview = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ExperimentScorePreview>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/preview_score/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/score_previews/`,
             body,
         })
         return result

@@ -11,7 +11,10 @@ export function formatItemScorerVersions(input: ExperimentScoreInputApi): string
 }
 
 export function explainMixedScorerVersions(input: ExperimentScoreInputApi): string {
-    return `Items were scored with ${formatItemScorerVersions(input)} of “${input.alias}”. This formula can use only one of those versions per run.`
+    const versions = versionList.format(
+        input.sources.filter((source) => source.successful_items > 0).map((source) => `v${source.version}`)
+    )
+    return `Items were scored with ${versions} of “${input.alias}”. This formula can use only one of those versions per run.`
 }
 
 export function offlineExperimentUrl(point: OfflineHistoryPointApi): string {
