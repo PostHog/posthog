@@ -82,7 +82,10 @@ export function NotebookAppCard({
                     : undefined
             }
         >
-            <LemonCard hoverEffect={false} className={cn('h-full min-w-0 p-4', selected && 'border-accent')}>
+            <LemonCard
+                hoverEffect={false}
+                className={cn('h-full min-w-0 p-[var(--app-card-padding,1rem)]', selected && 'border-accent')}
+            >
                 {toolbar}
                 <div className="NotebookAppBuilder__card-body">{children}</div>
                 {onResize && (

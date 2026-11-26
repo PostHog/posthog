@@ -335,4 +335,19 @@ export const FlagDisabled: Story = {
         expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
     },
 }
-export const Narrow: Story = { parameters: { testOptions: { viewport: { width: 1000, height: 1200 } } } }
+export const Narrow: Story = {
+    beforeEach: () => {
+        saved.app_draft.blocks[0].width = 1
+    },
+    parameters: { testOptions: { viewport: { width: 1000, height: 1200 } } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const [actions] = await canvas.findAllByRole('button', { name: 'Component actions' }, { timeout: 60000 })
+        const card = actions.closest('.NotebookAppBuilder__slot')!.getBoundingClientRect()
+        expect(actions.getBoundingClientRect().left).toBeGreaterThanOrEqual(card.left)
+        expect(actions.getBoundingClientRect().right).toBeLessThanOrEqual(card.right)
+        await userEvent.click(actions)
+        await userEvent.click(await within(document.body).findByText('Edit component'))
+        expect(canvas.getByRole('slider', { name: 'Width' })).toHaveValue('1')
+    },
+}

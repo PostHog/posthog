@@ -18,6 +18,7 @@
     &__slot {
         grid-column: span var(--app-block-width, 12);
         min-width: 0;
+        container: notebook-app-card / inline-size;
     }
 
     &__slot--sized {
@@ -96,6 +97,20 @@
             --app-grid-stacked: 1;
 
             grid-column: span 12;
+        }
+    }
+
+    @container notebook-app-card (max-width: 9rem) {
+        &__slot > .LemonCard {
+            --app-card-padding: 1rem 2cqw;
+        }
+
+        &__toolbar-shortcut {
+            display: none;
+        }
+
+        &__card-body {
+            overflow: auto;
         }
     }
 }

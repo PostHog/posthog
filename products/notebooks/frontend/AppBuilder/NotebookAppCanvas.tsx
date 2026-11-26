@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { IconChevronDown, IconCopy, IconPencil, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
@@ -75,6 +75,7 @@ export function NotebookAppCanvas({
                             <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 mb-3 border-b pb-2">
                                 <LemonButton
                                     size="xsmall"
+                                    className="NotebookAppBuilder__toolbar-shortcut"
                                     type={selectedId === block.id ? 'secondary' : 'tertiary'}
                                     icon={<IconPencil />}
                                     onClick={() => onSelect?.(block.id)}
@@ -94,7 +95,7 @@ export function NotebookAppCanvas({
                                         draggable
                                         aria-label="Drag component"
                                         title="Drag to reorder"
-                                        className="cursor-grab px-2 text-secondary"
+                                        className="NotebookAppBuilder__toolbar-shortcut cursor-grab px-2 text-secondary"
                                         onDragStart={(event) =>
                                             event.dataTransfer.setData('application/x-notebook-app-block', block.id)
                                         }
@@ -103,6 +104,11 @@ export function NotebookAppCanvas({
                                     </button>
                                     <LemonMenu
                                         items={[
+                                            {
+                                                label: 'Edit component',
+                                                icon: <IconPencil />,
+                                                onClick: () => onSelect?.(block.id),
+                                            },
                                             {
                                                 label: 'Move up',
                                                 icon: <IconChevronDown className="rotate-180" />,
@@ -137,9 +143,11 @@ export function NotebookAppCanvas({
                                             },
                                         ]}
                                     >
-                                        <LemonButton size="xsmall" aria-label="Component actions">
-                                            •••
-                                        </LemonButton>
+                                        <LemonButton
+                                            size="xxsmall"
+                                            icon={<IconEllipsis />}
+                                            aria-label="Component actions"
+                                        />
                                     </LemonMenu>
                                 </div>
                             </div>

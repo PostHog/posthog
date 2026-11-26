@@ -1,15 +1,14 @@
-import { Fragment, useId, useState } from 'react'
+import { Fragment } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { clamp } from 'lib/utils/numbers'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
-import { MAX_CARD_HEIGHT, MIN_CARD_HEIGHT } from './NotebookAppCard'
 import { appCellTitle } from './notebookAppLayout'
+import { NotebookAppSizeControls } from './NotebookAppSizeControls'
 
 const SLIDER_FIELDS = [
     { key: 'min', label: 'Minimum', defaultValue: 0 },
@@ -37,10 +36,6 @@ export function NotebookAppInspector({
     onSource: (id: string) => void
 }): JSX.Element {
     const variableType = variables.find((variable) => variable.name === block?.variable)?.type
-    const widthId = useId()
-    const heightId = useId()
-    const width = block?.width ?? 12
-    const [heightDraft, setHeightDraft] = useState<number>()
     return (
         <aside
             className="NotebookAppBuilder__inspector border rounded bg-surface-primary p-3 flex flex-col gap-3"
@@ -90,42 +85,11 @@ export function NotebookAppInspector({
                         onChange={(title) => onBlock(block.id, { title })}
                         aria-label="Component title"
                     />
-                    <div className="flex items-center justify-between">
-                        <LemonLabel htmlFor={widthId}>Width</LemonLabel>
-                        <span className="text-xs text-secondary">{width} / 12 columns</span>
-                    </div>
-                    <input
-                        id={widthId}
-                        type="range"
-                        min={1}
-                        max={12}
-                        value={width}
-                        aria-valuetext={`${width} of 12 columns`}
-                        data-attr="notebook-app-component-width"
-                        onChange={(event) => onBlock(block.id, { width: event.target.valueAsNumber })}
-                    />
-                    <LemonLabel htmlFor={heightId}>Height</LemonLabel>
-                    <LemonInput
-                        id={heightId}
-                        type="number"
-                        min={MIN_CARD_HEIGHT}
-                        max={MAX_CARD_HEIGHT}
-                        value={heightDraft ?? block.height ?? NaN}
-                        placeholder="Auto"
-                        suffix={<span className="text-secondary">px</span>}
-                        data-attr="notebook-app-component-height"
-                        onChange={(value) => {
-                            const draft = value ?? NaN
-                            setHeightDraft(draft)
-                            const height = Number.isFinite(draft)
-                                ? clamp(Math.round(draft), MIN_CARD_HEIGHT, MAX_CARD_HEIGHT)
-                                : undefined
-                            if (height !== block.height) {
-                                onBlock(block.id, { height })
-                            }
-                        }}
-                        onBlur={() => setHeightDraft(undefined)}
-                        onPressEnter={(event) => event.currentTarget.blur()}
+                    <NotebookAppSizeControls
+                        key={block.id}
+                        width={block.width}
+                        height={block.height}
+                        onChange={(size) => onBlock(block.id, size)}
                     />
                     <LemonLabel>Tab</LemonLabel>
                     <LemonSelect
