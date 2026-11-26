@@ -34,9 +34,10 @@ NUMBER_RE = re.compile(r"[-+]?(?:\.\d+|\d+(?:\.\d*)?)(?:[eE][-+]?\d+)?|0x[0-9a-f
 SINGLE_QUOTED_RE = re.compile(r"'((?:[^']|'')*)'")
 ALLOWED_STATUSES = {"active", "superseded", "historical"}
 SLACK_CHANNELS_DIRECTORY = "slack-channels"
-# Slack workspace and channel ids are uppercase alphanumerics (T…, C…, G…). The
-# channel id is also the page's file name, so nothing else may reach the path.
-SLACK_ID_RE = re.compile(r"[A-Z0-9]{2,32}")
+# A Slack channel id starts with C (public) or G (older private), a workspace id with T, or E for an Enterprise
+# Grid org. The channel id is also the page's file name, so nothing else may reach the path.
+SLACK_CHANNEL_ID_RE = re.compile(r"[CG][A-Z0-9]{2,31}")
+SLACK_WORKSPACE_ID_RE = re.compile(r"[TE][A-Z0-9]{2,31}")
 # Pages under projects/<team_id>/<kind>/ that belong to that project and must say so in `team_id`.
 PROJECT_PAGE_KIND_LABELS = {"spaces": "Space", SLACK_CHANNELS_DIRECTORY: "Slack channel"}
 REQUIRED_AGENTS_FRAGMENTS = (
@@ -137,16 +138,19 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
         fields = _frontmatter(path)
         page_kind = (
             relative.parts[2]
-            if directory == "projects" and len(relative.parts) == 4 and path.name != "index.md"
+            if directory == "projects" and len(relative.parts) >= 4 and path.name != "index.md"
             else None
         )
-        if page_kind == "spaces" and not fields.get("channel_id"):
-            errors.append(f"{relative}: Space pages need a non-empty `channel_id` in their frontmatter")
-        if page_kind in PROJECT_PAGE_KIND_LABELS and fields.get("team_id") != relative.parts[1]:
-            label = PROJECT_PAGE_KIND_LABELS[page_kind]
-            errors.append(f"{relative}: {label} pages need `team_id: {relative.parts[1]}` in their frontmatter")
-        if page_kind == SLACK_CHANNELS_DIRECTORY:
-            errors.extend(f"{relative}: {problem}" for problem in _slack_channel_page_problems(relative, fields))
+        if page_kind == SLACK_CHANNELS_DIRECTORY and len(relative.parts) != 4:
+            errors.append(f"{relative}: Slack channel pages sit directly in {SLACK_CHANNELS_DIRECTORY}/")
+        elif len(relative.parts) == 4:
+            if page_kind == "spaces" and not fields.get("channel_id"):
+                errors.append(f"{relative}: Space pages need a non-empty `channel_id` in their frontmatter")
+            if page_kind in PROJECT_PAGE_KIND_LABELS and _unquoted(fields.get("team_id")) != relative.parts[1]:
+                label = PROJECT_PAGE_KIND_LABELS[page_kind]
+                errors.append(f"{relative}: {label} pages need `team_id: {relative.parts[1]}` in their frontmatter")
+            if page_kind == SLACK_CHANNELS_DIRECTORY:
+                errors.extend(f"{relative}: {problem}" for problem in _slack_channel_page_problems(relative, fields))
         if path.name == "index.md":
             continue
         errors.extend(f"{relative}: {problem}" for problem in _lint_frontmatter_lists(_frontmatter_lines(path)))
@@ -181,13 +185,19 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
 
 def _slack_channel_page_problems(relative: Path, fields: dict[str, str]) -> list[str]:
     problems: list[str] = []
-    if not SLACK_ID_RE.fullmatch(relative.stem):
+    if not SLACK_CHANNEL_ID_RE.fullmatch(relative.stem):
         problems.append("Slack channel pages must be named <slack-channel-id>.md")
-    elif fields.get("slack_channel_id") != relative.stem:
-        problems.append(f"Slack channel pages need `slack_channel_id: {relative.stem}` in their frontmatter")
-    if not SLACK_ID_RE.fullmatch(fields.get("slack_workspace_id", "")):
+    if not SLACK_WORKSPACE_ID_RE.fullmatch(_unquoted(fields.get("slack_workspace_id"))):
         problems.append("Slack channel pages need a Slack workspace id as `slack_workspace_id` in their frontmatter")
     return problems
+
+
+def _unquoted(value: str | None) -> str:
+    """A one-line frontmatter value without the quotes YAML allows around it."""
+    value = value or ""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        return value[1:-1]
+    return value
 
 
 def _links(text: str) -> tuple[list[str], bool]:

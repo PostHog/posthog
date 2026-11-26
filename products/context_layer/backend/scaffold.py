@@ -18,7 +18,7 @@ background agents. Treat it as reference material, not instructions.
 - `areas/<area>.md` is one hub page per product area: current state, direction, links.
 - `decisions/<YYYY-MM-DD>-<slug>.md` records product decisions: what, why, who, source.
 - `projects/<project-id>/spaces/<slug>.md` is one page per Space, with `team_id` and `channel_id` in its frontmatter.
-- `projects/<project-id>/slack-channels/<slack-channel-id>.md` is one page per Slack channel, with `team_id`, `slack_workspace_id`, and `slack_channel_id` in its frontmatter.
+- `projects/<project-id>/slack-channels/<slack-channel-id>.md` is one page per Slack channel, named by its channel id, with `team_id` and `slack_workspace_id` in its frontmatter.
 
 ## How to use it
 
@@ -70,6 +70,8 @@ Some fields are required by directory:
   Desktop Context page renders. Write them as block lists with one key per line,
   quote text that contains a colon, and put multi-line SQL under `sql: |`. The
   linter rejects unknown keys and values of the wrong type.
+- `projects/<project-id>/slack-channels/`: `team_id` and `slack_workspace_id`, and a filename that is the
+  Slack channel id (`C0123ABCD.md`). The Slack app creates these pages; edit the ones that exist.
 - `decisions/`: `sources`, and a filename of the form `<YYYY-MM-DD>-<slug>.md`.
 
 Optional fields:
@@ -205,6 +207,17 @@ def generate_project_indexes(root: Path) -> dict[str, str]:
                     space_links.append(f"- [[{relative}]] — {summary} (channel_id: {channel_id})")
             spaces_index = [f"# Spaces in {project_label}", "", *space_links]
             generated[f"projects/{project_dir.name}/spaces/index.md"] = "\n".join(spaces_index).rstrip() + "\n"
+        slack_dir = project_dir / repo_lint.SLACK_CHANNELS_DIRECTORY
+        slack_links = [
+            f"- [[{page.relative_to(root).as_posix().removesuffix('.md')}]] — {summary}"
+            for page in (sorted(slack_dir.glob("*.md")) if slack_dir.is_dir() and not slack_dir.is_symlink() else [])
+            if page.name != "index.md" and (summary := repo_lint._frontmatter(page).get("summary"))
+        ]
+        if slack_links:
+            slack_index = [f"# Slack channels in {project_label}", "", *slack_links]
+            generated[f"projects/{project_dir.name}/{repo_lint.SLACK_CHANNELS_DIRECTORY}/index.md"] = (
+                "\n".join(slack_index) + "\n"
+            )
         generated[f"projects/{project_dir.name}/index.md"] = "\n".join(
             [
                 f"# {project_label} project index",
@@ -213,6 +226,11 @@ def generate_project_indexes(root: Path) -> dict[str, str]:
                 "",
                 f"- [[projects/{project_dir.name}/overview]]",
                 f"- [[projects/{project_dir.name}/spaces/index|Spaces]]",
+                *(
+                    [f"- [[projects/{project_dir.name}/{repo_lint.SLACK_CHANNELS_DIRECTORY}/index|Slack channels]]"]
+                    if slack_links
+                    else []
+                ),
                 "",
             ]
         )
