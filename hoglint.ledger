@@ -2983,7 +2983,6 @@ prod-imports-test	posthog.migrations.0114_fix_team_event_names	?	1
 prod-imports-test	posthog.models.person.util	posthog.test.persons	1
 prod-imports-test	products.cdp.backend.templates.helpers	posthog.test.base	1
 prod-imports-test	products.cohorts.backend.models.cohort	posthog.test.base	1
-prod-imports-test	products.dashboards.backend.benchmarks.scorecard_scenarios	products.dashboards.backend.test.benchmark_fixtures	1
 prod-imports-test	products.demo.backend.logic.legacy.data_generator	posthog.session_recordings.queries.test.session_replay_sql	1
 prod-imports-test	products.experiments.backend.management.commands.generate_experiment_data	posthog.session_recordings.queries.test.session_replay_sql	1
 prod-imports-test	products.marketing_analytics.backend.demo.warehouse	products.warehouse_sources.backend.test.utils	1
