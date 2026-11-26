@@ -207,6 +207,20 @@ def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Option
     return cast("User", SharedLinkUser(sharing_configuration))
 
 
+def _project_secret_api_key_user_for(project_secret_api_key_id: str, team: "Team") -> "User":
+    """Rebuild the project secret key principal a request ran as. A key deleted in the meantime becomes
+    a synthetic principal with no scopes, so the run fails closed rather than running userless."""
+    from posthog.auth import ProjectSecretAPIKeyUser  # noqa: PLC0415
+    from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
+    from posthog.synthetic_user import SyntheticUser  # noqa: PLC0415
+
+    key = ProjectSecretAPIKey.objects.filter(pk=project_secret_api_key_id, team_id=team.id).first()
+    principal = (
+        ProjectSecretAPIKeyUser(key) if key is not None else SyntheticUser(team, distinct_id=f"psak-{team.id}-revoked")
+    )
+    return cast("User", principal)
+
+
 def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
     """The scan summary the query runner put on a killed run, if this failure carries one."""
     summary = getattr(err, "query_scan", None)
@@ -247,6 +261,7 @@ def execute_process_query(
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
     staff_rights_withheld: bool = False,
+    project_secret_api_key_id: Optional[str] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -270,6 +285,8 @@ def execute_process_query(
         # ("You don't have access to table `X`.") and fingerprints the cache differently than the
         # request that enqueued it.
         user = _shared_link_user_for(sharing_configuration_id, team)
+    elif project_secret_api_key_id:
+        user = _project_secret_api_key_user_for(project_secret_api_key_id, team)
 
     query_status = manager.get_query_status()
 
@@ -398,6 +415,7 @@ def enqueue_process_query_task(
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
     staff_rights_withheld: bool = False,
+    project_secret_api_key_id: Optional[str] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -476,6 +494,8 @@ def enqueue_process_query_task(
         optional_kwargs["sharing_configuration_id"] = sharing_configuration_id
     if staff_rights_withheld:
         optional_kwargs["staff_rights_withheld"] = True
+    if project_secret_api_key_id:
+        optional_kwargs["project_secret_api_key_id"] = project_secret_api_key_id
     task_signature = process_query_task.si(
         team.id,
         user_id,
