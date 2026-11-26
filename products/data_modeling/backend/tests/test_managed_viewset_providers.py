@@ -355,6 +355,9 @@ class TestManagedViewSetProviders(BaseTest):
         for name in ("middle", "downstream"):
             view = DataWarehouseSavedQuery.objects.get(team=self.team, name=name)
             self.assertEqual(view.incremental_state, {} if rebuilds else state, name)
+        # The materialized-view access gate treats a copy built before this time as stale.
+        upstream = DataWarehouseSavedQuery.objects.get(team=self.team, name="upstream")
+        self.assertEqual(upstream.query_updated_at is not None, rebuilds)
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_an_incremental_key_the_query_does_not_output_is_not_stored(self, _):

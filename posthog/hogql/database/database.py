@@ -844,9 +844,20 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
         view_query = catalog.view_queries.get(name)
         if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
             definitions.append(view_query["query"])
-    if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team.pk):
+    reached_views: set[str] = set()
+    if _reads_tables_the_walk_cannot_name(
+        definitions,
+        catalog.looked_up_names,
+        catalog.walked_views,
+        catalog.view_queries,
+        frozenset(gated_tables),
+        team,
+        catalog.virtual_fields,
+        reached_views,
+    ):
         return gated
-    if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team.pk):
+    # A view reached only through a join or foreign key can be edited or recreated after the build too.
+    if _definition_changed_since_materialized(table.saved_query_id, {*catalog.looked_up_names, *reached_views}, team):
         return gated
     return frozenset(scopes & gated)
 
@@ -864,58 +875,216 @@ def _saved_query_definition(saved_query_id: str, team_id: int) -> str | None:
 
 
 def _reads_tables_the_walk_cannot_name(
-    definitions: Sequence[str], read_names: Collection[str], gated_tables: frozenset[str], team_id: int
+    definitions: Sequence[str],
+    read_names: Collection[str],
+    walked_views: Collection[str],
+    view_queries: Mapping[str, object],
+    gated_tables: frozenset[str],
+    team: Team,
+    cache: dict[str, Any],
+    reached_views: set[str],
 ) -> bool:
-    """True when a definition may read a table that appears nowhere in its text, which the name walk misses.
+    """True when a definition may read a table through a field its text doesn't name, which the name walk misses.
 
-    A HogQLX tag in a table position expands to a query only at resolution. A warehouse join adds a lazy field
-    to the table it starts from, so a definition reading that field reads the joined table or view by no name.
+    Warehouse joins and saved expressions add fields to a table. A join reaches its target, and that target's own
+    joins, by no name; an expression with a subquery or query tag reads whatever it selects. Names match on their
+    last segment, case-insensitively, so every queryable form of a table (`posthog.events`, `models.x`) matches.
     """
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
-    from posthog.hogql.parser import parse_select  # noqa: PLC0415
+    from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS  # noqa: PLC0415
+    from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
-    from products.data_tools.backend.facade.models import DataWarehouseJoin  # noqa: PLC0415
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
-    class _TagTableFinder(TraversingVisitor):
+    def key(name: str) -> str:
+        return name.rsplit(".", 1)[-1].lower()
+
+    class _ReadFinder(TraversingVisitor):
         found = False
 
-        def visit_join_expr(self, node: ast.JoinExpr) -> None:
-            if isinstance(node.table, ast.HogQLXTag):
-                self.found = True
-            super().visit_join_expr(node)
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            self.found = True
 
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            self.found = True
+
+        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+            if node.kind not in HOGQLX_TAGS and node.kind not in HOGQLX_COMPONENTS:
+                self.found = True
+            super().visit_hogqlx_tag(node)
+
+    names = {key(name) for name in read_names}
     for definition in definitions:
-        finder = _TagTableFinder()
+        collector = TableCollector()
         try:
-            finder.visit(parse_select(definition))
+            collector.visit(parse_select(definition))
         except BaseHogQLError:
             return True
-        if finder.found:
-            return True
+        names |= {key(name) for name in collector.table_names}
 
-    sources = set(read_names) | gated_tables
-    joined = set(
-        DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name__in=sources)
-        .exclude(deleted=True)
-        .values_list("joining_table_name", flat=True)
-    )
+    def selects(expression: str) -> bool:
+        finder = _ReadFinder()
+        try:
+            finder.visit(parse_expr(expression))
+        except BaseHogQLError:
+            return True
+        return finder.found
+
+    if "graph" not in cache:
+        join_targets: dict[str, set[str]] = defaultdict(set)
+        reading: set[str] = set()
+        for source, target, source_key, target_key in (
+            DataWarehouseJoin.objects.filter(team_id=team.pk)
+            .exclude(deleted=True)
+            .values_list("source_table_name", "joining_table_name", "source_table_key", "joining_table_key")
+        ):
+            join_targets[key(source)].add(key(target))
+            # Join keys are HogQL expressions too, evaluated whenever the joined field is read.
+            if selects(source_key) or selects(target_key):
+                reading.add(key(source))
+        for table_name, expression in (
+            DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+            .exclude(deleted=True)
+            .values_list("table_name", "expression")
+        ):
+            if selects(expression):
+                reading.add(key(table_name))
+        cache["graph"] = (dict(join_targets), frozenset(reading))
+    joins: dict[str, set[str]] = cache["graph"][0]
+    reading_expressions: frozenset[str] = cache["graph"][1]
+    if "views" not in cache:
+        # Deleted views stay in, as deleted tables do: the staleness check reads when they went.
+        # Soft deletion moves the name to `deleted_name`.
+        cache["views"] = [
+            (deleted_name if deleted and deleted_name else name, query, deleted)
+            for name, query, deleted, deleted_name in DataWarehouseSavedQuery.objects.filter(
+                team_id=team.pk
+            ).values_list("name", "query", "deleted", "deleted_name")
+        ]
+    live_views = [(name, query) for name, query, deleted in cache["views"] if not deleted]
+    # Inferred foreign keys can target a saved view whose name shares a table's namespace.
+    namespaced_views: dict[str, set[str]] = defaultdict(set)
+    for name, _query, _deleted in cache["views"]:
+        if "." in name:
+            namespaced_views[name.rsplit(".", 1)[0].lower()].add(name)
+    if not joins and not reading_expressions and not namespaced_views:
+        return False
+    if "sources" not in cache:
+        source_tables: dict[str, set[str]] = defaultdict(set)
+        for table in (
+            # Deleted tables stay in: a copy built before the delete read through their links.
+            DataWarehouseTable.objects.filter(team_id=team.pk)
+            .select_related(None)
+            .prefetch_related(None)
+            .select_related("external_data_source")
+            .only(
+                "name",
+                "external_data_source__source_type",
+                "external_data_source__prefix",
+                "external_data_source__access_method",
+            )
+        ):
+            # A synced table is queryable under its stored and its dotted name, and joins attach under either.
+            # Foreign keys link tables that share a queryable namespace, even across sources.
+            dotted = get_data_warehouse_table_name(table.external_data_source, table.name)
+            data_source = table.external_data_source
+            if data_source is not None and data_source.access_method == ExternalDataSourceAccessMethod.DIRECT:
+                group = f"source:{data_source.pk}"
+            elif "." in dotted:
+                group = dotted.rsplit(".", 1)[0]
+            else:
+                group = f"table:{table.pk}"
+            source_tables[group] |= {key(table.name), key(dotted)}
+        for namespace, view_names in namespaced_views.items():
+            source_tables[namespace] |= {key(name) for name in view_names}
+        cache["sources"] = [frozenset(tables) for tables in source_tables.values()]
+    # Foreign-key lazy fields, declared or inferred, link the tables of one group to each other.
+    linked: dict[str, set[str]] = defaultdict(set)
+    for tables in cache["sources"]:
+        for name in tables:
+            linked[name] |= tables
+
+    gated = {key(name) for name in gated_tables}
+    root = build_database_root_node()
+    # Built-in tables reach each other through lazy fields such as `events.person`, so a join stored on one
+    # is reachable from all of them.
+    builtin = {key(name) for name in root.children["posthog"].children}
+    view_keys = {key(name) for name, _query, _deleted in cache["views"]}
+    reached: set[str] = set()
+    joined: set[str] = set()
+    frontier = list(names)
+    while frontier:
+        name = frontier.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        if name in builtin:
+            frontier.extend(builtin - reached)
+        frontier.extend(linked.get(name, set()) - reached)
+        joined |= linked.get(name, set()) & view_keys - {name}
+        if name in reading_expressions:
+            return True
+        for target in joins.get(name, ()):
+            if target in gated:
+                return True
+            joined.add(target)
+            frontier.append(target)
     if not joined:
         return False
-    if joined & (gated_tables | {name.removeprefix("posthog.") for name in gated_tables}):
+    live_view_keys = {key(name) for name, _query in live_views}
+    known = linked.keys() | live_view_keys | {key(name) for node in root.children.values() for name in node.children}
+    if joined - known:
+        # A join to a view renamed or deleted since the build still names what the copy read through it.
         return True
-    # A joined view can read a gated table itself, so it fails closed instead of being walked too.
-    return (
-        DataWarehouseSavedQuery.objects.filter(
-            team_id=team_id, name__in=joined | {name.removeprefix("models.") for name in joined}
+    # A joined view can read a gated table itself, so it fails closed unless the name walk read that definition.
+    walked_queries = [view_queries.get(name) for name in walked_views]
+    reached_views.update(name for name, _query, _deleted in cache["views"] if key(name) in joined)
+    return any(key(name) in joined and query not in walked_queries for name, query in live_views)
+
+
+def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:
+    """True when a warehouse join or saved expression was changed or removed, or a table renamed, after `built_at`.
+
+    A build reads the joins and expressions that existed then, which a later walk can no longer see.
+    The join API hard deletes, so its activity log is the only record that a join is gone.
+    """
+    from posthog.models.activity_logging.activity_log import ActivityLog  # noqa: PLC0415
+
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+
+    if (
+        ActivityLog.objects.filter(
+            # Saved expressions are stored, and logged, on the project's root team.
+            team_id__in={team.pk, team.parent_team_id or team.pk},
+            scope__in=["DataWarehouseJoin", "DataWarehouseExpression"],
+            created_at__gt=built_at,
         )
-        .exclude(deleted=True)
+        .exclude(activity="created")
+        .exists()
+    ):
+        return True
+    # A renamed table drops out of the name graph while the copy still holds what was read through it.
+    if ActivityLog.objects.filter(
+        team_id=team.pk,
+        scope="DataWarehouseTable",
+        created_at__gt=built_at,
+        detail__contains={"changes": [{"field": "name"}]},
+    ).exists():
+        return True
+    if DataWarehouseJoin.objects.filter(team_id=team.pk, deleted_at__gt=built_at).exists():
+        return True
+    return (
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .filter(deleted_at__gt=built_at)
         .exists()
     )
 
 
-def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team_id: int) -> bool:
+def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team: Team) -> bool:
     """True when the view or a view its definition names was edited, created or deleted after its copy's build began."""
     from django.db.models import Max  # noqa: PLC0415
     from django.db.models.functions import Greatest  # noqa: PLC0415
@@ -923,31 +1092,34 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
     from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
         DataModelingJob,
         DataModelingJobEngine,
+        DataModelingJobRunMode,
         DataModelingJobStatus,
         DataWarehouseSavedQuery,
     )
 
     built_at = (
         DataModelingJob.objects.filter(
-            team_id=team_id,
+            team_id=team.pk,
             saved_query_id=saved_query_id,
             status=DataModelingJobStatus.COMPLETED,
             # Other engines build their own copy and leave the ClickHouse one as it was.
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
+        # An incremental run keeps the rows outside its window, so the copy is only as fresh as its last full build.
+        .exclude(run_mode=DataModelingJobRunMode.INCREMENTAL)
         .order_by("-last_run_at")
         .values_list("created_at", flat=True)
         .first()
     )
     root = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk, id=saved_query_id)
         .values_list("query_updated_at", "last_run_at")
         .first()
     )
     if root is None:
         return True
     query_updated_at, last_run_at = root
-    if built_at is None and not DataModelingJob.objects.filter(team_id=team_id, saved_query_id=saved_query_id).exists():
+    if built_at is None and not DataModelingJob.objects.filter(team_id=team.pk, saved_query_id=saved_query_id).exists():
         # Views built before jobs were recorded only have the view's own timestamp. Once jobs exist,
         # `last_run_at` may come from another engine's run, which left this copy as it was.
         built_at = last_run_at
@@ -955,13 +1127,15 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
         return True
     if query_updated_at is not None and query_updated_at > built_at:
         return True
+    if _virtual_fields_changed_since(built_at, team):
+        return True
     names = {name.removeprefix("models.") for name in view_names} | set(view_names)
     if not names:
         return False
     # Deleted rows count too: a view removed after the build no longer shows what the copy read through it.
     # Soft deletion moves the name to `deleted_name`.
     latest_upstream_change = (
-        DataWarehouseSavedQuery.objects.filter(Q(name__in=names) | Q(deleted_name__in=names), team_id=team_id)
+        DataWarehouseSavedQuery.objects.filter(Q(name__in=names) | Q(deleted_name__in=names), team_id=team.pk)
         .exclude(id=saved_query_id)
         .aggregate(latest=Max(Greatest("created_at", "query_updated_at", "deleted_at")))["latest"]
     )

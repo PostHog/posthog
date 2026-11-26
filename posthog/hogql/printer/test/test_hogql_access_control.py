@@ -30,6 +30,7 @@ _CTE_SHADOWED_TRACE_READ = (
 )
 
 _TAG_TRACE_READ = "SELECT name FROM <HogQLQuery query='SELECT name FROM posthog.trace_spans' />"
+_SCALAR_TAG_TRACE_READ = "SELECT <HogQLQuery query='SELECT any(name) FROM posthog.trace_spans' /> AS name"
 
 
 class TestAccessControlSystemTables(BaseTest):
@@ -661,19 +662,185 @@ class TestDeniedTableError(BaseTest):
 
     @parameterized.expand(
         [
-            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, False, True),
-            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, False, False),
-            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, False, True),
-            ("edited_after_build", "none", "SELECT '' AS name", True, False, True),
-            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, False, False),
-            ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, False, True),
-            ("trace_read_through_a_warehouse_join", "none", "SELECT event AS name FROM events", False, True, True),
-            ("edited_then_built_only_on_managed_warehouse", "none", "SELECT '' AS name", True, False, True, True),
+            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, [], None, False, True),
+            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, [], None, False, False),
+            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, [], None, False, True),
+            ("edited_after_build", "none", "SELECT '' AS name", True, [], None, False, True),
+            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, [], None, False, False),
+            ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, [], None, False, True),
+            ("trace_read_in_a_scalar_query_tag", "none", _SCALAR_TAG_TRACE_READ, False, [], None, False, True),
+            (
+                "trace_read_through_a_warehouse_join",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "join_source_stored_in_another_form",
+                "none",
+                "SELECT event AS name FROM posthog.events",
+                False,
+                [("events", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_through_chained_joins",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "span_links"), ("span_links", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_in_a_saved_expression",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "(SELECT any(name) FROM posthog.trace_spans)",
+                False,
+                True,
+            ),
+            (
+                "trace_read_through_a_join_inherited_from_persons",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("persons", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_in_a_join_key",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "persons")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "display_tag_in_a_saved_expression",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "<a href='https://example.com'>link</a>",
+                False,
+                False,
+            ),
+            (
+                "trace_read_through_a_joined_view_sharing_a_read_table_name",
+                "none",
+                "SELECT event AS name FROM posthog.events",
+                False,
+                [("posthog.events", "models.events")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_through_a_foreign_key_to_a_joined_table",
+                "none",
+                "SELECT id AS name FROM postgres.shop.orders",
+                False,
+                [("postgres.shop.customers", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_through_a_join_to_a_renamed_view",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "renamed_away")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_through_a_foreign_key_to_a_deleted_table",
+                "none",
+                "SELECT id AS name FROM postgres.shop.orders",
+                False,
+                [("postgres.shop.archived_customers", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_through_a_foreign_key_to_a_saved_view",
+                "none",
+                "SELECT id AS name FROM postgres.shop.orders",
+                False,
+                [("postgres.shop.unread", "models.postgres.shop.customers")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "join_deleted_after_build",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "posthog.trace_spans")],
+                None,
+                True,
+                True,
+            ),
+            (
+                "expression_edited_after_build",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "(SELECT any(name) FROM posthog.trace_spans)",
+                True,
+                True,
+            ),
+            (
+                "expression_edited_then_refreshed_incrementally",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "(SELECT any(name) FROM posthog.trace_spans)",
+                True,
+                True,
+                False,
+                "slow_spans",
+                False,
+                True,
+            ),
+            (
+                "edited_then_built_only_on_managed_warehouse",
+                "none",
+                "SELECT '' AS name",
+                True,
+                [],
+                None,
+                False,
+                True,
+                True,
+            ),
             (
                 "backing_table_read_by_its_own_name",
                 "none",
                 "SELECT name FROM posthog.trace_spans",
                 False,
+                [],
+                None,
                 False,
                 True,
                 False,
@@ -684,6 +851,8 @@ class TestDeniedTableError(BaseTest):
                 "none",
                 "SELECT name FROM spans_src",
                 False,
+                [],
+                None,
                 False,
                 True,
                 False,
@@ -698,11 +867,14 @@ class TestDeniedTableError(BaseTest):
         access_level: str,
         view_sql: str,
         edited_after_build: bool,
-        join_events_to_spans: bool,
+        joins: list[tuple[str, str]],
+        events_expression: str | None,
+        changed_after_build: bool,
         denied: bool,
         rebuilt_on_managed_warehouse: bool = False,
         read_name: str = "slow_spans",
         upstream_soft_deleted_after_build: bool = False,
+        refreshed_incrementally_after_change: bool = False,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
         from posthog.hogql.parser import parse_select
@@ -710,16 +882,19 @@ class TestDeniedTableError(BaseTest):
         from posthog.hogql.resolver import resolve_types
 
         from posthog.constants import AvailableFeature
+        from posthog.models.scoping import team_scope
 
         from products.access_control.backend.models.access_control import AccessControl
         from products.data_modeling.backend.facade.models import (
             DataModelingJob,
             DataModelingJobEngine,
+            DataModelingJobRunMode,
             DataModelingJobStatus,
             DataWarehouseSavedQuery,
         )
-        from products.data_tools.backend.facade.models import DataWarehouseJoin
-        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+        from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -736,16 +911,60 @@ class TestDeniedTableError(BaseTest):
             url_pattern="https://bucket.example.com/slow_spans/*",
             columns={"name": "String"},
         )
-        if join_events_to_spans:
+        created_joins = [
             DataWarehouseJoin.objects.create(
                 team=self.team,
-                source_table_name="events",
-                source_table_key="event",
-                joining_table_name="posthog.trace_spans",
+                source_table_name=source,
+                source_table_key=(
+                    "if((SELECT count() FROM posthog.trace_spans) > 0, person_id, NULL)"
+                    if target == "persons"
+                    else "event"
+                ),
+                joining_table_name=target,
                 joining_table_key="name",
-                field_name="spans",
+                field_name=f"{target.rsplit('.', 1)[-1]}_join",
             )
-        built_at = datetime.now(UTC)
+            for source, target in joins
+        ]
+        if any(source.startswith("postgres.") for source, _target in joins):
+            # Two sources sharing the `postgres.shop` namespace, so foreign keys link their tables.
+            for source_id, tables in (
+                ("shop", [("shop_postgres_orders", False)]),
+                ("shop_archive", [("shop_postgres_customers", False), ("shop_postgres_archived_customers", True)]),
+            ):
+                shop = ExternalDataSource.objects.create(
+                    team=self.team,
+                    source_id=source_id,
+                    connection_id=source_id,
+                    status=ExternalDataSource.Status.COMPLETED,
+                    source_type=ExternalDataSourceType.POSTGRES,
+                    prefix="shop",
+                )
+                for table_name, deleted in tables:
+                    DataWarehouseTable.objects.create(
+                        team=self.team,
+                        name=table_name,
+                        format="Parquet",
+                        url_pattern=f"https://bucket.example.com/{table_name}/*",
+                        columns={"id": "String", "customer_id": "String"},
+                        external_data_source=shop,
+                        deleted=deleted,
+                    )
+        for _source, target in joins:
+            if target.startswith("models."):
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team,
+                    name=target.removeprefix("models."),
+                    query={"query": "SELECT name FROM posthog.trace_spans"},
+                    columns={"name": "String"},
+                )
+        expression = None
+        if events_expression is not None:
+            with team_scope(self.team.id, canonical=True):
+                expression = DataWarehouseExpression.objects.create(
+                    team=self.team, table_name="events", field_name="span_name", expression=events_expression
+                )
+        built_at = datetime.now(UTC) - timedelta(minutes=5)
         if upstream_soft_deleted_after_build:
             upstream = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
@@ -765,6 +984,13 @@ class TestDeniedTableError(BaseTest):
             last_run_at=built_at,
             query_updated_at=built_at + timedelta(minutes=1) if edited_after_build else None,
         )
+        if changed_after_build:
+            for join in created_joins:
+                join.delete()
+            if expression is not None:
+                with team_scope(self.team.id, canonical=True):
+                    expression.expression = "''"
+                    expression.save()
         if rebuilt_on_managed_warehouse:
             for engine, run_at in [
                 (DataModelingJobEngine.CLICKHOUSE, built_at),
@@ -780,6 +1006,21 @@ class TestDeniedTableError(BaseTest):
                 DataModelingJob.objects.filter(id=job.id).update(created_at=run_at)
         if upstream_soft_deleted_after_build:
             upstream.soft_delete()
+        if refreshed_incrementally_after_change:
+            now = datetime.now(UTC)
+            for run_mode, run_at in [
+                (DataModelingJobRunMode.FULL_REFRESH, built_at),
+                (DataModelingJobRunMode.INCREMENTAL, now + timedelta(minutes=1)),
+            ]:
+                job = DataModelingJob.objects.create(
+                    team=self.team,
+                    saved_query=saved_query,
+                    status=DataModelingJobStatus.COMPLETED,
+                    engine=DataModelingJobEngine.CLICKHOUSE,
+                    run_mode=run_mode,
+                    last_run_at=run_at,
+                )
+                DataModelingJob.objects.filter(id=job.id).update(created_at=run_at)
         modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
         database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
         context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
@@ -792,6 +1033,23 @@ class TestDeniedTableError(BaseTest):
                 resolve_types(parse_select(f"SELECT name FROM {read_name}"), context, dialect="clickhouse")
                 # Caches and async statuses check later readers against this.
                 assert read_scopes == ({"tracing"} if "trace_spans" in view_sql else set())
+
+    @parameterized.expand([("name", True), ("row_count", False)])
+    def test_table_rename_after_build_marks_copies_stale(self, field: str, stale: bool) -> None:
+        from posthog.hogql.database.database import _virtual_fields_changed_since
+
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        built_at = datetime.now(UTC) - timedelta(minutes=5)
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            scope="DataWarehouseTable",
+            activity="updated",
+            item_id="1",
+            detail={"changes": [{"type": "DataWarehouseTable", "action": "changed", "field": field}]},
+        )
+
+        assert _virtual_fields_changed_since(built_at, self.team) is stale
 
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""

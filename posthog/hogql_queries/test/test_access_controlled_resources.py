@@ -80,9 +80,25 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("trace_spans", "select * from posthog.trace_spans", {"tracing"}),
+            (
+                "subquery_in_a_table_function_argument",
+                "select count() as n from numbers((select count() from posthog.trace_spans))",
+                {"tracing"},
+            ),
+            (
+                "subquery_in_a_join_constraint",
+                "select 1 from events e join persons p on e.person_id = p.id "
+                "and e.event in (select name from posthog.trace_spans)",
+                {"tracing"},
+            ),
             ("placeholder_table", "select * from {table}", None),
             ("placeholder_join", "select * from events join {table} on 1", None),
             ("placeholder_outside_from", "select * from events where {filters}", set()),
+            (
+                "query_tag_in_an_expression",
+                "select event from events where event in (<HogQLQuery query='select name from posthog.trace_spans' />)",
+                None,
+            ),
             (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",
@@ -94,6 +110,12 @@ class TestQueriedAccessControlledResources(BaseTest):
                 {"account", "ticket"},
             ),
             ("account_non_communication_lazy_join", "select meetings.count from system.accounts", {"account"}),
+            (
+                "account_lazy_join_beside_a_shadowing_cte",
+                "select email_threads.count from system.accounts union all select * from "
+                "(with `system.accounts` as (select 1 as count) select count from `system.accounts`)",
+                {"account", "ticket"},
+            ),
             # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
             # rows follow the caller's canvas grants as well as their activity-log access.
             ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
@@ -213,6 +235,15 @@ class TestQueriedAccessControlledResources(BaseTest):
     )
     def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
         assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
+
+    @parameterized.expand(
+        [
+            ("query_tag", "<HogQLQuery query='SELECT any(distinct_id) FROM system.support_tickets' /> AS ticket_id"),
+            ("subquery", "(SELECT any(distinct_id) FROM system.support_tickets) AS ticket_id"),
+        ]
+    )
+    def test_accounts_query_reading_through_a_subquery_fails_closed(self, _name, expression):
+        assert queried_access_controlled_resources(AccountsQuery(select=[expression]), self.team) is None
 
     @parameterized.expand(
         [

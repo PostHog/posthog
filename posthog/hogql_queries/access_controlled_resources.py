@@ -112,6 +112,7 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
+    virtual_fields: dict[str, object] = field(default_factory=dict)
 
     def for_next_fingerprint(self) -> "_WarehouseCatalog":
         """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
@@ -123,6 +124,7 @@ class _WarehouseCatalog:
             looked_up_table_names=self.looked_up_table_names,
             view_queries=self.view_queries,
             looked_up_names=self.looked_up_names,
+            virtual_fields=self.virtual_fields,
         )
 
     def has_table(self, names: set[str]) -> bool:
@@ -285,11 +287,12 @@ def queried_access_controlled_resources(
         if filter_expression:
             expressions.append(filter_expression)
         try:
-            fields = [
-                field for expression in expressions for field in GetFieldsTraverser(parse_expr(expression)).fields
-            ]
+            parsed = [parse_expr(expression) for expression in expressions]
         except BaseHogQLError:
             return None
+        if any(_has_query_tag(node) or _has_subquery(node) for node in parsed):
+            return None  # what a subquery or query tag reads isn't a field name -> fail closed
+        fields = [field for node in parsed for field in GetFieldsTraverser(node).fields]
         account_scopes = {"account"}
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
             account_scopes.add("ticket")
@@ -307,10 +310,11 @@ def queried_access_controlled_resources(
 
         if _has_placeholder_table(select):
             return None  # the table is unknown until the placeholder expands -> fail closed
+        if _has_query_tag(select):
+            return None  # a query tag's tables appear only when it expands -> fail closed
 
         collector = TableCollector()
         collector.visit(select)
-        table_names = collector.table_names - collector.ctes
         system_scopes = {
             **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
             **access_controlled_posthog_tables(),
@@ -321,7 +325,7 @@ def queried_access_controlled_resources(
         scopes_from_system_tables = set(scopes)
 
         # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
-        if "system.accounts" in table_names and any(
+        if "system.accounts" in collector.table_names and any(
             any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain)
             for field in GetFieldsTraverser(select).fields
         ):
@@ -332,7 +336,7 @@ def queried_access_controlled_resources(
 
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.
-        if table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
+        if collector.table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_catalog")
             # Their row visibility also depends on per-object warehouse denials (`_catalog_table_visible`
             # and referenced-table filtering hide rows for sources/views the caller can't see), so
@@ -351,7 +355,7 @@ def queried_access_controlled_resources(
         # users with different warehouse grants share a cache key and the denied one is served the
         # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
         # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
-        if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+        if collector.table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
@@ -518,6 +522,45 @@ def _has_placeholder_table(select) -> bool:
 
     finder = _PlaceholderTableFinder()
     finder.visit(select)
+    return finder.found
+
+
+def _has_subquery(node) -> bool:
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    class _SubqueryFinder(TraversingVisitor):
+        found = False
+
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            self.found = True
+
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            self.found = True
+
+    finder = _SubqueryFinder()
+    finder.visit(node)
+    return finder.found
+
+
+def _has_query_tag(node) -> bool:
+    """True when a HogQLX tag anywhere in the tree expands to a query, which can read any table."""
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    class _QueryTagFinder(TraversingVisitor):
+        found = False
+
+        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+            if node.kind not in HOGQLX_TAGS and node.kind not in HOGQLX_COMPONENTS:
+                self.found = True
+            super().visit_hogqlx_tag(node)
+
+    finder = _QueryTagFinder()
+    finder.visit(node)
     return finder.found
 
 
