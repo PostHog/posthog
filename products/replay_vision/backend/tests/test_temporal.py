@@ -1468,13 +1468,32 @@ class TestObservationStateActivities:
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 1
 
-    def test_mark_succeeded_captures_scan_completed_telemetry_once(self) -> None:
+    @pytest.mark.parametrize(
+        "model_output,subject_email,expected_verdict,expected_has_email",
+        [
+            (MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9), "rene@customer.example", "yes", True),
+            (MonitorOutput(verdict="inconclusive", reasoning="ok", confidence=0.4), None, "inconclusive", False),
+            (ScorerOutput(score=3.0, reasoning="ok", confidence=0.9), "", None, False),
+        ],
+    )
+    def test_mark_succeeded_captures_scan_completed_telemetry_once(
+        self,
+        model_output: MonitorOutput | ScorerOutput,
+        subject_email: str | None,
+        expected_verdict: str | None,
+        expected_has_email: bool,
+    ) -> None:
         # Cross-customer dashboards count this event; a retry after the sticky transition must not double-count.
-        scanner = _make_scanner()
-        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+        scanner = _make_scanner(scanner_type=model_output.scanner_type)
+        observation = _make_observation(
+            scanner,
+            status=ObservationStatus.RUNNING,
+            started_at=timezone.now(),
+            recording_subject_email=subject_email,
+        )
+        result = ScannerResult(model_output=model_output)
         inputs = MarkObservationSucceededInputs(
-            observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            observation_id=observation.id, scanner_result=result, scanner_type=model_output.scanner_type
         )
 
         with patch(
@@ -1489,9 +1508,12 @@ class TestObservationStateActivities:
         assert kwargs["distinct_id"] == f"replay-vision:{observation.team_id}"
         properties = kwargs["properties"]
         assert properties["scanner_id"] == str(scanner.id)
-        assert properties["scanner_type"] == "monitor"
+        assert properties["scanner_type"] == model_output.scanner_type.value
         assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
         assert properties["organization_id"] == str(observation.team.organization_id)
+        assert properties.get("scanner_output_verdict") == expected_verdict
+        assert ("scanner_output_verdict" in properties) == (expected_verdict is not None)
+        assert properties["has_subject_email"] is expected_has_email
         assert kwargs["groups"]["organization"] == str(observation.team.organization_id)
 
     def test_mark_failed_writes_no_usage_receipt(self) -> None:
