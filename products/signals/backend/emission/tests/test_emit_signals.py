@@ -1014,7 +1014,7 @@ class TestCheckActionability:
 
     @pytest.mark.asyncio
     @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
-    async def test_gateway_mode_labels_ride_on_properties_blob(self):
+    async def test_labels_and_team_ride_on_properties_blob(self):
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
@@ -1036,13 +1036,13 @@ class TestCheckActionability:
         ):
             await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
-        headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["metadata"]["user_id"] == "team-7"
+        headers = call_kwargs["extra_headers"]
         decision_request = decide.call_args.args[0]
         assert headers["X-PostHog-Trace-Id"] == decision_request.trace_id
-        # The Go gateway reads labels only from X-PostHog-Properties; the per-key headers are gone.
         # The blob owns ai_product (no product route) and team_id (the customer team the usage
         # report attributes to), since the per-call blob replaces the client default.
-        assert "x-posthog-property-ai_stage" not in headers
         assert json.loads(headers["X-PostHog-Properties"]) == {
             "$ai_prompt_name": "signals-actionability-test_product-test",
             "ai_product": "signals_emission",
@@ -1192,9 +1192,14 @@ class TestSummarizeDescription:
 
         call_kwargs = client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-42"
-        properties = json.loads(call_kwargs["extra_headers"]["X-PostHog-Properties"])
-        assert properties["ai_stage"] == "summarization"
-        assert properties["team_id"] == "42"
+        assert json.loads(call_kwargs["extra_headers"]["X-PostHog-Properties"]) == {
+            "ai_product": "signals_emission",
+            "ai_stage": "summarization",
+            "source_id": output.source_id,
+            "source_product": output.source_product,
+            "source_type": output.source_type,
+            "team_id": "42",
+        }
 
 
 class TestSummarizeLongDescriptions:

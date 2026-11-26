@@ -12,6 +12,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.id_jag import id_jag_access_token
 
 from products.business_knowledge.backend import libraries, logic
 from products.business_knowledge.backend.models import (
@@ -190,12 +191,16 @@ class TestLibraryLimitedKeys(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert not ProjectSecretAPIKey.objects.filter(team=self.team).exists()
 
-    def test_personal_key_without_the_knowledge_scope_creates_no_key(self, _ff: Any, _embed: Any) -> None:
+    @parameterized.expand([("personal_key_without_the_knowledge_scope",), ("id_jag_token",)])
+    def test_token_that_may_not_issue_keys_creates_no_key(self, _ff: Any, _embed: Any, credential: str) -> None:
         self._become_admin()
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            user=self.user, label="project only", secure_value=hash_key_value(token), scopes=["project:write"]
-        )
+        if credential == "id_jag_token":
+            token = id_jag_access_token(self.user, self.organization, "project:write business_knowledge:read")
+        else:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="project only", secure_value=hash_key_value(token), scopes=["project:write"]
+            )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         response = self._create_key(self.public.id)

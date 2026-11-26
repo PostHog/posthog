@@ -513,7 +513,7 @@ Input scorer selection supports search and tag filters, and version lists load a
 **Validate formula** calls `POST /api/projects/{team_id}/llm_analytics/score_definitions/validate_composition/` with `kind`, `composition`, and `config`.
 This read-scoped operation checks formula syntax, input access, output type, and literal categorical outputs without creating a scorer or version. API callers may omit `config` to check syntax and types only. Runtime values and output bounds remain checked when results are calculated.
 The MCP tool `llma-score-definition-validate` exposes the same validation with `llm_analytics:read` scope.
-It is gated by `ai-observability-composite-validation`. Enable this flag only after the backend validation route is deployed in every target environment; MCP and Django deploy independently.
+It is gated by `ai-observability-composite-validation`. Enable this flag only after the backend validation route is deployed in every target environment.
 MCP preserves omission of `calculate` on reported uploads so they remain compatible with the previous backend during rollout.
 MCP agents can create and version composites through the scorer tools, then request per-item calculations through `llma-offline-experiment-upload` with `calculate: true`.
 

@@ -576,18 +576,6 @@ def get_team_experiments_settings(team_id: int) -> TeamExperimentsSettings:
     return _to_team_experiments_settings(_team_experiments_config(team_id))
 
 
-def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
-    """Start the recalculation workflow for a run that ``request_recalculation`` created.
-
-    When the start fails, the run is marked failed if no workflow took it yet, and the exception propagates.
-    """
-    from products.experiments.backend.temporal.recalculation import (  # noqa: PLC0415 — dispatch imports temporalio, which must stay off the django.setup() path
-        dispatch,
-    )
-
-    dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
-
-
 def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
     """Start the timeseries backfill workflow for a row that ``request_timeseries_recalculation`` created.
 
@@ -600,17 +588,30 @@ def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: i
     admission.start_timeseries_recalculation_workflow(recalculation_id, team_id=team_id)
 
 
-def request_metrics_recalculation(
+def start_metrics_recalculation(
     *, team_id: int, experiment_id: int, user_id: int, trigger: str
 ) -> RequestedRecalculation:
+    """Request a run, and start its workflow when the run is new and pending.
+
+    When the start fails, the run is marked failed if no workflow took it yet, and the dispatch error propagates.
+    """
     from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
         admission,
     )
 
     experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
     user = User.objects.get(id=user_id)
-    payload = admission.request_recalculation(experiment, user, trigger)
-    return RequestedRecalculation(**_run_summary_fields(payload), is_existing=payload["is_existing"])
+    try:
+        started = admission.start_metrics_recalculation(experiment, user, trigger)
+    except admission.RecalculationWorkflowNotStarted as error:
+        dispatch_error = error.cause
+    else:
+        return RequestedRecalculation(
+            **_run_summary_fields(started.job),
+            is_existing=started.outcome == admission.MetricsRecalculationStartOutcome.REUSED,
+        )
+    # Raised outside the except block, so the API reports the dispatch error's type with its own exception chain.
+    raise dispatch_error
 
 
 def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int | None) -> LatestRecalculation | None:

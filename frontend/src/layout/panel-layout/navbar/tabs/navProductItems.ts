@@ -70,11 +70,15 @@ export function getNavProductPages(): FileSystemImport[] {
     ]
 }
 
-export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImport[] {
+export function getNavProductItems(featureFlags: FeatureFlagsSet, isOrganizationAdmin = false): FileSystemImport[] {
     const items = getNavProductPages()
     const destinations = new Map<string, FileSystemImport>()
     for (const item of items) {
-        if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportShown(item, featureFlags)) {
+        if (
+            !item.href ||
+            isDefinitionsTabHref(item.href) ||
+            !isFileSystemImportShown(item, featureFlags, isOrganizationAdmin)
+        ) {
             continue
         }
         const existing = destinations.get(item.href)

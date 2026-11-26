@@ -45,13 +45,14 @@ database "posthog" {
   }
   table "sharded_ai_events" {
     extend = "_ai_events_data"
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.ai_events"
-      replica_name = "{replica}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.ai_events"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
   materialized_view "ai_events_json_mv" {
-    to_table = "posthog.ai_events"
+    to_table = "posthog.sharded_ai_events"
     query    = <<SQL
 SELECT
   uuid,

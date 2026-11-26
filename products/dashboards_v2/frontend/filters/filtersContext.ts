@@ -10,14 +10,14 @@ export type AppliedFilter<Config = unknown, Value = unknown> = {
 }
 
 export type ActiveFilters = {
-    /** Overrides each widget's own time range. Left out, every widget keeps its own. */
+    /** Overrides each panel's own time range. Left out, every panel keeps its own. */
     time?: TimeRange
     filters: AppliedFilter[]
 }
 
 /**
- * The time range and filters that apply to the widgets inside it. `DashboardView` provides the dashboard's, and a host
- * that renders a widget on its own can provide its own, so widgets never read the dashboard to get them.
+ * The time range and filters that apply to the panels inside it. `DashboardView` provides the dashboard's, and a host
+ * that renders a panel on its own can provide its own, so panels never read the dashboard to get them.
  */
 export const FiltersContext = createContext<ActiveFilters>({ filters: [] })
 

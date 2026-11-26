@@ -1,38 +1,38 @@
 import { z } from 'zod'
 
 import { type FilterSpec, findFilterType, hasFilterOn } from '../../filters/filterSpec'
-import { type WidgetTypeSpec, findWidget, sizeOfWidgets } from '../../widgets/widgetSpec'
+import { type PanelTypeSpec, findPanel, sizeOfPanels } from '../../panels/core/panelSpec'
 import {
     dashboardDocumentSchema,
-    documentContentWidgetSchema,
+    documentContentPanelSchema,
     gridTabSchema,
     linkTabSchema,
     ONE_GRID_TAB,
-    sectionWidgetSchema,
-    sharedWidgetSchema,
+    sectionPanelSchema,
+    sharedPanelSchema,
     tileSchema,
-    widgetRefSchema,
+    panelRefSchema,
 } from './dashboardSchema'
-import { type SavedWidget, type SavedFilter, GRID } from './dashboardTypes'
+import { type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
 
 // Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
 export const MAX_SECTION_DEPTH = 10
 
 export type DashboardProblem = {
-    /** Where the problem is, such as `tabs[0].tiles[2].widget.config.query`. */
+    /** Where the problem is, such as `tabs[0].tiles[2].panel.config.query`. */
     path: string
     message: string
 }
 
-// The document schemas, with each widget checked only for a `type` at first. A widget's fields depend on its type, so
+// The document schemas, with each panel checked only for a `type` at first. A panel's fields depend on its type, so
 // the walk below checks each one against the schema for that type, which gives a clearer problem than a failed union.
-const widgetHeadSchema = z.looseObject({ type: z.string() })
-type WidgetHead = z.infer<typeof widgetHeadSchema>
-const tileHeadSchema = tileSchema.extend({ widget: z.union([widgetHeadSchema, widgetRefSchema]) })
+const panelHeadSchema = z.looseObject({ type: z.string() })
+type PanelHead = z.infer<typeof panelHeadSchema>
+const tileHeadSchema = tileSchema.extend({ panel: z.union([panelHeadSchema, panelRefSchema]) })
 type TileHead = z.infer<typeof tileHeadSchema>
-const sectionHeadSchema = sectionWidgetSchema.extend({ tiles: z.array(tileHeadSchema) })
+const sectionHeadSchema = sectionPanelSchema.extend({ tiles: z.array(tileHeadSchema) })
 const dashboardHeadSchema = dashboardDocumentSchema.extend({
-    widgets: z.record(z.string(), widgetHeadSchema).optional(),
+    panels: z.record(z.string(), panelHeadSchema).optional(),
     tabs: z
         .array(z.union([gridTabSchema.extend({ tiles: z.array(tileHeadSchema) }), linkTabSchema]))
         .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
@@ -49,13 +49,13 @@ function issuesAt(path: string, error: z.ZodError): DashboardProblem[] {
 
 /**
  * Checks a dashboard document before anything loads it, such as a JSON file in a repo, a document an MCP tool wrote,
- * or a saved dashboard from the API. `widgets` are the types the host can show, and `filters` the kinds of filter it
+ * or a saved dashboard from the API. `panels` are the types the host can show, and `filters` the kinds of filter it
  * supports. An empty result means it is valid.
  * Overlaps and gaps are not problems, because loading the dashboard settles them.
  */
 export function validateDashboard(
     document: unknown,
-    widgets: WidgetTypeSpec[],
+    panels: PanelTypeSpec[],
     filters: FilterSpec[] = []
 ): DashboardProblem[] {
     const parsed = dashboardHeadSchema.safeParse(document)
@@ -63,23 +63,23 @@ export function validateDashboard(
         return issuesAt('', parsed.error)
     }
     const problems: DashboardProblem[] = []
-    const sizeOf = sizeOfWidgets(widgets)
+    const sizeOf = sizeOfPanels(panels)
     const seenIds = new Set<string>()
 
-    const checkContent = (widget: WidgetHead, path: string, schema: z.ZodType<SavedWidget>): SavedWidget | null => {
-        const spec = findWidget(widgets, widget.type)
+    const checkContent = (panel: PanelHead, path: string, schema: z.ZodType<SavedPanel>): SavedPanel | null => {
+        const spec = findPanel(panels, panel.type)
         if (!spec) {
             problems.push({
                 path: `${path}.type`,
-                message: `Unknown widget type "${widget.type}". Known types: ${widgets.map((known) => known.type).join(', ')}`,
+                message: `Unknown panel type "${panel.type}". Known types: ${panels.map((known) => known.type).join(', ')}`,
             })
             return null
         }
-        const fields = schema.safeParse(widget)
+        const fields = schema.safeParse(panel)
         if (!fields.success) {
             problems.push(...issuesAt(path, fields.error))
         }
-        const configError = spec.configError(widget.config)
+        const configError = spec.configError(panel.config)
         if (configError) {
             problems.push(...issuesAt(`${path}.config`, configError))
         }
@@ -87,22 +87,22 @@ export function validateDashboard(
     }
 
     const shared = new Map(
-        Object.entries(parsed.data.widgets ?? {}).map(([key, widget]) => [
+        Object.entries(parsed.data.panels ?? {}).map(([key, panel]) => [
             key,
-            checkContent(widget, `widgets.${key}`, sharedWidgetSchema),
+            checkContent(panel, `panels.${key}`, sharedPanelSchema),
         ])
     )
 
-    // A widget's size can depend on its config, so it is only worked out from a valid one.
-    const checkSize = (widget: SavedWidget | null, tile: TileHead, tilePath: string): void => {
-        if (!widget) {
+    // A panel's size can depend on its config, so it is only worked out from a valid one.
+    const checkSize = (panel: SavedPanel | null, tile: TileHead, tilePath: string): void => {
+        if (!panel) {
             return
         }
-        const size = sizeOf(widget)
+        const size = sizeOf(panel)
         if (tile.place.w < size.minW || tile.place.h < size.minH) {
             problems.push({
                 path: `${tilePath}.place`,
-                message: `This ${widget.type} tile is at least ${size.minW} columns wide and ${size.minH} rows tall`,
+                message: `This ${panel.type} tile is at least ${size.minW} columns wide and ${size.minH} rows tall`,
             })
         }
     }
@@ -118,37 +118,37 @@ export function validateDashboard(
                 problems.push({ path: `${tilePath}.place`, message: `The tile goes past the grid's ${cols} columns` })
             }
 
-            if (!('type' in tile.widget)) {
-                const { ref } = tile.widget
+            if (!('type' in tile.panel)) {
+                const { ref } = tile.panel
                 if (!shared.has(ref)) {
                     problems.push({
-                        path: `${tilePath}.widget.ref`,
-                        message: `There is no widget "${ref}" in the dashboard's widgets`,
+                        path: `${tilePath}.panel.ref`,
+                        message: `There is no panel "${ref}" in the dashboard's panels`,
                     })
                 }
                 checkSize(shared.get(ref) ?? null, tile, tilePath)
                 return
             }
 
-            if (tile.widget.type === 'section') {
+            if (tile.panel.type === 'section') {
                 if (depth >= MAX_SECTION_DEPTH) {
                     problems.push({
-                        path: `${tilePath}.widget`,
+                        path: `${tilePath}.panel`,
                         message: `Sections nest at most ${MAX_SECTION_DEPTH} deep`,
                     })
                     return
                 }
-                const section = sectionHeadSchema.safeParse(tile.widget)
+                const section = sectionHeadSchema.safeParse(tile.panel)
                 if (!section.success) {
-                    problems.push(...issuesAt(`${tilePath}.widget`, section.error))
+                    problems.push(...issuesAt(`${tilePath}.panel`, section.error))
                     return
                 }
-                checkGrid(section.data.tiles, tile.place.w, `${tilePath}.widget.tiles`, depth + 1)
+                checkGrid(section.data.tiles, tile.place.w, `${tilePath}.panel.tiles`, depth + 1)
                 return
             }
 
-            const widget = checkContent(tile.widget, `${tilePath}.widget`, documentContentWidgetSchema)
-            checkSize(widget, tile, tilePath)
+            const panel = checkContent(tile.panel, `${tilePath}.panel`, documentContentPanelSchema)
+            checkSize(panel, tile, tilePath)
         })
     }
 
