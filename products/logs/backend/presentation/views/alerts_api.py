@@ -476,7 +476,6 @@ class PlatformCopyDictField(serializers.DictField):
 
 
 def pipeline_logs_hidden(*, team_id: int, user: object, filters: dict) -> bool:
-    """Whether an alert with these filters reads pipeline logs that `user`'s property rules hide."""
     services = set(filters.get("serviceNames") or [])
     if services and not services & PIPELINE_LOG_SERVICE_NAMES:
         return False
@@ -488,7 +487,7 @@ def pipeline_logs_hidden(*, team_id: int, user: object, filters: dict) -> bool:
 
 
 def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
-    # Scheduled checks run without a user, so only the team's default rules apply to them.
+    # Scheduled checks ignore property rules, so this is what keeps restricted members off pipeline logs.
     if pipeline_logs_hidden(team_id=team_id, user=user, filters=filters):
         raise PermissionDenied(
             "Your property access permissions do not allow alerts on pipeline logs. "
@@ -1004,7 +1003,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
 
     def _changes_reads_or_recipients(self, attrs: dict) -> bool:
-        """Whether an update changes what the alert reads or who it tells, beyond a rename or its timing."""
         if self.instance is None:
             return True
         runtime = None
@@ -1034,19 +1032,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
-        # Only a rename, a snooze or a change to its schedule leaves what it reads and who it tells as they were.
         # The threshold counts as reading, because moving it and watching the state shows the hidden counts.
-        # The edit form sends unchanged settings back on every save, so compare values, not keys.
         starts_reading = (
             self.instance is None
             or (effective_enabled and not self.instance.enabled)
             or self._changes_reads_or_recipients(attrs)
         )
-        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
         if starts_reading:
             self._require_pipeline_log_access(filters)
             if self.instance is not None:
-                # Moving an alert off pipeline logs would show its past pipeline counts in its history.
+                # Nor may they change an alert that already reads pipeline logs.
                 self._require_pipeline_log_access(self.instance.filters or {})
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
@@ -1728,10 +1723,7 @@ _EDIT_KINDS = {
 
 
 def _last_edit_at(alert: LogsAlertConfiguration) -> datetime | None:
-    """When a person last changed the alert, from either stack's history. A filter change made together with
-    a toggle or a snooze is recorded as that, so every edit kind counts.
-
-    Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
+    """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
     edits = [
         LogsAlertEvent.objects.filter(alert_id=alert.id, kind__in=_EDIT_KINDS).aggregate(at=Max("created_at"))["at"]
     ]
@@ -2297,7 +2289,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
         history = _with_platform_history(alert, queryset, kind=kind, rows_needed=rows_needed)
         # The checks count every log, so a member who cannot see pipeline logs gets the state changes without
-        # the counts. A check from before the last edit may have watched pipeline logs, so it hides its count too.
+        # the counts. A check from before the last edit may have read pipeline logs.
         (shown,) = _shown_from_copies([alert])
         hide_counts = pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
         hide_before = (

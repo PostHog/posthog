@@ -120,19 +120,6 @@ def _period_count_columns(ranges: list[CheckWindow]) -> list[ast.Expr]:
     ]
 
 
-def _alert_query_context(team: Team, user: User | None = None) -> HogQLContext:
-    return HogQLContext(
-        team_id=team.pk,
-        team=team,
-        user=user,
-        enable_select_queries=True,
-        database=Database.create_for_posthog_tables(team, modifiers=_ALERT_QUERY_MODIFIERS),
-        # Who may point an alert at pipeline logs is checked when the alert is saved, so a scheduled
-        # check must not apply the team's default property rules, which hide pipeline logs.
-        restricted_properties=None if user else set(),
-    )
-
-
 def _run_alert_query(
     team: Team,
     query: ast.SelectQuery,
@@ -151,7 +138,15 @@ def _run_alert_query(
         settings=settings,
         limit_context=LimitContext.QUERY,
         modifiers=_ALERT_QUERY_MODIFIERS,
-        context=_alert_query_context(team, user),
+        context=HogQLContext(
+            team_id=team.pk,
+            team=team,
+            user=user,
+            enable_select_queries=True,
+            database=Database.create_for_posthog_tables(team, modifiers=_ALERT_QUERY_MODIFIERS),
+            # Scheduled checks ignore property rules. Who may watch pipeline logs is checked when the alert is saved.
+            restricted_properties=None if user else set(),
+        ),
     )
 
 

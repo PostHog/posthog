@@ -800,13 +800,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         self, source_kind: str, stored: PlatformAlertConfigurationEdit, fields: dict[str, Any]
     ) -> PlatformAlertConfigurationEdit:
         edited = replace(stored, **fields)
-        # Only a rename or a change to when the alert fires leaves what it reads and who it tells as they were.
         # An edit form sends unchanged settings back, so compare values, not keys.
         changed = {name for name, value in fields.items() if getattr(stored, name) != value}
-        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
         if (edited.enabled and not stored.enabled) or changed - _TIMING_AND_NAME_FIELDS:
             self._require_pipeline_log_access(source_kind, edited.source_config)
-            # Moving an alert off pipeline logs would show its past pipeline counts in its history.
+            # Nor may they change an alert that already reads pipeline logs.
             self._require_pipeline_log_access(source_kind, stored.source_config)
         return edited
 
@@ -1120,7 +1118,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         team_id = self._canonical_team_id()
         current = self._readable_configuration(team_id, configuration_id)
         # Checks count every log, so a member who cannot see pipeline logs gets the state changes without the values.
-        # A check from before the last edit may have watched pipeline logs, so it hides its value too.
+        # A check from before the last edit may have read pipeline logs.
         hide_values = self._pipeline_logs_hidden(current.source_kind, current.source_config)
         read = platform_api.alert_events(
             team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit

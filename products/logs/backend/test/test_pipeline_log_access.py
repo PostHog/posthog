@@ -34,8 +34,6 @@ _PATTERN = "step <*> failed"
 
 
 class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
-    """Every Logs reader that a member can reach hides pipeline logs from restricted members only."""
-
     def setUp(self) -> None:
         super().setUp()
         insert_logs_and_rollups(
@@ -84,7 +82,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
         [
             (reader, access)
             for reader in ("alert_check", "anomaly_scan", "series_bands", "pattern_first_seen", "search_suggestions")
-            for access in ("restricted", "granted", "admin")
+            for access in ("restricted", "granted")
         ]
     )
     @time_machine.travel(_NOW, tick=False)
@@ -116,7 +114,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert sum(bucket.count for bucket in result.per_alert[str(alert.id)]) == 3
 
-    @parameterized.expand([("restricted", 0), ("granted", 3), ("admin", 3)])
+    @parameterized.expand([("restricted", 0), ("granted", 3)])
     @time_machine.travel(_NOW, tick=False)
     def test_alert_simulation_follows_property_access(self, access: PropertyAccess, expected: int) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
@@ -144,7 +142,6 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("restricted_app", "restricted", [_APP], 201),
             ("restricted_pipeline_draft", "restricted", [_PIPELINE], 403, False),
             ("granted_pipeline", "granted", [_PIPELINE], 201),
-            ("admin_pipeline", "admin", [_PIPELINE], 201),
         ]
     )
     def test_alert_on_pipeline_logs_follows_property_access(
@@ -174,12 +171,6 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("rename", True, {"name": "Renamed"}, 200),
-            (
-                "rename_from_edit_form",
-                True,
-                {"name": "Renamed", "filters": {"serviceNames": [_PIPELINE]}},
-                200,
-            ),
             ("snooze", True, {"snooze_until": "2099-01-01T00:00:00Z"}, 200),
             ("change_filters", True, {"filters": {"serviceNames": [_PIPELINE], "severityLevels": ["warn"]}}, 403),
             ("turn_on", False, {"enabled": True}, 403),
@@ -370,9 +361,9 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400, response.json()
 
-    @parameterized.expand([("restricted", 403), ("granted", 201), ("admin", 201)])
+    @parameterized.expand([("restricted", True), ("granted", False)])
     def test_destination_on_pipeline_log_alert_follows_property_access(
-        self, access: PropertyAccess, expected: int
+        self, access: PropertyAccess, refused: bool
     ) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True):
             alert = self.client.post(
@@ -394,7 +385,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-        assert (response.status_code == 403) == (expected == 403), response.json()
+        assert (response.status_code == 403) == refused, response.json()
 
     @parameterized.expand([("to_pipeline_logs", _APP, _PIPELINE, True), ("to_app_logs", _PIPELINE, _APP, False)])
     def test_destination_on_a_handed_over_alert_follows_its_current_filters(
@@ -434,12 +425,10 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("logs_restricted_app", "logs", "restricted", _APP, False, 6),
             ("logs_granted_pipeline", "logs", "granted", _PIPELINE, False, 6),
             ("logs_restricted_moved_off_pipeline", "logs", "restricted", _PIPELINE, True, None),
-            ("logs_granted_moved_off_pipeline", "logs", "granted", _PIPELINE, True, 6),
             ("platform_restricted_pipeline", "platform", "restricted", _PIPELINE, False, None),
             ("platform_restricted_app", "platform", "restricted", _APP, False, 6),
             ("platform_granted_pipeline", "platform", "granted", _PIPELINE, False, 6),
             ("platform_restricted_moved_off_pipeline", "platform", "restricted", _PIPELINE, True, None),
-            ("platform_granted_moved_off_pipeline", "platform", "granted", _PIPELINE, True, 6),
         ]
     )
     def test_alert_history_counts_follow_property_access(

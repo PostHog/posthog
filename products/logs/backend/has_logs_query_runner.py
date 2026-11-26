@@ -27,8 +27,7 @@ class HasLogsQueryRunner:
             query_type="HasLogsQuery",
             query=query,
             team=self.team,
-            # Property rules hide pipeline logs, and a team-wide rule applies even without a user. Whether the team
-            # has any logs reveals no log, and the answer is cached for the whole team.
+            # Ignores property rules: the answer is cached for the whole team and reveals no log.
             context=HogQLContext(team_id=self.team.pk, restricted_properties=set()),
             workload=Workload.LOGS,
         )
