@@ -69,9 +69,10 @@ describe('adventToday', () => {
     it.each([
         ['a staff user picks a day', '7', true, 7],
         ['a staff user picks a day past the end', '30', true, 24],
-        ['a staff user picks nonsense', 'soon', true, 0],
-        ['someone else picks a day', '7', false, 0],
-    ])('when %s before December', (_, requestedDay, canPickDay, expected) => {
-        expect(adventToday(new Date(2026, 10, 26), { requestedDay, canPickDay })).toBe(expected)
+        ['a staff user picks nonsense', 'soon', true, 5],
+        ['a staff user leaves the day blank', '', true, 5],
+        ['someone else picks a day', '7', false, 5],
+    ])('when %s on 5 December', (_, requestedDay, canPickDay, expected) => {
+        expect(adventToday(new Date(2026, 11, 5, 9, 0), { requestedDay, canPickDay })).toBe(expected)
     })
 })

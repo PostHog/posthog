@@ -20,6 +20,6 @@ function dayOfDate(now: Date): number {
 }
 
 export function adventToday(now: Date, { requestedDay, canPickDay }: AdventDayOverride): number {
-    const day = canPickDay && requestedDay !== null ? Number(requestedDay) : NaN
+    const day = canPickDay && requestedDay?.trim() ? Number(requestedDay) : NaN
     return Number.isFinite(day) ? clampDay(day) : dayOfDate(now)
 }

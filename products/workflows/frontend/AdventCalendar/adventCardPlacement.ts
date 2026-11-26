@@ -4,6 +4,7 @@ export const ADVENT_CARD_EDGE_GAP = 8
 
 export interface AdventCardPlacement {
     isLeftward: boolean
+    left: number
     width: number
 }
 
@@ -17,5 +18,8 @@ export function adventCardPlacement(
     const fitsRight = roomRight >= ADVENT_CARD_WIDTH
     const fitsLeft = roomLeft >= ADVENT_CARD_WIDTH
     const isLeftward = fitsLeft !== fitsRight ? fitsLeft : fitsLeft ? row !== 1 : roomLeft > roomRight
-    return { isLeftward, width: Math.min(ADVENT_CARD_WIDTH, isLeftward ? roomLeft : roomRight) }
+    const width = Math.min(ADVENT_CARD_WIDTH, isLeftward ? roomLeft : roomRight, stageWidth - 2 * ADVENT_CARD_EDGE_GAP)
+    const anchored = isLeftward ? face.left + face.size + ADVENT_CARD_INSET - width : face.left - ADVENT_CARD_INSET
+    const left = Math.min(Math.max(anchored, ADVENT_CARD_EDGE_GAP), stageWidth - ADVENT_CARD_EDGE_GAP - width)
+    return { isLeftward, left, width }
 }
