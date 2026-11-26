@@ -577,14 +577,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             super().perform_create(serializer)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
-        instance = cast(FileSystem, serializer.instance)
         with transaction.atomic():
-            # Saving the copy read before the lock would recreate a row that a concurrent delete removed.
-            locked = self._lock_file_rows(Q(pk=instance.pk))
-            if not locked:
-                raise NotFound()
-            serializer.instance = locked[0]
+            serializer.instance = self._reload_under_lock(cast(FileSystem, serializer.instance))
             super().perform_update(serializer)
+
+    def _reload_under_lock(self, instance: FileSystem) -> FileSystem:
+        locked = self._lock_file_rows(Q(pk=instance.pk))
+        if not locked:
+            raise NotFound()
+        return locked[0]
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -1533,10 +1534,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         else:
             with transaction.atomic():
-                locked = self._lock_file_rows(Q(pk=instance.pk))
-                if not locked:
-                    raise NotFound()
-                instance = locked[0]
+                instance = self._reload_under_lock(instance)
                 instance.pk = None  # This removes the id
                 instance.path = new_path
                 instance.depth = len(split_path(instance.path))
