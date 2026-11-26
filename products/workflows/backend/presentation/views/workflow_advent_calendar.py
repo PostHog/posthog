@@ -11,7 +11,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
+from posthog.rate_limit import PersonalApiKeyRateThrottle
 
 from products.workflows.backend.facade.advent_calendar import (
     ADVENT_CALENDAR_QUESTIONS,
@@ -67,9 +67,13 @@ class AdventCalendarResultsSerializer(serializers.Serializer):
     )
 
 
-class AdventCalendarUserThrottle(PersonalApiKeyOrUserRateThrottle):
+class AdventCalendarUserThrottle(PersonalApiKeyRateThrottle):
     scope = "workflow_advent_calendar_user"
     rate = "30/minute"
+    reads_history_from_primary = True
+
+    def allow_request(self, request: Request, view: Any) -> bool:
+        return self._would_allow(request, view)
 
     def get_cache_key(self, request: Request, view: Any) -> str:
         return self.cache_format % {"scope": self.scope, "ident": request.user.pk}

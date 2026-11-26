@@ -3,12 +3,19 @@ from typing import Any
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
+from django.core.cache import caches
 from django.db.models.signals import pre_delete
+from django.test import override_settings
 
+from django_redis.cache import RedisCache
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
+from posthog.rate_limit import is_rate_limit_enabled
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.workflows.backend.facade.advent_calendar import answer_advent_calendar
 from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
@@ -134,18 +141,27 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert not AdventCalendarAnswer.objects.exists()
         self._results()
 
-    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch(
-        "products.workflows.backend.presentation.views.workflow_advent_calendar.AdventCalendarUserThrottle.rate",
-        new="2/minute",
-    )
-    def test_each_signed_in_person_has_their_own_request_budget(self, _rate_limit_enabled: Any) -> None:
+    def test_each_signed_in_person_has_their_own_request_budget_even_with_api_rate_limits_off(self) -> None:
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
-        self._answer_as(self.user, self.team, 2, "tim")
-        self._results()
-
-        over_budget = self.client.get(self._url(self.team, "results"))
-        teammate_answer = self._answer_as(teammate, self.team, 2, "james")
+        with (
+            override_settings(
+                CACHES={**settings.CACHES, **lagging_reader_caches(unique_key_prefix("test-advent-calendar-throttle"))}
+            ),
+            override_instance_config("RATE_LIMIT_ENABLED", False),
+        ):
+            try:
+                is_rate_limit_enabled.cache_clear()
+                self._answer_as(self.user, self.team, 2, "tim")
+                for _ in range(29):
+                    self._results()
+                over_budget = self.client.get(self._url(self.team, "results"))
+                teammate_answer = self._answer_as(teammate, self.team, 2, "james")
+            finally:
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
+                is_rate_limit_enabled.cache_clear()
 
         assert over_budget.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert teammate_answer["questions"][0]["shares"] == [
