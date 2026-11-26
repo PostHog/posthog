@@ -79,6 +79,7 @@ describe('alerts on a scenario run', () => {
                         },
                         { alert: 'SyntheticLeftOut', expr: 'sum(synthetic_queue_depth) > 0' },
                         { record: 'synthetic:queue_depth:sum', expr: 'sum(synthetic_queue_depth)' },
+                        { record: 'up', expr: 'vector(1)' },
                     ],
                 },
                 {
@@ -147,6 +148,8 @@ describe('selectorsOf', () => {
             ['x', 'y', 'z'],
         ],
         ['a limit and a join prefix', 'sum(x) by (q) limit 3 * on (q) group_left (p) prefix "rhs_" y', ['x', 'y']],
+        ['metrics named like the limit keyword', 'sum(limit) > 0 or limit{a="b"} > 1', ['limit', 'limit{a="b"}']],
+        ['a group modifier without labels', 'x + on(q) group_left y', ['x', 'y']],
     ])('%s', (_, expr, selectors) => {
         expect(selectorsOf(expr)).toEqual(selectors)
     })

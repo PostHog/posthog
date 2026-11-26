@@ -130,6 +130,12 @@ export async function startEngine(
             '-promscrape.config=/alerts/scrape.yaml',
             '-search.latencyOffset=0s',
         ])
+        await until(async () => {
+            const { data } = Scraped.parse(
+                await getJson(`${metricsUrl}/api/v1/query?query=${encodeURIComponent('count(up)')}`)
+            )
+            return Number(data.result[0]?.value[1]) === targets.length ? true : undefined
+        }, 'the metrics store did not scrape every role')
         await container(names[1], VMALERT_IMAGE, [
             `-httpListenAddr=127.0.0.1:${alertPort}`,
             '-rule=/alerts/rules.yaml',
@@ -138,12 +144,6 @@ export async function startEngine(
             '-notifier.blackhole',
             '-rule.evalDelay=0s',
         ])
-        await until(async () => {
-            const { data } = Scraped.parse(
-                await getJson(`${metricsUrl}/api/v1/query?query=${encodeURIComponent('count(up)')}`)
-            )
-            return Number(data.result[0]?.value[1]) === targets.length ? true : undefined
-        }, 'the metrics store did not scrape every role')
         await until(() => getJson(`${alertUrl}/api/v1/rules?type=alert`), 'vmalert did not answer')
     } catch (error) {
         await stop()
