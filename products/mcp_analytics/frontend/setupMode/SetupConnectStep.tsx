@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
+
 import * as handClaspPng from '@posthog/brand/hoggies/png/hand-clasp'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconCopy } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -21,7 +23,16 @@ const INSTALL_GUIDE_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 const COPY = {
     waiting: {
-        title: 'Waiting for your server to connect',
+        title: 'Connect your server to PostHog',
+        steps: {
+            install: { title: 'Add MCP analytics to your server' },
+            restart: { title: 'Restart your server', detail: 'Redeploy it if it runs remotely.' },
+            connect: {
+                title: 'Connect your agent and call a tool',
+                detail: 'Claude, Cursor, or any other MCP client works. Ask it for anything that uses one of your tools. This page moves on by itself.',
+            },
+        },
+        cue: 'Waiting for a connection or a tool call',
         help: 'Need help?',
         installGuide: 'Read the install guide',
     },
@@ -32,8 +43,9 @@ const COPY = {
     },
     connected: {
         title: 'Your server is connected. Now call a tool.',
-        lead: 'Ask your agent to do something that uses one of your tools. The first call shows up here within seconds.',
+        lead: 'Paste this prompt into the agent connected to your server, or ask it for anything that uses one of your tools.',
         prompt: 'Use one of the tools on my MCP server and tell me what it returned.',
+        cue: 'Waiting for your first tool call. It shows up here within seconds.',
     },
     funFact: {
         title: 'Fun fact while you wait',
@@ -42,11 +54,48 @@ const COPY = {
     },
 }
 
+function ConnectTask({
+    title,
+    detail,
+    children,
+}: {
+    title: string
+    detail?: string
+    children?: ReactNode
+}): JSX.Element {
+    return (
+        <li className="marker:font-semibold">
+            <div className="flex flex-col gap-2">
+                <span className="font-semibold">{title}</span>
+                {detail ? <span className="text-secondary">{detail}</span> : null}
+                {children}
+            </div>
+        </li>
+    )
+}
+
+function WaitingCue({ label }: { label: string }): JSX.Element {
+    return (
+        <div className="flex items-center gap-2 text-sm text-secondary">
+            <Spinner />
+            <span>{label}</span>
+        </div>
+    )
+}
+
 function ConnectWaiting(): JSX.Element {
+    const { steps } = COPY.waiting
     return (
         <>
             <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.waiting.title} />
-            <SetupInstallOptions />
+            <ol className="m-0 flex list-decimal flex-col gap-4 pl-5 text-sm">
+                <ConnectTask title={steps.install.title}>
+                    <SetupInstallOptions />
+                </ConnectTask>
+                <ConnectTask {...steps.restart} />
+                <ConnectTask {...steps.connect} />
+            </ol>
+            <WaitingCue label={COPY.waiting.cue} />
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span className="text-secondary">{COPY.waiting.help}</span>
                 <LemonButton
@@ -79,6 +128,7 @@ function ConnectConnected(): JSX.Element {
                     Copy
                 </LemonButton>
             </div>
+            <WaitingCue label={COPY.connected.cue} />
         </>
     )
 }

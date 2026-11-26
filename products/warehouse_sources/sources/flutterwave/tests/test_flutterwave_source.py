@@ -37,6 +37,9 @@ class TestGetSchemas:
                     "banks",
                     "wallet_statement",
                     "bill_payments",
+                    "payout_subaccounts",
+                    "payout_subaccount_transactions",
+                    "balances",
                 },
             ),
             (

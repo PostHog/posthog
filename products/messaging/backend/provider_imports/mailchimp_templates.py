@@ -171,8 +171,12 @@ def _field_name(name: str) -> str:
     return name.upper() if name.upper() in _PERSON_PROPERTIES else name
 
 
+def property_name(name: str) -> str:
+    return _PERSON_PROPERTIES.get(name.upper(), name)
+
+
 def person_path(name: str) -> str:
-    return f"person.properties.{_PERSON_PROPERTIES.get(name.upper(), name)}"
+    return f"person.properties.{property_name(name)}"
 
 
 class _Converter:
@@ -351,8 +355,8 @@ class _Converter:
                 continue
             if replacement.value:
                 where = context.where()
-                in_plain_attribute = where == "value" and context.plain_attribute() and not replacement.raw
-                if context.untrusted or (where != "text" and not in_plain_attribute):
+                in_plain_attribute = where == "title" or (where == "value" and context.plain_attribute())
+                if context.untrusted or (where != "text" and (replacement.raw or not in_plain_attribute)):
                     self.unsupported.append(replacement.source)
                     continue
                 context.feed("x")

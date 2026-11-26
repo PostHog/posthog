@@ -174,6 +174,10 @@ class MetricResultStats:
         response = parse_stored_response(raw)
         return cls.from_response(response, is_quantile=is_quantile) if response is not None else None
 
+    @property
+    def number_of_samples(self) -> int:
+        return self.baseline.number_of_samples + sum(variant.number_of_samples for variant in self.variants)
+
     def variant(self, key: str) -> VariantStats | None:
         return next((variant for variant in self.variants if variant.key == key), None)
 

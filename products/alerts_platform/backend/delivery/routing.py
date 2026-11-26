@@ -149,14 +149,15 @@ def _routed_transitions(
 
 def _hears(receiver: RoutedReceiver, transition: AnnouncedTransition, request: AlertDeliveryRequest) -> bool:
     """An incident manager hears every group whose firing opened or closed. A chat receiver hears the
-    kinds its routes asked for, and nothing on a delivery that exists only for incident actions."""
+    kinds its routes asked for, a follow-up as the firing it follows, and nothing on a delivery that
+    exists only for incident actions."""
     if _opens_incidents(receiver):
         action = request.incident_actions.get(transition.grouping_key)
         return action is not None and action.value in request.event_ids_by_incident_action
     return (
         request.sends_messages
         and transition.kind.value in request.event_ids_by_kind
-        and transition.kind in receiver.event_kinds
+        and transition.kind.delivered_as in receiver.event_kinds
     )
 
 

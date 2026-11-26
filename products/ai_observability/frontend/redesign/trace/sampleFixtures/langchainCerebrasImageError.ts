@@ -170,7 +170,13 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
     thread: {
         status: 'ready',
         turns: [
-            { id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(cerebrasLabelMessages, []), error: ERROR_MESSAGE },
+            {
+                id: TRACE_ID,
+                timestamp: TIMESTAMP,
+                waitMs: null,
+                ...messagesSides(cerebrasLabelMessages, []),
+                error: ERROR_MESSAGE,
+            },
         ],
         activeTurnId: TRACE_ID,
     },

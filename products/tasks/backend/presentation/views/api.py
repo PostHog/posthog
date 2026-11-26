@@ -77,6 +77,7 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
+
 from products.tasks.backend.facade import (
     access as tasks_access,
     agent_run_starts as tasks_agent_run_starts,
@@ -101,6 +102,7 @@ from products.tasks.backend.facade.client_provenance import (
 )
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
+from products.tasks.backend.facade.desktop_gateway import posthog_code_plan
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     StreamTokenRoute,
@@ -115,7 +117,11 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_resume_gap,
     observe_stream_token_routed,
 )
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    FREE_TIER_PIN_KEY,
+    TASK_RUN_GATEWAY_PRODUCT,
+    plan_model_choices,
+)
 from products.tasks.backend.facade.model_override import RunModelSelection, with_prompt_model_switch
 from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
@@ -376,9 +382,6 @@ def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIn
     # enough to stall every other stream on the ASGI event loop.
     entries = list(tasks_facade.parse_task_run_log_entries(log_content))
     return entries, TaskRunStreamBacklogIndex(entries)
-
-
-TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
@@ -1328,14 +1331,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List available models",
         description=(
             "Return the models a task run may use, with the reasoning efforts each one supports. "
-            "Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. "
-            "An empty list means the gateway is unreachable — clients should fall back to their own default rather "
-            "than treating it as 'no models exist'."
+            "Read from the PostHog model catalog, narrowed to the models a PostHog Code token may call. "
+            "Each model is marked with whether the project's plan allows it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
     def models(self, request, **kwargs):
-        choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        plan_pin = FREE_TIER_PIN_KEY if posthog_code_plan(self.team) == "free" else TASK_RUN_GATEWAY_PRODUCT
+        choices = plan_model_choices(TASK_RUN_GATEWAY_PRODUCT, plan_pin)
         return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
@@ -1643,7 +1646,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             self._user_id(),
             artifacts=request.validated_data["artifacts"],
-            upload_expiration_seconds=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            upload_expiration_seconds=tasks_facade.TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
         )
         if result is None:
             raise NotFound()
@@ -3305,7 +3308,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             artifacts=request.validated_data["artifacts"],
-            upload_expiration_seconds=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            upload_expiration_seconds=tasks_facade.TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
             form_overhead_bytes=TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES,
         )
         if prepared is None and ok:

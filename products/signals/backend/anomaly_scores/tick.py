@@ -158,6 +158,7 @@ class AnomalyScoringTickPlan:
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    ai_judge_teams: int = 0
     teams_planned: int = 0
     teams_skipped: int = 0
     long_cooldown: int = 0
@@ -226,6 +227,10 @@ class AnomalyScoringTickResult:
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    # Enrolled teams that score with `default-v2`, and the judge's organization percentage after the overrides
+    # of this deployment.
+    ai_judge_teams: int = 0
+    ai_judge_organization_percentage: float = 0.0
     # Time of the plan activity, its retry included. Compare it with the plan timeout.
     plan_ms: int = 0
     # Teams with active insights that the plan loaded, and the teams that wait for a later tick.
@@ -300,6 +305,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         active_reasons=selection.active_reasons,
         enrolled_teams=selection.enrolled_teams,
         enrolled_organizations=selection.enrolled_organizations,
+        ai_judge_teams=selection.ai_judge_teams,
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
         long_cooldown=selection.long_cooldown,
@@ -592,7 +598,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
     mark_attempted(pick.insight_id, ATTEMPT_COOLDOWN)
-    profile = resolve_profile(team, insight, input.ai_judge).name
+    model_profile = resolve_profile(team, insight, input.ai_judge).model_profile
     split = None
     if pick.run is not None:
         split = SplitRun()
@@ -607,7 +613,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
                     insight_id=insight.id,
                     error=str(error)[:200],
                 )
-                invalidate_state(team, insight.id, profile)
+                invalidate_state(team, insight.id, model_profile)
                 record_failed(team.id, insight.id, now, ATTEMPT_COOLDOWN)
                 return ScoreInsightResult(status=STATUS_ARTIFACT_UNAVAILABLE, events=0, run=ScoringRun.SCORE)
     scores = score_insight(
@@ -637,7 +643,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     history_queries = pick.query_cost * ai_checks.history_fetches
     if scores.artifacts and scores.state is not None:
         # The blob goes first, so every event of this visit names a model that exists.
-        stored = write_artifacts(team.id, insight.id, profile, scores.artifacts)
+        stored = write_artifacts(team.id, insight.id, model_profile, scores.artifacts)
         scores = dataclasses.replace(
             scores,
             model_id=stored.model_id,
@@ -650,7 +656,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     # After the emit: a lost state write only scores buckets again, and their events collapse by uuid.
     # A state write before a failed emit would skip those buckets for good.
     if scores.state is not None:
-        save_state(team, insight.id, profile, scores.state)
+        save_state(team, insight.id, model_profile, scores.state)
     record_scored(
         team,
         insight.id,
@@ -706,6 +712,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         active_reasons=result.active_reasons,
         enrolled_teams=result.enrolled_teams,
         enrolled_organizations=result.enrolled_organizations,
+        ai_judge_teams=result.ai_judge_teams,
+        ai_judge_organization_percentage=result.ai_judge_organization_percentage,
         plan_ms=result.plan_ms,
         teams_planned=result.teams_planned,
         teams_skipped=result.teams_skipped,
@@ -754,6 +762,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
             "enrolled_teams": result.enrolled_teams,
             "enrolled_organizations": result.enrolled_organizations,
+            "ai_judge_teams": result.ai_judge_teams,
+            "ai_judge_organization_percentage": result.ai_judge_organization_percentage,
             "plan_ms": result.plan_ms,
             "teams_planned": result.teams_planned,
             "teams_skipped": result.teams_skipped,
@@ -871,6 +881,8 @@ class AnomalyScoringTickWorkflow:
             active_reasons=plan.active_reasons,
             enrolled_teams=plan.enrolled_teams,
             enrolled_organizations=plan.enrolled_organizations,
+            ai_judge_teams=plan.ai_judge_teams,
+            ai_judge_organization_percentage=plan.ai_judge.organization_percentage,
             plan_ms=plan_ms,
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,

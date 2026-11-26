@@ -1,62 +1,76 @@
 # hog
 
-## 0.1.1 — 2026-11-24
+## 0.2.1 — 2026-11-26
 
 ### Patch changes
 
-- [14edc1551ed](https://github.com/PostHog/posthog/commit/14edc1551ed747c985c93d457e60ce3b047fbf10) feat(replay-vision): accept a scanner scope on the API — Thanks @ksvat!
-- [67f33c6bddf](https://github.com/PostHog/posthog/commit/67f33c6bddfb5e2e3d4a72c5b74476718e6a4308) feat(dashboards): read the first screen through cached_tiles on first load — Thanks @DanielVisca!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(error-tracking): add an issue tag rules api — Thanks @rafaeelaudibert!
-- [73a58d58ac0](https://github.com/PostHog/posthog/commit/73a58d58ac08ae8dc1ce62872def8bb025b78941) feat(workflows): push message templates can be made transactional — Thanks @dmarchuk!
-- [290eb90ca5f](https://github.com/PostHog/posthog/commit/290eb90ca5ffc6863752588dd77080a8e76b997f) feat(workflows): import suppressions and unsubscribe groups from sendgrid — Thanks @rafaeelaudibert!
-- [d748b285e17](https://github.com/PostHog/posthog/commit/d748b285e1712dfb48dfb1373eca19a16c16bf53) feat(messaging): schedule a send up to 7 days ahead behind a flag — Thanks @Silthus!
-- [c187112e560](https://github.com/PostHog/posthog/commit/c187112e560baf783406a753e94ab302ce96cce9) feat(notebooks): add notebook app builder — Thanks @mariusandra!
-- [9cd7f1c1dca](https://github.com/PostHog/posthog/commit/9cd7f1c1dca2878808b3c0c7243b9b62fd68ef4f) feat(replay-vision): teach the agent tools a scanner scope — Thanks @ksvat!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(dashboards): add dashboards v2 scene — Thanks @rafaeelaudibert!
-- [bcd9005b19c](https://github.com/PostHog/posthog/commit/bcd9005b19cec0e1129aef7f00bc769731df9153) fix(mcp): keep the next-page hint on exec text results — Thanks @richardsolomou!
-- [47fe7f5c0bd](https://github.com/PostHog/posthog/commit/47fe7f5c0bdb913eea7627932e33c6e1aa8a00f4) fix(signals): write task commits only to the reports they target — Thanks @dmarticus!
-- [35605f145e4](https://github.com/PostHog/posthog/commit/35605f145e4659da131124b89d5a40a77e05f814) chore(cli): give hog the typescript compiler api — Thanks @rafaeelaudibert!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(stamphog): skip owner review requests on fully attested pull requests — Thanks @rafaeelaudibert!
-- [0f3d640e07a](https://github.com/PostHog/posthog/commit/0f3d640e07a443698a71a90548769cc2f5751faf) feat(mcp): add organization-create tool — Thanks @richardsolomou!
-- [3304968b85d](https://github.com/PostHog/posthog/commit/3304968b85d808b52e3fd0f0bc73bde57ed4fb6f) feat(workflows): publish preview says when it moves steps onto the test sender — Thanks @Silthus!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) fix(cli): tell agents when the user can approve a hog ci setup request — Thanks @rafaeelaudibert!
-- [e81248592fc](https://github.com/PostHog/posthog/commit/e81248592fca68bcc47d6ec6e4c3a9c0e61f88ff) feat(workflows): warn api callers when a workflow is live on the test sender — Thanks @Silthus!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(business-knowledge): give libraries their own tab and page — Thanks @rafaeelaudibert!
-- [7a1d716eb4b](https://github.com/PostHog/posthog/commit/7a1d716eb4b80413ff884120aa3be262ac15798f) feat(auth): remove legacy team secret token paths — Thanks @patricio-posthog!
-- [0b8256d2f15](https://github.com/PostHog/posthog/commit/0b8256d2f15635631c306d95d114f027add86a18) feat(marketing-analytics): mark recommendations applied when ads show the change — Thanks @jabahamondes!
-- [d1458104235](https://github.com/PostHog/posthog/commit/d1458104235fc48384cbd43dc24d8a67c7283386) feat(aeo): filter ai visibility by a date range — Thanks @lricoy!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) fix(mcp): run a bare sql string sent to execute-sql as its query — Thanks @rafaeelaudibert!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(workflows): add MCP tools for workflow email sends and recipient activity — Thanks @rafaeelaudibert!
-- [eb4e2f49f79](https://github.com/PostHog/posthog/commit/eb4e2f49f79082d1df7d9798e607ecacc86693cf) feat(workflows): let an email tool import ask for settings before it starts — Thanks @dmarchuk!
-- [eb445ffb8da](https://github.com/PostHog/posthog/commit/eb445ffb8dad5cfb3a2832e0b7ac6b48241083b5) fix(mcp): keep expected errors out of error tracking — Thanks @richardsolomou!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) fix(cli): read only the xml entities in an info.plist — Thanks @rafaeelaudibert!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(cli): make hog auth status easy for a person to scan — Thanks @rafaeelaudibert!
-- [50cb61e12dd](https://github.com/PostHog/posthog/commit/50cb61e12dd8f0bcb1eff482c4cef9539ecebe25) fix(signals): tell agents which inbox reports are free to take — Thanks @dmarticus!
-- [6a68efef418](https://github.com/PostHog/posthog/commit/6a68efef418699392cb0eb9c2c6dffffae548cc0) `hog error-tracking upload` and `process` now build JavaScript and ProGuard symbol sets in hog-worker, and `--delete-after` cleans up there too. The uploads and the files are the same, and a large build takes far less time and memory. — Thanks @rafaeelaudibert!
-- [a8cfbe60308](https://github.com/PostHog/posthog/commit/a8cfbe6030833ad5eef7afc1570159f65c9431e2) chore(aio): remove the `llma-tagger-test-hog` tool — Thanks @bernatixer!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(cli): show people a short hog overview and add hog whoami — Thanks @rafaeelaudibert!
-- [b963f281b5e](https://github.com/PostHog/posthog/commit/b963f281b5e874c393d63df44537e8024e712a4a) fix(mcp): run exec search patterns through a linear-time regex engine — Thanks @richardsolomou!
-- [d6b87f08c22](https://github.com/PostHog/posthog/commit/d6b87f08c22ca6cb9b1458c9931083fe983006e3) feat(workflows): import bounces, complaints, unsubscribes and lists from mailgun — Thanks @dmarchuk!
-- [1e7bf475a8b](https://github.com/PostHog/posthog/commit/1e7bf475a8b8dae1002fa458dec7c5e9dff5acc6) Every install of hog now includes hog-worker, the program that reads and writes build output for `hog error-tracking`, and `hog upgrade` and the install scripts replace the two together. On Alpine and other musl systems, the install script now names the missing `libstdc++` and `libgcc` packages when hog can't start without them. — Thanks @rafaeelaudibert!
-- [e9fe277f151](https://github.com/PostHog/posthog/commit/e9fe277f15168227d026939550707ab0ea53b301) feat(signals): list recently ended monitoring reports with their outcome — Thanks @rafaeelaudibert!
-- [e9fe277f151](https://github.com/PostHog/posthog/commit/e9fe277f15168227d026939550707ab0ea53b301) chore(deps): update posthog-node to 6.0.4 in nodejs and services/mcp — Thanks @rafaeelaudibert!
-- [5b91687e695](https://github.com/PostHog/posthog/commit/5b91687e6951f45a3b526880e5b35b6e88d1e6d9) feat(marketing-analytics): detect applied keyword gaps and brand negatives — Thanks @jabahamondes!
-- [2b699330670](https://github.com/PostHog/posthog/commit/2b699330670e0603fb0e0a254bae61b68dcd172b) fix(alerts): write moved insight alert edits to the platform copy only — Thanks @jzhu13!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(metrics): find metric attributes by their values — Thanks @rafaeelaudibert!
-- [91a8bcf9d9c](https://github.com/PostHog/posthog/commit/91a8bcf9d9cb9b2bdf972368547028f8e5d76442) feat(mcp): name more harnesses and drop structuredContent by default — Thanks @richardsolomou!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) fix(signals): expire spend receipts after three months — Thanks @rafaeelaudibert!
-- [e8b71427be3](https://github.com/PostHog/posthog/commit/e8b71427be3366facd16890e8a6432fa58041bd2) `hog error-tracking upload` now reads ELF files, Mach-O files and dSYM bundles in hog-worker, with the same Rust code posthog-cli runs. — Thanks @rafaeelaudibert!
-- [0dfaccad90a](https://github.com/PostHog/posthog/commit/0dfaccad90a1c9bd0c77f4011cf3dd1ac909e04d) chore(data-catalog): point agents at metric-list for catalog checks — Thanks @sinan-ku!
-- [d236ac05fca](https://github.com/PostHog/posthog/commit/d236ac05fca131cd10973e830c9ccbcd958da4ef) feat(mcp): split writes from exec so clients can always allow reads — Thanks @richardsolomou!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) chore(aio): remove offline evaluations feature flag — Thanks @rafaeelaudibert!
-- [e07a29787bc](https://github.com/PostHog/posthog/commit/e07a29787bc4371d86333051714e18b4b25f943d) `hog error-tracking clone` and Hermes uploads now read, write and package sourcemaps in hog-worker, with the same Rust code posthog-cli runs. — Thanks @rafaeelaudibert!
-- [e9fe277f151](https://github.com/PostHog/posthog/commit/e9fe277f15168227d026939550707ab0ea53b301) fix(signals): let a person's agents work under their report claim — Thanks @rafaeelaudibert!
-- [b3b03462622](https://github.com/PostHog/posthog/commit/b3b03462622931ef0e286c549844d5a82dee03ce) `hog error-tracking inject` now rewrites bundles and sourcemaps in hog-worker, a Rust program that ships next to hog. The files it writes are the same, and a large build takes far less time and memory. — Thanks @rafaeelaudibert!
-- [b02d78db32d](https://github.com/PostHog/posthog/commit/b02d78db32d32f687265fd348aeb98ab9910d90f) feat(error-tracking): add error tracking alerts to the alerts platform — Thanks @hpouillot!
-- [86a4cca6d76](https://github.com/PostHog/posthog/commit/86a4cca6d7663a459578be9132a313314bca63b0) chore(cli): count generated schema changes only where hog runs them — Thanks @rafaeelaudibert!
-- [573ed146815](https://github.com/PostHog/posthog/commit/573ed146815aacdd3a724ca1900738d8de7fa1b1) feat(aio): support updates and deletes for offline evaluations — Thanks @Radu-Raicea!
-- [c33e840e1ba](https://github.com/PostHog/posthog/commit/c33e840e1ba8fc9a5a50b4fcf63a538399aea233) feat(customer-analytics): tag customer tasks — Thanks @arthurdedeus!
-- [5968b2e1ba6](https://github.com/PostHog/posthog/commit/5968b2e1ba68fa3350f75ecb8ef81ad60ebaffd2) chore(deps): upgrade to kea-typegen 3.9 and typescript 7.1 beta — Thanks @mariusandra!
+- [80884f7c8eb](https://github.com/PostHog/posthog/commit/80884f7c8eb418ca08e98e462983bbfac434b024) Tool results from the PostHog MCP are no longer shortened to 100,000 tokens. Only clients with their own documented limit, such as Codex, get a shortened result. — Thanks @richardsolomou!
+- [b99a19bc9cc](https://github.com/PostHog/posthog/commit/b99a19bc9cca775a5a55ed858fc06da1250b8dc9) fix(mcp): run the path cleaning sample preview in ClickHouse — Thanks @richardsolomou!
+- Changes built into hog since v0.2.0, from these pull requests:
+
+  - [#141604](https://github.com/PostHog/posthog/pull/141604) feat(aeo): cap active ai visibility prompts per team
+  - [#142406](https://github.com/PostHog/posthog/pull/142406) feat(cohorts): add mcp tool to turn realtime on and off
+  - [#141651](https://github.com/PostHog/posthog/pull/141651) feat(marketing-analytics): show server data gaps in recommendations
+  - [#141002](https://github.com/PostHog/posthog/pull/141002) feat(experiments): run the after-launch health checks on a draft at launch
+  - [#142110](https://github.com/PostHog/posthog/pull/142110) feat(signals): compact inbox list rows and defaults for mcp
+  - [#142422](https://github.com/PostHog/posthog/pull/142422) fix(mcp): keep the knowledge availability answer for an hour
+  - [#138743](https://github.com/PostHog/posthog/pull/138743) fix(feature-flags): let mcp flag tools set and keep release condition names
+  - [#142317](https://github.com/PostHog/posthog/pull/142317) chore(aio): remove the llma-tagger-list mcp redirect
+
+## 0.2.0 — 2026-11-25
+
+### Minor changes
+
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) hog now shows notices from PostHog after a command, such as a version reaching its end of support, with the update command for your install. They come in the release manifest and in PostHog API answers, so CI jobs with update checks off get them too. People see one line on stderr, agents get a JSON line, and GitHub Actions jobs also get an annotation on the run summary. — Thanks @rafaeelaudibert!
+
+### Patch changes
+
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(mcp): run a bare sql string sent to execute-sql as its query — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(mcp): keep the next-page hint on exec text results — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(dashboards): add dashboards v2 scene — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(mcp): split writes from exec so clients can always allow reads — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) hog keeps the indentation and the trailing newline of posthog.json when it updates the file, as `hog auth login` and `hog schema pull` do. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(cli): tell agents when the user can approve a hog ci setup request — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(mcp): keep expected errors out of error tracking — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(stamphog): skip owner review requests on fully attested pull requests — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(mcp): remove deprecated recording_domains from project-settings-update — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) `hog error-tracking clone` and Hermes uploads now read, write and package sourcemaps in hog-worker, with the same Rust code posthog-cli runs. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): warn api callers when a workflow is live on the test sender — Thanks @rafaeelaudibert!
+- [09c358de247](https://github.com/PostHog/posthog/commit/09c358de2473e1881dc5d9ac7cb2b97c2ae8d4e8) feat(groups): expose group management to MCP — Thanks @thmsobrmlr!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(cli): make hog auth status easy for a person to scan — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(mcp): add organization-create tool — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(marketing-analytics): detect applied keyword gaps and brand negatives — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): let an email tool import ask for settings before it starts — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(cli): show people a short hog overview and add hog whoami — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) chore(deps): upgrade to kea-typegen 3.9 and typescript 7.1 beta — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): push message templates can be made transactional — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) chore(cli): count generated schema changes only where hog runs them — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(metrics): find metric attributes by their values — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(signals): let a person's agents work under their report claim — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(customer-analytics): tag customer tasks — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(signals): list recently ended monitoring reports with their outcome — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(signals): expire spend receipts after three months — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(signals): tell agents which inbox reports are free to take — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) chore(aio): remove the `llma-tagger-test-hog` tool — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) Every install of hog now includes hog-worker, the program that reads and writes build output for `hog error-tracking`, and `hog upgrade` and the install scripts replace the two together. On Alpine and other musl systems, the install script now names the missing `libstdc++` and `libgcc` packages when hog can't start without them. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) chore(data-catalog): point agents at metric-list for catalog checks — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(signals): write task commits only to the reports they target — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) chore(deps): update posthog-node to 6.0.4 in nodejs and services/mcp — Thanks @rafaeelaudibert!
+- [ed6c73fdb0c](https://github.com/PostHog/posthog/commit/ed6c73fdb0c5827f7c87c7521c33810e356cbd62) feat(signals): monitor pull request impact — Thanks @oliverb123!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(replay-vision): teach the agent tools a scanner scope — Thanks @rafaeelaudibert!
+- [26721059792](https://github.com/PostHog/posthog/commit/26721059792616ed0014e1d2eeb18b2c864acacb) perf(mcp): cut the context agents spend on tool output and schemas — Thanks @richardsolomou!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(mcp): name more harnesses and drop structuredContent by default — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(marketing-analytics): mark recommendations applied when ads show the change — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(notebooks): add notebook app builder — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(business-knowledge): give libraries their own tab and page — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(mcp): run exec search patterns through a linear-time regex engine — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): publish preview says when it moves steps onto the test sender — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(cli): read only the xml entities in an info.plist — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(aio): support updates and deletes for offline evaluations — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) `hog error-tracking upload` now reads ELF files, Mach-O files and dSYM bundles in hog-worker, with the same Rust code posthog-cli runs. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(auth): remove legacy team secret token paths — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) `hog error-tracking upload` and `process` now build JavaScript and ProGuard symbol sets in hog-worker, and `--delete-after` cleans up there too. The uploads and the files are the same, and a large build takes far less time and memory. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): import suppressions and unsubscribe groups from sendgrid — Thanks @rafaeelaudibert!
 - Changes built into hog since v0.1.0, from these pull requests:
 
   - [#138212](https://github.com/PostHog/posthog/pull/138212) fix(messaging): report only listed addresses as removed from suppressions
@@ -102,11 +116,57 @@
   - [#140577](https://github.com/PostHog/posthog/pull/140577) feat(mcp): use the @posthog/brand logomark in MCP Apps
   - [#140435](https://github.com/PostHog/posthog/pull/140435) chore(aio): remove tagger pages, list API, and MCP tool
   - [#140479](https://github.com/PostHog/posthog/pull/140479) feat(error-tracking): check tag rules on every exception in a daily sweep
+  - [#138455](https://github.com/PostHog/posthog/pull/138455) feat(aeo): add an engine by topic mention heatmap to the overview
+  - [#128489](https://github.com/PostHog/posthog/pull/128489) feat(conversations): let mcp clients attach images to ticket replies
+  - [#140379](https://github.com/PostHog/posthog/pull/140379) fix(autoresearch): own the training launch gate
+  - [#140699](https://github.com/PostHog/posthog/pull/140699) fix(review-hog): default the review trigger to a standard review
+  - [#140517](https://github.com/PostHog/posthog/pull/140517) feat(notebooks): save sql results as warehouse tables and cohorts
+  - [#141075](https://github.com/PostHog/posthog/pull/141075) fix(mcp): keep saved chart and alert grouping settings on update
+  - [#141052](https://github.com/PostHog/posthog/pull/141052) feat(mcp): keep unknown keys in stored schema_ref params
+  - [#141145](https://github.com/PostHog/posthog/pull/141145) chore(cli): release hog v0.1.1
+  - [#140983](https://github.com/PostHog/posthog/pull/140983) feat(experiments): return draft health findings in the mcp launch result
+  - [#141081](https://github.com/PostHog/posthog/pull/141081) feat(notebooks): version published app sources and input defaults
+  - [#140978](https://github.com/PostHog/posthog/pull/140978) feat(autoresearch): add a monthly project training budget
+  - [#140489](https://github.com/PostHog/posthog/pull/140489) feat(signals): add slack channel scouts to the inbox sources tab
+  - [#141061](https://github.com/PostHog/posthog/pull/141061) feat(error-tracking): add an on-demand summarize action for issues
+  - [#140709](https://github.com/PostHog/posthog/pull/140709) chore(aio): remove the tagger api scope and access-control resource
+  - [#140689](https://github.com/PostHog/posthog/pull/140689) fix(warehouse-sources): run a manual sync of a failing table
+  - [#140731](https://github.com/PostHog/posthog/pull/140731) feat(aeo): onboard ai visibility teams through the early-access flag
+  - [#127296](https://github.com/PostHog/posthog/pull/127296) feat(workflows): let agents set up an email sending domain via mcp
+  - [#140710](https://github.com/PostHog/posthog/pull/140710) feat(data-warehouse): record when a sync last checked its source
+  - [#141585](https://github.com/PostHog/posthog/pull/141585) chore(cli): release hog v0.2.0
+  - [#141667](https://github.com/PostHog/posthog/pull/141667) feat(signals): leave records emission skips out of the filter preview
+  - [#141292](https://github.com/PostHog/posthog/pull/141292) feat(marketing-analytics): judge recommendations by posthog conversions
+  - [#141666](https://github.com/PostHog/posthog/pull/141666) feat(signals): preview a source filter with unsaved team scope
+  - [#139762](https://github.com/PostHog/posthog/pull/139762) feat(warehouse): remove stale synced person properties
+  - [#141790](https://github.com/PostHog/posthog/pull/141790) fix(workflows): drop delivery_rate from the infrastructure health api
+  - [#128558](https://github.com/PostHog/posthog/pull/128558) feat(experiments): filter shared metrics by creator, tags and type
+  - [#141274](https://github.com/PostHog/posthog/pull/141274) feat(warehouse-suggestions): stop refreshes without deprecating a view
+  - [#141574](https://github.com/PostHog/posthog/pull/141574) fix(mcp): keep the metric catalog answer for an hour
+  - [#140706](https://github.com/PostHog/posthog/pull/140706) fix(mcp): restore the warehouse health tool and fix guessed tool names
+  - [#140768](https://github.com/PostHog/posthog/pull/140768) fix(data-warehouse): show webhook tables whose events are dropped
+  - [#142047](https://github.com/PostHog/posthog/pull/142047) feat(notebooks): add multi-select dropdowns to notebook apps
+  - [#141969](https://github.com/PostHog/posthog/pull/141969) fix(aio): cap the events query-llm-trace reads on large traces
+  - [#140720](https://github.com/PostHog/posthog/pull/140720) feat(aio): support project keys for datasets, evaluations, and scores
+  - [#142117](https://github.com/PostHog/posthog/pull/142117) feat(signals): filter a report's artefacts by type
 
-- [55ad009f3fa](https://github.com/PostHog/posthog/commit/55ad009f3fa9cbbd890cdf4c77280a3d81db0028) hog keeps the indentation and the trailing newline of posthog.json when it updates the file, as `hog auth login` and `hog schema pull` do. — Thanks @rafaeelaudibert!
-- [242fdb4b8c0](https://github.com/PostHog/posthog/commit/242fdb4b8c00fc73fbe09383decbf7ade332ab5d) fix(mcp): remove deprecated recording_domains from project-settings-update — Thanks @ksvat!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(workflows): import suppressions and streams from postmark — Thanks @rafaeelaudibert!
-- [78e3be909bf](https://github.com/PostHog/posthog/commit/78e3be909bff5b594277eaf72873ea6d002133c8) feat(alerts): store new insight alert destinations as rows only — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(error-tracking): add error tracking alerts to the alerts platform — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(replay-vision): accept a scanner scope on the API — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): import bounces, complaints, unsubscribes and lists from mailgun — Thanks @rafaeelaudibert!
+- [318fd3af3cd](https://github.com/PostHog/posthog/commit/318fd3af3cd1d4748506b37c1c0a1a4a32ccfa0b) `schema pull` and `endpoints pull` now write only inside the project, and hog won't write through a `posthog.json` link. `error-tracking` commands refuse folders in `errorTracking.sources` outside the project, and never open a sourcemap outside the selected paths. Pass a folder outside the project on the command line. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(aeo): filter ai visibility by a date range — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(messaging): schedule a send up to 7 days ahead behind a flag — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): import suppressions and streams from postmark — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) chore(cli): give hog the typescript compiler api — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) `hog error-tracking inject` now rewrites bundles and sourcemaps in hog-worker, a Rust program that ships next to hog. The files it writes are the same, and a large build takes far less time and memory. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(alerts): store new insight alert destinations as rows only — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(dashboards): read the first screen through cached_tiles on first load — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) hog's usage events now say how hog was installed, such as Homebrew, the install script, a global npm install, `npx` or a project dependency. They never include the path. — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) fix(alerts): write moved insight alert edits to the platform copy only — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) chore(aio): remove offline evaluations feature flag — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(error-tracking): add an issue tag rules api — Thanks @rafaeelaudibert!
+- [4f4d0f70c79](https://github.com/PostHog/posthog/commit/4f4d0f70c7921500da7004d83c5dab29cdad44be) feat(workflows): add MCP tools for workflow email sends and recipient activity — Thanks @rafaeelaudibert!
+- [f93c5eaea94](https://github.com/PostHog/posthog/commit/f93c5eaea94205462272f7e2686f675a0585af59) Links to an OAuth application can now point to its own settings page, where its provisioning review lives. — Thanks @rafaeelaudibert!
 
 ## 0.1.0 — 2026-11-19
 

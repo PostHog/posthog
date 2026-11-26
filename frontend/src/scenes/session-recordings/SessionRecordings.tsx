@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
-import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
+import { IconGear, IconHeadset, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
@@ -28,12 +28,13 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 import { ReplayLayout, STAFF_REPLAY_LAYOUTS, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, ReplayTab, ReplayTabs } from '~/types'
 
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
@@ -62,6 +63,8 @@ function Header(): JSX.Element {
     const { setPreferClassicReplayLayout, setStaffLayoutOverride } = useActions(playerSettingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { hasAvailableFeature } = useValues(userLogic)
+    const filePlaybackAvailable = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
     const { createCollection: handleNewPlaylist, creating: loading } = useNewCollection()
 
     return (
@@ -93,17 +96,29 @@ function Header(): JSX.Element {
                         ) : null}
                     </span>
                     <LiveRecordingsCount />
+                    {filePlaybackAvailable &&
+                        (todayRailNav ? (
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={urls.replayFilePlayback()} />}
+                                data-attr="replay-open-file-playback"
+                            >
+                                <IconUpload />
+                                Load recording file
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                icon={<IconUpload />}
+                                type="secondary"
+                                size="small"
+                                to={urls.replayFilePlayback()}
+                                data-attr="replay-open-file-playback"
+                            >
+                                Load recording file
+                            </LemonButton>
+                        ))}
                     <ScenePanel>
                         <ScenePanelActionsSection>
-                            <Link
-                                data-attr="replay-open-file-playback"
-                                to={urls.replayFilePlayback()}
-                                buttonProps={{
-                                    menuItem: true,
-                                }}
-                            >
-                                <IconDocument /> Playback from PostHog JSON file
-                            </Link>
                             <Link
                                 data-attr="replay-open-kiosk"
                                 to={urls.replayKiosk()}

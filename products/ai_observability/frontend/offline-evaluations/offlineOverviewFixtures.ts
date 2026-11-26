@@ -10,6 +10,8 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
         kind: index === 1 ? 'boolean' : 'numeric',
         archived: false,
         current_version: 2,
+        scope: 'item',
+        suite_keys: [],
         calculation: 'reported',
         composition: null,
         input_scorers: [],
@@ -26,6 +28,8 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
         created_by: null,
         created_at: '2026-09-01T12:00:00Z',
         updated_by: null,
+        created_by_project_key_id: null,
+        updated_by_project_key_id: null,
         updated_at: '2026-09-20T12:00:00Z',
         team: 997,
     })
@@ -58,7 +62,9 @@ export const overviewExperiments: OfflineExperimentReadApi[] = Array.from({ leng
     prompt_version: index < 4 ? 'prompt-v3' : 'prompt-v2',
 }))
 
-export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPointApi[] {
+export function overviewHistory(
+    scorer: ScoreDefinitionApi
+): (OfflineHistoryPointApi & { summary: NonNullable<OfflineHistoryPointApi['summary']> })[] {
     return overviewExperiments
         .filter((experiment) => experiment.status === 'completed')
         .map((experiment, index) => ({

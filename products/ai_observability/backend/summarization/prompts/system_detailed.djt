@@ -25,7 +25,7 @@ STRUCTURED OUTPUT:
 You must return valid JSON matching this schema:
 {
   "title": "User Query Analysis and Response",
-  "flow_diagram": "User Request\n    ↓\nLLM Call\n    ↓\n  Success?\n    ├─→ Yes: Response\n    └─→ No: Error Handler ✗",
+  "flow_diagram": "<vertical ASCII flow of the steps in this trace, see FLOW DIAGRAM FORMAT>",
   "summary_bullets": [
     {"text": "Main action performed", "line_refs": "L10"},
     {"text": "Key outcome", "line_refs": "L25"},
@@ -47,13 +47,12 @@ Use ASCII flow with vertical (top-to-bottom) layout to avoid horizontal scrollin
 - Use || for parallel operations
 - Keep it readable, well-structured, and vertically oriented
 - Avoid wide horizontal layouts
-- Example with decision:
-  User Input
+- Name each step after what actually happened in this trace (the specific request, tool calls, model calls, and outcomes), never generic labels like "User Request" or "LLM Call"
+- Shape only, replace every <...> with a step from the trace:
+  <step from the trace>
       ↓
-  Validate Input
-      ↓
-    Valid?
-      ├─→ Yes: Process ✓
+  <decision from the trace>?
+      ├─→ <branch taken> ✓
       │       ↓
-      │   Save Result
-      └─→ No: Error ✗
+      │   <next step>
+      └─→ <other branch> ✗

@@ -36,7 +36,9 @@ class TwentyEndpointConfig:
 # to Twenty's `timelineActivities` object, the audit trail of record events shown on a record's
 # timeline. `note_targets` / `task_targets` are the join objects that link a note or task to the
 # people, companies, and opportunities it's about; `workspace_members` resolves the member IDs
-# that tasks, companies, and timeline activities point at.
+# that tasks, companies, and timeline activities point at. `messages`, `message_participants`,
+# `message_threads` and `calendar_events` hold the emails and meetings that Twenty syncs from the
+# connected mailboxes and calendars of the workspace members.
 TWENTY_ENDPOINTS: dict[str, TwentyEndpointConfig] = {
     "companies": TwentyEndpointConfig(name="companies", path="/companies"),
     "people": TwentyEndpointConfig(name="people", path="/people"),
@@ -47,6 +49,10 @@ TWENTY_ENDPOINTS: dict[str, TwentyEndpointConfig] = {
     "note_targets": TwentyEndpointConfig(name="note_targets", path="/noteTargets"),
     "task_targets": TwentyEndpointConfig(name="task_targets", path="/taskTargets"),
     "workspace_members": TwentyEndpointConfig(name="workspace_members", path="/workspaceMembers"),
+    "messages": TwentyEndpointConfig(name="messages", path="/messages"),
+    "message_participants": TwentyEndpointConfig(name="message_participants", path="/messageParticipants"),
+    "message_threads": TwentyEndpointConfig(name="message_threads", path="/messageThreads"),
+    "calendar_events": TwentyEndpointConfig(name="calendar_events", path="/calendarEvents"),
 }
 
 ENDPOINTS = tuple(TWENTY_ENDPOINTS.keys())

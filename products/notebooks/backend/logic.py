@@ -18,10 +18,14 @@ from asgiref.sync import sync_to_async
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
-from posthog.models.tag import Tag, tagify
+from posthog.models.tag import Tag, tag_assignment_transaction, tagify
 from posthog.models.tagged_item import TaggedItem
+from posthog.tag_management import delete_unused_tags
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 from .facade.contracts import NotebookContentEditNotAllowed
 from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_notebook_content
@@ -41,7 +45,11 @@ def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: di
 
     if not notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return
-    if UserAccessControl(user=user, team=notebook.team).is_organization_admin:
+    if authorization.check(
+        resource=Resource.organization(notebook.team.organization_id),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
+    ):
         return
     if not is_publicly_shared(notebook):
         return
@@ -82,7 +90,20 @@ async def acan_user_edit_notebook(team_id: int, short_id: str, user_access_contr
         return False
 
     def check() -> bool:
-        return bool(user_access_control.check_access_level_for_object(notebook, "editor"))
+        # The facade takes a UserAccessControl, so the check reads its user and its team's rules.
+        team = user_access_control.team
+        with authorization.authorization_session():
+            authorization.reuse_current_rules(user_access_control)
+            return authorization.check(
+                resource=Resource(
+                    type=ResourceType.NOTEBOOK,
+                    id=str(notebook.id),
+                    project_id=team.pk if team is not None else notebook.team_id,
+                    created_by_id=notebook.created_by_id,
+                ),
+                action=Action.EDIT,
+                subject=Subject(user_id=user_access_control.user.pk),
+            )
 
     return await sync_to_async(check)()
 
@@ -339,22 +360,21 @@ def update_account_notebook(
 
 def set_notebook_tags(notebook: Notebook, tags: Iterable[str]) -> None:
     """Replace a notebook's tags. Rows are written one by one so each change lands in the activity log."""
-    deduped = sorted({tagify(t) for t in tags if tagify(t)})
-    kept: list[TaggedItem] = []
-    for name in deduped:
-        tag, _ = Tag.objects.get_or_create(name=name, team_id=notebook.team_id)
-        item, _ = notebook.tagged_items.get_or_create(tag_id=tag.id)
-        item.tag = tag
-        kept.append(item)
-    removed = list(notebook.tagged_items.exclude(tag__name__in=deduped).select_related("tag__team"))
-    for item in removed:
-        item.uuid_object = notebook
-        item.delete()
-    if removed:
-        Tag.objects.filter(
-            team_id=notebook.team_id, id__in=[item.tag_id for item in removed], tagged_items__isnull=True
-        ).delete()
-    notebook.prefetched_tags = kept  # type: ignore[attr-defined]
+    with tag_assignment_transaction([notebook.team_id]):
+        deduped = sorted({tagify(t) for t in tags if tagify(t)})
+        kept: list[TaggedItem] = []
+        for name in deduped:
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=notebook.team_id)
+            item, _ = notebook.tagged_items.get_or_create(tag_id=tag.id)
+            item.tag = tag
+            kept.append(item)
+        removed = list(notebook.tagged_items.exclude(tag__name__in=deduped).select_related("tag__team"))
+        for item in removed:
+            item.uuid_object = notebook
+            item.delete()
+        if removed:
+            delete_unused_tags(notebook.team_id, [item.tag_id for item in removed])
+        notebook.prefetched_tags = kept  # type: ignore[attr-defined]
 
 
 def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:

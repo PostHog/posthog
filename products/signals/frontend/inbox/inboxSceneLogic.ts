@@ -20,8 +20,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { TodayAutomateRecent } from '~/layout/today/todayAutomateRecents'
-import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
+import { isTodayHomePaneEnabled } from '~/layout/today/todayPaneFlags'
 import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
+import { TodayRailPane, todayShellLogic } from '~/layout/today/todayShellLogic'
 import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
@@ -556,6 +557,8 @@ function flushOpenReport(
 export interface inboxSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
+    activePane: TodayRailPane // todayShellLogic
+    todayRailEnabled: boolean // todayShellLogic
     user: UserType | null // userLogic
     activeTab: InboxTabKey
     activeTabState: InboxTabKey | null
@@ -577,10 +580,13 @@ export interface inboxSceneLogicValues {
     selectedScoutConfig: SignalScoutConfig | null
     selectedScoutFindingId: string | null
     selectedScoutSkillName: string | null
+    settingsInInbox: boolean
     signalRuns: SignalRun[]
     signalRunsLoading: boolean
     signalRunsResponse: SignalRun[] | null
     signalRunsResponseLoading: boolean
+    titleName: string
+    todayHomePane: boolean
     todayRecent: TodayAutomateRecent | null
 }
 
@@ -684,7 +690,8 @@ export interface inboxSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (activeTabState: InboxTabKey | null) => InboxTabKey
         scoutsInAutomate: (
-            featureFlags: FeatureFlagsSet,
+            todayRailEnabled: boolean,
+            activePane: TodayRailPane,
             activeTab: InboxTabKey,
             selectedScoutSkillName: string | null
         ) => boolean
@@ -692,12 +699,16 @@ export interface inboxSceneLogicMeta {
             selectedScoutSkillName: string | null,
             scoutConfigs: SignalScoutConfig[] | null
         ) => SignalScoutConfig | null
+        todayHomePane: (featureFlags: FeatureFlagsSet) => boolean
+        settingsInInbox: (todayHomePane: boolean, activeTab: InboxTabKey, selectedReportId: string | null) => boolean
+        titleName: (scoutsInAutomate: boolean, settingsInInbox: boolean) => string
         breadcrumbs: (
             selectedReport: SignalReport | null,
             selectedReportId: string | null,
             scoutsInAutomate: boolean,
             selectedScoutConfig: SignalScoutConfig | null,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            settingsInInbox: boolean
         ) => Breadcrumb[]
         todayRecent: (selectedScoutConfig: SignalScoutConfig | null) => TodayAutomateRecent | null
         isStaff: (user: UserType | null) => boolean
@@ -721,6 +732,8 @@ export type inboxSceneLogicType = MakeLogicType<
  * (scout detail, scratchpad, findings, runs, triage mode), and the project-wide runs list. The
  * per-view report lists + their counts live in the keyed `reportListLogic` (one instance per view).
  */
+export const INBOX_SCENE_NAME = sceneConfigurations[Scene.Inbox].name ?? 'Self-driving inbox'
+
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
 
@@ -731,7 +744,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // is dispatched through an unmounted logic, so the scene keeps it alive instead of relying on
         // a component (the list toolbar, the detail actions) having rendered first.
         logic: [inboxFiltersLogic, inboxBulkActionsLogic],
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], scoutFleetLogic, ['scoutConfigs']],
+        values: [
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            scoutFleetLogic,
+            ['scoutConfigs'],
+            todayShellLogic,
+            ['todayRailEnabled', 'activePane'],
+        ],
         actions: [signalSourcesLogic, ['loadSourceConfigs']],
     })),
 
@@ -975,13 +997,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (activeTabState: InboxTabKey | null): InboxTabKey =>
                 activeTabState && isInboxTabKey(activeTabState) ? activeTabState : 'reports',
         ],
-        // Under the new navigation Scouts is its own Automate row, so its pages drop the inbox tabs and title.
+        // Scouts is its own row in the Automate pane, so while that pane is open its pages drop the inbox tabs and
+        // title. Opened as a tab of the inbox from any other pane, the tabs stay so the other inbox tabs stay reachable.
         scoutsInAutomate: [
-            (s) => [s.featureFlags, s.activeTab, s.selectedScoutSkillName],
-            (featureFlags: FeatureFlagsSet, activeTab: InboxTabKey, selectedScoutSkillName: string | null): boolean =>
-                !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] &&
-                isTodayPaneEnabled('automate', featureFlags) &&
-                (activeTab === 'scouts' || !!selectedScoutSkillName),
+            (s) => [s.todayRailEnabled, s.activePane, s.activeTab, s.selectedScoutSkillName],
+            (
+                todayRailEnabled: boolean,
+                activePane: TodayRailPane,
+                activeTab: InboxTabKey,
+                selectedScoutSkillName: string | null
+            ): boolean =>
+                todayRailEnabled && activePane === 'automate' && (activeTab === 'scouts' || !!selectedScoutSkillName),
         ],
         selectedScoutConfig: [
             (s) => [s.selectedScoutSkillName, s.scoutConfigs],
@@ -991,23 +1017,45 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             ): SignalScoutConfig | null =>
                 scoutConfigs?.find((candidate) => candidate.skill_name === selectedScoutSkillName) ?? null,
         ],
+        todayHomePane: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet) => isTodayHomePaneEnabled(featureFlags),
+        ],
+        /** The Home pane has no Settings row or tab, so settings reads as a page inside the inbox. */
+        settingsInInbox: [
+            (s) => [s.todayHomePane, s.activeTab, s.selectedReportId],
+            (todayHomePane: boolean, activeTab: InboxTabKey, selectedReportId: string | null): boolean =>
+                todayHomePane && activeTab === 'settings' && !selectedReportId,
+        ],
+        /** The list view's scene title. The trail takes its parent from the breadcrumbs below. */
+        titleName: [
+            (s) => [s.scoutsInAutomate, s.settingsInInbox],
+            (scoutsInAutomate: boolean, settingsInInbox: boolean): string =>
+                scoutsInAutomate ? 'Scouts' : settingsInInbox ? 'Settings' : INBOX_SCENE_NAME,
+        ],
         breadcrumbs: [
-            (s) => [s.selectedReport, s.selectedReportId, s.scoutsInAutomate, s.selectedScoutConfig, s.featureFlags],
+            (s) => [
+                s.selectedReport,
+                s.selectedReportId,
+                s.scoutsInAutomate,
+                s.selectedScoutConfig,
+                s.featureFlags,
+                s.settingsInInbox,
+            ],
             (
                 selectedReport: SignalReport | null,
                 selectedReportId: string | null,
                 scoutsInAutomate: boolean,
                 selectedScoutConfig: SignalScoutConfig | null,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                settingsInInbox: boolean
             ): Breadcrumb[] => {
                 const root: Breadcrumb = scoutsInAutomate
                     ? { key: 'scouts', name: 'Scouts', iconType: 'inbox', path: urls.inbox('scouts') }
-                    : {
-                          key: 'inbox',
-                          name: sceneConfigurations[Scene.Inbox].name,
-                          iconType: 'inbox',
-                          path: urls.inbox('reports'),
-                      }
+                    : { key: 'inbox', name: INBOX_SCENE_NAME, iconType: 'inbox', path: urls.inbox('reports') }
+                if (settingsInInbox) {
+                    return [root, { key: 'settings', name: 'Settings', path: urls.inbox('settings') }]
+                }
                 // Under the new navigation the phone header shows the last breadcrumb, so a scout's page names the scout.
                 if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && selectedScoutConfig) {
                     return [root, { key: selectedScoutConfig.skill_name, name: scoutDisplayName(selectedScoutConfig) }]
@@ -1439,7 +1487,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, cache }) => {
         const closeAllSurfaces = (): void => {
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
@@ -1488,6 +1536,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return
                 }
+                // The Scouts page of the Automate pane is not an inbox tab, so the inbox's own entry opens Reports
+                // rather than keeping it.
+                if (values.activeTab === 'scouts' && cache.scoutsTabOpenedInAutomate) {
+                    router.actions.replace(urls.inbox('reports'), searchParams, hashParams)
+                    return
+                }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
                 closeAllSurfaces()
@@ -1521,6 +1575,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (isInboxTabKey(tab) && values.activeTab !== tab) {
                     actions.setActiveTab(tab)
                 }
+                cache.scoutsTabOpenedInAutomate = tab === 'scouts' && values.scoutsInAutomate
             },
             [urls.inboxScout(':skillName')]: (
                 { skillName }: { skillName?: string },

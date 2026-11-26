@@ -19,6 +19,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 
 from products.ai_observability.backend.composite_formula import CompositeFormula, CompositeFormulaError, FormulaValue
+from products.ai_observability.backend.composite_scorers import CompositeScorers
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
@@ -31,7 +32,11 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
     PayloadState,
 )
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from products.ai_observability.backend.models.score_definitions import (
+    ExperimentScoreSuiteDefault,
+    ScoreDefinition,
+    ScoreDefinitionVersion,
+)
 from products.ai_observability.backend.offline_evaluation_fingerprint import submission_fingerprint
 from products.ai_observability.backend.offline_evaluation_types import (
     ExperimentSubmission,
@@ -203,19 +208,40 @@ class _OfflineEvaluationService:
             revisions = revisions.filter(dataset_id__in=datasets.values("id"))
         return revisions
 
-    def _scorer_versions(self) -> QuerySet[ScoreDefinitionVersion]:
+    def _accessible_definitions(self) -> QuerySet[ScoreDefinition]:
         definitions = ScoreDefinition.objects.filter(team_id=self.team_id)
         if self._user_access_control is not None:
             definitions = self._user_access_control.filter_queryset_by_access_level(
                 definitions, include_all_if_admin=True, resource="llm_analytics"
             )
-        # nosemgrep: idor-lookup-without-user -- Versions inherit team and caller access from their definitions.
-        return ScoreDefinitionVersion.objects.filter(definition__in=definitions)
+        return definitions
+
+    def _scorer_versions(self) -> QuerySet[ScoreDefinitionVersion]:
+        return ScoreDefinitionVersion.objects.filter(definition__in=self._accessible_definitions().filter(scope="item"))
 
 
 class OfflineExperimentService(_OfflineEvaluationService):
     def _creation_fields(self, submission: ExperimentSubmission) -> dict[str, object]:
         fields: dict[str, object] = asdict(submission)
+        if submission.experiment_scorer_version_id is not None:
+            versions = CompositeScorers.accessible_versions(self._accessible_definitions(), team_id=self.team_id)
+            if not versions.filter(
+                pk=submission.experiment_scorer_version_id, definition__scope="experiment", definition__archived=False
+            ).exists():
+                raise OfflineEvaluationValidationError(
+                    "experiment_scorer_version_id", "Choose an accessible experiment scorer version."
+                )
+        elif submission.suite_key:
+            fields["experiment_scorer_version_id"] = (
+                ExperimentScoreSuiteDefault.objects.for_team(self.team_id)
+                .filter(
+                    suite_key=submission.suite_key,
+                    scorer_version__definition__team_id=self.team_id,
+                    scorer_version__definition__archived=False,
+                )
+                .values_list("scorer_version_id", flat=True)
+                .first()
+            )
         if submission.dataset_revision_id is None:
             if submission.dataset_source == "posthog":
                 raise OfflineEvaluationValidationError("dataset_revision_id", "Select a PostHog dataset revision.")

@@ -1546,8 +1546,8 @@ COHORT_NOT_READY_CODE = "cohort_not_ready"
 def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
     if cohort.cohort_type == CohortType.REALTIME and not cohort.realtime_enabled and has_realtime_state(cohort):
         return serializers.ValidationError(
-            f"Realtime is off for cohort {cohort.pk}. Turn it on from the cohort's page, and workflows can use the "
-            "cohort once it finishes calculating.",
+            f"Realtime is off for cohort {cohort.pk}, so workflows can't use it. Open the cohort's page to turn "
+            "realtime on, or to see why it can't be turned on.",
             code=COHORT_NOT_READY_CODE,
         )
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
@@ -1681,11 +1681,6 @@ def compile_hog(
 
         if hog_type == "destination":
             supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
-        elif hog_type == "tagger":
-            # Taggers classify; they must not perform side effects, so we deliberately exclude
-            # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
-            # Stated explicitly so a future refactor can't silently widen the surface.
-            supported_functions = set()
         elif hog_type == "transformation_log":
             # Log transformations run synchronously per log record in the logs ingestion
             # hot path — no async functions (fetch, postHogCapture) can ever be allowed.

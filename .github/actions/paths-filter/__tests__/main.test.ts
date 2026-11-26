@@ -134,3 +134,49 @@ describe('reuse wiring', () => {
     expect(outputs).toMatchObject({app: false, app_count: 0, docs: true, reused: true, reused_from: previousHead})
   })
 })
+
+describe('changed files from the API', () => {
+  test('a connect timeout on the first listing is retried', async () => {
+    jest.useFakeTimers()
+    let isCompleted = false
+    const completed = new Promise<void>((resolve, reject) => {
+      jest.mocked(core.setOutput).mockImplementation(name => {
+        if (name !== 'changes') return
+        isCompleted = true
+        resolve()
+      })
+      jest.mocked(core.setFailed).mockImplementation(message => reject(new Error(String(message))))
+    })
+    jest
+      .mocked(core.getInput)
+      .mockImplementation(name => ({filters: JSON.stringify({docs: ['docs/**']}), token: 'test-token'}[name] ?? ''))
+    github.context.eventName = 'pull_request'
+    github.context.payload = {
+      repository: {name: 'example', owner: {login: 'example'}, default_branch: 'master'},
+      pull_request: {number: 1}
+    }
+    jest.mocked(git.getShortName).mockImplementation(ref => ref.replace('refs/heads/', ''))
+    jest.mocked(git.getCurrentRef).mockResolvedValue('master')
+    let listings = 0
+    jest.mocked(github.getOctokit).mockReturnValue({
+      rest: {pulls: {listFiles: {endpoint: {merge: () => ({})}}}},
+      paginate: {
+        iterator: async function* () {
+          listings++
+          if (listings === 1) throw new Error('Connect Timeout Error (attempted address: api.github.com:443)')
+          yield {status: 200, data: [{filename: 'docs/page.md', status: 'modified'}]}
+        }
+      }
+    } as unknown as ReturnType<typeof github.getOctokit>)
+    jest.isolateModules(() => {
+      require('../src/main')
+    })
+    while (!isCompleted) {
+      await jest.advanceTimersByTimeAsync(1_000)
+    }
+    await completed
+    jest.useRealTimers()
+    expect(listings).toBe(2)
+    expect(core.setOutput).toHaveBeenCalledWith('docs', true)
+  })
+})

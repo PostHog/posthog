@@ -24,6 +24,8 @@ from products.workflows.backend.metrics import (
     GUARDRAIL_METRICS,
     HOG_FLOW_VERSION_APP_SOURCE,
     MIN_EVIDENCE_SAMPLE,
+    REQUEST_STARTED_TRIGGERS,
+    REQUEST_STARTS_VERSIONED_SINCE,
     RUN_STARTED_METRIC,
     TARGET_CLICK_METRIC,
     TARGET_CONVERSION_METRIC,
@@ -437,6 +439,20 @@ def outcome_from_totals(totals: Mapping[str, float], version: int, target: str =
     }
 
 
+@frozen
+class ConversionBasis:
+    """What decides which runs of a version its conversion rate can count."""
+
+    conversion: Optional[Mapping]
+    trigger: Optional[Mapping]
+
+    @property
+    def recorded_since(self) -> datetime:
+        if (self.trigger or {}).get("type") in REQUEST_STARTED_TRIGGERS:
+            return REQUEST_STARTS_VERSIONED_SINCE
+        return CONVERSION_BY_START_RECORDED_SINCE
+
+
 def _has_goal(conversion: Optional[Mapping]) -> bool:
     return bool(conversion and (conversion.get("filters") or conversion.get("events")))
 
@@ -447,8 +463,14 @@ def _conversion_window(conversion: Optional[Mapping]) -> timedelta:
     return timedelta(minutes=minutes) if minutes else DEFAULT_CONVERSION_WINDOW
 
 
+def scout_conversion_window(basis: ConversionBasis) -> Optional[timedelta]:
+    """The window a run has to convert, or None when a suggestion aimed at this conversion would be refused."""
+    window = _conversion_window(basis.conversion)
+    return window if _has_goal(basis.conversion) and window <= MAX_MEASURABLE_CONVERSION_WINDOW else None
+
+
 def conversion_evidence_error(
-    *, hog_flow_id: UUID, evidence: Mapping, changes: Mapping, live: Optional[Mapping], base_version: int, now: datetime
+    *, hog_flow_id: UUID, evidence: Mapping, changes: Mapping, live: Mapping, base_version: int, now: datetime
 ) -> Optional[str]:
     """Why a suggestion aimed at conversion could not be measured, or None when it can be.
 
@@ -457,10 +479,11 @@ def conversion_evidence_error(
         return None
     if "conversion" in changes:
         return "A suggestion aimed at conversion cannot change the conversion goal, or the two versions would measure different things."
-    base = conversions_by_version(hog_flow_id, live, [base_version])[base_version]
-    if not _has_goal(live) or not _has_goal(base):
+    basis = conversion_basis_by_version(hog_flow_id, live, [base_version])[base_version]
+    base, live_conversion = basis.conversion, live.get("conversion")
+    if not _has_goal(live_conversion) or not _has_goal(base):
         return "This workflow version has no conversion goal, so its conversion rate cannot be measured."
-    if max(_conversion_window(live), _conversion_window(base)) > MAX_MEASURABLE_CONVERSION_WINDOW:
+    if max(_conversion_window(live_conversion), _conversion_window(base)) > MAX_MEASURABLE_CONVERSION_WINDOW:
         return (
             f"The conversion window is longer than {MAX_MEASURABLE_CONVERSION_WINDOW.days} days, so too few runs "
             "finish it before their metrics expire. A workflow with no window set uses "
@@ -468,18 +491,76 @@ def conversion_evidence_error(
         )
     bounds = absolute_window(evidence.get("window"), now)
     settled = runs_settled_before(base, now)
-    if settled <= CONVERSION_BY_START_RECORDED_SINCE:
+    if settled <= basis.recorded_since:
         return "No measured run has finished its conversion window yet, so aim at another metric for now."
     if (
         bounds is None
-        or bounds.start < CONVERSION_BY_START_RECORDED_SINCE
+        or bounds.start < basis.recorded_since
         or bounds.end > settled
         or any(_start_of_hour(edge) != edge for edge in (bounds.start, bounds.end))
     ):
         return (
             "Conversion needs a `window` as `start/end` on UTC hours, starting at or after "
-            f"{CONVERSION_BY_START_RECORDED_SINCE:%Y-%m-%dT%H:%M:%SZ} and ending at or before {settled:%Y-%m-%dT%H:%M:%SZ}, "
+            f"{basis.recorded_since:%Y-%m-%dT%H:%M:%SZ} and ending at or before {settled:%Y-%m-%dT%H:%M:%SZ}, "
             "when the latest runs finished their conversion window."
+        )
+    return None
+
+
+def conversion_sample_error(
+    *,
+    hog_flow_id: UUID,
+    live: Mapping,
+    base_version: int,
+    step_id: Optional[str],
+    changes: Mapping,
+    evidence: Mapping,
+    measured: Optional[Mapping],
+) -> Optional[str]:
+    """Why PostHog's own reading is too small to judge a suggestion aimed at conversion, or None.
+
+    A rate on too few runs is noise, and an email sent too few times in the window cannot be what moved it.
+    A failed read leaves the suggestion filed and marked unverified, so only a reading that came back can refuse it.
+    """
+    if target_metric_in(evidence) != TARGET_CONVERSION_METRIC:
+        return None
+    # The sample is read from the base version, so the step has to be an email there to have sends to count.
+    revision = HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id, version=base_version).first()
+    base_emails = {
+        action["id"]: action
+        for action in (revision.content if revision is not None else live).get("actions") or []
+        if isinstance(action, dict) and action.get("type") == "function_email" and action.get("id")
+    }
+    changed_emails = sorted(
+        str(action["id"])
+        for action in changes.get("actions") or []
+        if isinstance(action, dict)
+        and action.get("id") in base_emails
+        # Only `config` holds what the email sends; read back from the API, a step also carries defaults the revision lacks.
+        and any(
+            _leaf(action, path) != _leaf(base_emails[action["id"]], path)
+            for path in _patch_paths(action.get("config"), ("config",))
+        )
+    )
+    # The sends floor reads the named step, so it has to be the email the suggestion changes.
+    if changed_emails and step_id not in changed_emails:
+        return (
+            f"This suggestion changes the email step {', '.join(changed_emails)}. Set `step_id` to that step, "
+            "so PostHog counts the sends of the email that changes."
+        )
+    if not measured:
+        return None
+    runs = int(measured["target"].get("n") or 0)
+    if runs < MIN_EVIDENCE_SAMPLE:
+        return (
+            f"Conversion needs at least {MIN_EVIDENCE_SAMPLE} settled runs in the window. PostHog counts {runs} there."
+        )
+    # The guardrails divide by every send of the step, tracked or not.
+    sends = int((measured.get("guardrails") or [{}])[0].get("n") or 0)
+    if step_id in base_emails and sends < MIN_EVIDENCE_SAMPLE:
+        return (
+            f"Conversion needs at least {MIN_EVIDENCE_SAMPLE} sends of this email step in the window. "
+            f"PostHog counts {sends} there."
         )
     return None
 
@@ -501,32 +582,30 @@ def _settled_run_totals(
     *,
     team_id: int,
     hog_flow_id: UUID,
-    conversions: Mapping[int, Optional[Mapping]],
+    bases: Mapping[int, ConversionBasis],
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
 ) -> dict[int, dict[str, int]]:
     """Conversions and run starts per version, for the whole workflow. A conversion belongs to the run, so no step scopes it."""
-    start = (
-        max(_start_of_hour(after), CONVERSION_BY_START_RECORDED_SINCE) if after else CONVERSION_BY_START_RECORDED_SINCE
-    )
     now = timezone.now()
-    versions_by_end: dict[datetime, list[int]] = defaultdict(list)
-    for version, conversion in conversions.items():
+    versions_by_window: dict[AbsoluteWindow, list[int]] = defaultdict(list)
+    for version, basis in bases.items():
         # A version with no goal starts runs that can never convert, which would read as 0%.
-        if not _has_goal(conversion):
+        if not _has_goal(basis.conversion):
             continue
-        settled = runs_settled_before(conversion, now)
-        versions_by_end[min(_start_of_hour(before), settled) if before else settled].append(version)
+        start = max(_start_of_hour(after), basis.recorded_since) if after else basis.recorded_since
+        settled = runs_settled_before(basis.conversion, now)
+        end = min(_start_of_hour(before), settled) if before else settled
+        if start < end:
+            versions_by_window[AbsoluteWindow(start=start, end=end)].append(version)
     totals: dict[int, dict[str, int]] = {}
-    for end, versions in versions_by_end.items():
-        if start >= end:
-            continue
+    for window, versions in versions_by_window.items():
         by_source = fetch_app_metric_totals_by_source(
             team_id=team_id,
             app_source=HOG_FLOW_VERSION_APP_SOURCE,
             app_source_ids=[f"{hog_flow_id}/{version}" for version in versions],
-            after=start,
-            before=end,
+            after=window.start,
+            before=window.end,
             name=[TARGET_CONVERSION_METRIC, RUN_STARTED_METRIC],
             hour_aligned=True,
         )
@@ -534,16 +613,18 @@ def _settled_run_totals(
     return totals
 
 
-def conversions_by_version(
-    hog_flow_id: UUID, live: Optional[Mapping], versions: Sequence[int]
-) -> dict[int, Optional[Mapping]]:
-    """The conversion goal each version ran with, since a later publish can change the window."""
-    published = dict(
-        HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id, version__in=versions).values_list(
-            "version", "content__conversion"
-        )
-    )
-    return {version: published.get(version, live) for version in versions}
+def conversion_basis_by_version(
+    hog_flow_id: UUID, live: Mapping, versions: Sequence[int]
+) -> dict[int, ConversionBasis]:
+    """The goal and trigger each version ran with, since a later publish can change both."""
+    published = {
+        version: ConversionBasis(conversion=conversion, trigger=trigger)
+        for version, conversion, trigger in HogFlowRevision.objects.filter(
+            hog_flow_id=hog_flow_id, version__in=versions
+        ).values_list("version", "content__conversion", "content__trigger")
+    }
+    live_basis = ConversionBasis(conversion=live.get("conversion"), trigger=live.get("trigger"))
+    return {version: published.get(version, live_basis) for version in versions}
 
 
 def carries_proposal_change(content: dict, changes: dict) -> bool:
@@ -734,9 +815,7 @@ def version_totals(
         _settled_run_totals(
             team_id=hog_flow.team_id,
             hog_flow_id=hog_flow.id,
-            conversions=conversions_by_version(
-                hog_flow.id, snapshot_flow_content(hog_flow).get("conversion"), versions
-            ),
+            bases=conversion_basis_by_version(hog_flow.id, snapshot_flow_content(hog_flow), versions),
         )
         if target == TARGET_CONVERSION_METRIC
         else {}
@@ -831,7 +910,7 @@ def version_outcome(
     before: Optional[datetime] = None,
     step_id: Optional[str] = None,
     target: str = TARGET_OPEN_METRIC,
-    live_conversion: Optional[Mapping] = None,
+    live: Mapping,
 ) -> Optional[dict]:
     read = [version for version in versions if version is not None]
     if not read:
@@ -840,7 +919,7 @@ def version_outcome(
         _settled_run_totals(
             team_id=team_id,
             hog_flow_id=hog_flow_id,
-            conversions=conversions_by_version(hog_flow_id, live_conversion, read),
+            bases=conversion_basis_by_version(hog_flow_id, live, read),
             after=after,
             before=before,
         )

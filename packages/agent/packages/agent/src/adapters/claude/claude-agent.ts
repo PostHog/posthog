@@ -45,7 +45,11 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import { leadingSlashCommand, serializeError } from "@posthog/agent-contracts";
+import {
+  type GatewayModel,
+  leadingSlashCommand,
+  serializeError,
+} from "@posthog/agent-contracts";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import {
   createEnrichment,
@@ -447,6 +451,7 @@ export interface ClaudeAcpAgentOptions {
   gatewayEnv?: GatewayEnv;
   machineAuth?: MachineClaudeAuth;
   modelsGatewayUrl?: string;
+  listModels?: () => Promise<GatewayModel[]>;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -3201,10 +3206,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private routedModelId<T extends string | undefined>(model: T): T {
-    return modelIdForGatewayRoute(
-      model,
-      this.options?.gatewayEnv?.isAiGateway ?? false,
-    );
+    return this.options?.gatewayEnv ? modelIdForGatewayRoute(model) : model;
   }
 
   private startupFailure(
@@ -3674,6 +3676,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.options?.modelsGatewayUrl,
         this.options?.gatewayEnv?.anthropicAuthToken,
         Number(this.options?.gatewayEnv?.posthogProjectId) || undefined,
+        this.options?.gatewayEnv ? undefined : this.options?.listModels,
       ),
       ...(meta?.taskRunId
         ? [

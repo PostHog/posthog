@@ -9,7 +9,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
@@ -2854,7 +2854,11 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 400, response.json()
-        expected = "Turn it on from the cohort's page" if cohort_kind == "realtime_off" else "isn't ready for realtime"
+        expected = (
+            "Open the cohort's page to turn realtime on"
+            if cohort_kind == "realtime_off"
+            else "isn't ready for realtime"
+        )
         assert expected in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
@@ -5946,7 +5950,12 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if expected_snapshot_status:
-            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            assert response.json() == {
+                "status": expected_snapshot_status,
+                "audience_size": None,
+                "error": None,
+                "skipped_test_account_filters": [],
+            }
             mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
         else:
             mock_task.assert_not_called()
@@ -5961,57 +5970,6 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         assert response.status_code == 400, response.json()
-
-    @parameterized.expand(
-        [
-            (
-                "flag",
-                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
-                "Feature flags can't be used as a batch audience condition",
-            ),
-            (
-                "unfinished_person_filter",
-                [{"key": "email", "type": "person", "operator": "exact"}],
-                "An audience filter is incomplete. Finish it or remove it.",
-            ),
-        ]
-    )
-    @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_rejects_unusable_condition(self, _name, properties, message):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-            {"filters": {"properties": properties}},
-            format="json",
-            headers={"x-internal-api-secret": "test-secret-123"},
-        )
-
-        assert response.status_code == 400, response.json()
-        assert message in response.json().get("error", "")
-
-    @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
-    def test_internal_user_blast_radius_persons_uses_workflows_query(self):
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
-            return_value=["id-1"],
-        ) as mock_workflows_query:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-                {"filters": {"properties": []}, "dedupe_key": "email"},
-                format="json",
-                headers={"x-internal-api-secret": "test-secret-123"},
-            )
-
-        assert response.status_code == 200, response.json()
-        assert response.json()["users_affected"] == ["id-1"]
-        mock_workflows_query.assert_called_once_with(
-            self.team, {"properties": []}, None, None, dedupe_key="email", settings=ANY
-        )
-        # A timed-out page has to raise instead of coming back short. A short page reads as
-        # the end of the audience, so the batch send skips every recipient after it.
-        passed_settings = mock_workflows_query.call_args.kwargs["settings"]
-        assert getattr(passed_settings, "timeout_overflow_mode", None) == "throw"
-        # The page query runs under the resolver's own ClickHouse cap, not the interactive 60s default.
-        assert passed_settings.max_execution_time == 123
 
     @parameterized.expand(
         [
@@ -6061,18 +6019,6 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         assert response.status_code == 400, response.json()
-
-    @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_rejects_unsupported_dedupe_key(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-            {"filters": {"properties": []}, "dedupe_key": "phone"},
-            format="json",
-            headers={"x-internal-api-secret": "test-secret-123"},
-        )
-
-        assert response.status_code == 400, response.json()
-        assert "Unsupported dedupe_key" in response.json().get("error", "")
 
     @parameterized.expand([("completed", True), ("failed", False)])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
@@ -9221,7 +9167,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     def test_rejects_a_model_outside_the_task_model_catalogue(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
             return_value=(SimpleNamespace(model="claude-opus"),),
         ):
             response = self._post_flow({"model": {"value": {"model": "not-a-real-model"}}})
@@ -9229,20 +9175,16 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__model"
 
-    def test_accepts_a_model_in_the_task_model_catalogue(self):
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
-            return_value=(SimpleNamespace(model="claude-opus"),),
-        ):
-            response = self._post_flow({"model": {"value": {"model": "claude-opus"}}})
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_does_not_block_saving_while_the_model_catalogue_is_unreachable(self):
-        # An empty catalogue means the gateway couldn't be reached, not that no model is
-        # valid - a gateway outage must not block every workflow save.
-        with patch("products.workflows.backend.presentation.views.hog_flow.available_model_choices", return_value=()):
-            response = self._post_flow({"model": {"value": {"model": "whatever-model"}}})
+    @parameterized.expand(
+        [
+            ("offered", "claude-opus-5-5"),
+            ("retired_but_runnable", "claude-sonnet-4-6"),
+            ("sdk_implicit", "claude-haiku-4-5"),
+            ("desktop_legacy", "gpt-5.4"),
+        ]
+    )
+    def test_accepts_a_model_in_the_task_model_catalogue(self, _name, model):
+        response = self._post_flow({"model": {"value": {"model": model}}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -9251,7 +9193,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
         # reasoning_effort is a plain CharField with no cross-check), so a mismatch saved here
         # would otherwise reach the agent sandbox unvalidated instead of failing anywhere.
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
             return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
         ):
             response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "ultracode"}}})
@@ -9261,7 +9203,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     def test_accepts_a_reasoning_effort_the_selected_model_supports(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
             return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
         ):
             response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "high"}}})

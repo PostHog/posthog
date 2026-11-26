@@ -218,6 +218,9 @@ class GitHubRecorder:
         # How many times the ownership reader looked up the default branch head.
         self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
+        # The bearer token of the request being served, recorded on its write, so a test can tell
+        # which App made the write.
+        self._request_token = ""
         self._next_id = 90000
 
     def _alloc_id(self) -> int:
@@ -246,6 +249,7 @@ class GitHubRecorder:
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
         self.request_priorities.append((path, kwargs.get("priority")))
+        self._request_token = (kwargs.get("headers") or {}).get("Authorization", "").removeprefix("Bearer ")
 
         if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
             raise GitHubEgressBudgetExhausted("the installation budget is spent")
@@ -308,7 +312,14 @@ class GitHubRecorder:
         if method == "PATCH" and (m := _COMMENT_PATCH_RE.match(path)):
             return self._record_write("issue_comment_edit", m.group("repo"), 0, json_body)
         if method == "DELETE" and (m := _COMMENT_PATCH_RE.match(path)):
-            self.github_writes.append({"kind": "delete_comment", "repo": m.group("repo"), "id": int(m.group("cid"))})
+            self.github_writes.append(
+                {
+                    "kind": "delete_comment",
+                    "repo": m.group("repo"),
+                    "id": int(m.group("cid")),
+                    "token": self._request_token,
+                }
+            )
             return FakeResponse(204)
         if method == "POST" and (m := _REQUESTED_REVIEWERS_RE.match(path)):
             return self._request_reviewers(m.group("repo"), int(m.group("number")), json_body or {})
@@ -482,7 +493,16 @@ class GitHubRecorder:
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
-        self.github_writes.append({"kind": kind, "repo": repo, "number": number, "body": body or {}, "id": new_id})
+        self.github_writes.append(
+            {
+                "kind": kind,
+                "repo": repo,
+                "number": number,
+                "body": body or {},
+                "id": new_id,
+                "token": self._request_token,
+            }
+        )
         return FakeResponse(201 if kind != "issue_comment_edit" else 200, json_data={"id": new_id})
 
     def _add_reaction(self, repo: str, number: int, body: dict | None) -> FakeResponse:

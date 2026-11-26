@@ -100,11 +100,11 @@ Draft and stopped surveys never trigger the check. `[HIGH]`
 So: create as a draft, show the user what it will ask and who it will reach, and let them launch with `survey-launch`.
 If the survey links the flag on a running experiment, mention the exposure interaction first.
 
-## Variant targeting fails silently on mobile
+## Variant targeting fails silently on older SDKs
 
-`linkedFlagVariant` needs **posthog-js 1.259.0+** or **posthog-react-native 4.4.0+** and is **unsupported on posthog-ios, posthog-android, and posthog_flutter** (`frontend/src/scenes/surveys/surveyVersionRequirements.ts`). `[HIGH]`
-On an unsupported SDK the condition doesn't error — it simply doesn't gate, so a "test-variant-only" survey reaches everyone with the flag enabled `[LOW]`.
-On mobile experiments use the default (ask everyone, split at readout), which needs no SDK support.
+`linkedFlagVariant` needs **posthog-js 1.259.0+**, **posthog-react-native 4.4.0+**, **posthog-ios 3.78.0+**, **posthog-android 3.67.0+**, or **posthog_flutter 5.47.0+** (`frontend/src/scenes/surveys/surveyVersionRequirements.ts`). `[HIGH]`
+On an older SDK the condition doesn't error — it simply doesn't gate, so a "test-variant-only" survey reaches everyone with the flag enabled `[LOW]`.
+If some users run older mobile SDKs, use the default (ask everyone, split at readout), which needs no SDK support.
 The app's quick-create modal surfaces these warnings; over MCP nothing does, so check SDK versions before promising variant scoping: `$lib` and `$lib_version` on the project's recent events.
 
 ## Validation rules (server-side, `products/surveys/backend/api/survey.py`) `[HIGH]`

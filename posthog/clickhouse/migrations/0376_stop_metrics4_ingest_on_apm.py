@@ -36,7 +36,7 @@ TABLES = (
 
 operations = (
     [
-        run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.{name}", node_roles=[NodeRole.APM])
+        run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.{name}", node_roles=[NodeRole.INGESTION_APM])
         for name in (*VIEWS, *TABLES)
     ]
     if run_mode().is_deployed_cloud

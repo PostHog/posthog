@@ -4,6 +4,7 @@ from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.fields import empty
 from rest_framework.settings import api_settings
 from rest_framework.utils import html
 
@@ -91,6 +92,13 @@ class AddressListField(serializers.ListField):
 TRACKING_KINDS = ("opens", "clicks", "engagement")
 
 
+class NullableOmittableBooleanField(serializers.BooleanField):
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs["allow_null"] = True
+        super().__init__(**kwargs)
+        self.default_empty_html = empty
+
+
 @extend_schema_field(
     {
         "oneOf": [
@@ -106,8 +114,11 @@ TRACKING_KINDS = ("opens", "clicks", "engagement")
                     "clicks": {
                         "type": "boolean",
                         "description": "Whether the email's links go through a redirect that counts clicks. "
-                        "Defaults to true, for sensitive emails too. Needs `opens`. A link with `data-ph-no-track` keeps "
-                        "its own address.",
+                        "When omitted, follows the matched template's `click_tracking_enabled` setting (unless the "
+                        "send marks `sensitive: true` on a non-sensitive template), and otherwise defaults to false "
+                        "on sensitive emails and true on others. Pass `false` to keep links direct even if the "
+                        "matched template opted in. Needs `opens`. A link with `data-ph-no-track` keeps its own "
+                        "address.",
                     },
                     "engagement": {
                         "type": "boolean",

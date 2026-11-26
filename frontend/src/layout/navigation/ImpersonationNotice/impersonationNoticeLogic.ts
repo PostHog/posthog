@@ -13,6 +13,7 @@ import { membersLogic } from '~/models/membersLogic'
 import { OrganizationMemberType, Region, UserType } from '~/types'
 
 import { adminLoginAs } from './adminLoginAs'
+import { ImpersonationSessionUncertainError } from './ImpersonationSessionUncertainError'
 
 export interface ExpiredSessionInfo {
     email: string
@@ -334,6 +335,10 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 await adminLoginAs({ userId: expiredSessionInfo.userId, reason, readOnly })
                 actions.loadUser()
             } catch (e) {
+                if (e instanceof ImpersonationSessionUncertainError) {
+                    window.location.reload()
+                    return
+                }
                 const errorMessage = e instanceof Error ? e.message : 'Failed to re-impersonate'
                 lemonToast.error(errorMessage)
                 actions.reImpersonateFailure(errorMessage)
@@ -354,6 +359,10 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 // Full reload so org/project/scene state resets for the newly impersonated user.
                 window.location.reload()
             } catch (e) {
+                if (e instanceof ImpersonationSessionUncertainError) {
+                    window.location.reload()
+                    return
+                }
                 const errorMessage = e instanceof Error ? e.message : 'Failed to change user'
                 lemonToast.error(errorMessage)
                 actions.changeUserFailure(errorMessage)

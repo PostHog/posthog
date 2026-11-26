@@ -4,18 +4,55 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
-import { deleteDisabledReason, isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
-import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import {
+    deleteDisabledReason,
+    isDeprecatePayload,
+    noReadsLabel,
+    refreshCostLabel,
+    refreshesTheView,
+} from '../suggestionCopy'
+import { DeprecateAction, catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
 export type RefreshChoice = 'stop' | 'keep'
-export type ActionChoice = 'deprecate' | 'delete'
 
-export const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
+interface DeprecateActionCopy {
+    title: (subjectName: string) => string
+    confirmLabel: string
+    confirmDataAttr: string
+}
+
+export const DEPRECATE_ACTION_COPY: Record<DeprecateAction, DeprecateActionCopy> = {
+    deprecate: {
+        title: (subjectName) => `Mark ${subjectName} as deprecated?`,
+        confirmLabel: 'Mark deprecated',
+        confirmDataAttr: 'warehouse-suggestions-deprecate-confirm',
+    },
+    unmarked: {
+        title: (subjectName) => `Stop refreshing ${subjectName}?`,
+        confirmLabel: 'Stop refreshing',
+        confirmDataAttr: 'warehouse-suggestions-stop-only-confirm',
+    },
+    delete: {
+        title: (subjectName) => `Delete ${subjectName}?`,
+        confirmLabel: 'Delete view',
+        confirmDataAttr: 'warehouse-suggestions-delete-confirm',
+    },
+}
+
+const NOTHING_TO_CHANGE_REASON = 'Nothing would change. Stop refreshing it, or dismiss the suggestion instead.'
+
+const ACTION_CHOICES: LemonRadioOption<DeprecateAction>[] = [
     {
         value: 'deprecate',
         label: 'Mark it deprecated',
         description: 'It stays in the data catalog with a deprecated label, so people know not to use it.',
         'data-attr': 'warehouse-suggestions-deprecate-mark',
+    },
+    {
+        value: 'unmarked',
+        label: "Don't mark it deprecated",
+        description: "If no one reads it in the next 30 days, it's suggested for deprecation again.",
+        'data-attr': 'warehouse-suggestions-deprecate-unmarked',
     },
     {
         value: 'delete',
@@ -41,10 +78,31 @@ export const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
     },
 ]
 
+export function deprecateActionChoices(
+    materialized: boolean,
+    blockedReasons: Record<DeprecateAction, string | undefined>
+): LemonRadioOption<DeprecateAction>[] {
+    return ACTION_CHOICES.filter((choice) => materialized || choice.value !== 'unmarked').map((choice) => ({
+        ...choice,
+        disabledReason: blockedReasons[choice.value],
+    }))
+}
+
+export function confirmDisabledReason(
+    deprecateAction: DeprecateAction,
+    keepMaterialized: boolean,
+    blockedReasons: Record<DeprecateAction, string | undefined>
+): string | undefined {
+    if (deprecateAction === 'unmarked' && keepMaterialized) {
+        return NOTHING_TO_CHANGE_REASON
+    }
+    return blockedReasons[deprecateAction]
+}
+
 export function DeprecateSuggestionModal(): JSX.Element | null {
-    const { acceptConfirmSuggestion, actionsInFlight, deleteView, keepMaterialized, status } =
+    const { acceptConfirmSuggestion, actionsInFlight, deprecateAction, keepMaterialized, status } =
         useValues(warehouseSuggestionsLogic)
-    const { confirmAccept, closeAcceptConfirm, setDeleteView, setKeepMaterialized } =
+    const { confirmAccept, closeAcceptConfirm, setDeprecateAction, setKeepMaterialized } =
         useActions(warehouseSuggestionsLogic)
     const payload = acceptConfirmSuggestion?.payload
 
@@ -52,22 +110,22 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
         return null
     }
     const inFlight = !!actionsInFlight[acceptConfirmSuggestion.id]
-    const materialized = payload.materialized !== false
+    const materialized = refreshesTheView(payload)
     const windowDays = status?.window_days ?? 0
     const noReads = noReadsLabel(windowDays)
-    const blockedReasons: Record<ActionChoice, string | undefined> = {
+    const blockedReasons: Record<DeprecateAction, string | undefined> = {
         deprecate: catalogEditBlockedReason(),
+        unmarked: undefined,
         delete: deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays),
     }
-    const actionChoices = ACTION_CHOICES.map((choice) => ({ ...choice, disabledReason: blockedReasons[choice.value] }))
-    const chosen: ActionChoice = deleteView ? 'delete' : 'deprecate'
+    const copy = DEPRECATE_ACTION_COPY[deprecateAction]
 
     return (
         <LemonModal
             isOpen
             closable={!inFlight}
             onClose={closeAcceptConfirm}
-            title={deleteView ? `Delete ${payload.subject_name}?` : `Mark ${payload.subject_name} as deprecated?`}
+            title={copy.title(payload.subject_name)}
             footer={
                 <>
                     <LemonButton
@@ -79,17 +137,13 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        status={deleteView ? 'danger' : undefined}
+                        status={deprecateAction === 'delete' ? 'danger' : undefined}
                         loading={inFlight}
-                        disabledReason={blockedReasons[chosen]}
+                        disabledReason={confirmDisabledReason(deprecateAction, keepMaterialized, blockedReasons)}
                         onClick={() => confirmAccept()}
-                        data-attr={
-                            deleteView
-                                ? 'warehouse-suggestions-delete-confirm'
-                                : 'warehouse-suggestions-deprecate-confirm'
-                        }
+                        data-attr={copy.confirmDataAttr}
                     >
-                        {deleteView ? 'Delete view' : 'Mark deprecated'}
+                        {copy.confirmLabel}
                     </LemonButton>
                 </>
             }
@@ -102,13 +156,13 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                     <h4 className="m-0 text-sm font-semibold">What to do</h4>
                     <LemonRadio
                         aria-label="What to do"
-                        value={chosen}
-                        onChange={(choice) => setDeleteView(choice === 'delete')}
-                        options={actionChoices}
+                        value={deprecateAction}
+                        onChange={setDeprecateAction}
+                        options={deprecateActionChoices(materialized, blockedReasons)}
                         radioPosition="top"
                     />
                 </fieldset>
-                {materialized && !deleteView && (
+                {materialized && deprecateAction !== 'delete' && (
                     <fieldset disabled={inFlight} className="flex flex-col gap-2">
                         <h4 className="m-0 text-sm font-semibold">Its materialization</h4>
                         <LemonRadio

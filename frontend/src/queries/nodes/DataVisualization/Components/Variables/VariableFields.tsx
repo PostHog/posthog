@@ -364,8 +364,10 @@ export const DateField = ({
     onApply?: (value: string) => void
     className?: string
 }): JSX.Element => {
-    const isRelative = isRelativeDateValue(variable.default_value)
-    const relativeValue = parseRelativeDateValue(variable.default_value) ?? { amount: 0, unit: 'd' as RelativeDateUnit }
+    const defaultValue = variable.default_value ?? ''
+    const isRelative = isRelativeDateValue(defaultValue)
+    const relativeValue = parseRelativeDateValue(defaultValue) ?? { amount: 0, unit: 'd' as RelativeDateUnit }
+    const fixedDate = dayjs(defaultValue)
 
     return (
         <div className={cn('flex flex-col gap-2', className)}>
@@ -412,8 +414,8 @@ export const DateField = ({
                 </div>
             ) : (
                 <VariableCalendar
-                    value={dayjs(variable.default_value)}
-                    rawValue={variable.default_value}
+                    value={fixedDate.isValid() ? fixedDate : null}
+                    rawValue={defaultValue}
                     updateVariable={(date) => {
                         updateVariable({ ...variable, default_value: date })
                         onApply?.(date)
@@ -421,9 +423,7 @@ export const DateField = ({
                 />
             )}
             {isRelative && (
-                <span className="text-xs text-secondary">
-                    Current value: {formatRelativeDateValue(variable.default_value)}
-                </span>
+                <span className="text-xs text-secondary">Current value: {formatRelativeDateValue(defaultValue)}</span>
             )}
         </div>
     )
