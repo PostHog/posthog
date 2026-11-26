@@ -2,8 +2,8 @@ import { redactReplayRequests } from './replayRequestRedaction'
 
 const REDACTED_BODY = '[SessionRecording] body redacted as it holds the values of a push send'
 const PUSH_SEND_PATH = /\/messaging\/send\/push(_batch)?\/?(\?|#|$)/
-// A workflow or broadcast test send, which carries the typed push content and the test person's properties.
-const HOG_FLOW_TEST_SEND_PATH = /\/hog_flows\/[^/?#]+\/invocations\/?(\?|#|$)/
+// A workflow, broadcast or destination test send, which carries the typed push content and the test person's properties.
+const HOG_FLOW_TEST_SEND_PATH = /\/hog_(flows|functions)\/[^/?#]+\/invocations\/?(\?|#|$)/
 // The push log lists each send's title and recipient.
 const PUSH_LOG_PATH = /\/transactional_push_log\/?(\?|#|$)/
 
