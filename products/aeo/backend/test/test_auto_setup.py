@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 import threading
 from collections.abc import Callable
@@ -512,16 +513,19 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
             schedule = engine_schedule(self.team.id)
         assert {e.name for e in [*schedule.daily, *schedule.weekly]} <= {"exa-answer"}
 
-    @parameterized.expand([("no run in flight", False, False), ("a run still in flight", True, True)])
-    def test_a_new_setup_clears_a_stop_only_when_no_run_owns_it(self, _name: str, in_flight: bool, kept: bool) -> None:
-        assert self.client.post(f"{self.url}stop_checks/").status_code == status.HTTP_204_NO_CONTENT
-        assert run_stop.stop_requested(self.team.id)
-        if in_flight:
-            run_stop.mark_run_queued(self.team.id)
+    @parameterized.expand([("before the setup", False), ("during the setup", True)])
+    def test_a_stop_skips_setups_run_only_when_asked_for_after_setup_started(self, _name: str, during: bool) -> None:
+        answers = [*_prompt_answers(), _answer(KEYWORDS_ANSWER)]
+        if during:
+            answers[0].raise_for_status.side_effect = lambda: run_stop.request_stop(self.team.id)
+        else:
+            assert self.client.post(f"{self.url}stop_checks/").status_code == status.HTTP_204_NO_CONTENT
 
-        self._run([*_prompt_answers(), _answer(KEYWORDS_ANSWER)], run_first_check=False)
+        _, _, first_run = self._run(answers)
 
-        assert run_stop.stop_requested(self.team.id) is kept
+        first_run.assert_called_once()
+        queued_at = first_run.call_args.kwargs["queued_at"]
+        assert run_stop.stop_requested(self.team.id, since=queued_at) is during
 
     def test_a_reset_lets_setup_run_again_for_another_site(self) -> None:
         first, _, _ = self._run(
@@ -579,6 +583,52 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         assert run_stop.stop_requested(self.team.id)
         # The reset held the setup slot only while it ran.
         assert auto_setup.running_job_id(self.team.id) is None
+
+    def test_a_job_cancelled_during_research_asks_for_no_keywords(self) -> None:
+        def cancel() -> None:
+            job_id = auto_setup.running_job_id(self.team.id)
+            assert self.client.post(f"{self.url}{job_id}/cancel/").json()["status"] == "cancelled"
+
+        answers = [*_prompt_answers(), _answer(KEYWORDS_ANSWER)]
+        answers[0].raise_for_status.side_effect = cancel
+        pool = MagicMock()
+
+        with patch.object(auto_setup, "_keyword_pool", return_value=pool):
+            job, post, _ = self._run(answers)
+
+        assert job["status"] == "cancelled"
+        # Only the research call was paid for: no keyword call was even handed to the pool after the cancel.
+        assert post.call_count == 1
+        pool.submit.assert_not_called()
+
+    def test_cancelling_a_finished_job_stops_no_run(self) -> None:
+        job, _, _ = self._run([*_prompt_answers(), _answer(KEYWORDS_ANSWER)])
+        assert job["status"] == "completed"
+
+        cancelled = self.client.post(f"{self.url}{job['id']}/cancel/")
+
+        assert cancelled.json()["status"] == "completed"
+        assert not run_stop.stop_requested(self.team.id)
+
+    def test_a_cancel_during_a_progress_save_is_kept(self) -> None:
+        job = auto_setup.create_job(self.team.id)
+        progress = auto_setup._Progress(self.team.id, job.id, time.time())
+        read = auto_setup._read
+        cancel = threading.Thread(target=auto_setup.cancel_job, args=(self.team.id, job.id))
+
+        def read_then_cancel(team_id: int, job_id: str) -> Any:
+            result = read(team_id, job_id)
+            if not cancel.is_alive() and cancel.ident is None:
+                cancel.start()
+                # The cancel waits on the save's lock; without the lock it would land before the save's write.
+                cancel.join(timeout=0.5)
+            return result
+
+        with patch.object(auto_setup, "_read", side_effect=read_then_cancel):
+            progress.set(auto_setup.SetupStep.BRAND, auto_setup.SetupStepStatus.RUNNING)
+        cancel.join()
+
+        assert auto_setup.load_job(self.team.id, job.id).status == "cancelled"
 
     def test_a_job_cancelled_while_writing_prompts_saves_nothing_more(self) -> None:
         def cancel() -> None:

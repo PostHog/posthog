@@ -22,6 +22,7 @@ from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
 
 import structlog
+from redis.lock import Lock
 
 from posthog.hogql.ast import Constant
 from posthog.hogql.parser import parse_select
@@ -29,6 +30,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.workload import Workload
 from posthog.models import Team
+from posthog.redis import get_client
 
 from products.aeo.backend import catalog, engine_settings, keyword_suggestions, prompt_limit, run_stop, suggestions
 from products.aeo.backend.facade.contracts import (
@@ -293,8 +295,11 @@ def fail_job(team_id: int, job_id: str, error: str) -> None:
 
 
 def cancel_job(team_id: int, job_id: str) -> SetupJob:
-    job, _ = _read(team_id, job_id)
-    if job.status == SuggestionJobStatus.PENDING:
+    with _job_write_lock(team_id, job_id):
+        job, _ = _read(team_id, job_id)
+        if job.status != SuggestionJobStatus.PENDING:
+            # A finished job has nothing to cancel, and a stop now would end the run of a setup started since.
+            return job
         steps = tuple(
             SetupStepState(step=step.step, status=SetupStepStatus.SKIPPED, detail="cancelled")
             if step.status in (SetupStepStatus.PENDING, SetupStepStatus.RUNNING)
@@ -303,8 +308,13 @@ def cancel_job(team_id: int, job_id: str) -> SetupJob:
         )
         job = SetupJob(id=job_id, status=SuggestionJobStatus.CANCELLED, steps=steps)
         _save_job(team_id, job)
+    # The job's first run, queued or still to come, stops too.
     run_stop.request_stop(team_id)
     return job
+
+
+def _job_write_lock(team_id: int, job_id: str) -> Lock:
+    return get_client().lock(f"aeo_setup_job_write:{team_id}:{job_id}", timeout=10, blocking_timeout=10)
 
 
 class _JobAbandoned(Exception):
@@ -333,17 +343,19 @@ class _Progress:
             raise _JobAbandoned(self.job_id)
 
     def save(self, status: SuggestionJobStatus, error: str = "") -> None:
-        try:
-            current, _ = _read(self.team_id, self.job_id)
-        except SetupJobNotFoundError:
-            raise _JobAbandoned(self.job_id)
-        if current.status in (SuggestionJobStatus.FAILED, SuggestionJobStatus.CANCELLED):
-            raise _JobAbandoned(self.job_id)
-        _save_job(
-            self.team_id,
-            SetupJob(id=self.job_id, status=status, steps=tuple(self.steps[step] for step in STEPS), error=error),
-            started_at=self.started_at,
-        )
+        # Under the job's write lock, so a cancel can't land between the status read and this write and be undone.
+        with _job_write_lock(self.team_id, self.job_id):
+            try:
+                current, _ = _read(self.team_id, self.job_id)
+            except SetupJobNotFoundError:
+                raise _JobAbandoned(self.job_id)
+            if current.status in (SuggestionJobStatus.FAILED, SuggestionJobStatus.CANCELLED):
+                raise _JobAbandoned(self.job_id)
+            _save_job(
+                self.team_id,
+                SetupJob(id=self.job_id, status=status, steps=tuple(self.steps[step] for step in STEPS), error=error),
+                started_at=self.started_at,
+            )
 
 
 def _ensure_own_brand(team_id: int, request: SetupRequest) -> SetupStepState:
@@ -479,7 +491,7 @@ def _activate_paused_prompts(team_id: int) -> None:
             bump_data_version_on_commit(team_id)
 
 
-def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
+def _queue_first_run(team: Team, request: SetupRequest, *, since: float) -> SetupStepState:
     from products.aeo.backend.tasks.tasks import (  # noqa: PLC0415 -- import cycle
         citation_tracking_enabled,
         run_aeo_citation_checks_for_team_task,
@@ -512,7 +524,8 @@ def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
     try:
         # The task holds a per-team lease, so a daily run already in progress makes this one a no-op.
         run_stop.mark_run_queued(team.id)
-        run_aeo_citation_checks_for_team_task.delay(team.id, wait_for_lease=True)
+        # The run counts from when setup started, so a stop asked for during setup skips it.
+        run_aeo_citation_checks_for_team_task.delay(team.id, wait_for_lease=True, queued_at=since)
     except Exception:
         logger.exception("aeo_setup_first_run_enqueue_failed", team_id=team.id)
         run_stop.clear_run_queued(team.id)
@@ -589,6 +602,8 @@ def _run_steps_with(team: Team, progress: _Progress, request: SetupRequest, pool
                 progress.save(SuggestionJobStatus.FAILED, str(error))
                 return
             description = description or research.description
+            # Research can take minutes, so a cancel during it stops here, before another paid call starts.
+            progress.checkpoint()
             progress.steps[SetupStep.RESEARCH] = SetupStepState(
                 step=SetupStep.RESEARCH, status=SetupStepStatus.DONE, added=len(research.competitors)
             )
@@ -609,7 +624,7 @@ def _run_steps_with(team: Team, progress: _Progress, request: SetupRequest, pool
 
     progress.set(SetupStep.FIRST_RUN, SetupStepStatus.RUNNING)
     progress.checkpoint()
-    progress.steps[SetupStep.FIRST_RUN] = _queue_first_run(team, request)
+    progress.steps[SetupStep.FIRST_RUN] = _queue_first_run(team, request, since=progress.started_at)
 
     if keywords is not None:
         progress.set(SetupStep.KEYWORDS, SetupStepStatus.RUNNING)

@@ -1609,10 +1609,6 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
             engine_changes = _setup_engine_changes(team_id, set(request.engines))
     # The lock comes first, so a request that loses it to a 409 leaves the running job's engines alone.
     job = auto_setup.create_job(team_id)
-    # A stop left from an earlier run must not skip the run this job queues. A stop for a run still in flight is
-    # that run's: it clears the stop when it ends, before this job's run can take the lease.
-    if not run_stop.checks_running(team_id):
-        run_stop.clear_stop(team_id)
     try:
         _apply_setup_engines(team_id, engine_changes)
         # A task still queued when it could no longer finish in time is dropped by the broker instead of run.

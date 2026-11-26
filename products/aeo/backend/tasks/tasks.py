@@ -13,6 +13,7 @@ covered. A per-team lease stops two dispatches from running at once.
 
 from __future__ import annotations
 
+import time
 import threading
 
 from django.db import InterfaceError, OperationalError
@@ -116,7 +117,7 @@ def run_aeo_citation_checks_task() -> None:
     """Beat entrypoint: fan out one runner task per team with active prompts that passes the gate."""
     for team in _teams_with_active_prompts():
         if citation_checks_can_run(team):
-            run_aeo_citation_checks_for_team_task.delay(team.id)
+            run_aeo_citation_checks_for_team_task.delay(team.id, queued_at=time.time())
 
 
 @shared_task(ignore_result=True)
@@ -174,9 +175,16 @@ def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
     queue=CeleryQueue.LONG_RUNNING.value,
     soft_time_limit=RUN_SOFT_TIME_LIMIT_SECONDS,
     time_limit=RUN_TIME_LIMIT_SECONDS,
+    # Celery's default of 3 would end a first run's wait for the lease long before the 40 tries it is allowed.
+    max_retries=RUN_LEASE_WAIT_RETRIES,
 )
 @skip_team_scope_audit  # Team is the tenant, not tenant data; prompts are read via AEOPrompt.objects.for_team
-def run_aeo_citation_checks_for_team_task(self: Task, team_id: int, wait_for_lease: bool = False) -> None:
+def run_aeo_citation_checks_for_team_task(
+    self: Task, team_id: int, wait_for_lease: bool = False, queued_at: float | None = None
+) -> None:
+    # A stop asked for after the run was queued ends it; a stop from before leaves it alone. A task queued without
+    # the time counts from when it first runs.
+    since = queued_at if queued_at is not None else time.time()
     try:
         team = Team.objects.select_related("organization").get(id=team_id)
     except Team.DoesNotExist:
@@ -193,7 +201,7 @@ def run_aeo_citation_checks_for_team_task(self: Task, team_id: int, wait_for_lea
     if not lease.acquire(blocking=False):
         if wait_for_lease and self.request.retries < RUN_LEASE_WAIT_RETRIES:
             # Setup's first run must not be lost to a run still finishing, such as one stopped before a restart.
-            raise self.retry(countdown=RUN_LEASE_WAIT_SECONDS)
+            raise self.retry(countdown=RUN_LEASE_WAIT_SECONDS, kwargs={"wait_for_lease": True, "queued_at": since})
         logger.info("aeo_citation_task_already_running", team_id=team_id)
         run_stop.clear_run_queued(team_id)
         return
@@ -201,17 +209,16 @@ def run_aeo_citation_checks_for_team_task(self: Task, team_id: int, wait_for_lea
     stop_renewing = threading.Event()
     stop = threading.Event()
     renewer = threading.Thread(target=_renew_lease, args=(lease, stop_renewing, stop, team_id), daemon=True)
-    stop_watcher = threading.Thread(target=run_stop.watch_for_stop, args=(team_id, stop_renewing, stop), daemon=True)
+    stop_watcher = threading.Thread(
+        target=run_stop.watch_for_stop, args=(team_id, stop_renewing, stop), kwargs={"since": since}, daemon=True
+    )
     try:
-        if run_stop.stop_requested(team_id):
-            run_stop.clear_stop(team_id)
+        if run_stop.stop_requested(team_id, since=since):
             logger.info("aeo_citation_task_stopped_before_start", team_id=team_id)
             return
         renewer.start()
         stop_watcher.start()
         summary, _ = run_citation_checks(team, stop=stop)
-        if run_stop.stop_requested(team_id):
-            run_stop.clear_stop(team_id)
         if summary.run_id:
             result = sync_brands_from_run(team.id, summary.run_id)
             logger.info("aeo_brand_sync_done", team_id=team_id, domains=result.domains, created=result.created)

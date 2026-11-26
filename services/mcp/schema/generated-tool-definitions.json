@@ -1244,7 +1244,7 @@
         "feature_flag": "web-analytics-content-autopilot"
     },
     "aeo-setup-cancel": {
-        "description": "Cancel a running setup job started with `aeo-setup-start`, by its `id`. PostHog stops before its next step and keeps what it already saved; its `status` becomes `cancelled`. A first run it already queued keeps going, so call `aeo-setup-stop-checks` too when the user wants no more paid checks.",
+        "description": "Cancel a running setup job started with `aeo-setup-start`, by its `id`. PostHog stops before its next step and keeps what it already saved; its `status` becomes `cancelled`. The job's first run stops too: checks already under way finish and are kept, and the rest don't run. A finished job is returned unchanged, and no run is stopped.",
         "category": "AI citation tracking",
         "feature": "aeo",
         "summary": "Cancel an AI visibility setup job",

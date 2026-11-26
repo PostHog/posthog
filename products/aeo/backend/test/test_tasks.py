@@ -1,3 +1,4 @@
+import time
 import threading
 from contextlib import nullcontext
 
@@ -87,11 +88,16 @@ def test_setups_run_waits_for_a_run_still_finishing_instead_of_being_dropped(tea
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=True),
         patch.object(tasks, "run_citation_checks") as run,
+        patch.object(run_aeo_citation_checks_for_team_task, "retry", side_effect=Retry()) as retry,
         pytest.raises(Retry),
     ):
-        run_aeo_citation_checks_for_team_task(team.id, wait_for_lease=True)
+        run_aeo_citation_checks_for_team_task(team.id, wait_for_lease=True, queued_at=123.0)
 
     run.assert_not_called()
+    # Each try keeps the time the run was queued, so a stop asked for during the wait still ends it, and the task
+    # is allowed every try of the wait rather than Celery's default 3.
+    assert retry.call_args.kwargs["kwargs"] == {"wait_for_lease": True, "queued_at": 123.0}
+    assert run_aeo_citation_checks_for_team_task.max_retries == tasks.RUN_LEASE_WAIT_RETRIES
     assert run_stop.checks_running(team.id)
     lease.release()
     run_stop.clear_run_queued(team.id)
@@ -116,24 +122,31 @@ def test_one_run_per_team_at_a_time(team: Team, run_in_progress: bool) -> None:
 
 
 @pytest.mark.parametrize("when", ["before_start", "during_run"])
-def test_a_stop_request_ends_the_run_once(team: Team, when: str) -> None:
+def test_a_stop_ends_the_run_it_was_asked_for_and_not_a_run_queued_later(team: Team, when: str) -> None:
     def run(_team: Team, stop: threading.Event) -> tuple[Mock, list]:
         if when == "during_run":
             run_stop.request_stop(team.id)
             assert stop.wait(timeout=10), "the run must see the stop"
         return Mock(run_id=None), []
 
+    queued_at = time.time()
     if when == "before_start":
         run_stop.request_stop(team.id)
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=True),
         patch.object(tasks, "run_citation_checks", side_effect=run) as runner,
     ):
-        run_aeo_citation_checks_for_team_task(team.id)
+        run_aeo_citation_checks_for_team_task(team.id, queued_at=queued_at)
+        assert runner.call_count == (0 if when == "before_start" else 1)
+        assert get_client().lock(f"aeo_citation_run:{team.id}", timeout=60).acquire(blocking=False)
+        get_client().delete(f"aeo_citation_run:{team.id}")
 
-    assert runner.call_count == (0 if when == "before_start" else 1)
-    assert not run_stop.stop_requested(team.id), "a consumed stop must not skip the next run"
-    assert get_client().lock(f"aeo_citation_run:{team.id}", timeout=60).acquire(blocking=False)
+        # The stop stays for any other run queued before it, and doesn't skip one queued after it.
+        assert run_stop.stop_requested(team.id, since=queued_at)
+        runner.side_effect = None
+        runner.return_value = (Mock(run_id=None), [])
+        run_aeo_citation_checks_for_team_task(team.id, queued_at=time.time())
+        assert runner.call_count == (1 if when == "before_start" else 2)
 
 
 def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team) -> None:

@@ -1,10 +1,12 @@
+import time
 import threading
 
 from posthog.redis import get_client
 
-# Long enough for a setup job to reach the step that queues the run, short enough that a stop nobody
-# consumed doesn't skip a later scheduled run.
-STOP_REQUEST_TTL_SECONDS = 5 * 60
+# A stop records when it was asked for, and a run stops only for a stop asked after the run was queued, so a stop
+# never needs clearing and a run queued later is never skipped by it. It outlives setup's model calls (two 5-minute
+# deadlines) plus a first run's wait for the lease (40 tries 15 seconds apart).
+STOP_REQUEST_TTL_SECONDS = 30 * 60
 STOP_POLL_SECONDS = 2
 
 
@@ -38,21 +40,26 @@ def _key(team_id: int) -> str:
 
 
 def request_stop(team_id: int) -> None:
-    get_client().set(_key(team_id), "1", ex=STOP_REQUEST_TTL_SECONDS)
+    get_client().set(_key(team_id), repr(time.time()), ex=STOP_REQUEST_TTL_SECONDS)
 
 
-def clear_stop(team_id: int) -> None:
-    get_client().delete(_key(team_id))
+def stop_requested(team_id: int, *, since: float = 0.0) -> bool:
+    """Whether a stop was asked for at or after `since`, the time the run was queued."""
+    value = get_client().get(_key(team_id))
+    if value is None:
+        return False
+    try:
+        requested_at = float(value)
+    except ValueError:
+        # A stop stored before stops carried a time applies to every run.
+        return True
+    return requested_at >= since
 
 
-def stop_requested(team_id: int) -> bool:
-    return bool(get_client().exists(_key(team_id)))
-
-
-def watch_for_stop(team_id: int, done: threading.Event, stop: threading.Event) -> None:
+def watch_for_stop(team_id: int, done: threading.Event, stop: threading.Event, *, since: float) -> None:
     while not done.wait(STOP_POLL_SECONDS):
         try:
-            if stop_requested(team_id):
+            if stop_requested(team_id, since=since):
                 stop.set()
                 return
         except Exception:
