@@ -384,6 +384,15 @@ class TestQueriedAccessControlledResources(BaseTest):
         result = queried_access_controlled_resources(HogQLQuery(query=f"select * from {queried_name}"), self.team)
         assert result == {"external_data_source", "warehouse_table"}
 
+    def test_cte_shadowing_a_warehouse_view_keeps_its_scope(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="my_view", query={"kind": "HogQLQuery", "query": "select 1 as a"}
+        )
+        sql = "select * from my_view where 1 in (with my_view as (select 1 as a) select a from my_view)"
+        result = queried_access_controlled_resources(HogQLQuery(query=sql), self.team)
+        assert result is not None
+        assert "warehouse_view" in result
+
     def test_warehouse_view_scope(self):
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="my_warehouse_view", query={"kind": "HogQLQuery", "query": "select 1 as a"}
