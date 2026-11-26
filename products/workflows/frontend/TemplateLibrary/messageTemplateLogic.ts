@@ -68,6 +68,11 @@ function warnAboutPendingTags(event: BeforeUnloadEvent): void {
     event.preventDefault()
 }
 
+/** Content as the server stores it: without unset keys or a null design, which the form may still hold. */
+function asStored(content: TemplateContent | null): TemplateContent | null {
+    return content ? JSON.parse(JSON.stringify({ ...content, email: omitNullDesign(content.email) })) : null
+}
+
 /** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function splitDraft(template: MessageTemplate): {
     form: MessageTemplate
@@ -861,7 +866,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         syncExternalEdit: () => {
             // A draft only holds what the person typed, so a reload that finds it gone must not take the text with it.
-            cache.beforeSync = { draft: values.savedDraft, content: values.template.content }
+            // Reload from the banner is the person choosing the other version, so it takes nothing along.
+            cache.beforeSync = values.externallyEdited
+                ? null
+                : { draft: values.savedDraft, content: values.template.content }
             actions.setSyncingExternalEdit(true)
             actions.loadTemplate()
         },
@@ -1075,7 +1083,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 } | null
                 cache.beforeSync = null
                 const draftLostElsewhere =
-                    !!beforeSync?.draft && !objectsEqual(beforeSync.draft, values.savedDraft ?? values.publishedContent)
+                    !!beforeSync?.draft &&
+                    !objectsEqual(asStored(beforeSync.draft), asStored(values.savedDraft ?? values.publishedContent))
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
                 // A draft replaced or removed elsewhere held the person's typing, so it stays and the banner asks.
                 actions.resetTemplate(

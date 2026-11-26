@@ -490,6 +490,30 @@ describe('messageTemplateLogic', () => {
             }
         )
 
+        it('reloads to the other version on the first click when the banner asks about unsaved typing', async () => {
+            const typed = { ...draft, email: { ...draft.email, subject: 'Typed, not saved yet' } }
+            logic.actions.setExternallyEdited(true)
+            logic.actions.setTemplateValue('content', typed)
+            useServerCopy({ ...changedElsewhere, draft_content: null })
+
+            await reloadAfterEditElsewhere()
+
+            expect(logic.values.externallyEdited).toBe(false)
+            expect(logic.values.template.content).toEqual(changedElsewhere.content)
+        })
+
+        it('asks nothing when the saved draft differs from the server copy only in what the server drops', async () => {
+            logic.actions.saveDraftDone(
+                { ...draft, email: { ...draft.email, design: null } } as any,
+                '2026-01-01T00:01:00Z'
+            )
+            useServerCopy({ name: 'Renamed elsewhere' })
+
+            await reloadAfterEditElsewhere()
+
+            expect(logic.values.externallyEdited).toBe(false)
+        })
+
         it('saves the typed draft again when the person keeps theirs after it was removed elsewhere', async () => {
             jest.useFakeTimers()
             useServerCopy({ ...changedElsewhere, draft_content: null })
