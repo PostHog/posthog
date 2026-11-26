@@ -91,6 +91,7 @@ jobs:
                       /posthog/clickhouse/materialized_columns.py
                       /posthog/models/performance/sql.py
                       /posthog/models/channel_type/sql.py
+                      /posthog/settings/dynamic_settings.py
                       /ee/clickhouse/materialized_columns/columns.py
                       /docker/clickhouse/
                       /.semgrep/

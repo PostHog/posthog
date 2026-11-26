@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ from clickhouse_schema_cache import (
     SHARED_INPUTS,
     SnapshotError,
     _other_databases,
+    fingerprint,
     incompatibility,
     load,
     operation_text,
@@ -68,6 +70,25 @@ def test_other_databases_skips_the_test_database_and_functions() -> None:
 
 def test_shared_inputs_all_exist_so_a_rename_cannot_silently_drop_one() -> None:
     assert [path for path in SHARED_INPUTS if not (REPOSITORY / path).exists()] == []
+
+
+@pytest.mark.parametrize("path", ["posthog/models/performance/sql.py", "posthog/settings/dynamic_settings.py"])
+def test_fingerprint_rejects_a_changed_runpython_dependency(
+    path: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "posthog.settings")
+    monkeypatch.setitem(sys.modules, "django", SimpleNamespace(setup=lambda: None))
+    monkeypatch.setitem(
+        sys.modules, "infi.clickhouse_orm.utils", SimpleNamespace(import_submodules=lambda _package: {})
+    )
+    dependency = tmp_path / path
+    dependency.parent.mkdir(parents=True)
+    dependency.write_text("before")
+    cached = fingerprint(tmp_path, "v1", "clickhouse:1")
+    dependency.write_text("after")
+    checkout = fingerprint(tmp_path, "v1", "clickhouse:1")
+    assert incompatibility(cached, checkout) == f"shared input changed: {path}"
 
 
 def _snapshot_dir(tmp_path: Path) -> tuple[Path, Path]:

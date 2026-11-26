@@ -40,6 +40,7 @@ SHARED_INPUTS = (
     "posthog/clickhouse/materialized_columns.py",
     "posthog/models/performance/sql.py",
     "posthog/models/channel_type/sql.py",
+    "posthog/settings/dynamic_settings.py",
     # What the ClickHouse container is started with.
     ".github/clickhouse-schema-cache/backup-disk.xml",
     ".github/clickhouse-schema-cache/docker-compose.yml",
