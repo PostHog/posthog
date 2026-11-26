@@ -9,7 +9,8 @@ description: |
     proto/ is enough.
     The output is empty when the inputs cannot be hashed faithfully (a crate path outside
     the repo or through a symlink, an untracked crate, a symlink leaving the hashed set, a
-    build script or include macro that reads outside it), and callers then build from source.
+    build script or include macro that reads outside it, a repo-root .cargo/, a path in a
+    cargo config [env] entry), and callers then build from source.
 
 inputs:
     toolchain:
@@ -112,12 +113,12 @@ runs:
               crates = sorted(seen)
               print("Crates in the key:", *crates, sep="\n", file=sys.stderr)
               # usage-ingestion-proto's build.rs compiles protos from the repo-root proto/ tree.
-              # Cargo also reads .cargo/ in every ancestor of rust/, and rustup honours a
-              # toolchain file in rust/ or the root, so those are hashed whether or not they exist.
+              # Rustup honours a toolchain file in rust/ or the root, so those are hashed whether
+              # or not they exist. A root .cargo/ refuses the key below.
               # GIT_LITERAL_PATHSPECS (set on this step): no glob or `:(exclude)` magic can drop files.
               hashed = crates + [
                   "rust/Cargo.toml", "rust/Cargo.lock", "rust/.cargo", "proto",
-                  ".cargo", "rust-toolchain", "rust-toolchain.toml",
+                  "rust-toolchain", "rust-toolchain.toml",
                   "rust/rust-toolchain", "rust/rust-toolchain.toml",
                   ".github/actions/setup-protoc", ".github/actions/feature-flags-binary-key",
               ]
@@ -127,6 +128,17 @@ runs:
               # symlink is only hashed faithfully when it resolves into the hashed set.
               def inside_hashed(path):
                   return any(path == h or path.startswith(h + "/") for h in hashed)
+
+              # A cargo config can point a build script at other sources, for example through
+              # an [env] entry such as PROTO_ROOT. rust/.cargo is hashed, and its [env] entries
+              # must not name a path. A repo-root .cargo/ is not supported, so it refuses the key.
+              if any(path.startswith(".cargo/") for path in index):
+                  refuse("a repo-root .cargo/ exists")
+              for path, mode in index.items():
+                  if path.startswith("rust/.cargo/") and os.path.basename(path) in ("config", "config.toml"):
+                      for name, value in load(path).get("env", {}).items():
+                          if not isinstance(value, str) or "/" in value or "\\" in value or ".." in value:
+                              refuse(f"{path} sets [env] {name} to a table or a path")
 
               # Build scripts and include macros can read files outside their crate. Each such
               # path literal must land in the hashed set; anything else refuses the key.
