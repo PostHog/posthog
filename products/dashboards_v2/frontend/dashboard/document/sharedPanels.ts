@@ -9,8 +9,29 @@ type SharedPanel = z.infer<typeof sharedPanelSchema>
 
 const SHARED_KEYS = new Set(Object.keys(sharedPanelSchema.shape))
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * A stored board can hold a tile the scene cannot draw, because the storage API keeps malformed tiles. Loading leaves
+ * such a tile out, so the rest of the board still shows.
+ */
+function isLoadableTile(tile: unknown): boolean {
+    if (!isRecord(tile) || typeof tile.id !== 'string' || !isRecord(tile.place) || !isRecord(tile.panel)) {
+        return false
+    }
+    const panel = tile.panel
+    if ('tiles' in panel) {
+        return Array.isArray(panel.tiles)
+    }
+    return 'type' in panel || typeof panel.ref === 'string'
+}
+
 function loadTiles(tiles: DocumentTile[], panels: Record<string, SharedPanel>): Tile[] {
     return tiles.flatMap((tile): Tile[] => {
+        if (!isLoadableTile(tile)) {
+            return []
+        }
         const panel = tile.panel
         if ('tiles' in panel) {
             return [{ ...tile, panel: { ...panel, tiles: loadTiles(panel.tiles, panels) } }]

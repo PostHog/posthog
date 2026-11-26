@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
+
+import { Spinner } from '@posthog/quill'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
@@ -11,10 +13,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardActions } from '../dashboard/actions/DashboardActions'
+import { DashboardUnavailable } from '../dashboard/DashboardUnavailable'
 import { DashboardView } from '../dashboard/DashboardView'
 import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
 import { useDashboardFilters } from '../filters/useDashboardFilters'
 import { runSampleQuery } from '../fixtures/runSampleQuery'
+import type { MenuAction } from '../menu/menuAction'
 import { createChartPanel } from '../panels/chart/createChartPanel'
 import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
@@ -36,8 +40,24 @@ export function DashboardScene(): JSX.Element {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardSceneLogic)
-    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardSceneLogic)
+    const { boardLoading, boardError } = useValues(dashboardSceneLogic)
+    if (boardLoading) {
+        return (
+            <div className="flex h-full items-center justify-center" data-attr="dashboard-v2-board-loading">
+                <Spinner />
+            </div>
+        )
+    }
+    if (boardError) {
+        return <DashboardUnavailable problem={boardError.problem} description={boardError.description} />
+    }
+    return <LoadedDashboardV2 />
+}
+
+function LoadedDashboardV2(): JSX.Element {
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo, boardUid, savingBoard } =
+        useValues(dashboardSceneLogic)
+    const { applyDashboardEdit, setActiveTab, undo, redo, saveBoard, saveAsBoard } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId, timezone } = useValues(teamLogic)
     const tabRef = useRef(activeTabId)
@@ -75,6 +95,27 @@ function DashboardV2(): JSX.Element {
         types: runsRealQueries ? undefined : ANALYTICS_FILTER_TYPES,
         time: { timezone },
     })
+    const dashboardActions = useCallback(
+        (actions: MenuAction[]): MenuAction[] => [
+            boardUid
+                ? {
+                      key: 'save-board',
+                      label: 'Save',
+                      dataAttr: 'dashboard-v2-save-board',
+                      disabledReason: savingBoard ? 'Saving…' : null,
+                      onSelect: saveBoard,
+                  }
+                : {
+                      key: 'save-as-board',
+                      label: 'Save as board',
+                      dataAttr: 'dashboard-v2-save-as-board',
+                      disabledReason: savingBoard ? 'Saving…' : null,
+                      onSelect: saveAsBoard,
+                  },
+            ...actions,
+        ],
+        [boardUid, savingBoard, saveBoard, saveAsBoard]
+    )
     return (
         <DashboardView
             surface="dashboard-v2-scene"
@@ -87,6 +128,7 @@ function DashboardV2(): JSX.Element {
             onActiveTabChange={setActiveTab}
             history={{ canUndo, canRedo, onUndo: undo, onRedo: redo }}
             refresh={{}}
+            dashboardActions={dashboardActions}
             filters={filters}
             timeRange={timeRange}
             header={

@@ -148,17 +148,20 @@ export const gridTabSchema = z.object({
     tiles: z.array(tileSchema),
 })
 
+/** A path in PostHog or an http(s) URL. Anything else, such as `javascript:`, could run script. */
+const safeHrefSchema = z
+    .string()
+    .refine(
+        (href) => /^\/(?![/\\])/.test(href) || /^https?:\/\//i.test(href),
+        'A link goes to a PostHog path or an http(s) URL'
+    )
+
 /** A tab that goes somewhere else when picked, such as another dashboard or another page, and holds no tiles. */
 export const linkTabSchema = z.object({
     id: z.string().min(1),
     title: z.string(),
     /** A path in PostHog, such as `/dashboard-v2?tab=errors`, or an http(s) URL. Anything else could run script. */
-    href: z
-        .string()
-        .refine(
-            (href) => /^\/(?![/\\])/.test(href) || /^https?:\/\//i.test(href),
-            'A link tab goes to a PostHog path or an http(s) URL'
-        ),
+    href: safeHrefSchema,
 })
 
 export const dashboardTabSchema = z.union([gridTabSchema, linkTabSchema])
@@ -197,6 +200,19 @@ export const dashboardSchema = z.object({
     /** Whether viewers see a filter bar. Missing means no, so a dashboard shows filters only once an editor allows them. */
     allowFilters: z.boolean().optional(),
     filters: z.array(dashboardFilterSchema).optional(),
+    /*
+     * Stored with the board and not shown yet. They match the dashboard-level fields of Dash and Grafana dashboards,
+     * so a board imported from either keeps them. Each entry stays open, so its shape can grow without a new schema.
+     */
+    links: z.array(z.looseObject({ title: z.string(), href: safeHrefSchema })).optional(),
+    /** How often the board reloads its data, such as `5m`. */
+    refresh: z.string().optional(),
+    /** An IANA time zone such as `Europe/London`. Missing means the project's. */
+    timezone: z.string().optional(),
+    variables: z.array(z.looseObject({ name: z.string().min(1) })).optional(),
+    annotations: z.array(z.looseObject({ name: z.string().min(1) })).optional(),
+    /** The events, tables and metrics the board reads, so a project without them can be told before it loads. */
+    requires: z.array(z.looseObject({ kind: z.string().min(1) })).optional(),
     tabs: z.array(dashboardTabSchema).refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
 
