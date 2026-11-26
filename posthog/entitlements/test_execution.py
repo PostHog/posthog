@@ -71,10 +71,12 @@ class TestEntitlementExecution(TestCase):
             registry_patch.start()
             self.addCleanup(registry_patch.stop)
 
-    def checkpoint(self, features: list[FeatureEntry]) -> OrganizationEntitlementAppliedState:
+    def checkpoint(
+        self, features: list[FeatureEntry], *, reactor_key: str = "fixture"
+    ) -> OrganizationEntitlementAppliedState:
         return OrganizationEntitlementAppliedState.objects.create(
             organization=self.organization,
-            reactor_key="fixture",
+            reactor_key=reactor_key,
             snapshot=Entitlements.from_features(features).to_snapshot(),
             applied_at=timezone.now(),
         )
@@ -134,9 +136,7 @@ class TestEntitlementExecution(TestCase):
     def test_workflow_list_skips_behind_reactor_whose_flag_is_off(self) -> None:
         organization_id = str(self.organization.id)
         self.checkpoint([{"key": "fixture", "limit": 1}])
-        OrganizationEntitlementAppliedState.objects.create(
-            organization=self.organization, reactor_key=SECOND_REACTOR.key, snapshot=[], applied_at=timezone.now()
-        )
+        self.checkpoint([], reactor_key=SECOND_REACTOR.key)
         current = self.set_source([{"key": "fixture", "limit": 2}, {"key": "second"}])
         registry = EntitlementReactorRegistry(reactors=(*self.registry.reactors, SECOND_REACTOR))
         with patch("posthog.entitlements.execution.get_entitlement_reactor_registry", return_value=registry):
