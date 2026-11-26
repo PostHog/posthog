@@ -5267,16 +5267,49 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert after is not before
 
-    def test_a_sharing_scope_rebuilds_a_database_when_warehouse_access_control_turns_on(self) -> None:
+    @parameterized.expand(
+        [
+            ("enforcement_turns_on", [False, False]),
+            # The key reads the flag as on and the build reads it as off, so the build must not be stored.
+            ("build_reads_the_flag_differently_from_the_key", [True, False]),
+        ]
+    )
+    def test_a_sharing_scope_rebuilds_a_database_when_warehouse_access_control_turns_on(
+        self, _name: str, first_reads: list[bool]
+    ) -> None:
         flag = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
 
         with sharing_databases(SharedDatabases()):
-            with patch(flag, return_value=False):
+            with patch(flag, side_effect=first_reads):
                 unenforced = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
             with patch(flag, return_value=True):
                 enforced = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
 
         assert enforced is not unenforced
+
+    def test_a_sharing_scope_rebuilds_a_database_when_the_access_resolution_mode_changes(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="viewer")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_objects",
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        with sharing_databases(SharedDatabases()):
+            legacy = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+            self.organization.uses_most_specific_access_resolution = True
+            self.organization.save()
+            most_specific = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+
+        assert most_specific is not legacy
 
     def test_a_sharing_scope_rebuilds_a_database_past_its_age_so_revoked_access_applies(self) -> None:
         with sharing_databases(SharedDatabases(max_age_seconds=30)):

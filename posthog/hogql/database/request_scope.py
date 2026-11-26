@@ -88,6 +88,9 @@ class SharedDatabases:
             if database is not None:
                 return database
             database = build()
+            if database.warehouse_access_control_enforced != key.warehouse_access_control_enforced:
+                # The build read the flag differently from the key, so the catalog is not what the key promises.
+                return database
             database.tables.copy_children_on_write()
             with self._lock:
                 self._databases[key] = (database, monotonic())

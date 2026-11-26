@@ -916,6 +916,9 @@ class Database(BaseModel):
     _revenue_views_build_lock: Any = None
     # Lowercased first segments of the deferred views' dotted names (e.g. revenue_analytics, stripe).
     _revenue_view_trigger_names: Optional[set[str]] = None
+    # The warehouse access-control flag as this build read it. A caller that keys a shared catalog on its own read
+    # of the flag compares against this, because the flag can read differently from one call to the next.
+    _warehouse_access_control_enforced: Optional[bool] = None
     # ids of the ExpressionField objects saved expressions added at build time. The deferred build
     # lets a foreign key replace only these (see _ensure_foreign_keys_built), never the id/timestamp
     # mappings event modifiers write, which the eager path preserved.
@@ -1038,6 +1041,11 @@ class Database(BaseModel):
             if alias_node is not None:
                 return alias_node
         return node
+
+    @property
+    def warehouse_access_control_enforced(self) -> Optional[bool]:
+        """Whether this build filtered warehouse tables and views by access control. None before a build."""
+        return self._warehouse_access_control_enforced
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
@@ -3367,6 +3375,7 @@ class Database(BaseModel):
         if not database._is_direct_query():
             database._first_sync_lookup_team_id = team_id
 
+        database._warehouse_access_control_enforced = sources.is_hogql_warehouse_access_control_enabled
         return database
 
 
