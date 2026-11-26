@@ -51,6 +51,9 @@ export async function deleteActionWithWarning(
         await deleteWithUndo({
             endpoint: api.actions.determineDeleteEndpoint(),
             object: action,
+            // Send only `deleted`. The whole action would re-run name validation, which rejects
+            // a blank name and a name that another action shares.
+            payload: {},
             callback,
         })
     }
