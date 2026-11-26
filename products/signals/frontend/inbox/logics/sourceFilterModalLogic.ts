@@ -43,12 +43,12 @@ import {
     SOURCE_LINEAR_TEAM_IDS_KEY,
     SavedSourceFilter,
     SignalSourceConfig,
-    SignalSourceProduct,
-    SignalSourceType,
     linearTeamIdsFromConfig,
     savedSourceFilter,
+    sourceReadsLinearTeams,
 } from '../types'
 import type { LinearTeamsScope } from './linearTeamsModalLogic'
+import { SourceFilterPreviewInput, previewScopeIds, sourceFilterPreviewLogic } from './sourceFilterPreviewLogic'
 
 export interface SourceFilterFormValues {
     expression: string
@@ -63,10 +63,6 @@ interface SourceFilterChange {
     expression?: string | null
     /** Linear team ids to read, where an empty list means every team. */
     teamIds?: string[]
-}
-
-export function sourceReadsLinearTeams(config: SignalSourceConfig): boolean {
-    return config.source_product === SignalSourceProduct.Linear && config.source_type === SignalSourceType.Issue
 }
 
 function formDefaults(config: SignalSourceConfig): SourceFilterFormValues {
@@ -175,6 +171,9 @@ export interface sourceFilterModalLogicActions {
     replaceSourceConfig: (config: SignalSourceConfig) => {
         config: SignalSourceConfig
     } // signalSourcesLogic
+    setPreviewInput: (input: SourceFilterPreviewInput) => {
+        input: SourceFilterPreviewInput
+    } // sourceFilterPreviewLogic
     removeFilter: () => {
         value: true
     }
@@ -246,6 +245,14 @@ export type sourceFilterModalLogicType = MakeLogicType<
     SourceFilterModalLogicProps,
     sourceFilterModalLogicMeta
 >
+
+function updatePreview(logic: sourceFilterModalLogicType): void {
+    const { expression, teamScope, teamIds } = logic.values.sourceFilter
+    logic.actions.setPreviewInput({
+        expression,
+        scopeIds: previewScopeIds(logic.props.sourceConfig, { teamScope, teamIds }),
+    })
+}
 
 /** Write one change in a single request. Throws when the save fails. */
 async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFilterChange): Promise<void> {
@@ -333,7 +340,7 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
     path(['products', 'signals', 'inbox', 'logics', 'sourceFilterModalLogic']),
     props({} as SourceFilterModalLogicProps),
     key((logicProps) => logicProps.sourceConfig.id),
-    connect(() => ({
+    connect((logicProps: SourceFilterModalLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -347,6 +354,8 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
             ['loadSourceConfigs', 'replaceSourceConfig'],
             integrationsLogic,
             ['loadIntegrations', 'loadIntegrationsSuccess', 'loadIntegrationsFailure'],
+            sourceFilterPreviewLogic({ sourceConfig: logicProps.sourceConfig, catalog: logicProps.catalog }),
+            ['setPreviewInput'],
         ],
     })),
     actions({
@@ -428,7 +437,9 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
             if (Object.keys(logic.values.sourceFilterManualErrors).length > 0) {
                 logic.actions.setSourceFilterManualErrors({})
             }
+            updatePreview(logic)
         },
+        setSourceFilterValues: () => updatePreview(logic),
         removeFilter: async () => {
             try {
                 await persistFilter(logic, { expression: null })
@@ -439,7 +450,9 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
             }
         },
     })),
-    afterMount(({ props: logicProps, values, actions }) => {
+    afterMount((logic) => {
+        const { props: logicProps, values, actions } = logic
+        updatePreview(logic)
         // A load that failed before this editor opened would leave the team picker waiting, so start another.
         if (
             sourceReadsLinearTeams(logicProps.sourceConfig) &&
