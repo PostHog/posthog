@@ -29,7 +29,11 @@ export const BillingOrganizationListQueryParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the features the organization's plans include
  */
 export const BillingFeaturesRetrieveParams = () => zod.object({
@@ -41,7 +45,11 @@ export const BillingFeaturesRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the forecast for the rest of the billing period
  */
 export const BillingForecastRetrieveParams = () => zod.object({
@@ -53,7 +61,11 @@ export const BillingForecastRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the organization's spend limits
  */
 export const BillingLimitsRetrieveParams = () => zod.object({
@@ -65,7 +77,11 @@ export const BillingLimitsRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get one product
  */
 export const BillingProductsRetrieveParams = () => zod.object({
@@ -87,7 +103,11 @@ export const BillingProductsRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get every product in summary
  */
 export const BillingProductsSummaryRetrieveParams = () => zod.object({
@@ -99,7 +119,7 @@ export const BillingProductsSummaryRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
  * @summary List the projects with usage
  */
 export const BillingProjectListParams = () => zod.object({
@@ -111,7 +131,11 @@ export const BillingProjectListParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get spend so far this billing period
  */
 export const BillingSpendSummaryRetrieveParams = () => zod.object({
@@ -123,7 +147,11 @@ export const BillingSpendSummaryRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Spend over time
  */
 export const BillingSpendTimeseriesRetrieveParams = () => zod.object({
@@ -196,7 +224,11 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the organization's subscription
  */
 export const BillingSubscriptionRetrieveParams = () => zod.object({
@@ -208,7 +240,11 @@ export const BillingSubscriptionRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get usage so far this billing period
  */
 export const BillingUsageSummaryRetrieveParams = () => zod.object({
@@ -220,7 +256,9 @@ export const BillingUsageSummaryRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * What any member may know about usage: per product and add-on, the limit in effect,
+ * whether usage is over or approaching it, and whether the resource is being limited right
+ * now. The counts themselves are on `usage` and need usage read access.
  * @summary Get usage against limits, without the counts
  */
 export const BillingUsageStatusRetrieveParams = () => zod.object({
@@ -232,7 +270,11 @@ export const BillingUsageStatusRetrieveParams = () => zod.object({
 })
 
 /**
- * In beta: the organization billing API's shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Usage over time
  */
 export const BillingUsageTimeseriesRetrieveParams = () => zod.object({
