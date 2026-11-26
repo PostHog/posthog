@@ -1067,7 +1067,9 @@ _RELATIONSHIP_PROPOSALS_DESCRIPTION = (
 class DeniedTableMatcher:
     def __init__(self, denied: Iterable[str]) -> None:
         normalized_names = {name.lower() for name in denied}
-        self._denied_names = frozenset(normalized_names | {name.rsplit(".", 1)[-1] for name in normalized_names})
+        # `posthog.*` product tables have no bare alias, so their leaf would only hide unrelated tables.
+        leaves = {name.rsplit(".", 1)[-1] for name in normalized_names if not name.startswith("posthog.")}
+        self._denied_names = frozenset(normalized_names | leaves)
 
     def matches(self, referenced_table_names: Iterable[str] | None) -> bool:
         if not self._denied_names or referenced_table_names is None:
