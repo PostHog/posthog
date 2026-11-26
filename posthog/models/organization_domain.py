@@ -16,7 +16,6 @@ from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, saml_configured_q
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
-from posthog.models.user import UserType
 from posthog.models.utils import UUIDTModel
 from posthog.security.oob_domains import matched_oob_domain
 from posthog.utils import get_instance_available_sso_providers
@@ -136,7 +135,7 @@ class OrganizationDomainManager(models.Manager):
         a verified email domain, and `user`'s domain is not one of the org's verified domains.
         Non-human accounts are exempt.
         """
-        if user.type != UserType.HUMAN:
+        if not user.is_human:
             return False
         return self.is_email_blocked_by_domain_enforcement(user.email, organization)
 
