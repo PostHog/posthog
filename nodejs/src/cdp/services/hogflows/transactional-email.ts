@@ -210,6 +210,11 @@ export const AcceptedSendSchema = z
             .strict()
             .readonly()
             .optional(),
+        category: z
+            .object({ id: z.string().min(1), type: z.enum(['marketing', 'transactional']) })
+            .strict()
+            .readonly()
+            .optional(),
     })
     .strict()
     .readonly()
@@ -239,6 +244,20 @@ export const acceptedSendEmailFields = (
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
     ...(send?.thread && { thread: { inReplyTo: send.thread.inReplyTo, references: [...send.thread.references] } }),
 })
+
+export const withSendCategory = <Step extends { type: string; config: object }>(
+    step: Step,
+    send: Pick<AcceptedSend, 'category'> | undefined
+): Step => {
+    if (!send?.category || step.type !== 'function_email') {
+        return step
+    }
+    const { id, type } = send.category
+    return {
+        ...step,
+        config: { ...step.config, message_category_id: id, message_category_type: type, skip_frequency_cap: true },
+    }
+}
 
 const ScheduledAtSchema = z.string().datetime({ offset: true })
 

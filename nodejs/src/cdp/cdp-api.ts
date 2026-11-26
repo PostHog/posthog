@@ -1591,7 +1591,7 @@ export class CdpApi {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
-                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
+                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow, send) : null
 
                 return answer(
                     await sends.accept(

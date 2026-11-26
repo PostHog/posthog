@@ -52,6 +52,7 @@ import {
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { plainTextFromHtml } from './helpers/email-text'
+import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -102,6 +103,7 @@ const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
 const SES_HEADER_VALUE_MAX_LENGTH = 870
+const UNSUBSCRIBE_URL_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -1301,7 +1303,7 @@ export class EmailService {
                 )
             }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
-            const deliverableParams = {
+            const deliverableParams = this.withUnsubscribeLink(invocation, {
                 ...params,
                 to:
                     suppression.promotedTo ??
@@ -1310,7 +1312,7 @@ export class EmailService {
                         : params.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
-            }
+            })
 
             return {
                 kind: 'proceed',
@@ -1900,6 +1902,24 @@ export class EmailService {
                 throw new SesSenderNotVerifiedError(message)
             }
             throw new Error(message)
+        }
+    }
+
+    private withUnsubscribeLink(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): CyclotronInvocationQueueParametersEmailType {
+        if (invocation.state?.send?.category?.type !== 'marketing' || !params.to?.email) {
+            return params
+        }
+        const url = this.recipientTokensService.generatePreferencesUrl(
+            { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+            preferencesTokenSourceForInvocation(invocation)
+        )
+        return {
+            ...params,
+            html: params.html.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => escapeHtml(url)),
+            text: params.text?.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => url),
         }
     }
 
