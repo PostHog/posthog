@@ -460,6 +460,47 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toEqual([{ draft_content: edited }])
         })
 
+        const changedElsewhere = { content: { ...live, email: { ...live.email, subject: 'Changed elsewhere' } } }
+        const useServerCopy = (server: Record<string, unknown>): void => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        ...serverTemplate,
+                        ...server,
+                        updated_at: '2026-01-01T00:02:00Z',
+                    },
+                },
+            })
+        }
+        const reloadAfterEditElsewhere = async (): Promise<void> => {
+            await expectLogic(logic, () => logic.actions.syncExternalEdit()).toDispatchActions(['loadTemplateSuccess'])
+        }
+
+        it.each([
+            { case: 'removed it', server: { ...changedElsewhere, draft_content: null }, banner: true },
+            { case: 'published it', server: { content: draft, draft_content: null }, banner: false },
+        ])(
+            'a reload after an edit from elsewhere that $case keeps the typed draft: $banner',
+            async ({ server, banner }) => {
+                useServerCopy(server)
+                await reloadAfterEditElsewhere()
+
+                expect(logic.values.externallyEdited).toBe(banner)
+                expect(logic.values.template.content).toEqual(draft)
+            }
+        )
+
+        it('saves the typed draft again when the person keeps theirs after it was removed elsewhere', async () => {
+            jest.useFakeTimers()
+            useServerCopy({ ...changedElsewhere, draft_content: null })
+            await reloadAfterEditElsewhere()
+
+            logic.actions.keepMyTemplateVersion()
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            expect(bodies).toEqual([{ draft_content: draft }])
+        })
+
         it('protecting sensitive data saves only the flag, so the draft stays unpublished', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSensitive(true)

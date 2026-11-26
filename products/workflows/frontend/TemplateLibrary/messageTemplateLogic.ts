@@ -860,6 +860,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         syncExternalEdit: () => {
+            // A draft only holds what the person typed, so a reload that finds it gone must not take the text with it.
+            cache.beforeSync = { draft: values.savedDraft, content: values.template.content }
             actions.setSyncingExternalEdit(true)
             actions.loadTemplate()
         },
@@ -1067,10 +1069,20 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         loadTemplateSuccess: ({ template }) => {
             if (values.isSyncingExternalEdit) {
+                const beforeSync = cache.beforeSync as {
+                    draft: TemplateContent | null
+                    content: TemplateContent
+                } | null
+                cache.beforeSync = null
+                const draftLostElsewhere =
+                    !!beforeSync?.draft && !objectsEqual(beforeSync.draft, values.savedDraft ?? values.publishedContent)
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
-                actions.resetTemplate(template)
+                // A draft replaced or removed elsewhere held the person's typing, so it stays and the banner asks.
+                actions.resetTemplate(
+                    draftLostElsewhere && beforeSync ? { ...template, content: beforeSync.content } : template
+                )
                 actions.setSyncingExternalEdit(false)
-                actions.setExternallyEdited(false)
+                actions.setExternallyEdited(draftLostElsewhere)
             }
             actions.replayDeferredExternalEdit()
         },
