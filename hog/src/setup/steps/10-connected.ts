@@ -1,6 +1,6 @@
 import { finalBlock, writeBlock } from '../agents-md'
 import { runNext, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 export const connected: Step = {
     summary: () => 'Wrote the final PostHog section to `AGENTS.md`',
@@ -10,7 +10,7 @@ export const connected: Step = {
         if (!run.input.next) {
             return runNext(
                 'setup_connect_pending',
-                `Run \`${SETUP_NEXT}\` to finish setup and list the PostHog commands in \`AGENTS.md\`.`
+                `Run \`${SETUP_COMMAND}\` to finish setup and list the PostHog commands in \`AGENTS.md\`.`
             )
         }
 

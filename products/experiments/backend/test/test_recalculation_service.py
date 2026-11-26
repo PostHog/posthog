@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -32,10 +32,14 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.recalculation.admission import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+    MetricsRecalculationStart,
+    MetricsRecalculationStartOutcome,
     RecalculationRateLimited,
     exceeds_recalculation_age_limit,
     request_recalculation,
     request_recalculation_without_age_limit,
+    start_metrics_recalculation,
+    start_metrics_recalculation_without_age_limit,
 )
 from products.experiments.backend.recalculation.payloads import build_timeseries_cold_start_payload, get_run_results
 from products.experiments.backend.recalculation.query_progress import get_live_query_progress
@@ -372,6 +376,53 @@ class TestRecalculationService(BaseTest):
             "experiment_age_days": 181,
             "max_age_days": 180,
         }
+
+    @parameterized.expand(
+        [
+            (
+                "age_limit_rejects_the_run",
+                start_metrics_recalculation,
+                MetricsRecalculationStartOutcome.REJECTED,
+                "failed",
+            ),
+            (
+                "staff_start_skips_the_age_limit",
+                start_metrics_recalculation_without_age_limit,
+                MetricsRecalculationStartOutcome.STARTED,
+                "pending",
+            ),
+        ]
+    )
+    def test_start_on_an_experiment_over_the_age_limit(
+        self,
+        name: str,
+        start: Callable[[Experiment, User | None, str], MetricsRecalculationStart],
+        expected_outcome: MetricsRecalculationStartOutcome,
+        expected_status: str,
+    ):
+        exp = self._launched_experiment(flag_key=f"start-{name}")
+        exp.start_date = timezone.now() - timedelta(days=181)
+        exp.save()
+
+        with (
+            patch(
+                "products.experiments.backend.organization_flags.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+            ),
+            patch(
+                "products.experiments.backend.recalculation.admission.start_metrics_recalculation_workflow"
+            ) as dispatch,
+        ):
+            started = start(exp, self.user, "manual")
+
+        assert started.outcome == expected_outcome
+        assert ExperimentMetricsRecalculation.objects.get(id=started.recalculation_id).status == expected_status
+        expected_dispatches = (
+            [call(started.recalculation_id, team_id=self.team.id, organization_id=str(self.organization.id))]
+            if expected_outcome == MetricsRecalculationStartOutcome.STARTED
+            else []
+        )
+        assert dispatch.call_args_list == expected_dispatches
 
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()

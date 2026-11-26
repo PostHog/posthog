@@ -12,7 +12,7 @@ type DashboardErrorState = {
     dashboard: Dashboard
 }
 
-/** The fallback for an error no widget boundary caught, such as one in the grid, a section or the filter bar. */
+/** The fallback for an error no panel boundary caught, such as one in the grid, a section or the filter bar. */
 export class DashboardErrorBoundary extends Component<
     { dashboard: Dashboard; children: ReactNode },
     DashboardErrorState

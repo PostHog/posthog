@@ -2,7 +2,7 @@ import { PropertyOperator } from '~/types'
 
 import { type AnalyticsPropertyFilter, analyticsPropertyFilters } from '../filters/analytics/analyticsPropertyFilters'
 import type { DataFrame, RunQuery } from '../query/queryTypes'
-import type { WidgetQuery } from '../dashboard/document/dashboardSchema'
+import type { PanelQuery } from '../dashboard/document/dashboardSchema'
 
 // TODO(2026-11-25): Delete once the scene always runs real queries through the query batch runner.
 // Without both v2 query flags, the scene draws charts from these seeded sample frames.
@@ -17,18 +17,18 @@ function seededRandom(seed: string): () => number {
     }
 }
 
-function queryText(query: WidgetQuery): string {
+function queryText(query: PanelQuery): string {
     return typeof query.query === 'string' ? query.query : JSON.stringify(query.query)
 }
 
-function seriesNames(query: WidgetQuery): string[] {
+function seriesNames(query: PanelQuery): string[] {
     return / by (?!day\b)|by day, |breakdown|sum by|serviceNames/.test(queryText(query))
         ? ['Chrome', 'Safari', 'Firefox']
         : ['Value']
 }
 
 // A rate drawn as a count reads as 272,300% on a percentage stat.
-function isRatio(query: WidgetQuery): boolean {
+function isRatio(query: PanelQuery): boolean {
     return /_rate\b/.test(queryText(query))
 }
 
@@ -52,7 +52,7 @@ export type SampleCase = 'empty' | 'error' | 'slow' | 'stale' | 'malformed'
 
 const SLOW_MS = 4000
 
-function sampleCase(query: WidgetQuery): SampleCase | null {
+function sampleCase(query: PanelQuery): SampleCase | null {
     const match = /-- sample: (empty|error|slow|stale|malformed)/.exec(queryText(query))
     return match ? (match[1] as SampleCase) : null
 }
@@ -66,7 +66,7 @@ export const runSampleQuery: RunQuery = async (request) => {
         case 'error':
             throw new Error('Unable to resolve field: missing_column')
         case 'malformed':
-            // A runner that breaks its contract, so the widget throws and its error boundary catches it.
+            // A runner that breaks its contract, so the panel throws and its error boundary catches it.
             return { frames: [{ name: 'Broken' } as DataFrame] }
         case 'slow':
             await new Promise((resolve) => setTimeout(resolve, SLOW_MS))

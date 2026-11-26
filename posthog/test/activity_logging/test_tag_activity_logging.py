@@ -213,3 +213,69 @@ class TestTaggedItemActivityLogging(ActivityLogTestHelper):
             assert tag_log is not None
             assert tag_log.detail is not None
             self.assertEqual(tag_log.detail["name"], "updated-tag")
+
+
+class TestTagManagementActivityLogging(ActivityLogTestHelper):
+    def test_merge_records_actor_outcome_and_related_history(self) -> None:
+        from posthog.models import Tag, TaggedItem
+        from posthog.tag_management import merge_tags
+
+        from products.customer_analytics.backend.models import Account
+
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Example account")
+        source = Tag.objects.create(team=self.team, name="source")
+        target = Tag.objects.create(team=self.team, name="target")
+        account.tagged_items.create(tag=source)
+        ActivityLog.objects.all().delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            merge_tags(self.team.id, source.id, target.id, self.user)
+        log = ActivityLog.objects.get(scope="Tag", activity="merged")
+        assert log.detail is not None
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.item_id, str(source.id))
+        self.assertEqual(log.detail["context"]["target_id"], str(target.id))
+        self.assertEqual(log.detail["context"]["moved_count"], 1)
+        self.assertEqual(log.detail["context"]["outcome"], "completed")
+        changes = []
+        for related_log in ActivityLog.objects.filter(scope="Account", item_id=str(account.id)):
+            assert related_log.detail is not None
+            changes.append(related_log.detail["changes"][0])
+        self.assertTrue(any(change["before"] == "source" for change in changes))
+        self.assertTrue(any(change["after"] == "target" for change in changes))
+        self.assertEqual(TaggedItem.objects.filter(tag=target).count(), 1)
+
+    def test_rename_records_before_after_and_related_history(self) -> None:
+        from posthog.models import Tag
+        from posthog.tag_management import rename_tag
+
+        from products.customer_analytics.backend.models import Account
+
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Example account")
+        tag = Tag.objects.create(team=self.team, name="before")
+        account.tagged_items.create(tag=tag)
+        ActivityLog.objects.all().delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            rename_tag(self.team.id, tag.id, "after", self.user)
+        log = ActivityLog.objects.get(scope="Tag", activity="updated")
+        assert log.detail is not None
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.detail["changes"][0]["before"], "before")
+        self.assertEqual(log.detail["changes"][0]["after"], "after")
+        related = ActivityLog.objects.get(scope="Account", item_id=str(account.id))
+        assert related.detail is not None
+        self.assertEqual(related.detail["changes"][0]["before"], "before")
+        self.assertEqual(related.detail["changes"][0]["after"], "after")
+
+    def test_unused_delete_records_actor_and_outcome(self) -> None:
+        from posthog.models import Tag
+        from posthog.tag_management import delete_unused_tag
+
+        tag = Tag.objects.create(team=self.team, name="unused")
+        tag_id = str(tag.id)
+        ActivityLog.objects.all().delete()
+        delete_unused_tag(self.team.id, tag.id, self.user)
+        log = ActivityLog.objects.get(scope="Tag", activity="deleted", item_id=tag_id)
+        assert log.detail is not None
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.detail["name"], "unused")
+        self.assertEqual(log.detail["context"]["outcome"], "completed")
