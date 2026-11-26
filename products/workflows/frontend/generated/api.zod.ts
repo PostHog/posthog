@@ -2077,12 +2077,6 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
                 ),
-            entry_attempt_id: zod
-                .uuid()
-                .nullish()
-                .describe(
-                    'The call-to-action impression this workflow started from. Set only when creating a workflow.'
-                ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
                 id: zod.number(),

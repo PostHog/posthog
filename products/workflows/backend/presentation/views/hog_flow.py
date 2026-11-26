@@ -5019,7 +5019,7 @@ class HogFlowTestConfigurationSerializer(HogFlowSerializer):
     # Generated clients validate this override against its schema, and a response-only field there would
     # make them reject an override that omits it.
     class Meta(HogFlowSerializer.Meta):
-        fields = [name for name in HogFlowSerializer.Meta.fields if name != "warnings"]
+        fields = [name for name in HogFlowSerializer.Meta.fields if name not in ("warnings", "entry_attempt_id")]
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):

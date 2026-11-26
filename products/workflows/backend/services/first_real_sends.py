@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid5
 
+from django.db import transaction
+
 import structlog
 
 from posthog.schema import ProductKey
@@ -48,46 +50,47 @@ def _first_billable_emails(since: datetime) -> dict[tuple[int, UUID], datetime]:
 
 def capture_first_real_sends(now: datetime) -> int:
     first_sends = _first_billable_emails(now - FIRST_REAL_SEND_LOOKBACK)
-    if not first_sends:
-        return 0
-
     hog_flow_ids = [hog_flow_id for _, hog_flow_id in first_sends]
-    recorded = []
+    captured = 0
     for start in range(0, len(hog_flow_ids), CANDIDATE_BATCH_SIZE):
-        candidates = HogFlow.objects.filter(
-            pk__in=hog_flow_ids[start : start + CANDIDATE_BATCH_SIZE],
-            created_at__gte=FIRST_REAL_SEND_CUTOFF,
-            first_real_send_at__isnull=True,
+        captured += _record_batch(hog_flow_ids[start : start + CANDIDATE_BATCH_SIZE], first_sends)
+    logger.info("workflows_first_real_sends_captured", captured=captured)
+    return captured
+
+
+def _record_batch(hog_flow_ids: list[UUID], first_sends: dict[tuple[int, UUID], datetime]) -> int:
+    candidates = list(
+        HogFlow.objects.filter(
+            pk__in=hog_flow_ids, created_at__gte=FIRST_REAL_SEND_CUTOFF, first_real_send_at__isnull=True
         ).only("id", "team_id", "entry_attempt_id", "origin_product")
+    )
+    teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({flow.team_id for flow in candidates})
+    with transaction.atomic():
+        recorded = []
         for flow in candidates:
             first_send = first_sends.get((flow.team_id, flow.id))
-            if first_send is None:
+            team = teams.get(flow.team_id)
+            if first_send is None or team is None:
                 continue
-            updated = HogFlow.objects.filter(pk=flow.pk, first_real_send_at__isnull=True).update(
+            if HogFlow.objects.filter(pk=flow.pk, first_real_send_at__isnull=True).update(
                 first_real_send_at=first_send
-            )
-            if updated:
-                recorded.append((flow, first_send))
-
-    if not recorded:
-        return 0
-
-    teams = {team.id: team for team in Team.objects.filter(id__in={flow.team_id for flow, _ in recorded})}
-    with ph_scoped_capture(event_region=get_instance_region()) as capture:
-        for flow, first_send in recorded:
-            team = teams[flow.team_id]
-            capture(
-                distinct_id=str(team.uuid),
-                event=WORKFLOW_FIRST_REAL_SEND_EVENT,
-                timestamp=first_send,
-                uuid=str(uuid5(flow.id, WORKFLOW_FIRST_REAL_SEND_EVENT)),
-                properties={
-                    "hog_flow_id": str(flow.id),
-                    "entry_attempt_id": str(flow.entry_attempt_id) if flow.entry_attempt_id else None,
-                    "origin_product": flow.origin_product,
-                    "first_real_send_at": first_send.isoformat(),
-                },
-                groups=groups(team=team),
-            )
-    logger.info("workflows_first_real_sends_captured", captured=len(recorded))
+            ):
+                recorded.append((flow, team, first_send))
+        if not recorded:
+            return 0
+        with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
+            for flow, team, first_send in recorded:
+                capture(
+                    distinct_id=str(team.uuid),
+                    event=WORKFLOW_FIRST_REAL_SEND_EVENT,
+                    timestamp=first_send,
+                    uuid=str(uuid5(flow.id, WORKFLOW_FIRST_REAL_SEND_EVENT)),
+                    properties={
+                        "hog_flow_id": str(flow.id),
+                        "entry_attempt_id": str(flow.entry_attempt_id) if flow.entry_attempt_id else None,
+                        "origin_product": flow.origin_product,
+                        "first_real_send_at": first_send.isoformat(),
+                    },
+                    groups=groups(team=team),
+                )
     return len(recorded)

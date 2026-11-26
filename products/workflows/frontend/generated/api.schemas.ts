@@ -1477,11 +1477,6 @@ export interface HogFlowTestConfigurationApi {
      * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
      */
     source_record?: string | null
-    /**
-     * The call-to-action impression this workflow started from. Set only when creating a workflow.
-     * @nullable
-     */
-    entry_attempt_id?: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string

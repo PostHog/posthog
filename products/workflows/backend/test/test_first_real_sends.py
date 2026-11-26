@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import timedelta
 from uuid import UUID
 
@@ -37,12 +38,19 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         HogFlow.objects.filter(pk=flow.pk).update(created_at=created_at)
         return flow
 
-    def _metric(self, flow: HogFlow, at, metric_name: str = "billable_invocation") -> None:
+    def _metric(
+        self,
+        flow: HogFlow,
+        at,
+        metric_name: str = "billable_invocation",
+        metric_kind: str = "email",
+        app_source: str = "hog_flow",
+    ) -> None:
         create_app_metric2(
             team_id=self.team.pk,
-            app_source="hog_flow",
+            app_source=app_source,
             app_source_id=str(flow.id),
-            metric_kind="email",
+            metric_kind=metric_kind,
             metric_name=metric_name,
             timestamp=at,
         )
@@ -54,7 +62,10 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
     ) -> None:
         flow = self._flow(entry_attempt_id=entry_attempt_id)
         first_send = (NOW - timedelta(hours=20)).replace(microsecond=0)
+        self._metric(flow, NOW - timedelta(days=3))
         self._metric(flow, NOW - timedelta(hours=22), metric_name="succeeded")
+        self._metric(flow, NOW - timedelta(hours=22), metric_kind="sms")
+        self._metric(flow, NOW - timedelta(hours=22), app_source="hog_function")
         self._metric(flow, first_send)
         self._metric(flow, NOW - timedelta(hours=2))
 
@@ -92,17 +103,20 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         assert flow.first_real_send_at is None
         assert captured_events(scoped_capture) == []
 
+    @parameterized.expand([("clickhouse",), ("capture",)])
     @patch(f"{SERVICE}.ph_scoped_capture")
-    @patch(f"{SERVICE}.sync_execute", side_effect=Exception("ClickHouse is down"))
-    def test_a_clickhouse_error_leaves_the_column_unset(
-        self, _sync_execute: MagicMock, scoped_capture: MagicMock
-    ) -> None:
+    def test_a_failure_leaves_the_column_unset(self, failing: str, scoped_capture: MagicMock) -> None:
         flow = self._flow()
         self._metric(flow, NOW - timedelta(hours=2))
+        scoped_capture.return_value.__exit__.side_effect = ConnectionError("capture is down")
 
-        with self.assertRaises(Exception):
-            capture_workflow_first_real_sends()
+        with (
+            patch(f"{SERVICE}.sync_execute", side_effect=ConnectionError("ClickHouse is down"))
+            if failing == "clickhouse"
+            else nullcontext()
+        ):
+            with self.assertRaises(ConnectionError):
+                capture_workflow_first_real_sends()
 
         flow.refresh_from_db()
         assert flow.first_real_send_at is None
-        assert captured_events(scoped_capture) == []
