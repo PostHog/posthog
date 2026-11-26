@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 /// The Overview pane's width beside the topic.
 pub(super) const WIDTH: f32 = 296.;
 /// Below this window width the Overview is reached from the header instead.
-const DOCK_MIN: f32 = 980.;
+pub(super) const DOCK_MIN: f32 = 980.;
 
 impl Desktop {
     /// Whether the Overview sits beside the topic right now.

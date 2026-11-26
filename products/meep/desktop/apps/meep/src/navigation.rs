@@ -2205,6 +2205,42 @@ impl Desktop {
         meep_shell::appearance::settings_body("settings-scroll", width, content)
     }
 }
+pub(super) fn side_overlay(width: f32, progress: f32, content: Div) -> Div {
+    div()
+        .absolute()
+        .top_0()
+        .right(px(-ui::motion::travel(progress.clamp(0., 1.), width)))
+        .bottom_0()
+        .w(px(width))
+        .border_l_1()
+        .border_color(ui::ink(0x12))
+        .bg(rgb(ui::theme::color(ui::CANVAS)))
+        .shadow_lg()
+        .occlude()
+        .child(content.size_full())
+}
+
+pub(super) fn side_pane(
+    id: &'static str,
+    width: f32,
+    progress: f32,
+    content: Div,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h_full()
+        .py(px(meep_shell::GUTTER))
+        .overflow_hidden()
+        .flex_shrink_0()
+        .w(px((width + meep_shell::GUTTER) * progress.clamp(0., 1.)))
+        .child(
+            meep_shell::pane(content)
+                .h_full()
+                .mr(px(meep_shell::GUTTER))
+                .w(px(width)),
+        )
+}
+
 impl Render for Desktop {
     fn render(&mut self, w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The sidebar spinner runs while any topic's or view's agent works.
@@ -2433,7 +2469,16 @@ impl Render for Desktop {
         if self.identity.is_some() && matches!(self.page, Page::View(_) | Page::NewView) {
             self.ensure_view_models(w, cx);
         }
-        let view_panel = self.active_view_panel(w, cx);
+        let mut view_panel = None;
+        if let Some((width, progress, content)) = self.active_view_panel(w, cx) {
+            if w.viewport_size().width > px(super::overview::DOCK_MIN) {
+                view_panel = Some(side_pane("view-chat-slot", width, progress, content));
+            } else {
+                main = main
+                    .relative()
+                    .child(side_overlay(width, progress, content));
+            }
+        }
         // View's choreography: the sidebar slides in and out with its own
         // spring, and settings arrive with a short travel once opened.
         let rail_wanted = settings_open || live;
@@ -2463,7 +2508,7 @@ impl Render for Desktop {
             _ => None,
         };
         let overview_presence =
-            ui::motion::presence("topic-overview-pane", overview_topic.is_some(), w, cx);
+            ui::motion::pane("topic-overview-pane", overview_topic.is_some(), w, cx);
         if overview_topic.is_some() {
             self.overview_leaving = overview_topic;
         } else if !overview_presence.should_render() {
@@ -2475,22 +2520,12 @@ impl Render for Desktop {
             .flatten()
             .and_then(|topic| self.states.iter().find(|s| s.topic.id == topic).cloned());
         let overview_pane = overview_state.map(|state| {
-            let full = super::overview::WIDTH;
-            let p = overview_presence.progress.clamp(0., 1.);
-            div()
-                .id("topic-overview-slot")
-                .h_full()
-                .py(px(meep_shell::GUTTER))
-                .overflow_hidden()
-                .flex_shrink_0()
-                .w(px((full + meep_shell::GUTTER) * p))
-                .child(
-                    meep_shell::pane(self.overview(&state, cx))
-                        .h_full()
-                        .mr(px(meep_shell::GUTTER))
-                        .opacity((p * 1.6).clamp(0., 1.))
-                        .w(px(full)),
-                )
+            side_pane(
+                "topic-overview-slot",
+                super::overview::WIDTH,
+                overview_presence.progress,
+                self.overview(&state, cx),
+            )
         });
         let sheet_open = self.sheet.clone().filter(|s| !matches!(s, Sheet::New));
         let sheet_presence = ui::motion::presence("sheet", sheet_open.is_some(), w, cx);

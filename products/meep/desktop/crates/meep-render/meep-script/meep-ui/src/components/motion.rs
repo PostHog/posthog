@@ -105,6 +105,23 @@ pub fn presence(
         .sample(window, cx)
 }
 
+pub fn pane(
+    id: impl Into<ElementId>,
+    present: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> PresenceSample {
+    let policy = cx.theme().motion_tokens();
+    let duration = if present {
+        policy.duration_slow
+    } else {
+        policy.duration_normal
+    };
+    Presence::new(id.into(), present)
+        .transition(Transition::new(duration).easing(policy.easing_move.clone()))
+        .sample(window, cx)
+}
+
 /// One arrival of new content: progress runs 0 → 1 from the first sample under
 /// `id`, so a caller starts another by sampling a fresh id. `slow` is for rare
 /// moments that deserve a longer beat; keyboard input and reduced motion

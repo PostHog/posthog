@@ -1098,7 +1098,7 @@ impl Desktop {
         cx: &mut Context<Self>,
     ) -> Div {
         let topic = &state.topic;
-        let overlay = ui::motion::presence(
+        let overlay = ui::motion::pane(
             "topic-overview-overlay",
             self.overview_overlay && !self.overview_docked(w),
             w,
@@ -1376,21 +1376,11 @@ impl Desktop {
             .child(body)
             .relative()
             .when(overlay.should_render(), |c| {
-                let p = overlay.progress.clamp(0., 1.);
-                c.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .right(px(-ui::motion::travel(p, super::overview::WIDTH)))
-                        .bottom_0()
-                        .opacity(p)
-                        .w(px(super::overview::WIDTH))
-                        .border_l_1()
-                        .border_color(ui::ink(0x12))
-                        .shadow_lg()
-                        .occlude()
-                        .child(self.overview(state, cx)),
-                )
+                c.child(super::navigation::side_overlay(
+                    super::overview::WIDTH,
+                    overlay.progress,
+                    self.overview(state, cx),
+                ))
             })
     }
     /// The width the topic's own pane gets beside the sidebar and the Overview.

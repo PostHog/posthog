@@ -703,15 +703,30 @@ impl Desktop {
         });
         cx.notify()
     }
-    pub(super) fn active_view_panel(&self, w: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
-        if self.identity.is_none() || !self.views.panel || self.views.settings {
-            return None;
-        }
+    pub(super) fn active_view_panel(
+        &self,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<(f32, f32, Div)> {
         let Page::View(id) = self.page else {
             return None;
         };
-        let v = self.views.rows.iter().find(|v| v.id == id)?;
-        Some(self.view_panel(v, w, cx))
+        let view = self.views.rows.iter().find(|v| v.id == id)?;
+        let wanted = self.identity.is_some() && self.views.panel && !self.views.settings;
+        let motion = ui::motion::pane("view-chat-pane", wanted, w, cx);
+        if self.identity.is_none() || !motion.should_render() {
+            return None;
+        }
+        let width = meep_shell::agent_panel_width(
+            w.viewport_size().width.into(),
+            if self.sidebar_hidden {
+                0.
+            } else {
+                super::navigation::TOPIC_SIDEBAR_WIDTH
+            },
+            None,
+        );
+        Some((width, motion.progress, self.view_panel(view, w, cx)))
     }
     fn view_panel(&self, v: &View, w: &mut Window, cx: &mut Context<Self>) -> Div {
         let selected = self
@@ -738,19 +753,7 @@ impl Desktop {
                 .map_or_else(String::new, |t| short_title(&t.prompt))
         };
         let chevron = ui::motion::reveal("view-session-history", self.views.history, w, cx);
-        let panel = meep_shell::pane(ui::column())
-            .my(px(meep_shell::GUTTER))
-            .mr(px(meep_shell::GUTTER))
-            .flex_none()
-            .w(px(meep_shell::agent_panel_width(
-                w.viewport_size().width.into(),
-                if self.sidebar_hidden {
-                    0.
-                } else {
-                    super::navigation::TOPIC_SIDEBAR_WIDTH
-                },
-                None,
-            )))
+        let panel = ui::column()
             .min_h_0()
             .child(meep_shell::agent_panel::session_header(
                 heading,
