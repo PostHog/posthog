@@ -28,7 +28,14 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, debt_digest, github_api, ledger_advance, runs
+from products.visual_review.backend.logic import (
+    artifact_store,
+    ci_status,
+    debt_digest,
+    github_api,
+    ledger_advance,
+    runs,
+)
 from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
 from products.visual_review.backend.models import Repo, Run, RunSnapshot, ToleratedHash
 from products.visual_review.backend.storage import ArtifactStorage
@@ -155,11 +162,16 @@ class TestProcessRunDiffs:
         )
         process_run_diffs(repo.team_id, str(create_result.run_id))
 
-        with patch("products.visual_review.backend.diffing.process_diffs") as process:
+        # The worker can stop after the run is saved as completed and before its status is posted.
+        with (
+            patch("products.visual_review.backend.diffing.process_diffs") as process,
+            patch.object(ci_status, "_send_commit_status", return_value=ci_status.StatusPost.POSTED) as send_status,
+        ):
             process_run_diffs(repo.team_id, str(create_result.run_id))
 
         assert process.called is False
         assert api.get_run(create_result.run_id).status == RunStatus.COMPLETED
+        assert send_status.called
 
     def test_process_run_diffs_handles_error(self, repo):
         create_result = api.create_run(
