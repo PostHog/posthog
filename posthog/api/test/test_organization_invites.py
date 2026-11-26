@@ -1608,7 +1608,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         response = self.client.post("/api/organizations/@current/invites/", {"target_email": "deploys@example.com"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "service_account")
+        self.assertEqual(response.json()["code"], "not_human")
         self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     def test_user_join_with_default_role(self):
