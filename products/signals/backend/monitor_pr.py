@@ -3,7 +3,8 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from datetime import datetime
-from typing import Any
+from functools import partial
+from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -41,13 +43,21 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.daily_limit import check_daily_report_admission, team_day_start
 from products.signals.backend.github_actor import GITHUB_LOGIN_PATTERN
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
-from products.signals.backend.pull_requests import link_pull_request
+from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
 from products.signals.backend.report_assignments import MAX_PR_NUMBER, PullRequestDetails, create_claim
-from products.signals.backend.report_checks import MAX_CHECK_HORIZON
+from products.signals.backend.report_check_authoring import create_checks_from_specs
+from products.signals.backend.report_checks import (
+    MAX_CHECK_HORIZON,
+    CheckSpec,
+    MetricThresholdConfig,
+    authored_monitoring_interval_minutes,
+    validate_metric_check_for_write,
+)
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_content_gates import (
     team_pr_monitoring_enabled,
@@ -55,6 +65,8 @@ from products.signals.backend.report_content_gates import (
     team_report_monitoring_enabled,
 )
 from products.signals.backend.report_lifecycle import effective_report_status
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.report_urls import build_bare_report_url
 from products.signals.backend.trial.policy import TrialRefused
 from products.signals.backend.trial.reports import prepare_report_pass
@@ -64,7 +76,7 @@ logger = structlog.get_logger(__name__)
 RECENT_PR_LIMIT = 50
 PR_RESEARCH_DAILY_ATTEMPT_LIMIT = 5
 MAX_PROMPT_DIFF_CHARS = 100_000
-PR_MONITORING_NOTE_AUTHOR = "PR monitoring"
+_STRIPPED_QUERY_KEYS = frozenset({"response", "name", "custom_name", "formulas"})
 
 
 @frozen
@@ -783,13 +795,197 @@ def request_pr_monitoring(
     )
 
 
-def _append_pr_monitoring_failure_note(report: SignalReport, message: str) -> None:
-    SignalReportArtefact.add_log(
-        team_id=report.team_id,
-        report_id=str(report.id),
-        content=NoteArtefact(note=message, author=PR_MONITORING_NOTE_AUTHOR),
-        attribution=ArtefactAttribution.system(),
+class PRMonitoringCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(default="Post-merge check", min_length=1, max_length=200)
+    kind: Literal["metric_threshold"] = "metric_threshold"
+    config: MetricThresholdConfig
+    soak_hours: int = Field(default=24, ge=1, le=720)
+    run_interval_minutes: int | None = None
+
+    def as_spec(self) -> CheckSpec:
+        return CheckSpec.model_validate(self.model_dump(mode="json", exclude_none=True))
+
+
+def _has_disallowed_control_chars(value: str) -> bool:
+    return any(
+        (ord(ch) < 32 and ch not in ("\n", "\r", "\t")) or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF
+        for ch in value
     )
+
+
+class PRMonitoringOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inspected_commit: str
+    metric: ReportMetric | None = None
+    check: PRMonitoringCheck | None = None
+    unavailable: bool = False
+    guidance_question: str | None = Field(
+        default=None,
+        max_length=1500,
+        description=(
+            "Required when unavailable is true, null otherwise. Plain markdown explaining what direct "
+            "instrumentation is missing, naming candidate proxy events, properties, or actions found in "
+            "this project when any exist, and asking what to monitor. Qualitative names only; never include "
+            "raw analytics counts or property values."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def coherent_measurement(self) -> "PRMonitoringOutput":
+        if self.unavailable:
+            if self.metric is not None or self.check is not None:
+                raise ValueError("An unavailable measurement must not include a metric or check")
+            question = redact_credentials((self.guidance_question or "").strip())
+            if not question or _has_disallowed_control_chars(question):
+                raise ValueError("Provide a non-empty guidance_question when unavailable is true")
+            self.guidance_question = question
+            return self
+        self.guidance_question = None
+        if self.metric is None or self.check is None:
+            raise ValueError("Provide a primary metric and monitoring check, or set unavailable to true")
+        if self.metric.role != "primary":
+            raise ValueError("Provide one primary metric and a new metric_threshold check")
+        self.check.as_spec()
+        config = self.check.config
+        if config.query is not None:
+            raise ValueError("Reference the primary metric with metric_id instead of repeating query on check.config")
+        if config.metric_id != self.metric.metric_id or config.monitoring is None:
+            raise ValueError("The check must monitor the primary metric by metric_id")
+        authored_monitoring_interval_minutes(self.check.soak_hours * 60, self.check.run_interval_minutes)
+        validate_metric_check_for_write(
+            config.model_copy(
+                update={
+                    "query": self.metric.query,
+                    "metric_kind": self.metric.kind,
+                    "value_format": self.metric.value_format,
+                    "unit": self.metric.unit,
+                }
+            )
+        )
+        return self
+
+
+def _reconcile_researched_pr(report: SignalReport, pr: MonitoredPullRequest, actor: ArtefactAttribution) -> None:
+    from products.signals.backend.tasks import (
+        refresh_linked_pull_request_state,  # noqa: PLC0415 -- keeps Celery task module off import path
+    )
+
+    active_claim = get_active_claim(team_id=report.team_id, report_id=str(report.id))
+    link_pull_request(
+        report=report,
+        details=pr.details(),
+        actor=actor,
+        claim_id=str(active_claim.claim_id) if active_claim else None,
+        notify_reviewers=False,
+    )
+    apply_report_completion(report)
+    if pr.state != "merged":
+        transaction.on_commit(
+            partial(refresh_linked_pull_request_state.delay, report.team_id, pr.url),
+            robust=True,
+        )
+
+
+def _strip_embedded_query_metadata(value: object) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: _strip_embedded_query_metadata(item) for key, item in value.items() if key not in _STRIPPED_QUERY_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_embedded_query_metadata(item) for item in value]
+    return value
+
+
+def _sanitized_measurement(output: PRMonitoringOutput, pr: MonitoredPullRequest) -> tuple[dict[str, Any], CheckSpec]:
+    assert output.metric is not None and output.check is not None
+    raw_unit = output.metric.unit
+    safe_unit = raw_unit if isinstance(raw_unit, str) and re.fullmatch(r"ms|s|[A-Z]{3}", raw_unit) else None
+    metric = ReportMetric(
+        metric_id="primary_metric",
+        title=f"Impact metric for {pr.repository}#{pr.number}",
+        kind=output.metric.kind,
+        role="primary",
+        value_format=output.metric.value_format,
+        unit=safe_unit,
+        query=_strip_embedded_query_metadata(output.metric.query),
+    )
+    check = output.check.model_copy(
+        update={
+            "title": f"Post-merge check for {pr.repository}#{pr.number}",
+            "config": output.check.config.model_copy(update={"metric_id": "primary_metric", "unit": safe_unit}),
+        }
+    )
+    return metric.model_dump(mode="json", exclude_none=True), check.as_spec()
+
+
+def _assert_initiator_may_read_metric(
+    report: SignalReport, initiator: User, inputs: MonitorPRInput, metric_payload: dict[str, Any]
+) -> None:
+    policy = ReportMetricAccessPolicy(request=None, team=report.team, user=initiator, token_scopes=inputs.token_scopes)
+    if not policy.may_read_query(metric_payload):
+        raise ValueError("The initiating user cannot access the selected metric query")
+
+
+def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutput, pr: MonitoredPullRequest) -> None:
+    if output.inspected_commit != pr.head_sha:
+        raise ValueError("The research did not inspect the requested pull request commit")
+    with transaction.atomic():
+        report = (
+            SignalReport.objects.select_for_update(of=("self",), no_key=True)
+            .select_related("team__organization")
+            .get(team_id=inputs.team_id, id=inputs.report_id)
+        )
+        if not report_has_active_pr_monitoring_pass(report) or attempt_key(report) != inputs.attempt_key:
+            return
+        initiator = require_pr_monitoring_initiator(report.team, inputs.user_id)
+        actor = ArtefactAttribution.system()
+        if output.unavailable:
+            assert output.guidance_question is not None
+            report.save(
+                update_fields=report.transition_to(
+                    SignalReport.Status.PENDING_INPUT,
+                    title=f"Monitor {pr.title}",
+                    summary=(
+                        f"Post-merge impact check for {pr.repository}#{pr.number}.\n\n"
+                        f"## Guidance needed\n\n{output.guidance_question}"
+                    ),
+                    error="PR monitoring research needs guidance on what to measure.",
+                )
+            )
+            SignalReportArtefact.add_log(
+                team_id=report.team_id,
+                report_id=str(report.id),
+                content=NoteArtefact(note=output.guidance_question, author="PR monitoring"),
+                attribution=actor,
+            )
+            return
+        if not team_report_monitoring_enabled(inputs.team_id) or not team_report_metrics_enabled(inputs.team_id):
+            raise ValueError("Monitoring is no longer enabled for this project")
+        metric_payload, check_spec = _sanitized_measurement(output, pr)
+        _assert_initiator_may_read_metric(report, initiator, inputs, metric_payload)
+        report.metrics = [metric_payload]
+        report.save(
+            update_fields=[
+                "metrics",
+                *report.transition_to(
+                    SignalReport.Status.READY,
+                    title=f"Monitor {pr.title}",
+                    summary=f"Post-merge impact check for {pr.repository}#{pr.number}.",
+                ),
+            ]
+        )
+        result = create_checks_from_specs(report=report, specs=[check_spec], attribution=actor)
+        if not result.applied or not result.created:
+            raise ValueError("Could not create the monitoring check")
+        SignalReportArtefact.append_status(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=CheckAuthoringStatus(status="succeeded", reason="PR monitoring measurement created."),
+            attribution=actor,
+        )
+        _reconcile_researched_pr(report, pr, actor)
 
 
 def fail_monitoring_research(inputs: MonitorPRInput) -> None:
@@ -809,10 +1005,6 @@ def fail_monitoring_research(inputs: MonitorPRInput) -> None:
                     SignalReport.Status.FAILED,
                     error="PR monitoring research failed before a measurement was saved.",
                 )
-            )
-            _append_pr_monitoring_failure_note(
-                report,
-                "PR monitoring research failed before saving a measurement. Retry research or add guidance on what to watch.",
             )
 
 
@@ -840,9 +1032,5 @@ def fail_stale_pr_monitoring(team_id: int, report_id: str, *, started_before: da
                 SignalReport.Status.FAILED,
                 error="PR monitoring research stopped before a measurement was saved.",
             )
-        )
-        _append_pr_monitoring_failure_note(
-            report,
-            "PR monitoring research timed out before saving a measurement. Retry research or add guidance on what to watch.",
         )
         return True

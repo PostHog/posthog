@@ -84,14 +84,10 @@ describe('PullRequestsPanel', () => {
 
         expect(screen.queryByText('Draft')).not.toBeInTheDocument()
         expect(screen.getAllByText('Closed')).toHaveLength(3)
-        const retryButton = screen.getByText('Retry').closest('button')
-        expect(retryButton).toHaveAttribute('aria-disabled', 'true')
-        const guideButton = screen.getByText('Guide').closest('button')
-        expect(guideButton).not.toHaveAttribute('aria-disabled', 'true')
-        expect(screen.getByText('Closed failed check').closest('a')).toHaveAttribute(
-            'href',
-            expect.stringContaining('rep-2')
-        )
+        const retryButtons = screen.getAllByText('Retry').map((node) => node.closest('button'))
+        expect(retryButtons).toHaveLength(2)
+        expect(retryButtons[0]).toHaveAttribute('aria-disabled', 'true')
+        expect(retryButtons[1]).not.toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByText('Needs instrumentation retry').closest('a')).toHaveAttribute(
             'href',
             expect.stringContaining('rep-5')
@@ -146,12 +142,8 @@ describe('PullRequestsPanel', () => {
         render(<PullRequestsPanel />)
         await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
 
-        fireEvent.click(screen.getByText('Guide'))
-        expect(screen.getByText('Run with guidance').closest('button')).toHaveAttribute('aria-disabled', 'true')
-        fireEvent.change(screen.getByLabelText('Monitoring guidance'), {
-            target: { value: 'Watch cart_viewed after merge' },
-        })
-        expect(screen.getByText('Run with guidance').closest('button')).not.toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(screen.getByText('Retry'))
+        expect(screen.getByText('Retry research')).toBeInTheDocument()
         expect(posted).toEqual([])
 
         fireEvent.click(screen.getByText('Monitor'))

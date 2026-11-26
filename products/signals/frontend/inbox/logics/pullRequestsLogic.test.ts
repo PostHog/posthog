@@ -6,8 +6,11 @@ import { initKeaTests } from '~/test/init'
 
 import type { PRBrowserItemApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { selectVisibleReportActivity } from '../components/detail/artefactTypes'
+import { inboxSceneLogic } from '../inboxSceneLogic'
+import type { SignalReportArtefact } from '../types'
 import { monitoringTabLogic } from './monitoringTabLogic'
-import { PR_IN_PROGRESS_POLL_INTERVAL_MS, pullRequestsLogic } from './pullRequestsLogic'
+import { pullRequestsLogic } from './pullRequestsLogic'
 
 const PULL_REQUESTS_URL = '/api/projects/:team_id/signals/pull_requests/'
 const MONITOR_PR_URL = '/api/projects/:team_id/signals/monitor_pr/'
@@ -236,58 +239,64 @@ describe('pullRequestsLogic', () => {
         expect(logic.values.listError).toBe(true)
     })
 
-    it('polls while a PR research pass is in progress and stops once it settles', async () => {
-        jest.useFakeTimers({
-            doNotFake: ['Date', 'performance', 'queueMicrotask', 'setTimeout', 'clearTimeout'],
-        })
-        const monitoringLogic = monitoringTabLogic()
-        try {
-            let pollCount = 0
-            useMocks({
-                get: {
-                    [PULL_REQUESTS_URL]: () => {
-                        pollCount += 1
-                        return [
-                            200,
-                            {
-                                results: [
-                                    makePR(1, {
-                                        report: {
-                                            id: 'rep-1',
-                                            status: pollCount < 2 ? 'in_progress' : 'pending_input',
-                                        },
-                                    }),
-                                ],
-                                github_login: 'example-author',
-                                has_integration: true,
-                            },
-                        ]
+    it('syncs the open report on guidance submission and hides internal check_authoring activity rows', async () => {
+        localStorage.setItem('products.signals.inbox.pullRequestsLogic.panelOpen', JSON.stringify(false))
+        let reportStatus = 'pending_input'
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/': ({ params }) => [
+                    200,
+                    {
+                        id: String(params.id),
+                        title: 'Monitor PR',
+                        summary: 'Post-merge impact check.',
+                        status: reportStatus,
+                        signal_count: 0,
+                        total_weight: 0,
+                        created_at: '2026-01-01T00:00:00Z',
+                        updated_at: '2026-01-01T00:00:00Z',
                     },
-                },
-            })
+                ],
+                '/api/projects/:team_id/signals/config/': () => [200, { enabled: true }],
+                '/api/projects/:team_id/signals/scouts/': () => [200, []],
+            },
+        })
 
-            monitoringLogic.mount()
-            await expectLogic(monitoringLogic).toFinishAllListeners()
-            const loadsBeforeSettle = reportLoads
+        const scene = inboxSceneLogic()
+        scene.mount()
+        scene.actions.setSelectedReportId('rep-3')
+        await expectLogic(scene).toDispatchActions(['loadSelectedReportSuccess'])
+        expect(scene.values.selectedReport?.status).toBe('pending_input')
 
-            logic = pullRequestsLogic()
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
-            expect(logic.values.page?.results[0].report?.status).toBe('in_progress')
+        logic = pullRequestsLogic()
+        logic.mount()
+        const prUrl = 'https://github.com/example/widget/pull/3'
+        reportStatus = 'in_progress'
+        logic.actions.setDraftNote(prUrl, 'Monitor order_submitted')
+        await expectLogic(logic, () => {
+            logic.actions.monitorPR(prUrl)
+        }).toDispatchActions(['monitorPRDone'])
+        await expectLogic(scene).toFinishAllListeners()
+        expect(scene.values.selectedReport?.status).toBe('in_progress')
 
-            jest.advanceTimersByTime(PR_IN_PROGRESS_POLL_INTERVAL_MS)
-            await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
-            expect(logic.values.page?.results[0].report?.status).toBe('pending_input')
-            await expectLogic(monitoringLogic).toFinishAllListeners()
-            expect(reportLoads).toBeGreaterThan(loadsBeforeSettle)
+        scene.actions.setSelectedReportId('rep-teammate')
+        await expectLogic(scene).toDispatchActions(['loadSelectedReportSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.monitorPR(prUrl, 'Monitor order_submitted')
+        }).toDispatchActions(['monitorPRDone'])
+        expect(scene.values.selectedReportId).toBe('rep-3')
+        scene.unmount()
 
-            const pollsAfterSettle = pollCount
-            jest.advanceTimersByTime(PR_IN_PROGRESS_POLL_INTERVAL_MS * 3)
-            await Promise.resolve()
-            expect(pollCount).toBe(pollsAfterSettle)
-        } finally {
-            monitoringLogic.unmount()
-            jest.useRealTimers()
-        }
+        const visible = selectVisibleReportActivity([
+            { id: '1', type: 'check_authoring', content: { status: 'failed' }, created_at: '2026-01-01T00:00:00Z' },
+            {
+                id: '2',
+                type: 'note',
+                actor_kind: 'system',
+                content: { note: 'Monitor `order_submitted`?', author: 'PR monitoring' },
+                created_at: '2026-01-01T00:00:01Z',
+            },
+        ] as unknown as SignalReportArtefact[])
+        expect(visible.map((item) => item.id)).toEqual(['2'])
     })
 })
