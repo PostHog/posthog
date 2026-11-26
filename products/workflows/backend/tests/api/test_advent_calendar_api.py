@@ -84,6 +84,7 @@ class TestAdventCalendarAPI(APIBaseTest):
         deletion = self.client.delete("/api/users/@me/")
 
         assert deletion.status_code == status.HTTP_204_NO_CONTENT
+        assert not AdventCalendarAnswer.objects.filter(user_id=leaver.id).exists()
         day_18 = next(question for question in self._results() if question["day"] == 18)
         assert day_18["shares"] == [{"option": "yes", "share": 100}, {"option": "no", "share": 0}]
 
