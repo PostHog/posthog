@@ -36,14 +36,14 @@ class TestJSONPropertyPushdown(BaseTest):
         # A rewritten read has to decode JSON escapes, otherwise a value like `a"b` comes back as `a\"b`
         # and `= 'a"b'` matches nothing while the unrewritten `JSONExtractString` path matches.
         extract = self._print(f"SELECT JSONExtractString(properties, 'name') AS name FROM {table}")
-        self.assertIn("nullIf(JSONExtractString(concat('{\"v\":', JSONExtractRaw(", extract)
-        self.assertIn("'v'), '')", extract)
+        self.assertIn("JSONExtractString(nullIf(nullIf(JSONExtractRaw(", extract)
+        self.assertIn(", ''), 'null'))", extract)
 
     @parameterized.expand(["groups", "persons"])
     def test_property_access_decodes_escapes(self, table: str):
         printed = self._print(f"SELECT properties.name AS name FROM {table}")
-        self.assertIn("nullIf(JSONExtractString(concat('{\"v\":', JSONExtractRaw(", printed)
-        self.assertIn("'v'), '')", printed)
+        self.assertIn("JSONExtractString(nullIf(nullIf(JSONExtractRaw(", printed)
+        self.assertIn(", ''), 'null'))", printed)
 
     def test_json_extract_string_on_a_join_to_groups_is_rewritten(self):
         printed = self._print("SELECT JSONExtractString(group_0.properties, 'probe') FROM events")
@@ -85,10 +85,22 @@ class TestJSONPropertyPushdownValues(ClickhouseTestMixin, BaseTest):
 
     VALUES = ['a"b', "back\\slash", "line1\nline2", "café"]
 
+    # The exact expression the ClickHouse printer emits for a `persons` / `groups` property read.
+    EXPRESSION = "JSONExtractString(nullIf(nullIf(JSONExtractRaw(%(doc)s, 'name'), ''), 'null'))"
+
     def test_rewritten_read_decodes_json_escapes(self):
-        # The exact expression the ClickHouse printer emits for a `persons` / `groups` property read.
-        expression = "nullIf(JSONExtractString(concat('{\"v\":', JSONExtractRaw(%(doc)s, 'name'), '}'), 'v'), '')"
         for value in self.VALUES:
-            document = json.dumps({"name": value})
-            result = sync_execute(f"SELECT {expression} AS value", {"doc": document})
+            result = sync_execute(f"SELECT {self.EXPRESSION} AS value", {"doc": json.dumps({"name": value})})
             self.assertEqual(result[0][0], value, value)
+
+    @parameterized.expand(
+        [
+            ("empty_string_stays_empty", '{"name": ""}', ""),
+            ("json_null_reads_as_null", '{"name": null}', None),
+            ("missing_key_reads_as_null", '{"other": 1}', None),
+            ("nullable_string_is_not_null", '{"name": "null"}', "null"),
+        ]
+    )
+    def test_rewritten_read_keeps_the_null_contract(self, _name: str, document: str, expected: str | None):
+        result = sync_execute(f"SELECT {self.EXPRESSION} AS value", {"doc": document})
+        self.assertEqual(result[0][0], expected, _name)

@@ -778,11 +778,10 @@ class ClickHousePrinter(BasePrinter):
 
     def _unescaped_json_read(self, field_sql: str, args: list[str]) -> str:
         raw = f"JSONExtractRaw({field_sql}, {', '.join(args)})"
-        # Re-wrap the raw value in a one-key document and let ClickHouse's own JSON parser decode it
-        # (`JSONExtractString` resolves every escape) instead of hand-rolling an unescape. `nullIf(..., '')`
-        # keeps the `json_extract_trim_quotes` contract: a missing key, a JSON null and the empty string all
-        # read as NULL.
-        return f"nullIf(JSONExtractString(concat('{{\"v\":', {raw}, '}}'), 'v'), '')"
+        # ClickHouse's JSON parser decodes every escape sequence in the raw value. The `nullIf` chain makes a
+        # missing key and a JSON null read as NULL, and an empty string stays an empty string, matching the
+        # `json_extract_trim_quotes` contract without changing it.
+        return f"JSONExtractString(nullIf(nullIf({raw}, ''), 'null'))"
 
     def _unmasked_key_read_type(self, document: ast.Expr, first_key: object) -> ast.FieldType | None:
         """The blob that a read of `first_key` may print without JSONDropKeysPool, or None to keep the mask.
