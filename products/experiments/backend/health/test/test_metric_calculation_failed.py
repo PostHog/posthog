@@ -40,6 +40,7 @@ from products.experiments.backend.health.test.factories import ENDED, RUNNING_CO
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.recalculation import RUN_ENTRY_CALCULATION_KEY
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 CODE = ExperimentHealthFindingCode.METRIC_CALCULATION_FAILED
@@ -678,20 +679,31 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
 
     @parameterized.expand(
         [
-            ("failed_row_of_the_current_config", False, ("query_limit", "memory_limit")),
-            ("metric_changed_after_the_failure", True, ("unexpected_error", None)),
+            ("hidden_entry_with_a_failed_row_of_the_current_config", False, False, ("query_limit", "memory_limit")),
+            ("hidden_entry_after_the_metric_changed", False, True, ("unexpected_error", None)),
+            ("entry_of_the_current_config", True, False, ("busy", None)),
         ]
     )
-    def test_words_an_entry_without_a_calculation_key_from_the_failed_row(
-        self, _name: str, metric_changed: bool, expected: tuple[str, str | None]
+    def test_words_the_failure_from_the_failed_row_only_for_a_hidden_entry(
+        self, _name: str, with_calculation_key: bool, metric_changed: bool, expected: tuple[str, str | None]
     ) -> None:
-        memory_limit = "Code: 241. DB::Exception: Memory limit (for query) exceeded"
+        entry: dict[str, Any] = {
+            "step": "calculation",
+            "message": "Too many queries for this team",
+            "error_type": "server_error",
+            "retriable": False,
+        }
+        if with_calculation_key:
+            with team_scope(self.team.id):
+                calculation_config = get_metric_calculation_config(self.experiment, "primary")
+            assert calculation_config is not None
+            entry[RUN_ENTRY_CALCULATION_KEY] = calculation_config.calculation_key()
         self._run(
             status=ExperimentMetricsRecalculation.Status.FAILED,
             created_at=timezone.now() - timedelta(hours=2),
-            metric_errors={"primary": {"step": "calculation", "message": memory_limit, "retriable": False}},
+            metric_errors={"primary": entry},
             failed_rows=("primary",),
-            failed_row_message=memory_limit,
+            failed_row_message="Code: 241. DB::Exception: Memory limit (for query) exceeded",
         )
         if metric_changed:
             self.experiment.metrics = [
