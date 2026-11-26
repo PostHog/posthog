@@ -83,6 +83,7 @@ class TopicPreferencesTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
 
 
 class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = 4
     # LEGACY_SCOPE_FALLBACKS lets `hog_flow:write` satisfy this scope too, with no end date.
     scope_object = "messaging_preference"
     permission_classes = [IsAuthenticated]

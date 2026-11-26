@@ -268,6 +268,7 @@ class AttachmentUploadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
 
 
 class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = 3
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]

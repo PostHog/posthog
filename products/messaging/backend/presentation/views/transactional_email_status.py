@@ -108,6 +108,7 @@ class TransactionalEmailReadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThr
 
 
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = 2
     scope_object = "hog_flow"
     required_scopes = [TRANSACTIONAL_EMAIL_STATUS_SCOPE]
     permission_classes = [IsAuthenticated]
