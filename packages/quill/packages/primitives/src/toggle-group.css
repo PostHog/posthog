@@ -26,22 +26,13 @@
     }
 
     /*
-     * The selected item sinks onto a brand-color shelf, so a column of groups
-     * shows at a glance which item each row has on. The press dips the item 2px
-     * onto a 1px shelf, which ends level with the 3px shelf of the raised items
-     * beside it. A pseudo-element paints that shelf, so the item keeps its size
-     * and its focus ring.
+     * The selected item sits on a 1px brand-color shelf, so a column of groups
+     * shows at a glance which item each row has on. A shadow draws the shelf, so
+     * it follows the item's corners. The -1px spread keeps it inside the item's
+     * own side borders, clear of the border it shares with each neighbor.
      */
-    .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed])::after {
-        position: absolute;
-        inset-inline: -1px;
-        inset-block-end: -2px;
-        height: 1px;
-        pointer-events: none;
-        content: '';
-        background-color: var(--primary);
-        border-end-start-radius: inherit;
-        border-end-end-radius: inherit;
+    .quill-toggle-group__item {
+        --quill-toggle-pressed-shelf: 0 2px 0 -1px var(--primary);
     }
 
     /*
