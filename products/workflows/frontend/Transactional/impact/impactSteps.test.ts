@@ -18,6 +18,8 @@ const impact: TransactionalEmailImpactApi = {
     untracked: 0,
     clicks_untracked: 0,
     window_days: 7,
+    sessions: null,
+    link_tagging_enabled: true,
     after_click: { sends: 16, converted: 4 },
     without_click: { sends: 50, converted: 1 },
 }
