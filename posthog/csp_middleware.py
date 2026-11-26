@@ -9,7 +9,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.http import HttpResponse
-from django.template.response import TemplateResponse
 
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
@@ -239,14 +238,13 @@ class CSPMiddleware:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
             return response
 
-        if (
-            isinstance(response, TemplateResponse)
-            and getattr(request.resolver_match, "url_name", None) == "notebook_app_embed"
-        ):
-            origin = response.context_data.get("audience", "") if isinstance(response.context_data, dict) else ""
+        if getattr(getattr(request, "resolver_match", None), "url_name", None) == "notebook_app_embed":
+            context = getattr(response, "context_data", None)
+            origin = context.get("audience") if isinstance(context, dict) else None
             ancestor = (
                 origin
-                if re.fullmatch(r"https://(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::[0-9]+)?", origin, re.ASCII)
+                if isinstance(origin, str)
+                and re.fullmatch(r"https://(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::[0-9]+)?", origin, re.ASCII)
                 else "'none'"
             )
             response.headers["Content-Security-Policy"] = "; ".join(
