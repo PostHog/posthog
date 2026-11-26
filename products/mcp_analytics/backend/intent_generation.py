@@ -109,7 +109,6 @@ def summarize_intents(intents: list[str], team: Team) -> str:
 
     distinct_id = f"team/{team.id}/mcp-analytics-session-intent"
     client = build_openai_client(
-        "django",
         ai_product="mcp_analytics",
         properties={"ai_feature": "session-intent-generation"},
         distinct_id=distinct_id,

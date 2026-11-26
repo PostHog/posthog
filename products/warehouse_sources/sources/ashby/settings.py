@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 PAGE_SIZE = 100  # Ashby's documented max (and default).
@@ -37,6 +38,8 @@ class AshbyEndpointConfig:
     variant_param: Optional[str] = None
     """Required request-body key that ``path`` is listed once per value of ``variant_values`` for."""
     variant_values: tuple[str, ...] = ()
+    extra_body: Mapping[str, Any] = field(default_factory=dict)
+    """Fixed request-body keys sent on every listing request, e.g. to include archived rows."""
 
     @property
     def probe_path(self) -> str:
@@ -151,6 +154,36 @@ ASHBY_ENDPOINTS: dict[str, AshbyEndpointConfig] = {
         fanout=AshbyFanoutConfig(
             parent_path="candidate.list", resolve_param="candidateId", parent_id_field="candidateId"
         ),
+    ),
+    "close_reasons": AshbyEndpointConfig(
+        name="close_reasons",
+        path="closeReason.list",
+        primary_key=["id"],
+        page_size=None,
+        # Jobs and openings closed with a since-archived reason still point at it.
+        extra_body={"includeArchived": True},
+    ),
+    "application_criteria_evaluations": AshbyEndpointConfig(
+        name="application_criteria_evaluations",
+        path="application.listCriteriaEvaluations",
+        primary_key=["applicationId", "id"],
+        # evaluatedAt is null until a pending evaluation completes, so it can't partition.
+        fanout=AshbyFanoutConfig(
+            parent_path="application.list", resolve_param="applicationId", parent_id_field="applicationId"
+        ),
+    ),
+    "take_home_assignments": AshbyEndpointConfig(
+        name="take_home_assignments",
+        path="takeHomeAssignment.list",
+        primary_key=["id"],
+        partition_key="createdAt",
+    ),
+    "source_tracking_links": AshbyEndpointConfig(
+        name="source_tracking_links",
+        path="sourceTrackingLink.list",
+        primary_key=["id"],
+        # Disabled links still attribute the candidates who applied through them.
+        extra_body={"includeDisabled": True},
     ),
 }
 

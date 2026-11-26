@@ -16,7 +16,8 @@ applies:
    each tick computes the score again from those counts.
 4. Expired: `max_duration` passed since the edit.
 5. A suspicious window waits for the verdict of the judgment, and asks for the judgment again on each tick.
-6. No reach: nobody is exposed `no_reach_after` the edit.
+6. No reach: nobody is exposed `no_reach_after` the edit. This check and check 8 need the counts by last value, so
+   neither closes the window on a tick without them.
 7. The score: a suspicious score makes the window suspicious and asks for the judgment.
 8. No regression: the exposure share of the complete hours became stable, and `post_stable` passed since then.
 
@@ -40,6 +41,7 @@ from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
 from products.feature_flags.backend.flag_windows.errors import ErrorCounts
 from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, exposure_share
+from products.feature_flags.backend.flag_windows.last_values import LastValueBucket
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedEdit
 from products.feature_flags.backend.flag_windows.score import WEB_PARAMETERS, ScoreParameters, WindowScore, score_window
 
@@ -136,6 +138,7 @@ def advance_window(
     errors_since_edit: ErrorCounts | None,
     hours: Mapping[datetime, HourErrors],
     baseline: Sequence[BaselineHour],
+    last_values: Sequence[LastValueBucket] | None,
     parameters: WindowParameters = WEB_WINDOW_PARAMETERS,
     condition_match: ConditionMatch | None = None,
 ) -> TickOutcome:
@@ -166,19 +169,32 @@ def advance_window(
         return _closed(CloseReason.EXPIRED)
     if window.state == WindowState.SUSPICIOUS:
         return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None)
-    # The exposure query has no bucket before the edit, so the share at the previous level is unknown. The level that it
-    # can show is zero: nobody exposed. That is the previous level of an edit that enables the flag or adds a condition,
-    # which the counts in the watched conditions see apart from the rest of the flag. An edit from a level above zero
-    # that reaches nobody closes later, as no regression.
-    if now >= edited_at + parameters.no_reach_after and not _exposed_since_edit(exposure, condition_match):
+    # The exposure query has no bucket before the edit, so the share at the previous level is unknown. The level that
+    # it can show is zero: nobody exposed. That is the previous level of an edit that enables the flag or adds a
+    # condition, which the counts in the watched conditions see apart from the rest of the flag. An edit from a level
+    # above zero that reaches nobody closes later, as no regression. A closed window stays closed, and no event carries
+    # a flag that only a backend evaluates. So a tick without the counts by last value waits for the next one instead
+    # of closing on what the events carry.
+    if (
+        last_values is not None
+        and now >= edited_at + parameters.no_reach_after
+        and not _exposed_since_edit(window.edit, exposure, last_values, condition_match)
+    ):
         return _closed(CloseReason.NO_REACH)
 
     score = score_window(
-        window.edit, exposure, errors_since_edit, hours, baseline, parameters.score, condition_match=condition_match
+        window.edit,
+        exposure,
+        errors_since_edit,
+        hours,
+        baseline,
+        parameters.score,
+        condition_match=condition_match,
+        last_values=last_values,
     )
     if score.suspicious:
         return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None, score=score)
-    stable_since = _stable_since(exposure, now, parameters)
+    stable_since = _stable_since(last_values, now, parameters) if last_values is not None else None
     if stable_since is not None and now >= stable_since + parameters.post_stable:
         return _closed(CloseReason.NO_REGRESSION, score=score)
     return TickOutcome(state=WindowState.OPEN, close_reason=None, score=score)
@@ -195,22 +211,31 @@ def _closed(
     )
 
 
-def _exposed_since_edit(exposure: Sequence[ExposureBucket], condition_match: ConditionMatch | None) -> int:
-    """The number of people (or groups) exposed since the edit in the watched conditions, or in the whole flag when those
-    have no counts."""
-    if not exposure:
-        return 0
-    since_edit = exposure[-1].since_edit
-    if condition_match is not None and condition_match in since_edit.in_condition:
-        return since_edit.in_condition[condition_match].exposed
-    return since_edit.exposed
+def _exposed_since_edit(
+    edit: WatchedEdit,
+    exposure: Sequence[ExposureBucket],
+    last_values: Sequence[LastValueBucket],
+    condition_match: ConditionMatch | None,
+) -> int:
+    """The number of people (or groups) exposed since the edit in the watched conditions, or in the whole flag when
+    those count nobody. That also happens when no event carries the flag, or when a server SDK evaluates it locally and
+    sends no condition, so it doesn't mean that the edit reached nobody."""
+    # Nobody is exposed before an edit that enables the flag, so the whole flag shows its reach. In the conditions, an
+    # event that only loaded flags counts as unexposed, so a flag that only a backend evaluates would show none.
+    if exposure and condition_match is not None and not edit.enables:
+        in_condition = exposure[-1].since_edit.in_condition.get(condition_match)
+        if in_condition is not None and in_condition.with_flag:
+            return in_condition.exposed
+    return last_values[-1].since_edit.exposed if last_values else 0
 
 
-def _stable_since(exposure: Sequence[ExposureBucket], now: datetime, parameters: WindowParameters) -> datetime | None:
+def _stable_since(
+    last_values: Sequence[LastValueBucket], now: datetime, parameters: WindowParameters
+) -> datetime | None:
     """The end of the bucket in which the share had stayed in the band for `stable_buckets` buckets, or None when the
     latest buckets aren't stable. A share that moves out of the band starts the count again. The hour in progress holds
     only the first minutes of people, so its share is noise and stays out."""
-    complete = [bucket for bucket in exposure if bucket.start + HOUR <= now]
+    complete = [bucket for bucket in last_values if bucket.start + HOUR <= now]
     run_start = len(complete)
     low, high = math.inf, -math.inf
     for index in range(len(complete) - 1, -1, -1):

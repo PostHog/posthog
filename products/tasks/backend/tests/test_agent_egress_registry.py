@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import ClassVar
+from typing import ClassVar, TypedDict
 from uuid import UUID, uuid4
 
 import time_machine
@@ -19,12 +19,24 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.agent_egress import AGENT_EGRESS_LEASE_DURATION, AgentEgressRegistry
+from products.tasks.backend.logic.services.agent_egress_git import (
+    AgentEgressGitGrants,
+    GitGrantConflict,
+    GitGrantInvalidCredential,
+    GitReadCredential,
+)
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
     reset_sandbox_jwt_key_cache,
 )
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, AgentEgressRegistration, Task, TaskRun
+
+
+class EgressScope(TypedDict):
+    team_id: int
+    run_id: UUID
+    execution_id: UUID
 
 
 class TestAgentEgressRegistry(TestCase):
@@ -102,6 +114,101 @@ class TestAgentEgressRegistry(TestCase):
             self.registry.lookup(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
         )
 
+    def test_git_grant_rotation_and_withdrawal_fence_delayed_publication(self) -> None:
+        self.register()
+        grants = AgentEgressGitGrants(region="test-us")
+        scope: EgressScope = {"team_id": self.team.id, "run_id": self.task_run.id, "execution_id": self.execution_id}
+        first, second, delayed = uuid4(), uuid4(), uuid4()
+        credential = GitReadCredential(
+            repository="example/repo", token="synthetic-git-token", expires_at=timezone.now() + timedelta(minutes=10)
+        )
+        grants.publish(**scope, credential=credential, version=first, previous_version=None)
+        grants.publish(**scope, credential=credential, version=first, previous_version=None)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT git_read_grant FROM posthog_agent_egress_registration WHERE team_id = %s AND execution_id = %s",
+                [self.team.id, self.execution_id],
+            )
+            encrypted = cursor.fetchone()[0]
+        self.assertNotIn("synthetic-git-token", encrypted)
+        self.assertNotIn("example/repo", encrypted)
+        self.assertNotIn("synthetic-git-token", repr(credential))
+        self.task_run.refresh_from_db()
+        self.assertNotIn("synthetic-git-token", str(self.task_run.state))
+        self.assertIsNone(grants.lookup(**scope, repository="example/other"))
+
+        rotated = GitReadCredential(
+            repository="example/repo", token="synthetic-rotated-token", expires_at=credential.expires_at
+        )
+        grants.publish(**scope, credential=rotated, version=second, previous_version=first)
+        with self.assertRaises(GitGrantConflict):
+            grants.publish(**scope, credential=credential, version=delayed, previous_version=first)
+        with self.assertRaises(GitGrantConflict):
+            grants.publish(**scope, credential=credential, version=second, previous_version=first)
+        current = grants.lookup(**scope, repository="example/repo")
+        assert current is not None
+        self.assertEqual(current[0].git_read_grant_version, second)
+        self.assertEqual(current[1].token.get_secret_value(), "synthetic-rotated-token")
+        self.assertFalse(grants.clear(**scope, version=first))
+        self.assertTrue(grants.clear(**scope, version=second))
+        self.assertIsNone(grants.lookup(**scope, repository="example/repo"))
+        with self.assertRaises(GitGrantConflict):
+            grants.publish(**scope, credential=rotated, version=second, previous_version=first)
+        with self.assertRaises(GitGrantConflict):
+            grants.publish(**scope, credential=rotated, version=delayed, previous_version=second)
+
+    @parameterized.expand(
+        [("revoked",), ("replacement",), ("sandbox",), ("terminal",), ("actor",), ("expired",), ("region",), ("team",)]
+    )
+    def test_git_grants_follow_execution_authority(self, change: str) -> None:
+        registration = self.register()
+        grants = AgentEgressGitGrants(region="test-us")
+        scope: EgressScope = {"team_id": self.team.id, "run_id": self.task_run.id, "execution_id": self.execution_id}
+        version = uuid4()
+        credential = GitReadCredential(
+            repository="example/repo", token="synthetic-git-token", expires_at=timezone.now() + timedelta(minutes=10)
+        )
+        grants.publish(**scope, credential=credential, version=version, previous_version=None)
+        if change == "revoked":
+            self.registry.revoke(**scope)
+        elif change == "replacement":
+            self.register(execution_id=uuid4(), previous_execution_id=self.execution_id)
+        elif change == "sandbox":
+            TaskRun.update_state_atomic(self.task_run.id, updates={"sandbox_id": "sb-replacement"})
+        elif change == "terminal":
+            TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(status=TaskRun.Status.COMPLETED)
+        elif change == "actor":
+            User.objects.filter(id=self.actor.id).update(is_active=False)
+        elif change == "expired":
+            self.clock.shift(timedelta(seconds=31))
+        elif change == "region":
+            grants = AgentEgressGitGrants(region="other-region")
+        else:
+            scope["team_id"] = self.other_team.id
+        self.assertIsNone(grants.lookup(**scope, repository="example/repo"))
+        with self.assertRaises((ValueError, TaskRun.DoesNotExist)):
+            grants.publish(**scope, credential=credential, version=uuid4(), previous_version=version)
+        if change in ("revoked", "replacement", "sandbox"):
+            registration.refresh_from_db()
+            self.assertIsNone(registration.git_read_grant)
+
+    def test_git_grant_expiry_does_not_extend_with_registration_renewal(self) -> None:
+        self.register()
+        grants = AgentEgressGitGrants(region="test-us")
+        scope: EgressScope = {"team_id": self.team.id, "run_id": self.task_run.id, "execution_id": self.execution_id}
+        credential = GitReadCredential(
+            repository="example/repo", token="synthetic-git-token", expires_at=timezone.now() + timedelta(seconds=20)
+        )
+        version = uuid4()
+        grants.publish(**scope, credential=credential, version=version, previous_version=None)
+        self.clock.shift(timedelta(seconds=15))
+        self.registry.renew(**scope)
+        self.clock.shift(timedelta(seconds=5))
+        self.assertIsNotNone(self.registry.lookup(**scope))
+        self.assertIsNone(grants.lookup(**scope, repository="example/repo"))
+        with self.assertRaises(GitGrantInvalidCredential):
+            grants.publish(**scope, credential=credential, version=uuid4(), previous_version=version)
+
     def test_lookup_does_not_load_team_event_metadata(self) -> None:
         self.register()
         with CaptureQueriesContext(connection) as queries:
@@ -112,6 +219,7 @@ class TestAgentEgressRegistry(TestCase):
         for query in queries.captured_queries:
             self.assertNotIn('"event_names"', query["sql"])
             self.assertNotIn('"event_properties"', query["sql"])
+            self.assertNotIn('"git_read_grant"', query["sql"])
 
     @parameterized.expand([("missing",), ("replaced",), ("retargeted",), ("backend",), ("unbound",)])
     def test_sandbox_binding_is_required_for_existing_authority(self, change: str) -> None:

@@ -325,7 +325,23 @@ function plainTextForEdit(
     design: JSONTemplate,
     current: EmailTemplate | null | undefined
 ): string {
-    return keepsOwnPlainText(design) && current?.text?.trim() ? current.text : exported.text
+    // Owned text stays even when emptied: clearing it in the plain text tab is the person's choice.
+    return keepsOwnPlainText(design) && typeof current?.text === 'string' ? current.text : exported.text
+}
+
+/**
+ * True when the open new editor keeps the html next to the plain text tab's text. With `markOwnText` the
+ * document also keeps that text from now on, so later edits to the email don't rewrite it.
+ */
+function newEditorKeepsHtml(
+    values: { usesDocumentEditor: boolean; isEmailEditorReady: boolean; emailEditorRef: EditorRef | null },
+    markOwnText: boolean
+): boolean {
+    const editor = values.emailEditorRef?.editor
+    if (!values.usesDocumentEditor || !values.isEmailEditorReady || !editor?.keepOwnPlainText) {
+        return false
+    }
+    return editor.keepOwnPlainText({ checkOnly: !markOwnText }) === true
 }
 
 function emailWithEdit(
@@ -990,7 +1006,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
-                if (values.activeContentTab === 'plaintext') {
+                // The new editor keeps the html and the typed plain text side by side, so its save goes on below.
+                // Text typed in the plain text tab stays the email's own, whichever tab the save happens on.
+                const keepsHtml = newEditorKeepsHtml(values, formValues.text !== props.value?.text)
+                if (values.activeContentTab === 'plaintext' && !keepsHtml) {
                     const finalValues: EmailTemplate = {
                         ...formValues,
                         html: '',
@@ -1137,6 +1156,12 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!editor) {
                 return
             }
+            // A plain text edit used to clear the html. Such an email keeps its text when the canvas is edited again.
+            const templateApplied = cache.templateApplied
+            cache.templateApplied = false
+            if (!templateApplied && values.usesDocumentEditor && props.value?.text?.trim() && !props.value?.html) {
+                editor.keepOwnPlainText?.({ quietly: true })
+            }
             const htmlData: { design: JSONTemplate } = await exportEditorHtml(editor)
             breakpoint()
             if (values.emailEditorRef?.editor !== editor) {
@@ -1236,13 +1261,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
 
             const key = Array.isArray(name) ? name[0] : name
+            const plainTextEdit = key === 'text' && values.activeContentTab === 'plaintext'
 
             props.onChange({
                 ...props.value,
                 [key]: value,
-                // Plain-text authoring replaces the html body (the modal save does this too);
+                // In the old editor, plain-text authoring replaces the html body (the modal save does this too);
                 // without it the stale html keeps winning over the text at send time.
-                ...(key === 'text' && values.activeContentTab === 'plaintext' ? { html: '' } : {}),
+                ...(plainTextEdit && !newEditorKeepsHtml(values, true) ? { html: '' } : {}),
             } as EmailTemplate)
         },
 
@@ -1291,6 +1317,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             const design = editorDesignForEmail(emailTemplateContent)
             if (values.isEmailEditorReady && design) {
+                // The email it replaces may be text-only, which says nothing about the template's own text. The new
+                // editor reports the load before loadDesign returns, so the flag only covers this load.
+                cache.templateApplied = true
                 cache.lastEditorDesign = design
                 cache.baselineConfirmedBy = null
                 values.emailEditorRef?.editor?.loadDesign(
@@ -1298,6 +1327,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     emailTemplateContent.html,
                     plainTextFromOutside(emailTemplateContent)
                 )
+                cache.templateApplied = false
             }
         },
 
@@ -1428,7 +1458,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             try {
                 let emailContent: EmailTemplate
 
-                if (values.activeContentTab === 'plaintext') {
+                const plainTextBesideHtml =
+                    values.activeContentTab === 'plaintext' &&
+                    newEditorKeepsHtml(values, currentValues.text !== props.value?.text)
+                if (values.activeContentTab === 'plaintext' && !plainTextBesideHtml) {
                     emailContent = {
                         ...currentValues,
                         html: '',
@@ -1449,7 +1482,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     emailContent = {
                         ...currentValues,
                         html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                        text: textData.text,
+                        text: plainTextForEdit(textData, htmlData.design, currentValues),
                         design: htmlData.design,
                     }
                 }

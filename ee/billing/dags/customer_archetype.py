@@ -584,9 +584,7 @@ def classify_and_push_accounts_batch(
     # Classify LLM batches with global concurrency control. The semaphore is shared
     # across all accounts batches running in parallel so the total in-flight LLM
     # requests stays bounded regardless of executor parallelism.
-    client = build_openai_client(
-        product="customer_archetype_classification", ai_product="customer_archetype_classification"
-    )
+    client = build_openai_client(ai_product="customer_archetype_classification")
     semaphore = _get_llm_semaphore(config.llm_max_concurrent_requests)
     new_classifications: list[AccountClassification] = []
     failed_batches: list[dict[str, Any]] = []

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -33,6 +35,23 @@ const PASSWORD_RESET_WITH_DRAFT = {
     draft_content: { email: { subject: 'Reset it', html: '<p>Reset</p>', text: 'Reset', design: {} } },
 }
 
+const IMPACT = {
+    sent: 10,
+    delivered: 9,
+    opened: 5,
+    clicked: 2,
+    not_clicked: 7,
+    untracked: 0,
+    window_days: 7,
+    after_click: null,
+    without_click: null,
+}
+
+const TAGGING_OFF_TEAM = {
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+}
+
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
@@ -53,15 +72,18 @@ describe('MessageTemplate', () => {
                 [AccessControlResourceType.Workflow]: workflowAccess,
             },
         } as AppContext
-        initKeaTests()
+        initKeaTests(true, TAGGING_OFF_TEAM)
         featureFlagLogic.mount()
+        const flags = {
+            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
+            ...extraFlags,
+        }
         featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API, FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS],
-            {
-                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
-                [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
-                ...extraFlags,
-            }
+            Object.entries(flags)
+                .filter(([, on]) => on)
+                .map(([flag]) => flag),
+            flags
         )
 
         render(
@@ -136,6 +158,28 @@ describe('MessageTemplate', () => {
             fireEvent.click(screen.getByText('API'))
             await waitFor(() => expect(screen.getByLabelText('Protect sensitive data')).toBeInTheDocument())
             expect(screen.getByLabelText('Protect sensitive data').hasAttribute('disabled')).toBe(writeDisabled)
+        }
+    )
+
+    it.each([
+        ['a sensitive template, whose links are never tagged', true, 'Not measured', false],
+        ['any other template', false, 'Needs link tagging', true],
+    ])(
+        "links the Impact tab's session step to the link tagging setting only for %s",
+        async (_, sensitive, label, offered) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': { ...PASSWORD_RESET_WITH_DRAFT, sensitive },
+                    '/api/projects/:team_id/transactional_email_log/impact/': IMPACT,
+                },
+            })
+            await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name, {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT]: true,
+            })
+
+            fireEvent.click(screen.getByText('Impact'))
+
+            expect(!!(await screen.findByText(label)).closest('a')).toBe(offered)
         }
     )
 
@@ -266,52 +310,86 @@ describe('MessageTemplate', () => {
     })
 
     it.each([
-        ['a library template', urls.workflowsLibraryTemplate(TEMPLATE_ID), ORDER_RECEIPT, 'menu', 'menu'],
+        ['a library template', urls.workflowsLibraryTemplate(TEMPLATE_ID), ORDER_RECEIPT, '', 'menu'],
         ['a transactional email', urls.transactionalTemplate(TEMPLATE_ID), PASSWORD_RESET_WITH_DRAFT, 'row', 'row'],
         [
             'a transactional email under workflows',
             urls.workflowsLibraryTemplate(TEMPLATE_ID),
             PASSWORD_RESET_WITH_DRAFT,
-            'menu',
+            '',
             'row',
         ],
-    ])('places the tags of %s while it loads and after', async (_, url, template, whileLoading, loadedPlace) => {
-        let answer: () => void = () => {}
-        const loaded = new Promise<void>((resolve) => (answer = resolve))
-        useMocks({
-            get: {
-                '/api/environments/:team_id/messaging_templates/:id/': async () => {
-                    await loaded
-                    return [200, template]
+        [
+            'a library template without transactional emails',
+            urls.workflowsLibraryTemplate(TEMPLATE_ID),
+            ORDER_RECEIPT,
+            'menu',
+            'menu',
+            { [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: false },
+        ],
+    ])(
+        'places the tags of %s while it loads and after',
+        async (_, url, template, whileLoading, loadedPlace, flags: Record<string, boolean> = {}) => {
+            let answer: () => void = () => {}
+            const loaded = new Promise<void>((resolve) => (answer = resolve))
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                        await loaded
+                        return [200, template]
+                    },
                 },
-            },
-        })
-        const tagsPlace = (): string =>
-            [
-                document.querySelector('[data-attr="message-template-tags-button"]') && 'row',
-                document.querySelector('[data-attr="message-template-menubar-metadata"]') && 'menu',
-            ]
-                .filter(Boolean)
-                .join()
-        const rendered = renderAs(AccessControlLevel.Editor, template.name, {
-            [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
-        })
-        act(() => router.actions.push(url))
-        await waitFor(() => expect(tagsPlace()).toBe(whileLoading))
-        // Tags edited before the saved ones arrive would replace them.
-        if (whileLoading === 'row') {
-            expect(screen.queryByText('Click to add tags')).not.toBeInTheDocument()
-        } else {
-            fireEvent.click(screen.getByText('Metadata'))
-            await waitFor(() =>
-                expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeInTheDocument()
-            )
-            expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeDisabled()
-        }
+            })
+            const tagsPlace = (): string =>
+                [
+                    document.querySelector('[data-attr="message-template-tags-button"]') && 'row',
+                    document.querySelector('[data-attr="message-template-menubar-metadata"]') && 'menu',
+                ]
+                    .filter(Boolean)
+                    .join()
+            const rendered = renderAs(AccessControlLevel.Editor, template.name, {
+                [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
+                ...flags,
+            })
+            act(() => router.actions.push(url))
+            await waitFor(() => expect(tagsPlace()).toBe(whileLoading))
+            // Tags edited before the saved ones arrive would replace them.
+            if (whileLoading === 'row') {
+                expect(screen.queryByText('Click to add tags')).not.toBeInTheDocument()
+            } else if (whileLoading === 'menu') {
+                fireEvent.click(screen.getByText('Metadata'))
+                await waitFor(() =>
+                    expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeInTheDocument()
+                )
+                expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeDisabled()
+            }
 
-        answer()
-        await rendered
-        await waitFor(() => expect(tagsPlace()).toBe(loadedPlace))
+            answer()
+            await rendered
+            await waitFor(() => expect(tagsPlace()).toBe(loadedPlace))
+        }
+    )
+
+    it('takes a tag that did not save out of the row being edited', async () => {
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': { ...ORDER_RECEIPT, tags: ['old'] } },
+            patch: { '/api/environments/:team_id/messaging_templates/:id/': () => [500, { detail: 'Boom' }] },
+        })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
+        fireEvent.click(await screen.findByText('old'))
+        const input = await waitFor(() => {
+            const found = document.querySelector<HTMLInputElement>(
+                'input[data-attr="message-template-new-tag-input"], [data-attr="message-template-new-tag-input"] input'
+            )
+            expect(found).not.toBeNull()
+            return found as HTMLInputElement
+        })
+        fireEvent.change(input, { target: { value: 'new-tag' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+        await waitFor(() => expect(messageTemplateLogic({ id: TEMPLATE_ID }).values.failedTagSaves).toBe(1))
+
+        expect(screen.queryByText('new-tag')).not.toBeInTheDocument()
+        expect(screen.getByText('old')).toBeInTheDocument()
     })
 
     it('keeps the open editor while it saves', async () => {

@@ -29,7 +29,6 @@ import type {
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
-    MessageTemplatePlacementApi,
     MessagingCategoriesListParams,
     MessagingEmailsStatusRetrieveParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
@@ -1217,24 +1216,6 @@ export const messagingTemplatesMakeTransactionalCreate = async (
     })
 }
 
-export const getMessagingTemplatesPlacementRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging_templates/${id}/placement/`
-}
-
-/**
- * Read where the template sits in the project tree, so an undo of its delete can put it back.
- */
-export const messagingTemplatesPlacementRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<MessageTemplatePlacementApi> => {
-    return apiMutator<MessageTemplatePlacementApi>(getMessagingTemplatesPlacementRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getMessagingTemplatesSendCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/messaging_templates/${id}/send/`
 }
@@ -1426,7 +1407,7 @@ export const getTransactionalEmailLogImpactRetrieveUrl = (
 }
 
 /**
- * Count one email's sends that were sent, delivered, opened and clicked. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
+ * Count one email's sends that were sent, delivered, opened and clicked, and the sessions with a pageview from its links. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
  * @summary Get how far a transactional email's sends got
  */
 export const transactionalEmailLogImpactRetrieve = async (

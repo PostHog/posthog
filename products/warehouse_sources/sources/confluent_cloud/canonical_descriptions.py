@@ -1,6 +1,7 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions, CanonicalEndpoint
 
 _METRICS_DOCS_URL = "https://api.telemetry.confluent.cloud/docs"
+_CLOUD_API_DOCS_URL = "https://docs.confluent.io/cloud/current/api.html"
 
 _TIME_SERIES_COLUMNS = {
     "metric": "Fully qualified metric name, e.g. io.confluent.kafka.server/received_bytes. The metric_descriptors table describes each one.",
@@ -51,4 +52,47 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "ksqldb_metrics": _time_series_table("ksqlDB applications (streaming units, query saturation, processing errors)"),
     "schema_registry_metrics": _time_series_table("Schema Registry clusters (schema counts, request rates)"),
     "compute_pool_metrics": _time_series_table("Flink compute pools (CFU utilization and limits, statement metrics)"),
+    "environments": {
+        "description": "Environments in the Confluent Cloud organization. Every Kafka cluster, connector and compute pool belongs to one environment.",
+        "docs_url": _CLOUD_API_DOCS_URL,
+        "columns": {
+            "id": "Environment ID, e.g. env-a1b2c3.",
+            "display_name": "Human-readable name of the environment.",
+            "metadata": "Object metadata: the self URL, the Confluent resource name (CRN), and the created_at, updated_at and deleted_at times.",
+            "stream_governance_config": "Stream Governance settings of the environment, such as the package (ESSENTIALS or ADVANCED).",
+        },
+    },
+    "kafka_clusters": {
+        "description": "Kafka clusters in each environment, with their cloud, region, availability, cluster type and provisioning state. Use id to join the resource_id of kafka_metrics.",
+        "docs_url": _CLOUD_API_DOCS_URL,
+        "columns": {
+            "id": "Kafka cluster ID, e.g. lkc-a1b2c3.",
+            "environment_id": "ID of the environment the cluster belongs to.",
+            "metadata": "Object metadata: the self URL, the Confluent resource name (CRN), and the created_at, updated_at and deleted_at times.",
+            "spec": "Cluster settings: display_name, availability (e.g. SINGLE_ZONE, MULTI_ZONE), cloud, region, config (cluster type such as Basic, Standard or Dedicated), endpoints, environment and network.",
+            "status": "Cluster status: phase (PROVISIONING, PROVISIONED or FAILED) and, for Dedicated clusters, the number of CKUs.",
+        },
+    },
+    "costs": {
+        "description": "Daily billing cost line items for the organization, one row per day, product, line type and resource.",
+        "docs_url": _CLOUD_API_DOCS_URL,
+        "columns": {
+            "id": "Identifier of the cost line item.",
+            "start_date": "UTC day the costs accrued on (inclusive).",
+            "end_date": "End of the period (exclusive), the day after start_date.",
+            "granularity": "Aggregation level of the line item, e.g. DAILY.",
+            "product": "Product the cost belongs to, e.g. KAFKA, CONNECT, FLINK or STREAM_GOVERNANCE.",
+            "line_type": "Billing dimension of the line item, e.g. KAFKA_STORAGE or KAFKA_NETWORK_WRITE.",
+            "network_access_type": "Network access type of the cluster, e.g. INTERNET or PRIVATE_LINK.",
+            "price": "Unit price of the line item in US dollars.",
+            "unit": "Unit the quantity is measured in.",
+            "quantity": "Quantity used in the period.",
+            "original_amount": "Amount accrued before discounts, in US dollars.",
+            "discount_amount": "Discount taken off the original amount, in US dollars.",
+            "amount": "Final amount after discounts, in US dollars.",
+            "description": "Details about promotional offers or credits applied to the line item.",
+            "tier_dimensions": "Tier dimensions, for line items with tiered pricing only.",
+            "resource": "Resource the cost applies to, with its id, display_name and environment.",
+        },
+    },
 }

@@ -287,6 +287,7 @@ class TestLazyJoinManifest(SimpleTestCase):
             "account_tags",
             "data_warehouse",
             "data_warehouse_experiments",
+            "definition_metadata",
             "definition_tags",
             "endpoint_current_version",
             "error_tracking_fingerprint_issue_state",
