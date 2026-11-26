@@ -310,19 +310,25 @@ def is_stale_size_split(schema: ExternalDataSchema, trigger_reason: str) -> bool
     )
 
 
-def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
+def repartition_activity_has_work(schema: ExternalDataSchema, job: ExternalDataJob) -> bool:
     """Whether the pre-extraction repartition activity would do more than log and return.
 
     The workflow uses this to skip scheduling the activity, so it must say True whenever the activity
     itself would go past its own fast no-op path: a queued rewrite or staged swap to drive, or a table
     that needs measuring on disk. A pending corruption revive makes the activity stand down before any
-    of that, so it is a no-op here too.
+    of that, so it is a no-op here too. So is a table whose last measurement still holds, which the
+    activity checks with the same function. A failed check says True, so the activity measures.
     """
     if schema.delta_revive_required is not None:
         return False
     if schema.repartition_swap is not None or schema.repartition_pending is not None:
         return True
-    return needs_pre_extraction_detection(schema)
+    if not needs_pre_extraction_detection(schema):
+        return False
+    try:
+        return not pre_extraction_measurement_is_redundant(schema, job)
+    except Exception:
+        return True
 
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
