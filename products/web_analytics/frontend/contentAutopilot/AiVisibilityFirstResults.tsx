@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
 import { OverviewMetricCardGrid } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { aiVisibilityFirstResultsLogic } from './aiVisibilityFirstResultsLogic'
+import { AiVisibilityTable } from './AiVisibilityTable'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { ContentAutopilotMetricLabel } from './ContentAutopilotMetricLabel'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
@@ -40,9 +43,9 @@ export const AiVisibilityFirstResults = (): JSX.Element => {
         return firstResultsLoading ? (
             <LemonSkeleton className="h-96 w-full" />
         ) : (
-            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadFirstResults }}>
+            <AiVisibilityBanner type="error" action={{ children: 'Try again', onClick: loadFirstResults }}>
                 Couldn't load your first results. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
 
@@ -93,7 +96,7 @@ export const AiVisibilityFirstResults = (): JSX.Element => {
                             ? 'They are the competitors you confirmed.'
                             : 'They are the competitors PostHog suggested. Confirm yours below.'}
                     </p>
-                    <LemonTable<ShareOfVoiceRow>
+                    <AiVisibilityTable<ShareOfVoiceRow>
                         size="small"
                         dataSource={rows}
                         rowKey="domain"
@@ -108,7 +111,9 @@ export const AiVisibilityFirstResults = (): JSX.Element => {
                                             <span className="font-semibold">{row.name}</span>
                                             <span className="text-xs text-secondary">{row.domain}</span>
                                         </span>
-                                        {row.isYou ? <LemonTag type="highlight">Your site</LemonTag> : null}
+                                        {row.isYou ? (
+                                            <AiVisibilityTag type="highlight">Your site</AiVisibilityTag>
+                                        ) : null}
                                     </span>
                                 ),
                             },

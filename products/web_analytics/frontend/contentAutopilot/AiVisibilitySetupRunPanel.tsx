@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilitySetupChecklist } from './AiVisibilitySetupChecklist'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
@@ -42,18 +43,18 @@ export const AiVisibilitySetupRunPanel = (): JSX.Element | null => {
     const banners = (
         <>
             {startError ? (
-                <LemonBanner type="error" className="mt-3">
+                <AiVisibilityBanner type="error" className="mt-3">
                     {startError}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : firstRunStep?.status === 'failed' ? (
-                <LemonBanner type="error" className="mt-3">
+                <AiVisibilityBanner type="error" className="mt-3">
                     {firstRunStep.detail || "The checks couldn't be queued. Try again."}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
             {pollError ? (
-                <LemonBanner type="error" className="mt-3" action={{ children: 'Try again', onClick: retryJob }}>
+                <AiVisibilityBanner type="error" className="mt-3" action={{ children: 'Try again', onClick: retryJob }}>
                     {pollError}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
         </>
     )
@@ -111,10 +112,10 @@ export const AiVisibilitySetupRunPanel = (): JSX.Element | null => {
 
     if (savedPrompts === 0) {
         return (
-            <LemonBanner type="info" data-attr="ai-visibility-setup-nothing-saved">
+            <AiVisibilityBanner type="info" data-attr="ai-visibility-setup-nothing-saved">
                 Setup didn't save any prompts, so there is nothing for the engines to answer. Start again to set up your
                 site.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
 

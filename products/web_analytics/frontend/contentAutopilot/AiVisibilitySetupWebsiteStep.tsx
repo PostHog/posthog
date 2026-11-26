@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilitySetupWizardFooter } from './AiVisibilitySetupWizardFooter'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
@@ -23,12 +24,12 @@ export const AiVisibilitySetupWebsiteStep = (): JSX.Element => {
 
     if (setupContextError && !setupContext) {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
             >
                 Couldn't load setup. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
     if (!setupContext) {
@@ -47,10 +48,10 @@ export const AiVisibilitySetupWebsiteStep = (): JSX.Element => {
                     </p>
                 </div>
                 {consentMissing ? (
-                    <LemonBanner type="warning" data-attr="content-autopilot-setup-consent-banner">
+                    <AiVisibilityBanner type="warning" data-attr="content-autopilot-setup-consent-banner">
                         Setup needs AI data processing approved for your organization. An admin can approve it in
                         organization settings.
-                    </LemonBanner>
+                    </AiVisibilityBanner>
                 ) : null}
                 <LemonField.Pure label="Your website" help={websiteHint ?? undefined}>
                     <LemonInput
@@ -62,7 +63,7 @@ export const AiVisibilitySetupWebsiteStep = (): JSX.Element => {
                         data-attr="content-autopilot-setup-domain"
                     />
                 </LemonField.Pure>
-                {startError ? <LemonBanner type="error">{startError}</LemonBanner> : null}
+                {startError ? <AiVisibilityBanner type="error">{startError}</AiVisibilityBanner> : null}
             </div>
             <AiVisibilitySetupWizardFooter>
                 <LemonButton
