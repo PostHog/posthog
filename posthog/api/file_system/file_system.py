@@ -366,6 +366,11 @@ class FileSystemViewLogSerializer(serializers.Serializer):
     ref = serializers.CharField()
     viewed_at = serializers.DateTimeField(required=False)
 
+    def validate_type(self, value: str) -> str:
+        if value in UNFILED_FILE_SYSTEM_TYPES:
+            raise serializers.ValidationError(f"Views of type '{value}' are not logged.")
+        return value
+
 
 class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     type = serializers.CharField(required=False, allow_blank=True)
@@ -1225,7 +1230,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         groups: dict[tuple[int, str, str], list[FileSystem]] = {}
         for row in removed:
             if row.type in UNFILED_FILE_SYSTEM_TYPES:
-                raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{row.type}'."})
+                # The caller may lack access to the row, so the message leaves its type out.
+                raise serializers.ValidationError({"detail": "This folder holds items that can't be deleted here."})
             if row.shortcut or row.type == "folder" or row.type in RETIRED_FILE_SYSTEM_TYPES:
                 continue
             if not is_file_system_type_registered(row.type):
@@ -1321,9 +1327,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance_created_by = instance.created_by
 
         if instance.type == "folder":
-            # The tree hides retired rows, so a retired leftover needs no folder to sit in.
+            # The tree hides retired and unfiled rows, so such a leftover needs no folder to sit in.
             leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/")).exclude(
-                type__in=RETIRED_FILE_SYSTEM_TYPES
+                type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES]
             )
             first_leftover = leftovers.first()
             if first_leftover:

@@ -599,6 +599,16 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual([item["ref"] for item in response.json()], [entry.ref])
 
+    @parameterized.expand([("hog_flow",), ("message_template",)])
+    def test_log_view_refuses_types_the_tree_no_longer_files(self, file_type: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/log_view/",
+            {"type": file_type, "ref": "0190a1b2-0000-7000-8000-000000000002"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertFalse(FileSystemViewLog.objects.filter(type=file_type).exists())
+
     @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
     def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:
         folder = FileSystem.objects.create(team=self.team, path="Empty", type="folder", created_by=self.user)
@@ -1867,6 +1877,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         else:
             expected = status.HTTP_409_CONFLICT if query else status.HTTP_400_BAD_REQUEST
         self.assertEqual(response.status_code, expected, response.content)
+        self.assertNotIn(file_type, response.content.decode())
         self.assertTrue(FileSystem.objects.filter(pk=row.pk).exists())
 
     @parameterized.expand(
@@ -1929,10 +1940,16 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         if write == "move_folder":
             self.assertFalse(FileSystem.objects.filter(path="Hand filed", type="folder").exists())
 
-    @parameterized.expand([("hog_flow",), ("message_template",)])
+    @parameterized.expand(
+        [
+            (f"{file_type}_{repair}", file_type, repair)
+            for file_type in ("hog_flow", "message_template")
+            for repair in ("unfiled_listing", "folder_shortcut_delete")
+        ]
+    )
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_a_hand_filed_row_of_an_unfiled_type_gets_no_folder_from_the_tree_repair(
-        self, file_type: str, _mock_flag: MagicMock
+        self, _name: str, file_type: str, repair: str, _mock_flag: MagicMock
     ) -> None:
         row = FileSystem.objects.create(
             team=self.team,
@@ -1942,10 +1959,19 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             ref="0190a1b2-0000-7000-8000-000000000002",
             created_by=self.other_user,
         )
+        base = f"/api/projects/{self.team.id}/file_system"
 
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        if repair == "unfiled_listing":
+            response = self.client.get(f"{base}/unfiled/")
+            expected: int = status.HTTP_200_OK
+        else:
+            pinned = FileSystem.objects.create(
+                team=self.team, path="Unlisted plans", depth=1, type="folder", shortcut=True, created_by=self.user
+            )
+            response = self.client.delete(f"{base}/{pinned.pk}/")
+            expected = status.HTTP_204_NO_CONTENT
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.status_code, expected, response.content)
         self.assertFalse(FileSystem.objects.filter(path="Unlisted plans").exists())
         self.assertTrue(FileSystem.objects.filter(pk=row.pk, depth=1).exists())
 
