@@ -857,7 +857,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates()
+                    // The editor only asks whether any template exists; the picker loads its own pages.
+                    const response = await api.messaging.getTemplates({ basic: true, limit: 1 })
                     return response.results
                 },
             },

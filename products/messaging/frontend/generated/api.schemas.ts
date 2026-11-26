@@ -1993,9 +1993,8 @@ export type MessagingTemplatesListParams = {
     basic?: boolean
     /**
      * List only templates created by the user with this ID.
-     * @nullable
      */
-    created_by?: number | null
+    created_by?: number
     /**
      * Number of results to return per page.
      */
@@ -2006,12 +2005,12 @@ export type MessagingTemplatesListParams = {
     offset?: number
     /**
      * List only templates whose name, description or a tag contains this text, ignoring case.
-     * @maxLength 200
+     * @maxLength 400
      */
     search?: string
     /**
      * List only templates that carry at least one of these tags. Repeat the parameter for each tag.
-     * @maxItems 50
+     * @maxItems 500
      * @items.maxLength 255
      */
     tags?: string[]

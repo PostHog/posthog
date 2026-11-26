@@ -4,7 +4,12 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { TEMPLATES_PAGE_SIZE, messageTemplatesLogic, saveTemplateTags } from './messageTemplatesLogic'
+import {
+    TEMPLATE_SEARCH_MAX_LENGTH,
+    TEMPLATES_PAGE_SIZE,
+    messageTemplatesLogic,
+    saveTemplateTags,
+} from './messageTemplatesLogic'
 import type { MessageTemplate } from './types'
 
 const template = (id: string, name: string, tags: string[]): MessageTemplate =>
@@ -13,19 +18,31 @@ const template = (id: string, name: string, tags: string[]): MessageTemplate =>
 describe('messageTemplatesLogic', () => {
     let logic: ReturnType<typeof messageTemplatesLogic.build>
     let stored: MessageTemplate[]
+    // What the server holds without filters, when a test sets it apart from the filtered rows.
+    let everything: MessageTemplate[] | null
     let requests: URLSearchParams[]
-    let nextPageHeld: Promise<void> | null
+    let holdNextPages: boolean
+    let heldNextPages: ((status: number) => void)[]
 
     const names = (): string[] => logic.values.templates.map((t) => t.name)
+    const many = (count: number, prefix: string): MessageTemplate[] =>
+        Array.from({ length: count }, (_, i) => template(`${prefix}${i}`, `${prefix} ${i}`, []))
+    const remount = async (): Promise<void> => {
+        logic.unmount()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+    }
 
     beforeEach(() => {
+        everything = null
         stored = [
             template('a', 'Welcome', ['growth', 'onboarding']),
             template('b', 'Invoice', ['billing']),
             template('c', 'Plain', []),
         ]
         requests = []
-        nextPageHeld = null
+        holdNextPages = false
+        heldNextPages = []
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
@@ -33,12 +50,15 @@ describe('messageTemplatesLogic', () => {
                     requests.push(query)
                     const offset = Number(query.get('offset') ?? 0)
                     const limit = Number(query.get('limit'))
-                    const next = offset + limit < stored.length ? `?offset=${offset + limit}` : null
-                    const page = { count: stored.length, next, results: stored.slice(offset, offset + limit) }
-                    if (offset > 0 && nextPageHeld) {
-                        await nextPageHeld
-                    }
-                    return [200, page]
+                    const filtered = ['search', 'created_by', 'tags', 'transactional'].some((key) => query.has(key))
+                    const rows = filtered || !everything ? stored : everything
+                    const next = offset + limit < rows.length ? `?offset=${offset + limit}` : null
+                    const page = { count: rows.length, next, results: rows.slice(offset, offset + limit) }
+                    const status =
+                        offset > 0 && holdNextPages
+                            ? await new Promise<number>((release) => heldNextPages.push(release))
+                            : 200
+                    return status === 200 ? [200, page] : [status, { detail: 'failed' }]
                 },
             },
         })
@@ -99,26 +119,76 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values).toMatchObject({ hasMoreTemplates: false, moreTemplatesLoading: false })
     })
 
-    it('drops a next page that arrives after the filters changed', async () => {
-        stored = Array.from({ length: TEMPLATES_PAGE_SIZE + 1 }, (_, i) => template(`t${i}`, `Template ${i}`, []))
-        logic.unmount()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+    it.each([
+        ['before', () => logic.actions.loadMoreTemplates(), () => logic.actions.setCreatedByFilter(7), 1],
+        ['after', () => logic.actions.setCreatedByFilter(7), () => logic.actions.loadMoreTemplates(), 0],
+    ])('drops a next page asked for %s the filters changed', async (_order, first, second, nextPagesSent) => {
+        stored = many(TEMPLATES_PAGE_SIZE + 1, 'Old')
+        await remount()
+        holdNextPages = true
 
-        let releaseNextPage = (): void => {}
-        nextPageHeld = new Promise((resolve) => {
-            releaseNextPage = resolve
-        })
-        logic.actions.loadMoreTemplates()
-        await waitFor(() => expect(requests.at(-1)?.get('offset')).toEqual(String(TEMPLATES_PAGE_SIZE)))
-        stored = [template('b', 'Invoice', ['billing'])]
-        logic.actions.setCreatedByFilter(7)
+        first()
+        stored = many(TEMPLATES_PAGE_SIZE + 2, 'New')
+        second()
         await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
-        releaseNextPage()
+        await waitFor(() => expect(heldNextPages).toHaveLength(nextPagesSent))
+        heldNextPages.forEach((release) => release(200))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(names()).toEqual(['Invoice'])
-        expect(logic.values.moreTemplatesLoading).toBe(false)
+        expect(names()).toEqual(stored.slice(0, TEMPLATES_PAGE_SIZE).map((t) => t.name))
+        expect(logic.values).toMatchObject({ hasMoreTemplates: true, moreTemplatesLoading: false })
+    })
+
+    it('keeps loading the current next page when an outdated one fails', async () => {
+        stored = many(TEMPLATES_PAGE_SIZE + 1, 'Old')
+        await remount()
+        holdNextPages = true
+        logic.actions.loadMoreTemplates()
+        stored = many(TEMPLATES_PAGE_SIZE + 2, 'New')
+        logic.actions.setCreatedByFilter(7)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        logic.actions.loadMoreTemplates()
+        await waitFor(() => expect(heldNextPages).toHaveLength(2))
+
+        heldNextPages[0](500)
+        heldNextPages[1](200)
+        await expectLogic(logic).toDispatchActions(['loadMoreTemplatesSuccess'])
+
+        expect(names()).toEqual(stored.map((t) => t.name))
+    })
+
+    it('keeps counting every template under a filter, and reloads the filtered list after a create', async () => {
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        everything = [...stored]
+        stored = []
+        logic.actions.setCreatedByFilter(7)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        expect(logic.values.templateCount).toBe(3)
+
+        const created = template('d', 'Fresh', [])
+        useMocks({
+            post: {
+                '/api/projects/:team_id/messaging_templates/': () => {
+                    everything = [created, ...(everything ?? [])]
+                    return [201, created]
+                },
+            },
+        })
+        logic.actions.createTemplate({ template: { name: 'Fresh' } })
+        await expectLogic(logic).toDispatchActions(['createTemplateSuccess', 'loadTemplatesSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(names()).toEqual([])
+        expect(logic.values.templateCount).toBe(4)
+    })
+
+    it('cuts a long search to what the server accepts', async () => {
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+
+        logic.actions.setSearch('x'.repeat(TEMPLATE_SEARCH_MAX_LENGTH + 50))
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+
+        expect(requests.at(-1)?.get('search')).toEqual('x'.repeat(TEMPLATE_SEARCH_MAX_LENGTH))
     })
 
     it('saves a tag edit with only the tags, so it never republishes the content', async () => {
@@ -137,6 +207,22 @@ describe('messageTemplatesLogic', () => {
 
         expect(bodies).toEqual([{ tags: ['growth'] }])
         expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth'])
+    })
+
+    it('reloads a tag-filtered list after a tag edit, so a template that left the filter goes away', async () => {
+        logic.actions.setTagsFilter(['growth'])
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/messaging_templates/:id/': () => [200, template('a', 'Welcome', [])],
+            },
+        })
+        stored = []
+
+        await saveTemplateTags(template('a', 'Welcome', ['growth']), [])
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+
+        expect(names()).toEqual([])
     })
 
     it('rejects a failed tag save, so the editor it was opened from stays open', async () => {

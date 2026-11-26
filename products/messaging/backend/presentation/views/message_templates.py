@@ -566,12 +566,11 @@ class MessageTemplateListQuerySerializer(serializers.Serializer):
         required=False,
         default="",
         allow_blank=True,
-        max_length=200,
+        max_length=400,
         help_text="List only templates whose name, description or a tag contains this text, ignoring case.",
     )
     created_by = serializers.IntegerField(
         required=False,
-        allow_null=True,
         default=None,
         help_text="List only templates created by the user with this ID.",
     )
@@ -579,7 +578,7 @@ class MessageTemplateListQuerySerializer(serializers.Serializer):
         child=serializers.CharField(max_length=255),
         required=False,
         default=list,
-        max_length=50,
+        max_length=500,
         help_text="List only templates that carry at least one of these tags. Repeat the parameter for each tag.",
     )
 

@@ -6410,7 +6410,9 @@ const api = {
         },
     },
     messaging: {
-        async getTemplates(params: MessagingTemplatesListParams = {}): Promise<PaginatedResponse<MessageTemplate>> {
+        async getTemplates(
+            params: MessagingTemplatesListParams = {}
+        ): Promise<CountedPaginatedResponse<MessageTemplate>> {
             return await new ApiRequest().messagingTemplates().withQueryString(toParams(params, true)).get()
         },
         async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {

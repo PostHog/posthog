@@ -23,7 +23,7 @@ export function MessageTemplatePicker({
         templates,
         templatesLoading,
         hasActiveFilters,
-        hasMoreTemplates,
+        canLoadMoreTemplates,
         moreTemplatesLoading,
         search,
         createdByFilter,
@@ -48,15 +48,13 @@ export function MessageTemplatePicker({
                     value={createdByFilter}
                     onChange={(user) => setCreatedByFilter(user?.id ?? null)}
                 />
-                {(tagsFilter.length > 0 || templates.some((template) => template.tags?.length)) && (
-                    <TagSelect
-                        size="small"
-                        defaultLabel="Any tags"
-                        value={tagsFilter}
-                        onChange={setTagsFilter}
-                        listDataAttr="template-picker-tags-filter-list"
-                    />
-                )}
+                <TagSelect
+                    size="small"
+                    defaultLabel="Any tags"
+                    value={tagsFilter}
+                    onChange={setTagsFilter}
+                    listDataAttr="template-picker-tags-filter-list"
+                />
             </div>
             <div className="flex flex-wrap gap-3">
                 <LemonCard
@@ -79,7 +77,7 @@ export function MessageTemplatePicker({
                     No templates match. Try another search or clear the filters.
                 </p>
             )}
-            {hasMoreTemplates && (
+            {canLoadMoreTemplates && (
                 <div className="flex justify-center">
                     <LemonButton
                         type="secondary"

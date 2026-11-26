@@ -92,6 +92,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
             ("creator", "created_by={me}", {"Password reset"}),
             ("creator and transactional", "created_by={other}&transactional=true", {"Receipt"}),
             ("one tag", "tags=auth", {"Password reset"}),
+            ("tag in another case", "tags=Auth", {"Password reset"}),
             ("any of several tags", "tags=auth&tags=billing", {"Password reset", "Receipt"}),
             ("tag and search", "tags=auth&tags=billing&search=receipt", {"Receipt"}),
         ]

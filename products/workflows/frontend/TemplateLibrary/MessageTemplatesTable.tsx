@@ -38,7 +38,7 @@ export function MessageTemplatesTable(): JSX.Element {
         templates,
         templatesLoading,
         hasActiveFilters,
-        hasMoreTemplates,
+        canLoadMoreTemplates,
         moreTemplatesLoading,
         search,
         createdByFilter,
@@ -226,7 +226,7 @@ export function MessageTemplatesTable(): JSX.Element {
                     No templates match. Try another search or clear the filters.
                 </p>
             )}
-            {hasMoreTemplates && (
+            {canLoadMoreTemplates && (
                 <div className="flex justify-center mt-4">
                     <LemonButton
                         type="secondary"

@@ -100,7 +100,9 @@ def _filtered(
     if filters.created_by_id is not None:
         queryset = queryset.filter(created_by_id=filters.created_by_id)
     if filters.tags:
-        queryset = queryset.filter(pk__in=queryset.filter(tagged_items__tag__name__in=filters.tags).values("pk"))
+        queryset = queryset.filter(
+            pk__in=queryset.filter(tagged_items__tag__name__in=[tagify(tag) for tag in filters.tags]).values("pk")
+        )
     if filters.search:
         queryset = queryset.filter(
             models.Q(name__icontains=filters.search)
