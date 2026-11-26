@@ -139,7 +139,6 @@ func LoadExistingEnv() map[string]string {
 		"SESSION_RECORDING_V2_METADATA_SWITCHOVER",
 		"SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS",
 		"OBJECT_STORAGE_MINIO_REMOVED",
-		"BATCH_EXPORTS_ENABLED",
 	}
 
 	keys = append(keys, dedicatedSecretKeys...)
@@ -240,7 +239,7 @@ func UpdateEnvForUpgrade(version string) error {
 
 	// Batch exports are off unless .env turns them on. The old stack is still up here, so an
 	// install keeps them on unless its database shows that it has none.
-	if existing["BATCH_EXPORTS_ENABLED"] == "" && keepBatchExportsEnabled(countBatchExports()) {
+	if !envHasKey("BATCH_EXPORTS_ENABLED") && keepBatchExportsEnabled(countBatchExports()) {
 		if err := AppendToEnv("BATCH_EXPORTS_ENABLED", "true"); err != nil {
 			return err
 		}
@@ -253,6 +252,19 @@ func UpdateEnvForUpgrade(version string) error {
 	}
 
 	return nil
+}
+
+func envHasKey(key string) bool {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, key+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func countBatchExports() (string, error) {

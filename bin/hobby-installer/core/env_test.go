@@ -234,3 +234,27 @@ func TestBatchExportsStayOnUnlessTheInstallHasNone(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvHasKeyCountsAnEmptyValueAsSet(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want bool
+	}{
+		{"absent", "DOMAIN=example.com\n", false},
+		{"commented out", "#BATCH_EXPORTS_ENABLED=true\n", false},
+		{"empty value", "BATCH_EXPORTS_ENABLED=\n", true},
+		{"set value", "BATCH_EXPORTS_ENABLED=false\n", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if err := os.WriteFile(".env", []byte(c.env), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if got := envHasKey("BATCH_EXPORTS_ENABLED"); got != c.want {
+				t.Errorf("envHasKey = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
