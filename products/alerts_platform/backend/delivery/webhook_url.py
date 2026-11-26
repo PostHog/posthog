@@ -43,7 +43,7 @@ class WebhookUrlTransport(ABC):
         if not url:
             raise DestinationMisconfigured(
                 f"This {self.display_name} destination has no webhook URL.",
-                remedy=f"Add the {self.display_name} webhook URL to the destination on the alert.",
+                remedy=f"Add the {self.display_name} URL to the destination on the alert.",
             )
         self.check_url(url)
         post_json(

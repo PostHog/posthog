@@ -15,6 +15,7 @@ from posthog.models.user import User
 from products.alerts_platform.backend.delivery import refusal_notices
 from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
 from products.alerts_platform.backend.delivery.transport import (
+    ADD_RECIPIENTS,
     CHECK_THE_URL,
     DestinationMisconfigured,
     DestinationRefused,
@@ -123,11 +124,8 @@ class TestRefusalNotices(BaseTest):
             ),
             (
                 "misconfigured",
-                DestinationMisconfigured(
-                    "This email destination has no recipients.",
-                    remedy="Add recipients to the destination on the alert.",
-                ),
-                "Add recipients to the destination on the alert.",
+                DestinationMisconfigured("This email destination has no recipients.", remedy=ADD_RECIPIENTS),
+                ADD_RECIPIENTS,
             ),
         ]
     )
