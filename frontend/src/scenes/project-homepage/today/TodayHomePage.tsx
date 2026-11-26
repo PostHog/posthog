@@ -37,6 +37,20 @@ const TodaySeasonalChecklistEntry = lazyWithRetry(() =>
     }))
 )
 
+function TodaySeasonalChecklistSlot({ sampleData }: { sampleData: boolean }): JSX.Element | null {
+    const enabled = useFeatureFlag('TODAY_SEASONAL_CHECKLIST')
+    if (!enabled || sampleData) {
+        return null
+    }
+    return (
+        <PostHogErrorBoundary fallback={<></>}>
+            <Suspense fallback={null}>
+                <TodaySeasonalChecklistEntry />
+            </Suspense>
+        </PostHogErrorBoundary>
+    )
+}
+
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
 
 function TodayMetaLine(): JSX.Element {
@@ -78,7 +92,6 @@ export function TodayHomePage(): JSX.Element {
     const rootRef = useRef<HTMLDivElement>(null)
     const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
-    const seasonalChecklist = useFeatureFlag('TODAY_SEASONAL_CHECKLIST')
     // The Home pane lists recents and pins for the whole project, so the page drops its own recents.
     const recentsInSidebar = useTodayHomePaneEnabled()
     const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
@@ -131,13 +144,7 @@ export function TodayHomePage(): JSX.Element {
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
             <TodayPromoBanner />
-            {seasonalChecklist && !useSampleData ? (
-                <PostHogErrorBoundary fallback={<></>}>
-                    <Suspense fallback={null}>
-                        <TodaySeasonalChecklistEntry />
-                    </Suspense>
-                </PostHogErrorBoundary>
-            ) : null}
+            <TodaySeasonalChecklistSlot sampleData={useSampleData} />
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
