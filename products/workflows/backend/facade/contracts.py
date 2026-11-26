@@ -883,6 +883,7 @@ class TransactionalEmailContent:
     # None uses the project's default sender on create, and keeps the workflow's sender on update.
     from_integration_id: int | None
     message_category_id: UUID | None
+    click_tracking_enabled: bool | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
     # Empty values use the sender's own address, name and default reply-to.
