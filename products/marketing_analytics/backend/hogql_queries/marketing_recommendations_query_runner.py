@@ -747,8 +747,9 @@ class MarketingAnalyticsRecommendationsQueryRunner(
 
     def _search_term_cost_by_campaign(self, source: MarketingAnalyticsRecommendationsSource) -> dict[str, float] | None:
         # Summed apart from the search term rows, which stop at the row limit and would make the rest look hidden.
-        if not source.searchTermTable or not source.campaignStatsTable or not self._readable(source.searchTermTable):
+        if not self._readable(source.searchTermTable) or not self._readable(source.campaignStatsTable):
             return None
+        assert source.searchTermTable and source.campaignStatsTable
         rows = self._select(
             """
             SELECT toString(campaign_id), sum(toFloat(metrics_cost_micros)) / 1000000, max(toDate(segments_date))
@@ -758,15 +759,20 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             """,
             source.searchTermTable,
         )
+        if not rows:
+            return None
+        # Other channels keep serving after Search stops, so only campaigns with search terms date the sync.
         last_campaign_day = self._select(
             """
             SELECT max(toDate(segments_date)) FROM {table}
             WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
+                AND has({campaign_ids}, toString(campaign_id))
             """,
             source.campaignStatsTable,
+            campaign_ids=ast.Constant(value=[row[0] for row in rows]),
         )
         # The two tables sync apart, so days the search terms have not synced yet would look hidden.
-        if not rows or not last_campaign_day or max(row[2] for row in rows) < last_campaign_day[0][0]:
+        if not last_campaign_day or max(row[2] for row in rows) < last_campaign_day[0][0]:
             return None
         return {row[0]: float(row[1] or 0) for row in rows}
 
