@@ -5274,7 +5274,7 @@ def _start_mention_workflow(
             awaited_request_reply=awaited_request_reply,
         )
         if isinstance(event.get("channel"), str):
-            schedule_channel_metadata_refresh(integration, event["channel"])
+            schedule_channel_metadata_refresh(integration, event["channel"], is_ext_shared=is_ext_shared_channel)
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(

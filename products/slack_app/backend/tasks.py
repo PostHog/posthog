@@ -86,7 +86,7 @@ def refresh_slack_channel_metadata(*, team_id: int, integration_id: int, slack_c
     if not is_slack_app_channel_context_enabled(integration):
         return
     refresh_channel_metadata(
-        SlackIntegration(integration),
+        SlackIntegration(integration, source="slack_app_channel_metadata"),
         slack_workspace_id=integration.integration_id,
         slack_channel_id=slack_channel_id,
     )

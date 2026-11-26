@@ -5,6 +5,7 @@ team before any summary of its messages exists.
 """
 
 import re
+import html
 import dataclasses
 
 from django.core.cache import cache
@@ -39,33 +40,44 @@ def parse_owner_groups(*texts: str) -> list[OwnerGroup]:
     groups: dict[str, OwnerGroup] = {}
     for text in texts:
         for match in _SUBTEAM_RE.finditer(text):
-            group_id, handle = match.group(1), (match.group(2) or "").strip()
+            group_id, handle = match.group(1), html.unescape(match.group(2) or "").strip()
             if group_id not in groups or (handle and not groups[group_id].handle):
                 groups[group_id] = OwnerGroup(id=group_id, handle=handle)
     return list(groups.values())
 
 
-def schedule_channel_metadata_refresh(integration: IntegrationRecord, slack_channel_id: str) -> None:
+def _refresh_slot_key(integration_id: int, slack_channel_id: str) -> str:
+    return f"slack_app_channel_metadata:{integration_id}:{slack_channel_id}"
+
+
+def schedule_channel_metadata_refresh(
+    integration: IntegrationRecord, slack_channel_id: str, *, is_ext_shared: bool = False
+) -> None:
     """Refresh the channel's description in the background, at most once per channel per day.
 
-    The scope check comes first because it is free, so an install that cannot read the channel never uses the
-    day's slot. The feature flag is a remote call, so the task checks it.
+    This runs on the mention path, so it never raises: a lost refresh is retried at the next mention. The scope
+    check comes first because it is free, so an install that cannot read the channel never uses the day's slot.
+    The feature flag is a remote call, so the task checks it. The slot is per integration, because each one has
+    its own organization and flag.
     """
     # A `D…` id is a DM, which has no description, and `conversations.info` cannot read it without `im:read`.
-    if slack_channel_id.startswith("D") or not has_scopes(integration, CHANNEL_CONTEXT_REQUIRED_SCOPES):
+    if is_ext_shared or slack_channel_id.startswith("D"):
         return
-    key = f"slack_app_channel_metadata:{integration.integration_id}:{slack_channel_id}"
-    if not cache.add(key, 1, timeout=METADATA_REFRESH_SECONDS):
-        return
-    # The task module imports this one, so a module-level import here would be circular.
-    from products.slack_app.backend.tasks import refresh_slack_channel_metadata  # noqa: PLC0415
-
     try:
+        if not has_scopes(integration, CHANNEL_CONTEXT_REQUIRED_SCOPES):
+            return
+        if not cache.add(_refresh_slot_key(integration.id, slack_channel_id), 1, timeout=METADATA_REFRESH_SECONDS):
+            return
+        # The task module imports this one, so a module-level import here would be circular.
+        from products.slack_app.backend.tasks import refresh_slack_channel_metadata  # noqa: PLC0415
+
         refresh_slack_channel_metadata.delay(
             team_id=integration.team_id, integration_id=integration.id, slack_channel_id=slack_channel_id
         )
     except Exception:
-        logger.warning("slack_app_channel_metadata_refresh_dispatch_failed", integration_id=integration.id)
+        logger.warning(
+            "slack_app_channel_metadata_refresh_schedule_failed", integration_id=integration.id, exc_info=True
+        )
 
 
 def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str, slack_channel_id: str) -> bool:
@@ -75,18 +87,26 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
     readable by the whole organization.
     """
     channel = fetch_channel_info(slack, slack_channel_id)
-    if not channel or not channel.get("is_channel") or channel.get("is_private") or is_shared_channel(channel):
+    if channel is None:
+        # Slack could not say, so free the day's slot and let the next mention try again.
+        cache.delete(_refresh_slot_key(slack.integration.id, slack_channel_id))
+        return False
+    stored = SlackChannel.objects.filter(slack_workspace_id=slack_workspace_id, slack_channel_id=slack_channel_id)
+    if not channel.get("is_channel") or channel.get("is_private") or is_shared_channel(channel):
+        # A channel that was public can turn private or shared, so its old description must not stay readable.
+        stored.update(topic="", purpose="", owner_groups=[])
         return False
 
-    topic = str((channel.get("topic") or {}).get("value") or "")
-    purpose = str((channel.get("purpose") or {}).get("value") or "")
+    # Slack escapes &, < and > in this text. Tags are read before unescaping, so an escaped `&lt;` cannot form one.
+    raw_topic = str((channel.get("topic") or {}).get("value") or "")
+    raw_purpose = str((channel.get("purpose") or {}).get("value") or "")
     SlackChannel.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_channel_id=slack_channel_id,
         defaults={
-            "topic": topic,
-            "purpose": purpose,
-            "owner_groups": [dataclasses.asdict(group) for group in parse_owner_groups(topic, purpose)],
+            "topic": html.unescape(raw_topic),
+            "purpose": html.unescape(raw_purpose),
+            "owner_groups": [dataclasses.asdict(group) for group in parse_owner_groups(raw_topic, raw_purpose)],
         },
     )
     return True

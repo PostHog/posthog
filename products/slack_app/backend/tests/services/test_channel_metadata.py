@@ -51,14 +51,14 @@ class TestRefreshChannelMetadata:
             {
                 "is_channel": True,
                 "topic": {"value": "Replays and <!subteam^S0123|@team-replay>"},
-                "purpose": {"value": "Session replay work"},
+                "purpose": {"value": "Session replay R&amp;D"},
             }
         )
 
         assert refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
 
         channel = SlackChannel.objects.get(slack_workspace_id="T01", slack_channel_id="C01")
-        assert (channel.topic, channel.purpose) == ("Replays and <!subteam^S0123|@team-replay>", "Session replay work")
+        assert (channel.topic, channel.purpose) == ("Replays and <!subteam^S0123|@team-replay>", "Session replay R&D")
         assert channel.owner_groups == [{"id": "S0123", "handle": "team-replay"}]
 
     @pytest.mark.parametrize(
@@ -73,6 +73,18 @@ class TestRefreshChannelMetadata:
     def test_skips_channels_whose_page_the_organization_must_not_read(self, channel: dict) -> None:
         assert not refresh_channel_metadata(_slack(channel), slack_workspace_id="T01", slack_channel_id="C01")
         assert not SlackChannel.objects.filter(slack_channel_id="C01").exists()
+
+    def test_a_channel_that_turned_private_loses_its_stored_description(self) -> None:
+        SlackChannel.objects.create(
+            slack_workspace_id="T01", slack_channel_id="C01", topic="Deal room", owner_groups=[{"id": "S01"}]
+        )
+
+        refresh_channel_metadata(
+            _slack({"is_channel": True, "is_private": True}), slack_workspace_id="T01", slack_channel_id="C01"
+        )
+
+        channel = SlackChannel.objects.get(slack_channel_id="C01")
+        assert (channel.topic, channel.owner_groups) == ("", [])
 
     def test_a_failed_lookup_keeps_the_stored_description(self) -> None:
         SlackChannel.objects.create(slack_workspace_id="T01", slack_channel_id="C01", topic="Replays")
@@ -90,6 +102,7 @@ class TestScheduleChannelMetadataRefresh:
             ("channels:read", ["C01", "C01", "C02"], ["C01", "C02"]),
             ("", ["C01"], []),
             ("channels:read", ["D01"], []),
+            ("channels:read", ["shared:C01"], []),
         ],
     )
     def test_dispatches_once_per_readable_channel_per_day(
@@ -101,6 +114,28 @@ class TestScheduleChannelMetadataRefresh:
 
         with patch("products.slack_app.backend.tasks.refresh_slack_channel_metadata.delay") as dispatch:
             for channel in channels:
-                schedule_channel_metadata_refresh(workspace_integration, channel)
+                shared, _, channel_id = channel.rpartition(":")
+                schedule_channel_metadata_refresh(workspace_integration, channel_id, is_ext_shared=bool(shared))
 
         assert [call.kwargs["slack_channel_id"] for call in dispatch.call_args_list] == expected
+
+    def test_a_failed_lookup_frees_the_day_for_the_next_mention(self, workspace_integration) -> None:
+        cache.clear()
+        workspace_integration.config = {"scope": "channels:read"}
+        workspace_integration.save()
+        slack = _slack(error=SlackApiError("ratelimited", response={"ok": False, "error": "ratelimited"}))
+        slack.integration.id = workspace_integration.id
+
+        with patch("products.slack_app.backend.tasks.refresh_slack_channel_metadata.delay") as dispatch:
+            schedule_channel_metadata_refresh(workspace_integration, "C01")
+            refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
+            schedule_channel_metadata_refresh(workspace_integration, "C01")
+
+        assert dispatch.call_count == 2
+
+    def test_a_cache_outage_does_not_break_the_mention(self, workspace_integration) -> None:
+        workspace_integration.config = {"scope": "channels:read"}
+        workspace_integration.save()
+
+        with patch("products.slack_app.backend.services.channel_metadata.cache.add", side_effect=ConnectionError):
+            schedule_channel_metadata_refresh(workspace_integration, "C01")

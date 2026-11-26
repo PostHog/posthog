@@ -102,10 +102,8 @@ def fetch_channel_info(slack: SlackIntegration, channel_id: str) -> dict[str, An
     """The channel's `conversations.info` record, or None when Slack could not say. Warms the name cache."""
     try:
         channel: dict[str, Any] = slack.client.conversations_info(channel=channel_id).get("channel") or {}
-    except SlackApiError as error:
-        logger.warning(
-            "slack_app_channel_info_lookup_failed", channel_id=channel_id, error=(error.response or {}).get("error")
-        )
+    except Exception:
+        logger.warning("slack_app_channel_info_lookup_failed", channel_id=channel_id, exc_info=True)
         return None
     _remember_channel_name(slack, channel_id, channel)
     return channel
@@ -115,14 +113,9 @@ def resolve_channel_name(slack: SlackIntegration, channel_id: str) -> str | None
     if channel_id.startswith("D"):
         return None
     cached = cache.get(_channel_name_key(slack, channel_id))
-    if cached is not None:
-        return cached or None
-    try:
-        channel = slack.client.conversations_info(channel=channel_id).get("channel") or {}
-    except Exception:
-        logger.warning("slack_app_channel_name_lookup_failed", channel_id=channel_id, exc_info=True)
-        return None
-    return _remember_channel_name(slack, channel_id, channel)
+    if cached is None and fetch_channel_info(slack, channel_id) is not None:
+        cached = cache.get(_channel_name_key(slack, channel_id))
+    return cached or None
 
 
 def _remember_channel_name(slack: SlackIntegration, channel_id: str, channel: dict[str, Any]) -> str | None:
