@@ -16,6 +16,7 @@ export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgProxyOf'>
 type Call =
     | { op: 'add'; rule: FaultRule }
     | { op: 'applied'; faultId: string }
+    | { op: 'hits'; faultId: string }
     | { op: 'remove'; faultId: string }
     | { op: 'clear' }
     | { op: 'pg-proxy'; upstream: string }
@@ -47,6 +48,8 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
                 return edge.addFault(call.rule)
             case 'applied':
                 return edge.firstAppliedAt(call.faultId)
+            case 'hits':
+                return edge.hitsOf(call.faultId)
             case 'remove':
                 return edge.removeFault(call.faultId)
             case 'clear':
@@ -218,6 +221,7 @@ export async function startEdgeProcess(
             const faultId = await call<string>({ op: 'add', rule })
             return holdOf({
                 firstAppliedAt: () => call<number | undefined>({ op: 'applied', faultId }),
+                hits: () => call<string[]>({ op: 'hits', faultId }),
                 remove: () => call<void>({ op: 'remove', faultId }),
             })
         },

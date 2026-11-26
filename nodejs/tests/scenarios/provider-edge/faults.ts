@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
@@ -99,12 +99,15 @@ export type FaultRule = {
     match?: { recipient?: string; host?: string }
     dose: z.infer<typeof Dose> | { perSecond: number }
     for?: string
+    pick?: string
 }
 
 type FaultedRequest =
     | { channel: 'ses'; recipients: string[] }
     | { channel: 'webhook'; host: string }
     | { channel: 'pg' }
+
+export type Hit = { unitId?: string; pickKey: string }
 
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
 const THROTTLED: SesStatusAnswer = {
@@ -147,13 +150,31 @@ type ActiveFault = {
     matched: number
     applied: number
     passedAt: number[]
+    attempts: Map<string, number>
 }
 
 const SHARE_TOLERANCE = 1e-9
+const SCORE_BYTES = 6
+
+const ORDINAL_AT_END_OF_UNIT_ID = /-(\d+)$/
+
+export function hitOf(unitId: string | undefined, fallback: string): Hit {
+    return unitId === undefined
+        ? { pickKey: fallback }
+        : { unitId, pickKey: ORDINAL_AT_END_OF_UNIT_ID.exec(unitId)?.[1] ?? unitId }
+}
+
+function picked(pick: string, key: string, attempt: number, share: number): boolean {
+    const digest = createHash('sha256').update(`${pick}\0${key}\0${attempt}`).digest()
+    return digest.readUIntBE(0, SCORE_BYTES) / 2 ** (8 * SCORE_BYTES) < share
+}
 
 // The proxy names a refused enqueue's table after the fault's token, so Postgres's own error names the fault it
 // answers, and a clear forgets the tokens it handed out.
 const tokenOf = (faultId: string): string => faultId.replaceAll('-', '')
+
+// An enqueue carries no unit the edge can read, so a refusal records no hit.
+const PG_HIT: Hit = { pickKey: 'pg' }
 
 const isWebhookAnswer = (answer: Answer): answer is WebhookAnswer =>
     answer.kind === 'webhook-status' || answer.kind === 'webhook-ambiguous'
@@ -175,9 +196,9 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
     return isSesAnswer(answer) && (match?.recipient === undefined || request.recipients.includes(match.recipient))
 }
 
-function doseTakes(fault: ActiveFault, now: number): boolean {
+function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): boolean {
     const {
-        rule: { dose },
+        rule: { dose, pick },
         matched,
         applied,
     } = fault
@@ -187,6 +208,11 @@ function doseTakes(fault: ActiveFault, now: number): boolean {
     }
     if ('count' in dose) {
         return applied < dose.count
+    }
+    if (pick !== undefined) {
+        const attempt = fault.attempts.get(unitId ?? pickKey) ?? 0
+        fault.attempts.set(unitId ?? pickKey, attempt + 1)
+        return picked(pick, pickKey, attempt, dose.share)
     }
     const crossings = (sends: number): number => Math.floor(sends * dose.share + SHARE_TOLERANCE)
     return crossings(matched) > crossings(matched - 1)
@@ -201,12 +227,13 @@ function countSentAgainst(throttles: ActiveFault[], now: number): void {
 export class FaultList {
     private faults: ActiveFault[] = []
     private firstApplied = new Map<string, number>()
+    private hits = new Map<string, Set<string>>()
     private refusing = new Map<string, string>()
 
     add(rule: FaultRule): string {
         const id = randomUUID()
         const until = rule.for === undefined ? Infinity : Date.now() + durationMs(rule.for)
-        this.faults.push({ id, rule, until, matched: 0, applied: 0, passedAt: [] })
+        this.faults.push({ id, rule, until, matched: 0, applied: 0, passedAt: [], attempts: new Map() })
         return id
     }
 
@@ -219,6 +246,7 @@ export class FaultList {
     clear(): void {
         this.faults = []
         this.firstApplied.clear()
+        this.hits.clear()
         this.refusing.clear()
     }
 
@@ -226,20 +254,24 @@ export class FaultList {
         return this.firstApplied.get(id)
     }
 
-    takeSes(recipients: string[]): { id: string; name: string; answer: SesAnswer } | undefined {
-        const fault = this.take({ channel: 'ses', recipients })
+    hitsOf(id: string): string[] {
+        return [...(this.hits.get(id) ?? [])]
+    }
+
+    takeSes(recipients: string[], hit: Hit): { id: string; name: string; answer: SesAnswer } | undefined {
+        const fault = this.take({ channel: 'ses', recipients }, hit)
         return fault && isSesAnswer(fault.rule.answer)
             ? { id: fault.id, name: fault.rule.name, answer: fault.rule.answer }
             : undefined
     }
 
-    takeWebhook(host: string): { name: string; answer: WebhookAnswer } | undefined {
-        const rule = this.take({ channel: 'webhook', host })?.rule
+    takeWebhook(host: string, hit: Hit): { name: string; answer: WebhookAnswer } | undefined {
+        const rule = this.take({ channel: 'webhook', host }, hit)?.rule
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
     refusePg(): string | undefined {
-        const fault = this.take({ channel: 'pg' }, { appliesNow: false })
+        const fault = this.take({ channel: 'pg' }, PG_HIT, { appliesNow: false })
         if (fault === undefined) {
             return undefined
         }
@@ -255,17 +287,20 @@ export class FaultList {
         }
     }
 
-    private take(request: FaultedRequest, { appliesNow = true } = {}): ActiveFault | undefined {
+    private take(request: FaultedRequest, hit: Hit, { appliesNow = true } = {}): ActiveFault | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
         const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
         const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
             fault.matched += 1
-            return doseTakes(fault, now)
+            return doseTakes(fault, now, hit)
         })
         if (answering) {
             answering.applied += 1
+            if (hit.unitId !== undefined) {
+                this.hits.set(answering.id, (this.hits.get(answering.id) ?? new Set()).add(hit.unitId))
+            }
             if (appliesNow && !this.firstApplied.has(answering.id)) {
                 this.firstApplied.set(answering.id, now)
             }
