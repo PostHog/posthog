@@ -12611,7 +12611,7 @@ Note: Rippling exposes three distinct API surfaces (base-api, company-api, rest-
 
 ## RKICovid — gaps
 
-Today (19): `districts`, `districts_history_cases`, `districts_history_incidence`, `germany`, `germany_age_groups`, `germany_history_cases`, `germany_history_deaths`, `germany_history_frozen_incidence`, `germany_history_hospitalization`, `germany_history_incidence`, `germany_history_recovered`, `states`, `states_history_cases`, `states_history_deaths`, `states_history_incidence`, `testing_history`, `vaccinations`, `vaccinations_history`, `vaccinations_states`
+Today (23): `districts`, `districts_age_groups`, `districts_history_cases`, `districts_history_incidence`, `germany`, `germany_age_groups`, `germany_history_cases`, `germany_history_deaths`, `germany_history_frozen_incidence`, `germany_history_hospitalization`, `germany_history_incidence`, `germany_history_r_value`, `germany_history_recovered`, `states`, `states_age_groups`, `states_history_cases`, `states_history_deaths`, `states_history_hospitalization`, `states_history_incidence`, `testing_history`, `vaccinations`, `vaccinations_history`, `vaccinations_states`
 
 Diffed against: <https://api.corona-zahlen.org/docs/>
 
@@ -12623,10 +12623,10 @@ Diffed against: <https://api.corona-zahlen.org/docs/>
 - [x] `GET /states/history/incidence/:days` — per-state 7-day incidence, the metric the whole dataset is organized around (high) → `states_history_incidence`
 - [x] `GET /districts/history/cases/:days` — per-district case time series - the finest granularity the API offers and the reason to use it over aggregate sources (high) → `districts_history_cases`
 - [x] `GET /districts/history/incidence/:days` — per-district incidence over time, the main district-level reporting metric (high) → `districts_history_incidence`
-- [ ] `GET /germany/history/rValue/:days` — the reproduction number time series, a headline national metric with no equivalent column elsewhere (medium)
-- [ ] `GET /states/age-groups` — age-group breakdown per state; the source has only the Germany-level age groups (medium)
-- [ ] `GET /districts/age-groups` — age-group breakdown per district (medium)
-- [ ] `GET /states/history/hospitalization/:days` — per-state hospitalization time series, matching the national hospitalization table (medium)
+- [x] `GET /germany/history/rValue/:days` — the reproduction number time series, a headline national metric with no equivalent column elsewhere (medium) → `germany_history_r_value`
+- [x] `GET /states/age-groups` — age-group breakdown per state; the source has only the Germany-level age groups (medium) → `states_age_groups`
+- [x] `GET /districts/age-groups` — age-group breakdown per district (medium) → `districts_age_groups`
+- [x] `GET /states/history/hospitalization/:days` — per-state hospitalization time series, matching the national hospitalization table (medium) → `states_history_hospitalization`
 
 Note: Coverage is national-only: every history table synced is a /germany/history/\* endpoint, while the API offers the identical history families (cases, deaths, recovered, incidence, frozen-incidence, hospitalization) at /states/history/\* and /districts/history/\*, plus a whole /vaccinations tree and /maps image endpoints (not warehouse-relevant). Also missing at state/district level: history/recovered and history/frozen-incidence, omitted from the list above only to stay within 12 entries.
 

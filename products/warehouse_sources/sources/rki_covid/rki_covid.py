@@ -92,6 +92,19 @@ def _parse_keyed_history(body: dict[str, Any], config: RKICovidEndpointConfig) -
                 yield {config.key_field: key, **parent, **row}
 
 
+def _parse_keyed_nested_rows(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
+    data = body.get("data")
+    if not isinstance(data, dict):
+        return
+    assert config.key_field is not None and config.nested_key_field is not None
+    for key, groups in data.items():
+        if not isinstance(groups, dict):
+            continue
+        for nested_key, value in groups.items():
+            if isinstance(value, dict):
+                yield {config.key_field: key, config.nested_key_field: nested_key, **value}
+
+
 def _parse_data_list(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
     data = body.get("data")
     if not isinstance(data, list):
@@ -119,6 +132,7 @@ _PARSERS = {
     "dict_rows": _parse_dict_rows,
     "keyed_rows": _parse_keyed_rows,
     "keyed_history": _parse_keyed_history,
+    "keyed_nested_rows": _parse_keyed_nested_rows,
     "data_list": _parse_data_list,
     "data_history": _parse_data_history,
 }
