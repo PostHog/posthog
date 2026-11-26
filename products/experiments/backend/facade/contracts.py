@@ -1730,7 +1730,6 @@ class ExperimentDetail(ExperimentBasic):
     can_freeze_exposure: bool
     # The event that exposures are counted on when the experiment configures no custom exposure event.
     resolved_exposure_event: str
-    # True until the experiment is launched, whatever `status` the experiment stores.
     is_draft: bool
 
 
@@ -1749,7 +1748,6 @@ class ExperimentUpdate:
     start_date: datetime | None = None
     end_date: datetime | None = None
     feature_flag_key: str = ""
-    # The rule is chosen on create, so an update may only send the current one back.
     feature_flag_rule_id: "UUID | None" = None
     holdout_id: int | None = None
     # Without the flag config keys, which the update sends as `feature_flag_config`.
@@ -1776,13 +1774,11 @@ class ExperimentUpdate:
     secondary_metrics_ordered_uuids: list[str] | None = None
     only_count_matured_users: bool = False
     update_feature_flag_params: bool = False
-    # The version the client last read, and the experiment as it read it, to merge or refuse a stale update.
     version: int | None = None
     original_experiment: dict[str, JsonValue] | None = None
     # Replace the experiment's tags. None keeps them.
     tags: list[str] | None = None
-    # The flag config to write onto the experiment's flag, in the flag's own write shape
-    # (`{filters, ensure_experience_continuity}`), or None to leave the flag config as it is.
+    # In the flag's own write shape (`{filters, ensure_experience_continuity}`). None leaves the flag config as it is.
     feature_flag_config: dict[str, JsonValue] | None = None
     # True when `feature_flag_config` came from the deprecated flag config keys of `parameters` and changes the flag.
     deprecated_flag_config_changed: bool = False

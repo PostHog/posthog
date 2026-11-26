@@ -1208,8 +1208,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         if not present:
             return None
 
-        # The parameters of the experiment as a read returns them, with the flag config keys projected from the flag
-        # or the rule.
         instance = cast(ExperimentDetail | None, self.instance)
         projected = instance.parameters if instance is not None else {}
 
@@ -1267,8 +1265,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def to_create(self) -> CreateExperimentInput:
         """The validated request data of a create, as the facade takes it. The tags are not part of it."""
-        # The flag params opt-in and the concurrency keys are update-only. A create ignores them, so clients can share
-        # payload builders.
+        # Update-only fields. A create ignores them, so clients can share payload builders.
         ignored_fields = {"update_feature_flag_params", "tags", "version", "original_experiment"}
         expected_fields = {
             "name",

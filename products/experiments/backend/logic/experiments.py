@@ -188,10 +188,8 @@ def tag_created_experiment(*, experiment_id: int, tags: list[str] | None) -> Exp
     return experiment
 
 
-# The update data of `ExperimentService.update_experiment` names these fields by the sources of the fields of the
-# experiment serializer.
+# The update data of the service names these fields by the sources of the experiment serializer fields.
 _UPDATE_DATA_KEYS = {"feature_flag_key": "get_feature_flag_key", "create_in_folder": "_create_in_folder"}
-# The service takes these as arguments, or the update applies them itself, so they are not update data.
 _NOT_UPDATE_DATA = frozenset(
     {"allow_unknown_events", "feature_flag_config", "tags", "feature_flag_rule_id", "deprecated_flag_config_changed"}
 )

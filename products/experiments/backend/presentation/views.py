@@ -434,7 +434,7 @@ class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeam
 
 
 @extend_schema_view(
-    # PATCH /experiments/{id}/, through update() below and facade.experiments.edit_experiment
+    # PATCH /experiments/{id}/
     # request=ExperimentWriteSerializer is schema-only: it adds the writable feature_flag input
     # to the OpenAPI request body; runtime validation stays on ExperimentSerializer.
     partial_update=extend_schema(
@@ -443,7 +443,6 @@ class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeam
     ),
     # PUT /experiments/{id}/, same request shape as PATCH
     update=extend_schema(request=ExperimentWriteSerializer),
-    # POST /experiments/, through create() below and facade.experiments.add_experiment
     create=extend_schema(
         description="Create a new experiment in draft status with optional metrics.",
         request=ExperimentWriteSerializer,
@@ -523,7 +522,6 @@ class EnterpriseExperimentsViewSet(
     def read_object(self) -> ExperimentDetail | ExperimentHandle | None:
         if self.action == "retrieve":
             return experiments_facade.get_experiment(team=self.team, experiment_id=self.kwargs["pk"])
-        # The update validates the request against the experiment as a read shows it.
         if self.action in ("update", "partial_update"):
             return experiments_facade.get_experiment(
                 team=self.team, experiment_id=self.kwargs["pk"], include_deleted=self._update_includes_deleted()
