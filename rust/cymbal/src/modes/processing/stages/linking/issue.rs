@@ -252,7 +252,12 @@ async fn write_release(
             );
             Utc::now()
         });
-    let mut conn = context.posthog_pool.acquire().await?;
+    let mut conn = acquire_connection(
+        context.team_db_slots.as_deref(),
+        &context.posthog_pool,
+        event_properties.team_id(),
+    )
+    .await?;
     let mut txn = Acquire::begin(&mut *conn).await?;
     let Some(reopened) = issue
         .apply_release(&mut *txn, event_properties.release())
