@@ -100,6 +100,15 @@ function isAccountSqlJoinFilter(
     )
 }
 
+function isAccountSqlJoinConnected(source: ASTNode, previousAliases: Set<string>, aliases: Set<string>): boolean {
+    return (
+        previousAliases.size === 0 ||
+        (['JOIN', 'INNER', 'INNER JOIN'].includes(source.join_type) &&
+            source.constraint?.constraint_type === 'ON' &&
+            isAccountSqlJoinFilter(source.constraint.expr, previousAliases, source.alias, aliases))
+    )
+}
+
 function isAccountSqlJoinScoped(node: ASTNode, aliases: Set<string>): boolean {
     const sourceAliases = new Set<string>()
     let scoped = false
@@ -107,12 +116,7 @@ function isAccountSqlJoinScoped(node: ASTNode, aliases: Set<string>): boolean {
         if (!source.alias || sourceAliases.has(source.alias) || aliases.has(source.alias)) {
             return false
         }
-        if (
-            sourceAliases.size > 0 &&
-            (!['JOIN', 'INNER', 'INNER JOIN'].includes(source.join_type) ||
-                source.constraint?.constraint_type !== 'ON' ||
-                !isAccountSqlJoinFilter(source.constraint.expr, sourceAliases, source.alias, aliases))
-        ) {
+        if (!isAccountSqlJoinConnected(source, sourceAliases, aliases)) {
             return false
         }
         const allowedFields = getAccountSqlQueryAllowedFields(source)
