@@ -48,8 +48,8 @@ class TestBingWebmasterToolsSource:
     @pytest.mark.parametrize(
         "fault, expected_fragment, unexpected_fragment",
         [
-            ("ThrottleUser", "sync fewer tables", "PostHog's side"),
-            ("ThrottleIP", "PostHog's side", "sync fewer tables"),
+            ("ThrottleUser", "page_query_stats and link_counts", "PostHog's side"),
+            ("ThrottleIP", "PostHog's side", "page_query_stats"),
         ],
     )
     def test_throttle_fault_gets_clear_message_when_retries_run_out(

@@ -76,7 +76,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             token = f"phs_{uuid4().hex}"
             ProjectSecretAPIKey.objects.create(
                 team=self.team,
-                label="Offline evaluation test",
+                label=str(uuid4()),
                 secure_value=hash_key_value(token),
                 scopes=scopes,
             )
@@ -119,10 +119,12 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.data)
         return exp_id, item_id, str(response.data["results"][0]["id"]), body
 
-    def test_update_closed_score_recomputes_composite_and_preserves_upload_receipt(self) -> None:
+    @parameterized.expand(["session", "project_key"])
+    def test_update_closed_score_recomputes_composite_and_preserves_upload_receipt(self, auth_kind: str) -> None:
         exp_id, item_id, result_id, body = self._mutable_run()
         close = self.client.post(self._endpoint(exp_id, "complete"), {})
         self.assertEqual(close.status_code, 200)
+        self._authenticate(auth_kind, ["evaluation:write", "llm_analytics:read", "offline_evaluation_ingestion:write"])
         url = self._endpoint(exp_id, f"results/{result_id}")
         item_url = self._endpoint(exp_id, f"items/{item_id}")
         before_score_edit = self.client.get(item_url).data["revision"]
@@ -208,13 +210,14 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         )
         self.assertEqual((invalid_payload.status_code, invalid_payload.data["attr"]), (400, "payload"))
 
-    @parameterized.expand(["item", "result"])
-    def test_only_direct_api_can_delete_and_reupload_counts_as_new_while_open(self, target: str) -> None:
+    @parameterized.expand([(target, auth) for target in ["item", "result"] for auth in ["personal_key", "project_key"]])
+    def test_only_direct_api_can_delete_and_reupload_counts_as_new_while_open(self, target: str, auth: str) -> None:
         exp_id, item_id, result_id, body = self._mutable_run()
         key = f"items/{item_id}" if target == "item" else f"results/{result_id}"
         url = self._endpoint(exp_id, key) + "?revision=0"
         self._authenticate("personal_key", ["evaluation:write", "llm_analytics:read"])
         self.assertEqual(self.client.delete(url, HTTP_USER_AGENT=MCP_USER_AGENT_MARKER).status_code, 403)
+        self._authenticate(auth, ["evaluation:write", "llm_analytics:read"])
         self.assertEqual(self.client.delete(url).status_code, 204)
         self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
         self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 403)
@@ -417,7 +420,8 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             ("personal_key", "stored", ["evaluation:read", "llm_analytics:read"], True),
             ("personal_key", "stored", ["evaluation:write", "llm_analytics:write"], True),
             ("personal_key", "stored", ["*"], True),
-            ("project_key", "stored", ["*"], False),
+            ("project_key", "stored", [], False),
+            ("project_key", "stored", ["evaluation:read", "llm_analytics:read"], True),
             ("personal_key", "replayed", [], True),
             ("project_key", "replayed", [], True),
             ("personal_key", "partial", [], False),

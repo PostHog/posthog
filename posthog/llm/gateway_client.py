@@ -225,9 +225,17 @@ def openai_gateway_configured() -> bool:
 
 def _require_ai_gateway_config() -> AIGatewayConfig:
     gateway = resolve_ai_gateway_config()
-    if gateway is None:
-        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
-    return gateway
+    if gateway is not None:
+        return gateway
+    url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
+    if url or api_key:
+        misconfig = _gateway_misconfig(url, api_key)
+        assert misconfig is not None
+        raise GatewayNotConfiguredError(misconfig)
+    raise GatewayNotConfiguredError(
+        "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured; locally, enable the `ai_gateway` "
+        "dev capability and run bin/setup-gateway-e2e"
+    )
 
 
 def build_openai_client(
@@ -242,7 +250,7 @@ def build_openai_client(
 
     The gateway derives the team from its ``phs_`` bearer. ``ai_product`` tags the captured generation
     through both the typed product header and the ``X-PostHog-Properties`` blob. Raises
-    GatewayNotConfiguredError when ``AI_GATEWAY_URL`` and ``AI_GATEWAY_API_KEY`` are not configured.
+    GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed.
     trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = _require_ai_gateway_config()
@@ -334,8 +342,8 @@ def build_async_anthropic_client(
 
     An attributed call also carries ``X-PostHog-Trace-Id``. Callers can supply a per-operation
     ``trace_id`` and custom ``properties``; otherwise the trace falls back to :func:`team_trace_id`.
-    Raises GatewayNotConfiguredError when the gateway is not configured. trust_env=False keeps the
-    in-cluster call off the egress proxy.
+    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed.
+    trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = _require_ai_gateway_config()
     labels = dict(properties or {})

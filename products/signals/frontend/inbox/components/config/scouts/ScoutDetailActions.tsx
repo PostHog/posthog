@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
+import { IconExternal, IconRefresh, IconStopFilled, IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -13,6 +13,7 @@ import {
     scoutDetailActionsLogic,
 } from '../../../logics/scoutDetailActionsLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { liveLaneRun, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { SCOUT_PUBLISH_TOOLTIP, SCOUT_RUN_NOW_TOOLTIP, SCOUT_VIEW_SKILL_TOOLTIP } from './scoutDetailActionCopy'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
@@ -54,29 +55,69 @@ function ScoutRunNoteForm({ configId }: { configId: string }): JSX.Element {
     )
 }
 
-export function ScoutDetailActions({ config }: { config: SignalScoutConfig }): JSX.Element {
+export function ScoutDetailActions({
+    config,
+    rollup,
+}: {
+    config: SignalScoutConfig
+    rollup: ScoutRollup | undefined
+}): JSX.Element {
     const logic = scoutDetailActionsLogic({ skillName: config.skill_name })
-    const { running, updating, publishing, publishDisabledReason, canPublish, runNoteDisabledReason, runNoteOpen } =
-        useValues(logic)
-    const { setRunNoteOpen, runNow, publish, skillOpened } = useActions(logic)
-    const { updateScoutConfig } = useActions(scoutFleetLogic)
+    const {
+        running,
+        updating,
+        deleting,
+        canDelete,
+        publishing,
+        publishDisabledReason,
+        canPublish,
+        runNoteDisabledReason,
+        runNoteOpen,
+    } = useValues(logic)
+    const { setRunNoteOpen, runNow, publish, confirmDelete, skillOpened } = useActions(logic)
+    const { stoppingScoutRuns } = useValues(scoutFleetLogic)
+    const { updateScoutConfig, stopScoutRun } = useActions(scoutFleetLogic)
+
+    const stopping = config.id in stoppingScoutRuns
+    const liveRun = liveLaneRun(rollup?.runs ?? [], new Date())
+    // The backend refuses a second run while one holds the lane, so say why before the click.
+    const laneBusyReason = stopping
+        ? 'Wait for the run to stop'
+        : liveRun
+          ? 'A run is in progress. Stop it to start a new one.'
+          : null
 
     return (
         <>
             <LeaveScoutNoteButton skillName={config.skill_name} />
+            {(liveRun || stopping) && (
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    size="small"
+                    icon={<IconStopFilled />}
+                    loading={stopping}
+                    disabledReason={stopping ? 'Stopping the run' : undefined}
+                    tooltip="Cancel the run in progress. Its sandbox shuts down, and the scout can run again."
+                    data-attr="scout-stop-run"
+                    onClick={() => stopScoutRun(config.id)}
+                >
+                    {stopping ? 'Stopping…' : 'Stop run'}
+                </LemonButton>
+            )}
             <LemonButton
                 type="secondary"
                 size="small"
                 icon={<IconRefresh />}
                 loading={running}
-                disabledReason={running ? 'Starting a run' : undefined}
+                disabledReason={running ? 'Starting a run' : laneBusyReason}
                 tooltip={SCOUT_RUN_NOW_TOOLTIP}
                 onClick={runNow}
                 sideAction={{
                     tooltip: 'Run with a note',
                     'aria-label': 'Run with a note',
                     'data-attr': 'scout-run-now-with-note',
-                    disabledReason: runNoteDisabledReason,
+                    disabledReason: laneBusyReason ?? runNoteDisabledReason,
                     dropdown: {
                         placement: 'bottom-end',
                         closeOnClickInside: false,
@@ -119,6 +160,20 @@ export function ScoutDetailActions({ config }: { config: SignalScoutConfig }): J
                 </Tooltip>
             </span>
             <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
+            {canDelete && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    status="danger"
+                    icon={<IconTrash />}
+                    loading={deleting}
+                    disabledReason={deleting ? 'Deleting…' : undefined}
+                    tooltip="Delete scout"
+                    aria-label="Delete scout"
+                    data-attr="scout-detail-delete"
+                    onClick={confirmDelete}
+                />
+            )}
         </>
     )
 }

@@ -24,6 +24,8 @@ export const TodayTabBarTab = forwardRef<HTMLButtonElement, TodayTabBarTabProps>
             type="button"
             {...props}
             data-attr={dataAttr}
+            data-today-rail-hover
+            data-today-rail-active={active || undefined}
             className={cn(
                 'flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md text-xxs font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset [&_svg]:size-5',
                 active ? 'bg-fill-selected text-foreground' : 'text-muted-foreground',

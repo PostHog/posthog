@@ -16,15 +16,31 @@ import {
     ContextMenuTrigger,
 } from '@posthog/quill'
 
-import { type ContentWidget, type SectionWidget, gridTabs } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
-import { tilePartsAction } from '../presentation/tileParts'
-import { widgetSlots } from '../widgets/widgetDefinition'
+import type { DashboardEdit } from '../dashboard/dashboardEdits'
+import { downloadImageAction } from '../dashboard/dashboardImage'
+import { type ContentWidget, type SectionWidget, gridTabs, widgetRef } from '../dashboard/dashboardTypes'
+import { type DashboardV2State, useDashboardV2 } from '../dashboard/dashboardV2Context'
+import type { MenuAction } from '../dashboard/menuAction'
+import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
+import { everyTile } from '../dashboard/tileTree'
+import { backgroundColorAction, showAction } from '../presentation/tileAppearance'
 import { findWidget } from '../widgets/widgetSpec'
 import { applyTileActionFilters } from './applyTileActions'
-import type { TileAction } from './tileAction'
 
-function isUsable(action: TileAction): boolean {
+const CONTEXT_MENU_PARTS: MenuParts = {
+    Group: ContextMenuGroup,
+    Label: ContextMenuLabel,
+    Separator: ContextMenuSeparator,
+    Item: ContextMenuItem,
+    CheckboxItem: ContextMenuCheckboxItem,
+    Sub: ContextMenuSub,
+    SubTrigger: ContextMenuSubTrigger,
+    SubContent: ContextMenuSubContent,
+    RadioGroup: ContextMenuRadioGroup,
+    RadioItem: ContextMenuRadioItem,
+}
+
+function isUsable(action: MenuAction): boolean {
     if (action.disabledReason) {
         return false
     }
@@ -32,21 +48,41 @@ function isUsable(action: TileAction): boolean {
 }
 
 /** Whether `TileContextMenu` opens a menu for these actions. */
-export function hasTileMenu(actions: TileAction[]): boolean {
+export function hasTileMenu(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }
 
-export function useContentTileActions(id: string, widget: ContentWidget): TileAction[] {
-    const { dashboard, activeTab, widgets, disabledReasonFor, onEdit, tileActions } = useDashboardV2()
+export function useContentTileActions(id: string, widget: ContentWidget): MenuAction[] {
+    const {
+        dashboard,
+        activeTab,
+        widgets,
+        disabledReasonFor,
+        onEdit,
+        tileActions,
+        downloadImage,
+        downloadingImage,
+        presentTile,
+    } = useDashboardV2()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const definition = findWidget(widgets, widget.type)
 
-    const actions: TileAction[] = []
+    const actions: MenuAction[] = [
+        {
+            key: 'present',
+            label: 'Present',
+            dataAttr: 'dashboard-v2-tile-present',
+            group: 'view',
+            disabledReason: null,
+            onSelect: () => presentTile(id),
+        },
+    ]
     if (otherTabs.length > 0) {
         actions.push({
             key: 'move',
             label: 'Move to tab',
             dataAttr: 'dashboard-v2-tile-move-to-tab',
+            group: 'dashboard',
             disabledReason: disabledReasonFor('moveTile'),
             submenu: otherTabs.map((tab) => ({
                 key: tab.id,
@@ -56,10 +92,43 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
                 onSelect: () => onEdit({ edit: 'moveTile', id, grid: tab.id }),
             })),
         })
+        actions.push({
+            key: 'add-to-tab',
+            label: 'Also show on tab',
+            dataAttr: 'dashboard-v2-tile-add-to-tab',
+            group: 'dashboard',
+            disabledReason: disabledReasonFor('addToGrid'),
+            submenu: otherTabs.map((tab) => {
+                // A tab already showing this widget is ticked, and picking it again takes the widget off that tab.
+                const shown = widget.ref
+                    ? everyTile(tab.tiles).find((tile) => widgetRef(tile) === widget.ref)
+                    : undefined
+                return {
+                    key: tab.id,
+                    label: tab.title,
+                    dataAttr: 'dashboard-v2-tile-add-to-tab-item',
+                    checked: !!shown,
+                    disabledReason: disabledReasonFor(shown ? 'removeTile' : 'addToGrid'),
+                    onSelect: () =>
+                        onEdit(shown ? { edit: 'removeTile', id: shown.id } : { edit: 'addToGrid', id, grid: tab.id }),
+                }
+            }),
+        })
     }
-    const parts = tilePartsAction(id, widget, widgetSlots(definition), disabledReasonFor('setTileParts'), onEdit)
-    if (parts) {
-        actions.push(parts)
+    actions.push(tileImageAction(id, downloadingImage, downloadImage))
+    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
+    if (show) {
+        actions.push(show)
+    }
+    const backgroundColor = backgroundColorAction(
+        TILE_BACKGROUND_COLOR,
+        [{ id, widget }],
+        widgets,
+        disabledReasonFor('setTilesAppearance'),
+        onEdit
+    )
+    if (backgroundColor) {
+        actions.push(backgroundColor)
     }
     if (definition?.menuActions) {
         actions.push(
@@ -86,9 +155,52 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
     )
 }
 
-export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): TileAction[] {
-    const { disabledReasonFor, onEdit, tileActions } = useDashboardV2()
-    const actions: TileAction[] = [
+// pinned: `dashboard-v2-tile-parts` data-attrs shipped before border and background joined this menu.
+const TILE_SHOW = { key: 'parts', label: 'Show', dataAttr: 'dashboard-v2-tile-parts' }
+const TILE_BACKGROUND_COLOR = {
+    key: 'background-color',
+    label: 'Background color',
+    dataAttr: 'dashboard-v2-tile-background-color',
+}
+
+function tileImageAction(
+    id: string,
+    downloadingImage: boolean,
+    downloadImage: DashboardV2State['downloadImage']
+): MenuAction {
+    return downloadImageAction('Download as image', 'dashboard-v2-tile-download-image', downloadingImage, (format) =>
+        downloadImage(format, id)
+    )
+}
+
+const AUTO_LAYOUT_COLUMNS = [1, 2, 3, 4]
+
+function autoLayoutAction(
+    id: string,
+    disabledReason: string | null,
+    onEdit: (edit: DashboardEdit) => void
+): MenuAction {
+    return {
+        key: 'auto-layout',
+        label: 'Auto layout',
+        dataAttr: 'dashboard-v2-section-auto-layout',
+        disabledReason,
+        group: 'display',
+        submenu: AUTO_LAYOUT_COLUMNS.map((columns) => ({
+            key: String(columns),
+            label: columns === 1 ? '1 column' : `${columns} columns`,
+            dataAttr: 'dashboard-v2-section-auto-layout-item',
+            disabledReason,
+            keepOpen: true,
+            onSelect: () => onEdit({ edit: 'autoLayout', grid: id, columns }),
+        })),
+    }
+}
+
+export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
+    const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboardV2()
+    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
+    const actions: MenuAction[] = [
         {
             key: 'rename',
             label: 'Rename',
@@ -96,6 +208,9 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
             disabledReason: disabledReasonFor('updateSection'),
             onSelect: onStartRename,
         },
+        tileImageAction(id, downloadingImage, downloadImage),
+        autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
+        ...(show ? [show] : []),
         {
             key: 'remove',
             label: 'Remove section and its tiles',
@@ -108,88 +223,11 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
     return applyTileActionFilters(actions, { id, widget }, undefined, tileActions)
 }
 
-function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
-    if (action.submenu && action.choice) {
-        const selected = action.submenu.find((child) => child.checked)?.key ?? null
-        return (
-            <ContextMenuSub>
-                <ContextMenuSubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
-                    {action.label}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent>
-                    <ContextMenuRadioGroup
-                        value={selected}
-                        onValueChange={(value) => action.submenu?.find((child) => child.key === value)?.onSelect?.()}
-                    >
-                        {action.submenu.map((child) => (
-                            <ContextMenuRadioItem
-                                key={child.key}
-                                value={child.key}
-                                data-attr={child.dataAttr}
-                                disabled={!!child.disabledReason}
-                            >
-                                {child.label}
-                            </ContextMenuRadioItem>
-                        ))}
-                    </ContextMenuRadioGroup>
-                </ContextMenuSubContent>
-            </ContextMenuSub>
-        )
-    }
-    if (action.submenu) {
-        return (
-            <ContextMenuSub>
-                <ContextMenuSubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
-                    {action.label}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent>
-                    {action.submenu.map((child) => (
-                        <TileMenuEntry key={child.key} action={child} />
-                    ))}
-                </ContextMenuSubContent>
-            </ContextMenuSub>
-        )
-    }
-    if (action.checked !== undefined) {
-        return (
-            <ContextMenuCheckboxItem
-                data-attr={action.dataAttr}
-                checked={action.checked}
-                disabled={!!action.disabledReason}
-                title={action.disabledReason ?? undefined}
-                onCheckedChange={() => action.onSelect?.()}
-            >
-                {action.label}
-            </ContextMenuCheckboxItem>
-        )
-    }
-    return (
-        <ContextMenuItem
-            data-attr={action.dataAttr}
-            variant={action.destructive ? 'destructive' : 'default'}
-            disabled={!!action.disabledReason}
-            onClick={action.onSelect}
-        >
-            {action.label}
-        </ContextMenuItem>
-    )
-}
-
-/** Actions first, then how the tile looks, then destructive actions on their own. Empty groups are left out. */
-function menuGroups(actions: TileAction[]): { key: string; label?: string; actions: TileAction[] }[] {
-    const groups = [
-        { key: 'actions', label: 'Actions', actions: actions.filter((action) => !action.group && !action.destructive) },
-        { key: 'display', label: 'Display', actions: actions.filter((action) => action.group === 'display') },
-        { key: 'destructive', actions: actions.filter((action) => action.destructive) },
-    ]
-    return groups.filter((group) => group.actions.length > 0)
-}
-
 /**
  * Opens the tile's actions on right-click. When the person may use none of them, it renders the children alone so the
  * browser's own menu still shows.
  */
-export function TileContextMenu({ actions, children }: { actions: TileAction[]; children: ReactNode }): JSX.Element {
+export function TileContextMenu({ actions, children }: { actions: MenuAction[]; children: ReactNode }): JSX.Element {
     if (!hasTileMenu(actions)) {
         return <>{children}</>
     }
@@ -199,7 +237,7 @@ export function TileContextMenu({ actions, children }: { actions: TileAction[]; 
                 render={
                     // A tile inside a section has its own menu, so its right-click must not also open the section's.
                     <div
-                        className="DashboardV2__menu-trigger contents"
+                        className="TileContextMenu__trigger contents"
                         onContextMenu={(event) => event.stopPropagation()}
                     />
                 }
@@ -208,15 +246,7 @@ export function TileContextMenu({ actions, children }: { actions: TileAction[]; 
             </ContextMenuTrigger>
             {/* Returning focus to the trigger would blur a rename input the menu just opened. */}
             <ContextMenuContent finalFocus={false}>
-                {menuGroups(actions).map((group, index) => (
-                    <ContextMenuGroup key={group.key}>
-                        {index > 0 && <ContextMenuSeparator />}
-                        {group.label && <ContextMenuLabel>{group.label}</ContextMenuLabel>}
-                        {group.actions.map((action) => (
-                            <TileMenuEntry key={action.key} action={action} />
-                        ))}
-                    </ContextMenuGroup>
-                ))}
+                <MenuActionList actions={actions} parts={CONTEXT_MENU_PARTS} />
             </ContextMenuContent>
         </ContextMenu>
     )

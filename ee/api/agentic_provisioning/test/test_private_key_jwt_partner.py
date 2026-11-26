@@ -48,6 +48,7 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
             name="JWT Partner",
             client_id=PARTNER_CLIENT_ID,
             is_cimd_client=True,
+            organization=self.organization,
             client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             jwks_uri=PARTNER_JWKS_URI,

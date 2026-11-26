@@ -3058,6 +3058,7 @@ class TaskRun(models.Model):
                 revoked_at=django_timezone.now(),
                 revoked_by="tasks-worker",
                 revocation_reason=reason,
+                git_read_grant=None,
             )
 
     def prepare_for_cloud_resume(self) -> None:
@@ -4140,6 +4141,8 @@ class AgentEgressRegistration(models.Model):
     revoked_at = models.DateTimeField(null=True)
     revoked_by = models.CharField(max_length=64, null=True)
     revocation_reason = models.CharField(max_length=64, null=True)
+    git_read_grant = EncryptedJSONStringField(null=True)
+    git_read_grant_version = models.UUIDField(null=True, editable=False)
 
     objects = EnvironmentScopedManager()
 

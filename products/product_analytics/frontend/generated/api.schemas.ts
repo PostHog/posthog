@@ -1477,6 +1477,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {
@@ -7785,6 +7788,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event. */
+    eventsLimit?: number | null
     /** Include stored sentiment evaluation results for the trace and its generations. */
     includeSentiment?: boolean | null
     kind?: 'TraceQuery'

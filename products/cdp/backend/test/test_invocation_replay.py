@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -758,6 +759,46 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert b"could not be loaded" in response.content
         assert b"Requests sent" in response.content
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_delivery_bar_counts_unsent_runs_and_pulses_only_while_the_page_waits(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
+        _insert(self.function, [_row(suffix, "failed", 10) for suffix in ("a3", "a4")])
+        plan = plan_replay(_criteria())
+        claim = claim_replay(plan, actor="test")
+        assert claim
+        execute_replay(plan, actor="test", claim=claim)
+        after_send = int(datetime.now(UTC).timestamp() * 1_000_000) + 1_000_000
+        for suffix, status in (("a1", "succeeded"), ("a2", "failed"), ("a3", "succeeded")):
+            _insert(self.function, [_row(suffix, status, RECOVERED + 5, is_retry=1, version=after_send)])
+        status_url = f"{self.url}?plan={plan.fingerprint}"
+        state = get_replay_state(plan.fingerprint)
+        assert state
+
+        waiting = self.staff_client.get(status_url).content.decode()
+        with patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", timedelta(0)):
+            stopped = self.staff_client.get(status_url).content.decode()
+        partly_sent = []
+        for status, wait in (("running", timedelta(0)), ("done", timedelta(0)), ("done", timedelta(hours=1))):
+            with (
+                patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", wait),
+                patch(
+                    "products.cdp.backend.console.get_replay_state",
+                    return_value={**state, "status": status, "invocation_count": 8},
+                ),
+            ):
+                partly_sent.append(self.staff_client.get(status_url).content.decode())
+
+        bars = r'data-variant="(\w+)"\s+style="width: ([\d.]+)%"'
+        for page in (waiting, stopped):
+            assert "2 of 4 runs delivered, 1 failed again" in page
+            assert re.findall(bars, page) == [("success", "50.000"), ("destructive", "25.000")]
+        assert "animate-pulse" in waiting
+        assert "animate-pulse" not in stopped
+        for page, pulse in zip(partly_sent, (["62.500"], [], ["12.500"])):
+            assert "2 of 8 runs delivered, 1 failed again" in page
+            assert re.findall(bars, page) == [("success", "25.000"), ("destructive", "12.500")]
+            assert re.findall(r'animate-pulse"\s+style="width: ([\d.]+)%"', page) == pulse
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_status_page_of_a_replay_sent_by_an_older_version_does_not_claim_an_outcome(self, rerun: MagicMock) -> None:

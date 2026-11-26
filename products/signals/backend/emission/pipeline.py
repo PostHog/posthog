@@ -89,10 +89,10 @@ def _signals_extra_headers(
 ) -> dict[str, str]:
     """Per-call event properties for the emission-stage generation.
 
-    The labels ride on the `X-PostHog-Properties` JSON blob, and the caller owns `ai_product` (the
+    The labels ride on the `X-PostHog-Properties` JSON blob and the caller owns `ai_product` (the
     slugless gateway has no product route) and `team_id` (the customer team the usage report
-    attributes spend to). This per-call blob replaces any client default, so it carries `team_id`
-    itself rather than relying on the client's default header.
+    attributes spend to). Because this per-call blob replaces any client default, it carries
+    `team_id` itself rather than relying on the client's default header.
     """
     labels = {
         "ai_stage": stage,
