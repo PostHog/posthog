@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { PostHogValidationError } from '@/lib/errors'
+import { PostHogValidationError, ToolInputValidationError } from '@/lib/errors'
 import { withConditionIds } from '@/tools/featureFlags/conditionIds'
 import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
@@ -172,6 +172,69 @@ describe('update-feature-flag preserving groups', () => {
 
         const patchGroups = (requestArgs(request, 1).body as typeof existing).filters.groups
         expect(patchGroups.map((group) => group.description)).toEqual(expected)
+    })
+
+    type Condition = { variant?: string; rollout_percentage?: number; description?: string }
+
+    // Every condition filters on the same property, so all stored conditions share one condition_id.
+    async function sendConditions(stored: Condition[], sent: (Condition & { new?: true })[]): Promise<unknown[]> {
+        const property = { key: 'plan', operator: 'exact', value: 'pro' }
+        const existing = {
+            id: 9,
+            key: 'staged-rollout',
+            filters: {
+                groups: stored.map((condition) => ({
+                    properties: [{ ...property, type: 'person' }],
+                    rollout_percentage: 100,
+                    ...condition,
+                })),
+            },
+        }
+        const request = vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(existing)
+        const { condition_id } = (
+            withConditionIds(existing).filters.groups as unknown as { condition_id: string }[]
+        )[0]!
+        const params = tool.schema.parse({
+            id: 9,
+            filters: {
+                groups: sent.map(({ new: isNew, ...condition }) => ({
+                    ...(isNew ? {} : { condition_id }),
+                    properties: [property],
+                    rollout_percentage: 100,
+                    ...condition,
+                })),
+            },
+        })
+        await tool.handler(createMockContext(request), params)
+        const patchGroups = (requestArgs(request, 1).body as { filters: { groups: Condition[] } }).filters.groups
+        return patchGroups.map((group) => group.description)
+    }
+
+    it('keeps the name of the remaining condition after deleting one with the same condition_id', async () => {
+        const stored = [
+            { variant: 'a', description: 'A' },
+            { variant: 'b', description: 'B' },
+        ]
+
+        await expect(sendConditions(stored, [{ variant: 'b' }])).resolves.toEqual(['B'])
+    })
+
+    it('keeps each name after inserting a new condition before conditions with the same condition_id', async () => {
+        const stored = [{ description: 'Wave 1' }, { description: 'Wave 2' }]
+
+        await expect(sendConditions(stored, [{ new: true }, {}, {}])).resolves.toEqual([undefined, 'Wave 1', 'Wave 2'])
+    })
+
+    it('keeps each name in order when a rollout edit leaves the condition matching no stored rollout', async () => {
+        const stored = [{ description: 'A' }, { description: 'B' }]
+
+        await expect(sendConditions(stored, [{ rollout_percentage: 50 }, {}])).resolves.toEqual(['A', 'B'])
+    })
+
+    it('refuses when it cannot tell which stored name a condition keeps', async () => {
+        const stored = [{ description: 'Wave 1' }, { description: 'Wave 2' }]
+
+        await expect(sendConditions(stored, [{}])).rejects.toThrow(ToolInputValidationError)
     })
 
     it('surfaces GET failures instead of PATCHing unmerged filters', async () => {
