@@ -1,4 +1,4 @@
-import type { Profile } from '../cards/schema'
+import type { AdmissionTargets, DerivedLoad } from '../cards/load-targets'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { BarResult } from '../judge/bars'
@@ -863,9 +863,13 @@ describe('statusOf', () => {
         newJobsPerSecond: 5.5,
         hostBusyShare: 0.62,
     }
-    const LOAD: Profile['load'] = { targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: 5 }, tolerance: 0.1 }
+    const LOAD: DerivedLoad = {
+        targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: 5 },
+        tolerance: 0.1,
+        derived: [],
+    }
 
-    it.each<[string, Pick<Profile, 'load' | 'host'>, Partial<Baseline>, Admission[]]>([
+    it.each<[string, AdmissionTargets, Partial<Baseline>, Admission[]]>([
         ['admits nothing for a profile that sets neither', {}, {}, []],
         [
             'admits a baseline within the tolerance of every target',

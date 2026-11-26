@@ -20,7 +20,7 @@ from anthropic.types import OutputConfigParam
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 
 from .call_review_queries import CallTypeRow, ReviewCallRow
 from .config import AI_PRODUCT, REVIEW_CALLS
@@ -825,7 +825,7 @@ def build_client(team_id: int, run_id: str, trigger: str) -> Anthropic:
     """Privacy mode keeps the team's traffic out of the generations the gateway captures. Raises
     GatewayNotConfiguredError where the Go gateway is not set up, since the Python gateway has no privacy mode.
     The run's trigger tags each generation, so spend from runs staff start can be told from scheduled runs."""
-    client = build_ai_gateway_anthropic_client(
+    client = build_anthropic_client(
         ai_product=AI_PRODUCT,
         trace_id=run_id,
         properties={"trigger": trigger},

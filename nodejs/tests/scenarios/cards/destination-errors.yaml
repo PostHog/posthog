@@ -43,3 +43,4 @@ measure:
     - name: role_cpu_seconds
     - name: role_rss_max_bytes
     - name: delivery_latency_ms
+unpaired: it judges no no_loss, so --pair would end both runs unjudged

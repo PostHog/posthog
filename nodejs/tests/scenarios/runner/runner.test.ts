@@ -64,13 +64,14 @@ import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, s
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
+import { DriveWindow } from '../judge/measurements'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { LIVE_FILE, LiveRecord } from './live'
-import { RunResult, Runner, TargetRun, createRunner } from './runner'
+import { RunResult, RunWindow, Runner, TargetRun, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
@@ -80,6 +81,7 @@ jest.mock('~/common/utils/request', () => {
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
+const RUN_CONFIG = { config_hash: 'c0ffee', service_versions: ['db postgres:15.12-alpine sha256:feed'] }
 const RAMP_INVARIANTS = SMOKE.card.invariants.filter(({ name }) => name !== 'no_loss')
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
@@ -155,6 +157,7 @@ describe('runner', () => {
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: null, services: null }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
         wiring: () =>
@@ -670,7 +673,13 @@ describe('runner', () => {
                 expect(result).toMatchObject({
                     status: 'invalid',
                     statusReason: expect.stringMatching(new RegExp(`^the run stopped: .*${statusReason.source}`)),
+                    stopped: {
+                        phase: 'seed',
+                        stack: expect.stringMatching(new RegExp(`${statusReason.source}.*\\n +at `)),
+                    },
                 })
+                const ended = readFileSync(path.join(result.evidenceDir, LIVE_FILE), 'utf8').trim().split('\n').at(-1)
+                expect(parseJSON(ended!)).toMatchObject({ type: 'end', stopped: result.stopped })
                 expect(rows).toEqual([])
             } finally {
                 await holder.end()
@@ -1110,6 +1119,7 @@ describe('runner through seed, drive and judge', () => {
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
         },
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: RUN_CONFIG.config_hash, services: RUN_CONFIG.service_versions }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
         wiring: (signal) => {
@@ -1158,7 +1168,7 @@ describe('runner through seed, drive and judge', () => {
         {
             replicas = {},
             parks = 0,
-            measures = SMOKE.card.measure,
+            measures = SMOKE.card.measure.filter(({ name }) => name !== 'counter_drift'),
             load: loadTargets,
             backlog,
             ramp,
@@ -1166,6 +1176,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak,
             bars = [],
             driveFor = '2s',
+            warmUp,
             convergeWithin,
             settings = {},
         }: {
@@ -1179,6 +1190,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
+            warmUp?: string
             convergeWithin?: string
             settings?: Profile['settings']
         } = {}
@@ -1196,6 +1208,7 @@ describe('runner through seed, drive and judge', () => {
                     traffic: [{ name: traffic }],
                     ramp,
                     stopOnBreak,
+                    warmUp,
                 },
                 invariants,
                 measure: measures,
@@ -1333,6 +1346,7 @@ describe('runner through seed, drive and judge', () => {
         const result = await createRunner(environmentOf(delivering), env, {
             topologyWithinMs: 1000,
             topologyEveryMs: 10,
+            counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
         }).run(shortSmoke(valves, traffic, options), signal)
         results.push(result)
         return result
@@ -1450,6 +1464,38 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it.each<['all' | 'all, leaving one job running', (sent: number) => number | null]>([
+        ['all', (sent) => -sent],
+        ['all, leaving one job running', () => null],
+    ])(
+        'scores the email sends no app metric counted when delivering %s',
+        async (delivering, drift) => {
+            const result = await run(delivering, [], 'event_email', {
+                measures: [{ name: 'counter_drift', params: {} }],
+                ...(delivering !== 'all' && { convergeWithin: '1s' }),
+            })
+
+            const sent = (evidenceOf(result, 'truth.json') as TruthRecord[]).filter(
+                ({ kind, status }) => kind === 'ses.send' && status === 200
+            )
+            const owed = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(
+                ({ answer, expect }) => answer.accepted && expect.deliveries.includes('email')
+            )
+            expect(sent).not.toHaveLength(0)
+            expect(api.captured[0]?.properties).toMatchObject({
+                ...(delivering === 'all' && { m_counter_drift_owed: owed.length }),
+                m_counter_drift_email_sent: drift(sent.length),
+                m_counter_drift_email_sent_counted: 0,
+                m_counter_drift_email_sent_sink: sent.length,
+                m_counter_drift_email_failed_counted: 0,
+            })
+            expect(evidenceOf(result, 'counters.json')).toEqual({
+                counted: { email_sent: 0, email_delivered: 0, email_failed: 0 },
+                consumers: 1,
+            })
+        },
+        30_000
+    )
     it.each([
         ['lets duplicate_sends pass a duplicate the janitor reset accounts for, which no_loss still fails', 1, true],
         ['fails a duplicate send that no janitor reset accounts for', 0, false],
@@ -1499,6 +1545,34 @@ describe('runner through seed, drive and judge', () => {
                 /^refused_at_intake failed: [\w-]+-1: the intake could not be reached: .*ECONNREFUSED/
             ),
             units: { targetUnits: 4, offeredUnits: 4 },
+        })
+    }, 30_000)
+
+    it('records the warm-up, the baseline after it, and a first step scheduled at the drive start', async () => {
+        const result = await createRunner(environmentOf('none'), env).run(
+            shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        const journal = evidenceOf(result, 'journal.json') as JournalEntry[]
+        const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
+        const saved = evidenceOf(result, 'scorecard.json') as {
+            warmUp: RunWindow
+            baseline: RunWindow
+            units: { steps: { startedAt: number }[] }
+        }
+        const [warmUpFrom, warmUpTo] = [Date.parse(saved.warmUp.from), Date.parse(saved.warmUp.to)]
+        expect({
+            warmUp: [warmUpFrom - drive.startedAt, warmUpTo - drive.startedAt],
+            trafficFrom: saved.units.steps[0].startedAt - drive.startedAt,
+            offeredAfter: journal.some(({ offeredAt }) => offeredAt >= warmUpTo),
+            baseline: saved.baseline,
+        }).toEqual({
+            warmUp: [0, 1000],
+            trafficFrom: 0,
+            offeredAfter: true,
+            baseline: { from: saved.warmUp.to, to: new Date(drive.endedAt).toISOString() },
         })
     }, 30_000)
 
@@ -1692,31 +1766,11 @@ describe('runner through seed, drive and judge', () => {
     }
 
     it.each<[string, (role: Role) => RoleExit[], object, Parameters<typeof shortSmoke>[2]]>([
-        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }, {}],
         [
-            'calls a run invalid whose valve left too short a baseline to admit its load, and measures the kill',
+            'passes a run whose only exit is the kill its card scheduled, and measures the kill',
             exitOfTheKill,
-            {
-                status: 'invalid',
-                statusReason: expect.stringMatching(
-                    /^the load admission failed: the baseline was too short to measure: /
-                ),
-                admissions: [
-                    {
-                        name: 'load',
-                        passed: false,
-                        reason: expect.stringMatching(
-                            /^the baseline was too short to measure: [0-9.]+s, under the 30s minimum$/
-                        ),
-                    },
-                ],
-                measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }],
-            },
-            {
-                measures: [{ name: 'pg_client_errors', params: {} }],
-                load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
-                settings: SES_ROOM,
-            },
+            { status: 'passed', measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }] },
+            { measures: [{ name: 'pg_client_errors', params: {} }] },
         ],
         [
             'fails a run in which a role exits that no valve killed',
@@ -1755,6 +1809,22 @@ describe('runner through seed, drive and judge', () => {
                 ],
             })
             expect(api.captured[0]?.properties.valve_timeline).toEqual(result.timeline)
+            expect(evidenceOf(result, 'faults.json')).toEqual({
+                seed: SMOKE.card.seed,
+                faults: [
+                    {
+                        valve: 'role.kill',
+                        target: 'cdp-cyclotron-worker-email',
+                        dose: {},
+                        requestedAt: expect.any(String),
+                        intentAt: expect.any(String),
+                        appliedAt: expect.any(String),
+                        observedAt: expect.any(String),
+                        releasedAt: expect.any(String),
+                    },
+                ],
+            })
+            expect(api.captured[0]?.properties).toMatchObject(RUN_CONFIG)
             expect(api.captured[0]?.properties.admissions).toEqual(result.admissions)
             expect(evidenceOf(result, 'probes.json')).toEqual({
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
@@ -1833,7 +1903,7 @@ describe('runner through seed, drive and judge', () => {
         expect(result).toMatchObject({
             status: 'invalid',
             statusReason:
-                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
+                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-intake-transactional-email, cdp-intake-workflow-webhook, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
             timeline: [],
         })
         expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)
@@ -1966,12 +2036,23 @@ describe('runner through seed, drive and judge', () => {
         60_000
     )
 
-    it.each<[string, true | undefined]>([
-        ['the scale card', undefined],
-        ['a ramp that stops on a break', true],
+    const noWriter = {
+        name: 'writer_cpu_under',
+        unit: '%',
+        limit: 70,
+        value: null,
+        key: null,
+        part: null,
+        passed: null,
+        unjudged: 'the local stack has no Aurora writer to read CPU from',
+    }
+
+    it.each<[string, true | undefined, unknown]>([
+        ['the scale card', undefined, undefined],
+        ['a ramp that stops on a break', true, [[noWriter], [noWriter]]],
     ])(
         'names the writer CPU bar as not judged for %s on a host without a run manifest',
-        async (_story, stopOnBreak) => {
+        async (_story, stopOnBreak, stepBars) => {
             const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
                 ({ name }) => name === 'writer_cpu_under'
             )
@@ -1988,6 +2069,9 @@ describe('runner through seed, drive and judge', () => {
                 statusReason: result.statusReason,
                 bars: result.bars,
                 steps: result.units?.steps.map(({ scale }) => scale),
+                stepBars: (api.captured[0]?.properties.ramp_steps as { bars: unknown }[] | undefined)?.map(
+                    ({ bars }) => bars
+                ),
                 reads: [...new Set(reads.map(({ read }) => JSON.stringify(read)))],
             }).toEqual({
                 status: 'invalid',
@@ -2002,6 +2086,7 @@ describe('runner through seed, drive and judge', () => {
                     },
                 ],
                 steps: [1, 2],
+                stepBars,
                 reads: [JSON.stringify({ unsourced: 'the local stack has no Aurora writer to read CPU from' })],
             })
         },
@@ -2118,6 +2203,7 @@ describe('runner through seed, drive and judge', () => {
                     expect.objectContaining({ scale: 1, lost: null }),
                     expect.objectContaining({ scale: 2, lost: null }),
                 ],
+                readings: [[], []],
             },
         })
     }, 30_000)
@@ -2252,9 +2338,26 @@ describe('runner through seed, drive and judge', () => {
             const [first, ...later] = result.units?.steps ?? []
             const ranMs = first.endedAt - first.startedAt
 
-            expect({ ranUnderPlan: ranMs < 10_000, later, result }).toMatchObject({
+            expect({
+                ranUnderPlan: ranMs < 10_000,
+                later,
+                loadTargets: evidenceOf(result, 'load-targets.json'),
+                result,
+            }).toMatchObject({
                 ranUnderPlan: true,
                 later: [],
+                loadTargets: {
+                    targets: { claimsPerSecond: { email: 500 } },
+                    derived: [
+                        {
+                            rate: 'claimsPerSecond.email',
+                            from: ['transactional_email'],
+                            profileTarget: 500,
+                            share: 1,
+                            target: 500,
+                        },
+                    ],
+                },
                 result: {
                     status: 'invalid',
                     ramp: {

@@ -6,13 +6,21 @@ class Layer:
     name: str
     pr_number: int
     stacked_on: str | None = None
+    # The layer's own commits change a story. A layer without them changes backend files only.
+    frontend: bool = True
+
+
+def _is_first_run(event: str) -> bool:
+    verb, *names = event.split(" ")
+    return verb in ("run", "ci") and len(names) == 1
 
 
 # Two first runs of different pull requests in a row give the same state in either order, so only one order
-# is kept. A pull request run reads approvals and the ledger, and writes only its own run and the carried
-# commits of its own pull request's approvals, and no pull request has an approval before its first run.
+# is kept. A pull request run reads approvals and the ledger, and writes only its own run, its own status and
+# the carried commits of its own pull request's approvals, and no pull request has an approval before its
+# first run.
 def _are_swapped_runs(previous: str, event: str, events: list[str]) -> bool:
-    if not previous.startswith("run ") or not event.startswith("run "):
+    if not _is_first_run(previous) or not _is_first_run(event):
         return False
     return events.index(event) < events.index(previous)
 
@@ -245,6 +253,119 @@ SCENARIOS = (
             "approve B again": ("update B", "approve B"),
             "queue B": ("approve B again",),
             "land B": ("queue B",),
+        },
+    ),
+)
+
+FRONTEND_LAYER = Layer(name="F", pr_number=1)
+FRONTEND_PICTURES = {frozenset(): "b0", frozenset({"F"}): "b1"}
+
+# The child changes backend files only, so its diff against the parent touches no frontend file.
+BACKEND_CHILD = Layer(name="C", pr_number=2, stacked_on="P", frontend=False)
+BACKEND_CHILD_PICTURES = {frozenset(): "b0", frozenset({"P"}): "b1"}
+
+# CI as an actor. "ci X" is the workflow finishing its first attempt on the current head of X, and "rerun X" is a
+# re-run of it. "fail X" is a workflow whose build failed there, so neither a run nor a skip report arrives. "push X
+# <kind>" moves X to a new commit and starts no workflow yet: "backend" changes backend files only, "revert" takes
+# back the layer's story change, "restore" brings back the same story change, "bot" is a bot commit of the baseline
+# file only, and "back" force-pushes X back to its first head. "retarget X" changes the base of X to the default
+# branch without a new commit, and "recheck X" is the backend recheck command on the current head of X.
+CI_SCENARIOS = (
+    Scenario(
+        key="ci_red_frontend_pr_then_backend_push",
+        layers=(FRONTEND_LAYER,),
+        pictures=FRONTEND_PICTURES,
+        after={
+            "ci F": (),
+            "push F backend": ("ci F",),
+            "ci F 2": ("push F backend",),
+            "rerun F": ("ci F 2",),
+            "recheck F": ("ci F",),
+        },
+    ),
+    Scenario(
+        key="ci_build_fails_on_frontend_pr",
+        layers=(FRONTEND_LAYER,),
+        pictures=FRONTEND_PICTURES,
+        after={
+            "fail F": (),
+            "recheck F": ("fail F",),
+            "rerun F": ("fail F",),
+        },
+    ),
+    Scenario(
+        key="ci_approved_pr_baseline_moves_then_backend_push",
+        layers=UNRELATED_LAYERS,
+        pictures=UNRELATED_PICTURES,
+        after={
+            "ci A": (),
+            "ci B": (),
+            "approve A": ("ci A",),
+            "approve B": ("ci B",),
+            "queue B": ("approve B",),
+            "land B": ("queue B",),
+            "push A backend": ("approve A",),
+            "ci A 2": ("push A backend",),
+            "recheck A": ("ci A 2", "land B"),
+        },
+    ),
+    Scenario(
+        key="ci_bot_baseline_push_on_red_pr",
+        layers=(FRONTEND_LAYER,),
+        pictures=FRONTEND_PICTURES,
+        after={
+            "ci F": (),
+            "push F bot": ("ci F",),
+            "ci F 2": ("push F bot",),
+            "rerun F": ("ci F 2",),
+            "recheck F": ("ci F 2",),
+        },
+    ),
+    Scenario(
+        key="ci_pr_reverts_then_restores_its_frontend_change",
+        layers=(FRONTEND_LAYER,),
+        pictures=FRONTEND_PICTURES,
+        after={
+            "ci F": (),
+            "push F revert": ("ci F",),
+            "ci F 2": ("push F revert",),
+            "recheck F": ("ci F 2",),
+            "push F restore": ("ci F 2",),
+            "ci F 3": ("push F restore",),
+            "recheck F 2": ("ci F 3",),
+        },
+    ),
+)
+
+# Scenarios where the fixed workflow still leaves a green on a head that has no passing run.
+CI_GAP_SCENARIOS = (
+    Scenario(
+        key="ci_stacked_child_skipped_then_retargeted",
+        layers=(PARENT, BACKEND_CHILD),
+        pictures=BACKEND_CHILD_PICTURES,
+        after={
+            "ci P": (),
+            "ci C": (),
+            "retarget C": ("ci C",),
+            "recheck C": ("retarget C",),
+        },
+    ),
+    Scenario(
+        key="ci_force_push_back_after_baseline_moves",
+        layers=UNRELATED_LAYERS,
+        pictures=UNRELATED_PICTURES,
+        after={
+            "ci A": (),
+            "ci B": (),
+            "approve A": ("ci A",),
+            "approve B": ("ci B",),
+            "queue B": ("approve B",),
+            "land B": ("queue B",),
+            "push A backend": ("approve A",),
+            "ci A 2": ("push A backend",),
+            "push A back": ("ci A 2", "land B"),
+            "ci A 3": ("push A back",),
+            "recheck A": ("ci A 3",),
         },
     ),
 )

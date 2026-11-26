@@ -1,9 +1,11 @@
+import { createHash } from 'crypto'
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
-import { overrideConfigWithEnv } from '~/common/config/config'
+import { PluginServerMode } from '~/common/config'
+import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
-import { CdpRole, Profile } from '../cards'
+import { CdpRole, PROCESS_ENV_SETTINGS, Profile } from '../cards'
 import { ReplicaOf } from './identity'
 import { MARKER_KEY } from './processes'
 
@@ -16,9 +18,37 @@ export const ROLE_PORTS: Record<Role, number> = {
     'cdp-cyclotron-worker-email': 6762,
     'cdp-cyclotron-v2-janitor': 6763,
     'cdp-ses-webhooks': 6764,
+    'cdp-intake-transactional-email': 6765,
+    'cdp-intake-workflow-webhook': 6766,
+}
+
+export const MODES_WITHOUT_A_ROLE: Partial<Record<PluginServerMode, string>> = {
+    [PluginServerMode.cdp_person_updates]: 'no card triggers a workflow on a person update',
+    [PluginServerMode.cdp_data_warehouse_events]: 'no card triggers a workflow on a data warehouse row',
+    [PluginServerMode.cdp_internal_events]: 'no card triggers a workflow on an internal event',
+    [PluginServerMode.cdp_cyclotron_worker]: 'it runs destinations, and the cards drive workflows',
+    [PluginServerMode.cdp_precalculated_filters]: 'the mode boots with no capabilities',
+    [PluginServerMode.cdp_hogflow_subscription_matcher]: 'no card triggers a workflow on a subscription',
+    [PluginServerMode.cdp_cohort_membership]: 'no card triggers a workflow on cohort membership',
+    [PluginServerMode.cdp_cohort_membership_triggers]: 'no card triggers a workflow on cohort membership',
+    [PluginServerMode.cdp_cyclotron_worker_email_sandbox]: 'the cards send through the email worker, not the sandbox',
+    [PluginServerMode.cdp_legacy_on_event]: 'no card runs a legacy destination',
+    [PluginServerMode.cdp_cyclotron_worker_batch_resolve]: 'no card runs a batch workflow',
+    [PluginServerMode.cdp_rerun_worker]: 'an operator runs it to rerun failed runs, and no card reruns',
+    [PluginServerMode.cdp_dlq_replay]: 'an operator runs it to drain the events dead-letter topic',
+    [PluginServerMode.cdp_hogflow_scheduler]: 'no card runs a scheduled workflow',
 }
 
 export const SES_WEBHOOKS_GROUP = 'cdp-ses-webhooks-consumer'
+
+export const INTAKE_TRANSACTIONAL_EMAIL_GROUP = 'cdp-intake-transactional-email-consumer'
+
+export const INTAKE_WORKFLOW_WEBHOOK_GROUP = 'cdp-intake-workflow-webhook-consumer'
+export const INTAKE_GROUPS: readonly string[] = [INTAKE_TRANSACTIONAL_EMAIL_GROUP, INTAKE_WORKFLOW_WEBHOOK_GROUP]
+
+const INTAKE_ROLES: readonly Role[] = ['cdp-intake-transactional-email', 'cdp-intake-workflow-webhook']
+
+const isIntake = (role: Role): boolean => INTAKE_ROLES.includes(role)
 
 export const PERSONHOG_ADDR = '127.0.0.1:50052'
 
@@ -33,6 +63,32 @@ export type Replicas = Profile['replicas']
 export type RoleId = ReplicaOf<Role>
 
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
+
+const SECRET_OR_PLACE_SETTING =
+    /SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|SALT|TOKEN|SIGNING|USER(NAME)?$|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_ADDR(ESS)?$|_ENDPOINTS?$|_URLS?$|_DSN$|_BROKERS?$|BROKER_LIST$|_DIR$|_LOCATION$/
+const LIST_SETTING = /_KEYS$|_HOSTS$|_URLS$|_BROKERS$|BROKER_LIST$/
+const PLAIN_VALUE = /^[\w.-]*$/
+
+const presenceOf = (key: string, value: string): string =>
+    (LIST_SETTING.test(key) ? value.split(',').some((part) => part.trim()) : value !== '') ? 'set' : ''
+
+const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
+    value !== undefined && (SECRET_OR_PLACE_SETTING.test(key) || !PLAIN_VALUE.test(value))
+        ? presenceOf(key, value)
+        : value
+
+export function configHashOf(specs: RoleSpec[]): string {
+    const settings = new Set([...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS])
+    const configs = specs.map(({ role, replica, env }) => [
+        role,
+        replica,
+        Object.entries(env)
+            .filter(([key]) => settings.has(key))
+            .map(([key, value]) => [key, fingerprintOf(key, value)])
+            .sort(([a], [b]) => a!.localeCompare(b!)),
+    ])
+    return createHash('sha256').update(JSON.stringify(configs)).digest('hex')
+}
 
 const REPLICA_PORT_OFFSET = 100
 
@@ -69,6 +125,9 @@ export function roleSpecs(
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: _sesRefill,
         CDP_SES_RATE_LIMIT_CAPACITY: _sesCapacity,
         CONSUMER_BATCH_SIZE: _batchSize,
+        CDP_INTAKE_DLQ_DRAIN: _drain,
+        CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: _emailTopic,
+        CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: _webhookTopic,
         ...inherited
     } = base
     const poolers = poolerUrls ? poolerUrls.split(',') : []
@@ -89,6 +148,7 @@ export function roleSpecs(
         ...id,
         port: portOf(id),
         env: {
+            ...(isIntake(id.role) ? { CDP_DLQ_ENABLED: 'true' } : {}),
             ...configured,
             ...(poolers.length > 0 ? { CYCLOTRON_NODE_DATABASE_URL: poolers[index % poolers.length] } : {}),
             SES_ENDPOINT: edge.url,
@@ -137,8 +197,37 @@ export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {
                         topics: [env.CDP_SES_WEBHOOKS_TOPIC || `${env.KAFKA_PREFIX || ''}cdp_ses_webhooks`],
                     },
                 ]
+            case 'cdp-intake-transactional-email':
+                return [
+                    {
+                        group: INTAKE_TRANSACTIONAL_EMAIL_GROUP,
+                        topics: [
+                            env.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC ||
+                                `${env.KAFKA_PREFIX || ''}cdp_intake_transactional_email`,
+                        ],
+                    },
+                ]
+            case 'cdp-intake-workflow-webhook':
+                return [
+                    {
+                        group: INTAKE_WORKFLOW_WEBHOOK_GROUP,
+                        topics: [
+                            env.CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC ||
+                                `${env.KAFKA_PREFIX || ''}cdp_intake_workflow_webhook`,
+                        ],
+                    },
+                ]
             default:
                 return []
         }
     })
+}
+
+export function intakeTopicsOf(specs: RoleSpec[]): string[] {
+    const intake = specs.filter(({ role }) => isIntake(role))
+    const topics = [
+        ...consumerGroupsOf(intake).flatMap(({ topics }) => topics),
+        ...intake.map(({ env }) => env.CDP_INTAKE_DLQ_TOPIC || `${env.KAFKA_PREFIX || ''}cdp_intake_dlq`),
+    ]
+    return [...new Set(topics)]
 }

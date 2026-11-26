@@ -25,7 +25,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_from_template
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -53,6 +52,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.api import apply_dashboard_template_json
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -645,6 +645,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
 
+        self.assertIsNotNone(response_data["last_accessed_at"])
         self.assertEqual(response_data["name"], "private dashboard")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
@@ -1127,7 +1128,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with mute_selected_signals():
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-            baseline = 10
+            baseline = 11
             # Each dashboard GET that materializes at least one insight runner performs one
             # property-access-control feature check, memoized across all runners on the dashboard
             # by `get_restricted_properties_for_team`'s per-scope cache. It costs no Postgres
@@ -3913,11 +3914,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_create_from_template_rejects_oversized_agent_context(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        template = DashboardTemplate(
-            template_name="Oversized agent context",
-            dashboard_description="",
-            dashboard_filters={},
-            tiles=[
+        template: dict[str, Any] = {
+            "template_name": "Oversized agent context",
+            "dashboard_description": "",
+            "dashboard_filters": {},
+            "tiles": [
                 {
                     "type": "TEXT",
                     "body": "Dashboard summary",
@@ -3925,11 +3926,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "layouts": {},
                 }
             ],
-        )
+        }
         text_count = Text.objects.count()
 
         with self.assertRaisesRegex(ValueError, "Agent context cannot exceed 10000 characters"):
-            create_from_template(dashboard, template, self.user)
+            apply_dashboard_template_json(
+                team_id=self.team.id, dashboard_id=dashboard.id, template=template, user_id=self.user.id
+            )
 
         assert Text.objects.count() == text_count
 
@@ -4959,6 +4962,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    @parameterized.expand(
+        [
+            ("use_template", "", {"name": "from template", "use_template": "DEFAULT_APP"}, status.HTTP_201_CREATED),
+            ("template_json", "create_from_template_json", {"template": valid_template}, status.HTTP_200_OK),
+        ]
+    )
+    def test_template_dashboard_reloads_from_the_writer(
+        self, _name: str, action: str, payload: dict[str, Any], expected_status: int
+    ) -> None:
+        # Only a reload of a Dashboard instance goes to the missing "replica" alias. These endpoints
+        # also make Dashboard reads that tolerate replica lag, such as the count before the limit check.
+        def route_dashboard_reloads_to_replica(model: type, **hints: Any) -> str:
+            return "replica" if model is Dashboard and isinstance(hints.get("instance"), Dashboard) else "default"
+
+        with patch("django.db.router.db_for_read", side_effect=route_dashboard_reloads_to_replica):
+            response = self.client.post(f"/api/environments/{self.team.id}/dashboards/{action}", payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
 
     def test_filter_dashboards_by_creation_mode(self):
         """Test that dashboards can be filtered by creation_mode query param"""

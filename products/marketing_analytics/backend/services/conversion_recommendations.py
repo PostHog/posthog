@@ -423,10 +423,10 @@ class ConversionRecommendationService:
         from anthropic.types import ToolUseBlock  # noqa: PLC0415 — keeps the provider SDK off worker startup
 
         from posthog.llm.gateway_client import (
-            build_ai_gateway_anthropic_client,  # noqa: PLC0415 — loads the provider client only for generation
+            build_anthropic_client,  # noqa: PLC0415 — loads the provider client only for generation
         )
 
-        with build_ai_gateway_anthropic_client(
+        with build_anthropic_client(
             ai_product="marketing_analytics",
             team_id=self.team.pk,
             distinct_id=str(self.user.distinct_id),

@@ -10,8 +10,8 @@ Most security fixes do not justify that cost.
 Before you create a branch or PR, choose the route:
 
 - **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
-- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
-- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Access that anyone gets by signing up is not special access, and that includes admin rights in a team the attacker creates. Examples are cross-tenant data access, authentication bypass, remote code execution or file reads on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need staff access or membership in the victim's team, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
 Two questions help you choose between the embargo and a public PR:
 
@@ -24,7 +24,7 @@ Leave out step-by-step reproductions, payloads, and severity ratings from the ti
 
 Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
 When you ask, say why the finding looks severe enough for an embargo.
-If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+Before the first push of a fix for a weakness that is live in production, tell the user the route you chose and why, and wait for their answer. A request to fix the weakness does not answer the route question.
 With the user's confirmation, a draft PR in `PostHog/posthog-private` lets team-security read the diff before anyone decides. Keep it a draft until they decide, and move the fix to `PostHog/posthog` if they say it can go public.
 Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
 

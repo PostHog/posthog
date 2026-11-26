@@ -394,7 +394,7 @@ class _ExposureGate:
         # The exposures of a warehouse-native experiment live in the customer's warehouse. No event of this project
         # describes them, so every answer is unknown, and a query would only fail and report to error tracking.
         self._warehouse_native = warehouse_native_exposure_config(experiment.exposure_criteria) is not None
-        self._default_exposure_event = resolve_default_exposure_event(experiment.team, start_date)
+        self._default_exposure_event = resolve_default_exposure_event(start_date)
         self._filter_settings = _settings_the_filters_compile_with(experiment)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
         self._prefetched_keys = (

@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.ahrefs.settings import (
     MAX_KEYWORD_ROWS,
     MAX_PAGE_ROWS,
     MAX_REFDOMAIN_ROWS,
+    MAX_TOP_PAGE_ROWS,
     NON_RETRYABLE_ERRORS,
     QUOTA_RETRY_ERROR,
     RETRYABLE_QUOTA_ERRORS,
@@ -118,15 +119,19 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
                 "Metrics history costs 10 units per metric for each month returned. "
                 f"Each sync imports the latest crawl, with a sample of up to {MAX_PAGE_ROWS} pages. "
                 "Page data requires verified project ownership. "
-                "Domain Rating, metrics history, daily site metrics, backlinks, organic keywords, and referring domains report on the "
+                "Domain Rating, metrics history, daily site metrics, backlinks, organic keywords, top pages, and referring "
+                "domains report on the "
                 "Site Audit project's target. Rank Tracker rankings come from the same project. "
                 f"History tables start {HISTORY_DAYS} days back. "
                 "Daily site metrics cost 150 units for each day. "
                 f"The first sync reads the last {SITE_METRICS_FIRST_SYNC_DAYS} days, and later syncs add each new day. "
                 f"Backlinks import up to {MAX_BACKLINK_ROWS} live links, "
-                f"organic keywords up to {MAX_KEYWORD_ROWS} keywords, and referring domains up to {MAX_REFDOMAIN_ROWS} domains. "
+                f"organic keywords up to {MAX_KEYWORD_ROWS} keywords, top pages up to {MAX_TOP_PAGE_ROWS} pages, "
+                f"and referring domains up to {MAX_REFDOMAIN_ROWS} domains. "
                 "Link intersect tables compare the target with the project's competitors in Ahrefs. "
-                "Brand Radar web pages come from the Brand Radar reports linked to the project. "
+                "Brand Radar web pages and mentions history come from the Brand Radar reports linked to the project. "
+                "Mentions history reads each AI platform in your plan, at 50 units or more per platform and report. "
+                "A report linked or a platform added after the first sync gets its earlier days on a full resync. "
                 "The top domains table is free and has 1 million rows."
             ),
             fields=cast(

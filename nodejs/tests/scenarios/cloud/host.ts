@@ -38,7 +38,7 @@ function hostEnv(profile: CloudProfile, manifest: Manifest): Record<string, stri
     }
 }
 
-const lastWorkAt = (profile: CloudProfile, manifest: Manifest): number =>
+export const lastWorkAt = (profile: CloudProfile, manifest: Manifest): number =>
     Date.parse(manifest.expiresAt) - durationMs(profile.admission.teardownAllowance)
 
 async function hostOf({ aws }: Controller, manifest: Manifest): Promise<string | undefined> {

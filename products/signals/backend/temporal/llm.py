@@ -172,11 +172,9 @@ async def call_llm(
     # the fence stripper the thinking path already uses.
     prefill = capabilities.prefill and not thinking
     client = build_async_anthropic_client(
-        product="signals",
         ai_product=ai_product,
         ai_stage=stage,
         team_id=team_id,
-        use_bedrock_fallback=True,
         trace_id=trace_id,
         properties=properties,
     )

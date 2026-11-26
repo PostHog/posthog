@@ -15292,6 +15292,17 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
                     "items": {
@@ -29601,7 +29612,9 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },
@@ -29732,7 +29745,9 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },
@@ -40877,6 +40892,28 @@
             "required": ["text"],
             "type": "object"
         },
+        "MarketingAnalyticsRecommendationsConversionSource": {
+            "additionalProperties": false,
+            "properties": {
+                "goalNames": {
+                    "description": "Names of the conversion goals CPAs count. Empty for `google_ads`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSourceKind"
+                }
+            },
+            "required": ["kind", "goalNames"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsConversionSourceKind": {
+            "description": "`posthog` counts the conversion goals marked for recommendations. `google_ads` counts the conversions Google Ads reports.",
+            "enum": ["posthog", "google_ads"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationsDataGap": {
             "additionalProperties": false,
             "properties": {
@@ -40955,6 +40992,17 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
                     "items": {
@@ -50739,6 +50787,17 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "conversionSource": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                        },
                         "dataGaps": {
                             "description": "Data the rules needed but could not read, so some figures use a fallback.",
                             "items": {
@@ -57409,7 +57468,14 @@
         },
         "QueryScanFindingKind": {
             "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
-            "enum": ["no_event_filter", "no_start_date", "persons_join"],
+            "enum": [
+                "no_event_filter",
+                "no_start_date",
+                "persons_join",
+                "repeated_cte_expansion",
+                "cross_join_equality",
+                "date_arrays_before_breakdown_limit"
+            ],
             "type": "string"
         },
         "QueryScanFixLocation": {
@@ -62244,6 +62310,12 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "eventsLimit": {
+                    "description": "Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event.",
+                    "maximum": 10000,
+                    "minimum": 1,
+                    "type": "integer"
                 },
                 "includeSentiment": {
                     "description": "Include stored sentiment evaluation results for the trace and its generations.",

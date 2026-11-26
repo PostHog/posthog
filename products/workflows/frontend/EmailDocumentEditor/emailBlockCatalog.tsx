@@ -10,6 +10,7 @@ import {
     IconList,
     IconMinus,
     IconQuote,
+    IconSquare,
 } from '@posthog/icons'
 
 import { IconTextSize } from 'lib/lemon-ui/icons'
@@ -83,8 +84,20 @@ export const EMAIL_BLOCK_OPTIONS: EmailBlockOption[] = [
         title: 'Columns',
         detail: 'Side by side content that stacks on phones',
         icon: <IconColumns />,
-        keywords: 'columns layout grid section side',
+        keywords: 'columns layout grid side',
         content: twoColumns,
+    },
+    {
+        key: 'section',
+        title: 'Section',
+        detail: 'A box with a background around blocks',
+        icon: <IconSquare />,
+        keywords: 'section box background card container group wrap panel',
+        content: {
+            type: 'emailSection',
+            attrs: { emailStyle: { backgroundColor: '#f5f5f5' } },
+            content: [{ type: 'paragraph' }],
+        },
     },
     {
         key: 'divider',
