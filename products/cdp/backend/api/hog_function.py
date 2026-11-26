@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
@@ -2193,9 +2192,6 @@ class HogFunctionViewSet(
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
         hog_function = self.get_object()
-
-        if not settings.BATCH_EXPORTS_ENABLED:
-            return Response({"error": "Backfills are not available because batch exports are turned off."}, status=400)
 
         # Check if backfill is already enabled
         if hog_function.batch_export_id:
