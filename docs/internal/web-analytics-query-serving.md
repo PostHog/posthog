@@ -161,6 +161,9 @@ The Page, Entry page and Exit page breakdowns and the page directory group by pa
 They read the dimensional tables only when the current and compare periods each span at most 8 calendar days (`DIMENSIONAL_PAGE_TILES_MAX_RANGE`), which a "last 7 days" range does.
 Teams in `LIVE_PAGE_TILES_TEAM_IDS_BY_REGION` keep their page tiles on the next path at any range.
 
+A read also falls back when any UTC day of its range has no READY job of the team's current build, including days before the oldest one.
+A query that tried the dimensional tables and fell back carries the reason in `log_comment.web_analytics_dimensional_ineligible_reason` (`DimensionalIneligibleReason`), for example `page_tile_range` or `not_ready`.
+
 The writer stores each session's channel type with the team's custom channel rules applied, so channel breakdowns and `$channel_type` filters read that column. The rules are one of those modifiers. The jobs' identity includes the team's values of those modifiers. A change to the team's bounce, session or channel rule settings gives new jobs, so reads fall back until the writer rebuilds the window.
 
 #### Where dimensional reads approximate live

@@ -37,6 +37,7 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.utils import uuid7
@@ -55,7 +56,9 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_stats_dimensional_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DIMENSIONAL_INELIGIBLE_REASON_TAG,
     WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+    DimensionalIneligibleReason,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -343,18 +346,19 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
     @parameterized.expand(
         [
-            ("legacy_on_falls_back_to_v2", LEGACY, True),
-            ("legacy_off_falls_back_to_live", None, False),
+            ("legacy_on_falls_back_to_v2", LEGACY, "2024-01-01", "2024-01-03", True),
+            ("legacy_off_falls_back_to_live", None, "2024-01-01", "2024-01-03", False),
+            ("range_starts_before_the_oldest_job", None, "2023-12-31", "2024-01-02", False),
         ]
     )
-    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, expect_v2):
+    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, date_from, date_to, expect_v2):
         # Dimensional is precomputed for 2024-01-01 and 01-02 only (setUp). A window that
-        # also spans 2024-01-03 is only partially covered, so the job_id filter would
-        # silently drop the uncovered day. The runner must skip dimensional instead.
+        # also spans a day before or after those is only partially covered, so the job_id filter
+        # would silently drop the uncovered day. The runner must skip dimensional instead.
         runner = WebStatsTableQueryRunner(
             team=self.team,
             query=WebStatsTableQuery(
-                dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-03"),
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
                 properties=[],
                 breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
                 limit=100,
@@ -365,6 +369,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert ready_dimensional_job_ids(runner, DIMENSIONAL_READ_TABLES) is None, (
             "partial coverage must not route to dimensional"
         )
+        assert get_query_tag_value(DIMENSIONAL_INELIGIBLE_REASON_TAG) == DimensionalIneligibleReason.NOT_READY
 
         runner.calculate()
         assert runner.used_preaggregated_tables is expect_v2

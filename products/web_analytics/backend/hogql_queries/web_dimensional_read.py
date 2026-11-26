@@ -9,7 +9,7 @@ generation.
 
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
-from enum import Enum, auto
+from enum import Enum, StrEnum, auto
 from typing import TYPE_CHECKING, Union
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.clickhouse.query_tagging import clear_tag, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -65,6 +66,7 @@ logger = structlog.get_logger(__name__)
 WEB_ANALYTICS_QUERY_MODIFIERS_FLAG = "web-analytics-query-modifiers"
 # Kill switch for dimensional reads. The writer keeps filling the tables, so turning reads back on serves at once.
 WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG = "web-analytics-dimensional-reads-disabled"
+DIMENSIONAL_INELIGIBLE_REASON_TAG = "web_analytics_dimensional_ineligible_reason"
 
 # The tables have no column for these keys, or store a session-level value that differs from what the
 # live filter matches. Gclid, fbclid and gad_source are stored as booleans, so a value filter cannot match them.
@@ -92,22 +94,50 @@ LIVE_PAGE_TILES_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
 _PAGE_BREAKDOWNS = frozenset({WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE})
 
 
+class DimensionalIneligibleReason(StrEnum):
+    INEXACT_PROPERTY_FILTER = "inexact_property_filter"
+    PROPERTY_ACCESS_RULES = "property_access_rules"
+    TEST_ACCOUNT_FILTERS = "test_account_filters"
+    MODIFIER_OVERRIDE = "modifier_override"
+    PARTIAL_HOUR_RANGE = "partial_hour_range"
+    PAGE_TILE_RANGE = "page_tile_range"
+    RETENTION_FLOOR = "retention_floor"
+    SESSIONS_COVERAGE_FLOOR = "sessions_coverage_floor"
+    NOT_READY = "not_ready"
+    LOOKUP_FAILED = "lookup_failed"
+
+
 def ready_dimensional_job_ids(
     runner: "DimensionalReadRunner",
     tables: Collection[str],
 ) -> DimensionalJobIds | None:
     """The job ids to read when the query or its team opted in and `tables` cover its whole range,
-    including the compare period. None means the caller uses its next path."""
+    including the compare period. None means the caller uses its next path.
+
+    A query that tries the dimensional tables and falls back carries the reason in its query tags, so
+    query_log tells a refused read from one that never asked."""
     if not reads_dimensional(runner):
+        clear_tag(DIMENSIONAL_INELIGIBLE_REASON_TAG)
         return None
+    job_ids, reason = _ready_job_ids_or_reason(runner, tables)
+    if reason is None:
+        clear_tag(DIMENSIONAL_INELIGIBLE_REASON_TAG)
+    else:
+        tag_queries(web_analytics_dimensional_ineligible_reason=reason.value)
+    return job_ids
+
+
+def _ready_job_ids_or_reason(
+    runner: "DimensionalReadRunner", tables: Collection[str]
+) -> tuple[DimensionalJobIds | None, DimensionalIneligibleReason | None]:
     if _has_inexact_property_filter(runner):
-        return None
+        return None, DimensionalIneligibleReason.INEXACT_PROPERTY_FILTER
     # The tables are built without a user, so they cannot honor per-user property restrictions.
     if team_has_property_access_rules(team_id=runner.team.pk):
-        return None
+        return None, DimensionalIneligibleReason.PROPERTY_ACCESS_RULES
     # The writer builds all traffic, so the rows cannot exclude the team's test accounts.
     if runner._test_account_filters:
-        return None
+        return None, DimensionalIneligibleReason.TEST_ACCOUNT_FILTERS
 
     # A per-request override, such as a longer bounce duration or different custom channel rules, would
     # count the stored rows differently.
@@ -116,34 +146,39 @@ def ready_dimensional_job_ids(
         getattr(runner.modifiers, field) != getattr(build_modifiers, field)
         for field in DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS
     ):
-        return None
+        return None, DimensionalIneligibleReason.MODIFIER_OVERRIDE
 
     periods = [runner.query_date_range]
     if runner.query_compare_to_date_range:
         periods.append(runner.query_compare_to_date_range)
     if not all(_fits_whole_hour_buckets(period.date_from(), period.date_to()) for period in periods):
-        return None
+        return None, DimensionalIneligibleReason.PARTIAL_HOUR_RANGE
 
     if _page_tile_stays_live(runner, periods):
-        return None
+        return None, DimensionalIneligibleReason.PAGE_TILE_RANGE
 
     start = min(period.date_from() for period in periods)
     if _crosses_events_retention_floor(runner, start):
-        return None
+        return None, DimensionalIneligibleReason.RETENTION_FLOOR
     sessions_floor = sessions_coverage_floor(build_modifiers)
     if sessions_floor is not None and start < sessions_floor:
-        return None
+        return None, DimensionalIneligibleReason.SESSIONS_COVERAGE_FLOOR
 
     # A range can end after now, for example at the end of the current day in the project
     # timezone. No rows exist past now, and the writer does not build the next UTC day yet.
     end = min(runner.query_date_range.date_to(), timezone.now())
     try:
-        return dimensional_job_ids(
+        # None when any UTC day of the range has no READY job of the current build, including days
+        # before the oldest job, so a partly built range falls back instead of reading a partial window.
+        job_ids = dimensional_job_ids(
             runner.team, start.astimezone(UTC), end.astimezone(UTC), tables=tables, modifiers=build_modifiers
         )
     except Exception:
         logger.exception("web_dimensional_job_ids_lookup_failed", team_id=runner.team.pk)
-        return None
+        return None, DimensionalIneligibleReason.LOOKUP_FAILED
+    if job_ids is None:
+        return None, DimensionalIneligibleReason.NOT_READY
+    return job_ids, None
 
 
 class DimensionalReadFailure(Enum):
