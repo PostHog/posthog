@@ -1045,6 +1045,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
         if starts_reading:
             self._require_pipeline_log_access(filters)
+            if self.instance is not None:
+                # Moving an alert off pipeline logs would show its past pipeline counts in its history.
+                self._require_pipeline_log_access(self.instance.filters or {})
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:

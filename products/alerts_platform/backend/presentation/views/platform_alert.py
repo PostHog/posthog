@@ -805,6 +805,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
         if (edited.enabled and not stored.enabled) or changed - _TIMING_AND_NAME_FIELDS:
             self._require_pipeline_log_access(source_kind, edited.source_config)
+            # Moving an alert off pipeline logs would show its past pipeline counts in its history.
+            self._require_pipeline_log_access(source_kind, stored.source_config)
         return edited
 
     def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:

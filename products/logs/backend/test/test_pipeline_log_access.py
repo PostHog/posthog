@@ -190,6 +190,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("change_threshold", True, {"threshold_count": 5}, 403),
             ("change_window", True, {"window_minutes": 60}, 403),
             ("change_evaluation", True, {"evaluation_periods": 3, "datapoints_to_alarm": 2}, 200),
+            ("move_off_pipeline_logs", True, {"filters": {"serviceNames": [_APP]}}, 403),
             ("send_no_routing_labels", True, {"labels": {}}, 200),
         ]
     )
@@ -312,6 +313,16 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("rename", {"name": "Renamed"}, 200),
             ("route", {"labels": {"team": "payments"}}, 403),
             ("group", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
+            (
+                "move_off_pipeline_logs",
+                {
+                    "source_config": {
+                        "filters": {"serviceNames": [_APP]},
+                        "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},
+                    }
+                },
+                403,
+            ),
         ]
     )
     def test_restricted_member_edits_a_pipeline_platform_alert_with_its_config_unchanged(
@@ -332,7 +343,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.patch(
                 f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/",
-                {**change, "source_config": stored["source_config"]},
+                {"source_config": stored["source_config"], **change},
                 format="json",
             )
 
