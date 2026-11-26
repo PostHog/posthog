@@ -383,6 +383,24 @@ describe('workflowLogic external edits', () => {
         expect(saved.name).toBe('Typed during the reload')
     })
 
+    it('asks about an edit typed while the reload is in flight when the reload would not keep it', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false })
+        useWorkflowMock(makeWorkflow({ updated_at: NEWER }))
+
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+            logic.actions.setWorkflowValue('name', 'Typed during the reload')
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+
+        expect(logic.values.workflow.name).toBe('Typed during the reload')
+        expect(logic.values.externallyEdited).toBe(true)
+        // A save before Keep mine must not overwrite the newer copy with the form's older one.
+        await expectLogic(logic, () => logic.actions.saveWorkflow(logic.values.workflow)).toDispatchActions([
+            'saveWorkflowSuccess',
+        ])
+        expect(savedBodies[0].base_updated_at).not.toBe(NEWER)
+    })
+
     it('holds auto-save until the reload lands, so a stale save cannot start a second reload', async () => {
         let releaseReload: () => void = () => {}
         const reloadReleased = new Promise<void>((resolve) => {
@@ -426,15 +444,21 @@ describe('workflowLogic external edits', () => {
     const ownReload = (): void => logic.actions.loadWorkflow()
 
     it.each([
-        { case: 'edits wait to be saved', run: [editElsewhere], keepLocalEdits: true, edit: true, banner: true },
-        { case: 'the form is clean', run: [editElsewhere], keepLocalEdits: true, edit: false, banner: false },
-        { case: 'local edits are not kept', run: [ownReload], keepLocalEdits: false, edit: true, banner: false },
-        { case: 'it was our own reload', run: [ownReload], keepLocalEdits: true, edit: true, banner: false },
+        { case: 'edits wait to be saved', run: [editElsewhere], keepLocalEdits: true, edit: 'before', banner: true },
+        { case: 'the form is clean', run: [editElsewhere], keepLocalEdits: true, edit: null, banner: false },
+        {
+            case: 'local edits are not kept',
+            run: [editElsewhere],
+            keepLocalEdits: false,
+            edit: 'during',
+            banner: false,
+        },
+        { case: 'it was our own reload', run: [ownReload], keepLocalEdits: true, edit: 'before', banner: false },
         {
             case: 'an edit lands during it',
             run: [ownReload, editElsewhere],
             keepLocalEdits: true,
-            edit: true,
+            edit: 'before',
             banner: true,
         },
     ])('when the reload fails and $case, shows the banner: $banner', async ({ run, keepLocalEdits, edit, banner }) => {
@@ -447,13 +471,17 @@ describe('workflowLogic external edits', () => {
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
         })
-        if (edit) {
-            logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        const type = (): void => logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        if (edit === 'before') {
+            type()
         }
 
-        await expectLogic(logic, () => run.forEach((step) => step())).toDispatchActions(
-            run.map(() => 'loadWorkflowFailure')
-        )
+        await expectLogic(logic, () => {
+            run.forEach((step) => step())
+            if (edit === 'during') {
+                type()
+            }
+        }).toDispatchActions(run.map(() => 'loadWorkflowFailure'))
 
         expect(getCalls).toBe(1 + run.length)
         expect(logic.values.externallyEdited).toBe(banner)

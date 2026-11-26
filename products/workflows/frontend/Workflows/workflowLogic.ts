@@ -5308,7 +5308,20 @@ export const workflowLogic = kea<workflowLogicType>([
                     ? selectors.originalWorkflow(previousState)
                     : null
             const unsavedEdits = editsKeptOverReload(baseBeforeExternalEdit, values.workflow, loaded)
-            actions.resetWorkflow(loaded)
+            // Without the keep-local-edits reload, edits typed while this silent reload ran would be reset away,
+            // such as an email canvas edit that reached the form after the reload started.
+            const previousBase = selectors.originalWorkflow(previousState)
+            const editedDuringSilentReload =
+                !values.keepsLocalEditsOnExternalEdit &&
+                selectors.isSyncingExternalEdit(previousState) &&
+                selectors.workflowChanged(previousState)
+            if (editedDuringSilentReload) {
+                actions.setExternallyEdited(true)
+                // The form still holds the older copy, so a save stays fenced until the person picks Keep mine.
+                actions.setSaveBaseUpdatedAt(previousBase?.draft_updated_at ?? previousBase?.updated_at ?? null)
+            } else {
+                actions.resetWorkflow(loaded)
+            }
             if (Object.keys(unsavedEdits).length > 0) {
                 actions.setWorkflowValues(unsavedEdits)
                 actions.autoSaveWorkflow()
