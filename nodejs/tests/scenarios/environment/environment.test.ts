@@ -727,6 +727,12 @@ describe('scenario environment', () => {
             ['URL setting without a scheme', 'POSTHOG_HOST_URL', 'cluster-a:8000/one', 'cluster-b:9000/two'],
             ['broker list', 'KAFKA_HOSTS', 'kafka-a:9092,kafka-b:9092', 'kafka-c:9093'],
             [
+                'broker list named as a list',
+                'KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST',
+                'kafka-a:9092',
+                'kafka-b:9093',
+            ],
+            [
                 'URL under a setting not named as one',
                 'CDP_WATCHER_HOG_COST_TIMING',
                 'https://user:one@host-a/x',
