@@ -6,6 +6,7 @@ import { toast } from '@posthog/quill'
 
 import api from 'lib/api'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import {
     AnalyticsItem,
     FromPostHogItem,
@@ -57,6 +58,12 @@ export interface todayAnalyticsLogicActions {
     createFolder: (name: string) => {
         name: string
     }
+    folderCreated: () => {
+        value: true
+    }
+    folderCreationFailed: () => {
+        value: true
+    }
     moveRecent: (
         key: string,
         overKey: string
@@ -64,21 +71,15 @@ export interface todayAnalyticsLogicActions {
         key: string
         overKey: string
     }
-    setRecentOrder: (keys: string[]) => {
-        keys: string[]
-    }
-    folderCreated: () => {
-        value: true
-    }
-    folderCreationFailed: () => {
-        value: true
-    }
     setNewFolderDialogOpen: (
         open: boolean,
         parent?: string | null
     ) => {
         open: boolean
         parent: string | null
+    }
+    setRecentOrder: (keys: string[]) => {
+        keys: string[]
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
@@ -229,6 +230,9 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
                     recentOrder,
                     (item) => pinKey(item.type, item.id)
                 ),
+            // applySavedOrder returns a new array each time, and the subscription below saves it into one of this
+            // selector's own inputs, so only a changed list may count as a change.
+            { resultEqualityCheck: objectsEqual },
         ],
     }),
     listeners(({ actions, values }) => ({

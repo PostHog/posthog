@@ -55,16 +55,16 @@ export interface todayRecentsLogicActions {
         href: string,
         overHref: string
     ) => {
-        pane: TodaySortableRecentPane
         href: string
         overHref: string
+        pane: TodaySortableRecentPane
     }
     setRecentOrder: (
         pane: TodaySortableRecentPane,
         hrefs: string[]
     ) => {
-        pane: TodaySortableRecentPane
         hrefs: string[]
+        pane: TodaySortableRecentPane
     }
 }
 
