@@ -97,7 +97,7 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
         query && !isCollapsed ? (
             <InView rootMargin="500px" triggerOnce fallbackInView>
                 {({ ref, inView }) => (
-                    <div ref={ref} className="h-full">
+                    <div ref={ref} className="flex h-full flex-col">
                         {inView && <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />}
                     </div>
                 )}

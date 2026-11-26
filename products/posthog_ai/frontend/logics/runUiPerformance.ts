@@ -1,5 +1,6 @@
 export function observeRunUiPerformance(report: (properties: Record<string, number | boolean>) => void): () => void {
     const startedAt = performance.now()
+    let stoppedAt: number | undefined
     let count = 0
     let duration = 0
     let maxDuration = 0
@@ -9,7 +10,7 @@ export function observeRunUiPerformance(report: (properties: Record<string, numb
         typeof PerformanceObserver !== 'undefined' && PerformanceObserver.supportedEntryTypes?.includes('longtask')
     const collect = (entries: PerformanceEntry[]): void => {
         for (const entry of entries) {
-            if (entry.startTime >= startedAt) {
+            if (entry.startTime >= startedAt && (stoppedAt === undefined || entry.startTime <= stoppedAt)) {
                 count++
                 duration += entry.duration
                 maxDuration = Math.max(maxDuration, entry.duration)
@@ -27,17 +28,24 @@ export function observeRunUiPerformance(report: (properties: Record<string, numb
         }
     }
     return () => {
-        if (observer) {
-            collect(observer.takeRecords())
-            observer.disconnect()
+        if (stoppedAt !== undefined) {
+            return
         }
-        report({
-            observed_duration_ms: Math.round(performance.now() - startedAt),
-            long_task_supported: !!observer,
-            long_task_count: count,
-            long_task_duration_ms: Math.round(duration),
-            max_long_task_duration_ms: Math.round(maxDuration),
-            total_blocking_time_ms: Math.round(blockingTime),
-        })
+        stoppedAt = performance.now()
+        const observedDuration = Math.round(stoppedAt - startedAt)
+        setTimeout(() => {
+            if (observer) {
+                collect(observer.takeRecords())
+                observer.disconnect()
+            }
+            report({
+                observed_duration_ms: observedDuration,
+                long_task_supported: !!observer,
+                long_task_count: count,
+                long_task_duration_ms: Math.round(duration),
+                max_long_task_duration_ms: Math.round(maxDuration),
+                total_blocking_time_ms: Math.round(blockingTime),
+            })
+        }, 0)
     }
 }
