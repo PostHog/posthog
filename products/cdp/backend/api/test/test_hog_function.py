@@ -8,6 +8,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import UserSettingsHolder, settings
 from django.db import DatabaseError, connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -4360,6 +4361,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_feature_enabled.assert_called_once()
         call_args = mock_feature_enabled.call_args
         assert call_args[0][0] == "backfill-workflows-destination"
+
+    @override_settings(BATCH_EXPORTS_ENABLED=False)
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=True)
+    def test_enable_backfills_refused_when_batch_exports_are_off(self, _mock_feature_enabled):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"error": "Backfills are not available because batch exports are turned off."}
+        assert HogFunction.objects.get(id=function_id).batch_export_id is None
 
     def test_enable_backfills_blocked_for_non_event_source(self):
         response = self.client.post(
