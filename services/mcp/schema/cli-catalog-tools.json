@@ -5006,7 +5006,7 @@
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": false
+            "transformBody": true
         },
         "response": {
             "list": false,
@@ -5047,7 +5047,7 @@
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": true
+            "transformBody": false
         },
         "response": {
             "list": false,
