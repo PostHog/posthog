@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
-from django.utils.timezone import now
 
 from pydantic import JsonValue
 
@@ -54,6 +53,7 @@ from products.dashboards.backend.facade.contracts import (
     DashboardTemplateDefinition,
     Frame,
     InsightPlacement,
+    InsightTilePlacement,
     MembershipChange,
     PlacedInsightTile,
     QueryBatchBusy,
@@ -68,7 +68,9 @@ from products.dashboards.backend.facade.enums import (
     ResultFormat,
 )
 from products.dashboards.backend.logic import (
+    dashboards as dashboards_logic,
     frames as frames_logic,
+    insight_membership as insight_membership_logic,
     search as search_logic,
     team_settings as team_settings_logic,
     template_library as template_library_logic,
@@ -184,13 +186,8 @@ def create_dashboard_from_tiles(
         template_name=name, dashboard_description=description, dashboard_filters=filters, tiles=tiles, tags=tags
     )
     # With the template's values set here, the template step logs no second "updated" activity entry.
-    dashboard = Dashboard.objects.create(
-        team_id=team.id,
-        name=name,
-        description=description,
-        filters=filters,
-        created_by=user,
-        creation_mode=Dashboard.CreationMode.TEMPLATE,
+    dashboard = dashboards_logic.create_template_dashboard(
+        team_id=team.id, name=name, description=description, filters=filters, created_by=user
     )
     create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
     return DashboardRef(id=dashboard.id, name=dashboard.name)
@@ -258,7 +255,7 @@ def create_dashboard(
     variables: dict[str, Any] | None = None,
 ) -> DashboardRef:
     """Create an empty dashboard as the system, with no access check, for code that seeds a project."""
-    dashboard = Dashboard.objects.create(
+    dashboard = dashboards_logic.create_empty_dashboard(
         team_id=team_id,
         name=name,
         description=description,
@@ -272,10 +269,9 @@ def add_insight_tile(
     *, dashboard_id: int, insight_id: int, layouts: dict[str, Any] | None = None, color: str | None = None
 ) -> int:
     """Place an insight on a dashboard as the system, with no access check, and return the tile's id."""
-    tile = DashboardTile.objects.create(
-        dashboard_id=dashboard_id, insight_id=insight_id, layouts=layouts or {}, color=color
+    return insight_membership_logic.create_insight_tile(
+        dashboard_id=dashboard_id, insight_id=insight_id, layouts=layouts, color=color
     )
-    return tile.id
 
 
 def _to_summary(dashboard: Dashboard) -> DashboardSummary:
@@ -572,15 +568,17 @@ def insight_has_listed_tile() -> Exists:
     return Exists(DashboardTile.objects.filter(insight=OuterRef("pk")).exclude(dashboard__creation_mode="unlisted"))
 
 
-def insight_ids_on_dashboard(dashboard_id: int, *, include_removed_tiles: bool = False) -> QuerySet:
-    """Ids of the insights with a tile on this dashboard, as a subquery for `id__in`.
+def insight_ids_on_dashboard(dashboard_id: int, *, include_removed_tiles: bool = False) -> frozenset[int]:
+    """Ids of the insights with a tile on this dashboard.
 
     With `include_removed_tiles`, a soft-deleted tile counts too, as it does in the `Insight.dashboards` relation.
     """
     manager = DashboardTile.objects_including_soft_deleted if include_removed_tiles else DashboardTile.objects
     # Filtering a list the caller has already scoped to its own team.
     # nosemgrep: idor-lookup-without-team
-    return manager.filter(dashboard__id=dashboard_id).values_list("insight__id", flat=True).all()
+    return frozenset(
+        manager.filter(dashboard__id=dashboard_id, insight_id__isnull=False).values_list("insight_id", flat=True)
+    )
 
 
 def tile_for_insight_on_dashboard(*, insight_id: int, dashboard_id: int | str) -> DashboardTile | None:
@@ -607,7 +605,7 @@ def hide_tiles_for_insights(insight_ids: Collection[int]) -> None:
 
     Run inside the caller's transaction: it is one half of soft-deleting the insights themselves.
     """
-    DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
+    insight_membership_logic.hide_tiles_for_insights(insight_ids)
 
 
 def _dashboard_edit_access_by_team(
@@ -678,7 +676,7 @@ def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_cont
         if access_by_team[tile.dashboard.team_id].check_access_level_for_object(tile.dashboard, "editor")
     ]
     if restorable_tile_ids:
-        DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(deleted=False)
+        insight_membership_logic.restore_tiles(restorable_tile_ids)
 
 
 def restore_tiles_for_insights_without_access_check(insight_ids: Collection[int]) -> None:
@@ -687,48 +685,23 @@ def restore_tiles_for_insights_without_access_check(insight_ids: Collection[int]
     For staff tooling that restores insights outside a user's access rules. Run inside the caller's
     transaction, like `restore_tiles_for_insights`.
     """
-    DashboardTile.objects_including_soft_deleted.filter(
-        insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
-    ).update(deleted=False)
-
-
-class InsightTilePlacement:
-    """Dashboards cleared to receive a tile for one insight.
-
-    Built by `plan_insight_tile_placement` before the insight row exists, so a refusal can't leave
-    an orphaned insight behind, then applied with `create_tiles` once it does. Holding the
-    dashboards it read is what keeps applying free of a second read.
-    """
-
-    def __init__(self, dashboards: list[Dashboard]) -> None:
-        self._dashboards = dashboards
-
-    @property
-    def dashboards(self) -> tuple[DashboardRef, ...]:
-        return tuple(DashboardRef(id=dashboard.id, name=dashboard.name) for dashboard in self._dashboards)
-
-    def create_tiles(self, insight: "Insight") -> tuple[DashboardRef, ...]:
-        """Place the insight on every cleared dashboard, and report which ones those were."""
-        for dashboard in self._dashboards:
-            DashboardTile.objects.create(
-                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
-            )
-        return self.dashboards
+    insight_membership_logic.restore_tiles_on_live_dashboards(insight_ids)
 
 
 def plan_insight_tile_placement(
     *,
     dashboard_ids: Sequence[int],
     team_id: int,
-    query: Any,
+    query: Mapping[str, JsonValue] | None,
     user: User,
     user_access_control: UserAccessControl | None,
 ) -> InsightTilePlacement:
-    """Check that an insight carrying `query` may be placed on these dashboards.
+    """Check that an insight carrying `query` may be placed on these dashboards, and plan the tiles.
 
     Raises `CannotAddToDashboard` when the requester can only view one of them, `DashboardNotFound`
     when one belongs to another team, and the shared-dashboard publish gate's own ValidationError
     when the query would reach further through a dashboard's public link than the requester can.
+    An id that matches no live dashboard is left out of the plan.
     """
     # nosemgrep: idor-lookup-without-team (team check below)
     found = {dashboard.id: dashboard for dashboard in Dashboard.objects.filter(id__in=dashboard_ids)}
@@ -746,27 +719,39 @@ def plan_insight_tile_placement(
         from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 
         check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
-    return InsightTilePlacement(dashboards)
+    return InsightTilePlacement(
+        team_id=team_id,
+        dashboards=tuple(DashboardRef(id=dashboard.id, name=dashboard.name) for dashboard in dashboards),
+    )
+
+
+def create_planned_insight_tiles(placement: InsightTilePlacement, *, insight_id: int) -> None:
+    """Place the insight on every dashboard of the plan. The insight must belong to the plan's team.
+
+    Run inside the caller's transaction.
+    """
+    insight_membership_logic.create_insight_tiles(
+        insight_id=insight_id,
+        team_id=placement.team_id,
+        dashboard_ids=[dashboard.id for dashboard in placement.dashboards],
+    )
 
 
 def _place_insight_tile(
     *,
     insight_id: int,
     insight_team_id: int,
-    loaded_insight: "Insight | None",
     dashboard: Dashboard,
-    query: Any,
+    query: Mapping[str, JsonValue] | None,
     user: User,
     user_access_control: UserAccessControl | None,
     dashboard_access: UserAccessControl | None,
 ) -> tuple[DashboardTile, bool]:
     """Put the insight on one dashboard, and report whether it was missing from it before.
 
-    `loaded_insight` is the insight row when the caller holds it, so that saving a new tile does
-    not read the row again. `dashboard_access` is `user_access_control` resolved against the
-    dashboard's own team; None skips the edit check. A removed tile is restored rather than
-    duplicated, so it keeps its layout. An insight already on the dashboard returns its tile before
-    any check, because nothing changes.
+    `dashboard_access` is `user_access_control` resolved against the dashboard's own team; None
+    skips the edit check. A removed tile is restored rather than duplicated, so it keeps its layout.
+    An insight already on the dashboard returns its tile before any check, because nothing changes.
     """
     if dashboard.team_id != insight_team_id:
         raise DashboardNotFound
@@ -784,22 +769,14 @@ def _place_insight_tile(
 
     check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
 
-    insight_lookup: dict[str, Any] = (
-        {"insight": loaded_insight} if loaded_insight is not None else {"insight_id": insight_id}
-    )
-    tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(dashboard=dashboard, **insight_lookup)
-    if tile.deleted:
-        tile.deleted = False
-        tile.save()
-        return tile, True
-    return tile, created
+    return insight_membership_logic.restore_or_create_insight_tile(dashboard=dashboard, insight_id=insight_id)
 
 
 def add_insight_to_dashboard(
     *,
     insight_id: int,
     insight_team_id: int,
-    query: Any,
+    query: Mapping[str, JsonValue] | None,
     dashboard_id: int,
     user: User,
     user_access_control: UserAccessControl,
@@ -823,8 +800,6 @@ def add_insight_to_dashboard(
     tile, added = _place_insight_tile(
         insight_id=insight_id,
         insight_team_id=insight_team_id,
-        # A public facade function takes no product model, so this path saves the tile by insight ID.
-        loaded_insight=None,
         dashboard=dashboard,
         query=query,
         user=user,
@@ -836,9 +811,10 @@ def add_insight_to_dashboard(
 
 def update_insight_dashboard_membership(
     *,
-    insight: "Insight",
+    insight_id: int,
+    insight_team_id: int,
     dashboard_ids: Sequence[int],
-    query: Any,
+    query: Mapping[str, JsonValue] | None,
     user: User,
     user_access_control: UserAccessControl | None,
 ) -> MembershipChange | None:
@@ -855,11 +831,10 @@ def update_insight_dashboard_membership(
     Run inside the caller's transaction — a refusal partway through must not leave the insight on
     some of the dashboards but not others.
 
-    Reads `insight.dashboard_tiles`, and leaves that prefetch stale: the writes below go through
-    separate querysets, so a caller that serializes the insight afterwards has to drop the
-    prefetched relation first.
+    A caller that holds the insight's tiles prefetched has to drop that prefetch before it serializes
+    the insight again, because the writes here go through separate querysets.
     """
-    old_dashboard_ids = [tile.dashboard_id for tile in insight.dashboard_tiles.all()]
+    old_dashboard_ids = list(DashboardTile.objects.filter(insight_id=insight_id).values_list("dashboard_id", flat=True))
     new_dashboard_ids = list(dashboard_ids)
     if sorted(old_dashboard_ids) == sorted(new_dashboard_ids):
         return None
@@ -873,9 +848,8 @@ def update_insight_dashboard_membership(
     add_access_by_team = _dashboard_edit_access_by_team(add_dashboards, user_access_control)
     for dashboard in add_dashboards:
         _place_insight_tile(
-            insight_id=insight.id,
-            insight_team_id=insight.team_id,
-            loaded_insight=insight,
+            insight_id=insight_id,
+            insight_team_id=insight_team_id,
             dashboard=dashboard,
             query=query,
             user=user,
@@ -884,7 +858,7 @@ def update_insight_dashboard_membership(
         )
         added_dashboard_ids.append(dashboard.id)
 
-    removed_dashboard_ids: list[int] = []
+    removed_dashboard_ids: tuple[int, ...] = ()
     if ids_to_remove:
         # nosemgrep: idor-lookup-without-team (team check after lookup)
         remove_dashboards = list(Dashboard.objects.filter(id__in=ids_to_remove))
@@ -895,15 +869,13 @@ def update_insight_dashboard_membership(
             ].check_access_level_for_object(dashboard, "editor"):
                 raise CannotRemoveFromDashboard(dashboard.id)
 
-        # Capture the still-active tiles before soft-deleting so the caller can report one
-        # removal per tile that is actually removed.
-        tiles_to_remove = list(DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=insight))
-        DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=insight).update(deleted=True)
-        removed_dashboard_ids = [tile.dashboard_id for tile in tiles_to_remove]
+        removed_dashboard_ids = insight_membership_logic.remove_insight_tiles(
+            insight_id=insight_id, dashboard_ids=ids_to_remove
+        )
 
     return MembershipChange(
         added_dashboard_ids=tuple(added_dashboard_ids),
-        removed_dashboard_ids=tuple(removed_dashboard_ids),
+        removed_dashboard_ids=removed_dashboard_ids,
         dashboards=_refs_in_given_order(new_dashboard_ids),
     )
 
@@ -1296,6 +1268,7 @@ __all__ = [
     "check_insight_tile_limit",
     "create_dashboard",
     "create_dashboard_from_tiles",
+    "create_planned_insight_tiles",
     "dashboard_access_ref",
     "dashboard_exists",
     "dashboard_insight_tile",

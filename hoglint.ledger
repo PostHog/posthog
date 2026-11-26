@@ -411,7 +411,6 @@ export-shape	products.customer_analytics.backend.models.account.Account	products
 export-shape	products.customer_analytics.backend.models.team_customer_analytics_config.TeamCustomerAnalyticsConfig	products.customer_analytics.backend.facade.team_extension	export-denied(model)	1
 export-shape	products.customer_analytics.backend.temporal.WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.customer_analytics.backend.temporal.account_property_sync.ACCOUNT_PROPERTY_SYNC_WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
-export-shape	products.dashboards.backend.facade.api.InsightTilePlacement	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_debug.DashboardSharingOutcome	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
@@ -936,10 +935,6 @@ facade-no-state	products.customer_analytics.backend.models.event_stream.EventStr
 facade-no-state	products.customer_analytics.backend.models.event_stream.EventStreamMember	products.customer_analytics.backend.facade.api	write(delete)	1
 facade-no-state	products.customer_analytics.backend.models.event_stream.EventStreamMember	products.customer_analytics.backend.facade.api	write(get_or_create)	1
 facade-no-state	products.customer_analytics.backend.models.relationship.AccountRelationshipDefinition	products.customer_analytics.backend.facade.api	write(create)	1
-facade-no-state	products.dashboards.backend.models.dashboard.Dashboard	products.dashboards.backend.facade.api	write(create)	2
-facade-no-state	products.dashboards.backend.models.dashboard_tile.DashboardTile	products.dashboards.backend.facade.api	write(create)	2
-facade-no-state	products.dashboards.backend.models.dashboard_tile.DashboardTile	products.dashboards.backend.facade.api	write(get_or_create)	1
-facade-no-state	products.dashboards.backend.models.dashboard_tile.DashboardTile	products.dashboards.backend.facade.api	write(update)	4
 facade-no-state	products.event_definitions.backend.models.property_definition.PropertyDefinition	products.access_control.backend.facade.api	instance-many(filter)	1
 facade-no-state	products.event_definitions.backend.models.property_definition.PropertyDefinition	products.warehouse_sources.backend.facade.person_property_provenance	instance-many(filter)	1
 facade-no-state	products.event_definitions.backend.models.property_definition.PropertyDefinition	products.warehouse_sources.backend.facade.person_property_provenance	write(bulk_create)	1
@@ -1243,11 +1238,6 @@ facade-signature	products.customer_analytics.backend.facade.contracts	FeatureReq
 facade-signature	products.customer_analytics.backend.facade.contracts	FeatureRequestHistoryChange	attr:before	builtins.object	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UpdateAccountInput.__init__	field:properties	builtins.dict	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UserBasicInfo.__init__	field:hedgehog_config	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.__init__	param:dashboards	products.dashboards.backend.models.dashboard.Dashboard	1
-facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.create_tiles	param:insight	products.product_analytics.backend.models.insight.Insight	1
-facade-signature	products.dashboards.backend.facade.api	add_insight_to_dashboard	param:query	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	insight_ids_on_dashboard	return	django.db.models.query.QuerySet	1
-facade-signature	products.dashboards.backend.facade.api	plan_insight_tile_placement	param:query	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	read_cached_tiles	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	search_dashboards	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	tile_filters_overrides	return	typing.Any	1
@@ -1255,8 +1245,6 @@ facade-signature	products.dashboards.backend.facade.api	tile_for_insight_on_dash
 facade-signature	products.dashboards.backend.facade.api	tile_for_render	param:dashboard	products.dashboards.backend.models.dashboard.Dashboard	1
 facade-signature	products.dashboards.backend.facade.api	tile_for_render	param:insight	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.dashboards.backend.facade.api	tile_for_render	return	products.dashboards.backend.models.dashboard_tile.DashboardTile	1
-facade-signature	products.dashboards.backend.facade.api	update_insight_dashboard_membership	param:insight	products.product_analytics.backend.models.insight.Insight	1
-facade-signature	products.dashboards.backend.facade.api	update_insight_dashboard_membership	param:query	typing.Any	1
 facade-signature	products.dashboards.backend.facade.contracts	AppliedDashboard.filters	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.contracts	AppliedDashboard.variables	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.dashboard_creation	read_dashboard_metric_variables	return	typing.Any	1

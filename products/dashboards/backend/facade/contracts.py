@@ -474,3 +474,15 @@ class QueryBatchInput:
     cache_only: bool = False
     max_data_points: int | None = None
     tile: str | None = None
+
+
+@dataclass(frozen=True)
+class InsightTilePlacement:
+    """The dashboards `plan_insight_tile_placement` cleared to receive a tile for one insight of this team.
+
+    Planned before the insight row exists, so a refusal cannot leave an orphaned insight behind, and
+    applied with `create_planned_insight_tiles` once it does.
+    """
+
+    team_id: int
+    dashboards: tuple[DashboardRef, ...]
