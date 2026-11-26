@@ -17,7 +17,11 @@ import requests
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig
 
-from products.aeo.backend.engines import ANTHROPIC_WEB_SEARCH_TOOL_TYPE, gateway_request_headers
+from products.aeo.backend.engines import (
+    ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+    gateway_request_headers,
+    raise_for_gateway_status,
+)
 
 CALL_TIMEOUT_SECONDS = 120
 # A call with less time than this left would only time out, so the job stops as too slow instead.
@@ -48,7 +52,8 @@ def ask_with_web_search(
     max_searches: int,
 ) -> ClaudeAnswer | None:
     """Claude's final answer, or None when the deadline passes first. Raises `requests.RequestException`
-    or `ValueError` when a call fails. An answer cut off by the token limit keeps its complete items."""
+    or `ValueError` when a call fails, and `AICreditsExhausted` when the gateway refuses the team for lack of
+    AI credits. An answer cut off by the token limit keeps its complete items."""
     messages: list[dict[str, Any]] = [{"role": "user", "content": instructions}]
     headers = gateway_request_headers(
         gateway,
@@ -83,7 +88,7 @@ def ask_with_web_search(
                 },
                 timeout=min(CALL_TIMEOUT_SECONDS, remaining),
             )
-            response.raise_for_status()
+            raise_for_gateway_status(response)
             body = response.json()
             if body.get("stop_reason") != "pause_turn":
                 text = _answer_text(body)
