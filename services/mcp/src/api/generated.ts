@@ -14298,6 +14298,129 @@ export namespace Schemas {
     }
 
     /**
+     * * `2` - Favorite founder
+     * * `5` - Pineapple on pizza
+     * * `10` - Tabs or spaces
+     * * `13` - Dark or light mode
+     * * `18` - Ship on a Friday
+     * * `21` - Coffee or tea
+     */
+    export type AdventCalendarDayEnum = typeof AdventCalendarDayEnum[keyof typeof AdventCalendarDayEnum];
+
+
+    export const AdventCalendarDayEnum = {
+      Number2: 2,
+      Number5: 5,
+      Number10: 10,
+      Number13: 13,
+      Number18: 18,
+      Number21: 21,
+    } as const;
+
+    /**
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea
+     */
+    export type AdventCalendarOptionEnum = typeof AdventCalendarOptionEnum[keyof typeof AdventCalendarOptionEnum];
+
+
+    export const AdventCalendarOptionEnum = {
+      James: 'james',
+      Tim: 'tim',
+      Yes: 'yes',
+      No: 'no',
+      Tabs: 'tabs',
+      Spaces: 'spaces',
+      Dark: 'dark',
+      Light: 'light',
+      Coffee: 'coffee',
+      Tea: 'tea',
+    } as const;
+
+    export interface AdventCalendarAnswer {
+      /** The calendar day of the question the person answers.
+       *
+       * * `2` - Favorite founder
+       * * `5` - Pineapple on pizza
+       * * `10` - Tabs or spaces
+       * * `13` - Dark or light mode
+       * * `18` - Ship on a Friday
+       * * `21` - Coffee or tea */
+      day: AdventCalendarDayEnum;
+      /** The option the person picks. It must be one of the two options of that day's question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      option: AdventCalendarOptionEnum;
+    }
+
+    export interface AdventCalendarShare {
+      /** One option of the question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      option: AdventCalendarOptionEnum;
+      /** Percent of all answers to the question that picked this option, rounded to a whole number. 0 for every option while the question has no answers. */
+      share: number;
+    }
+
+    export interface AdventCalendarQuestionResult {
+      /** The calendar day of the question.
+       *
+       * * `2` - Favorite founder
+       * * `5` - Pineapple on pizza
+       * * `10` - Tabs or spaces
+       * * `13` - Dark or light mode
+       * * `18` - Ship on a Friday
+       * * `21` - Coffee or tea */
+      day: AdventCalendarDayEnum;
+      /** The option the signed-in person picked, or null when they have not answered this question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      answer: AdventCalendarOptionEnum | null;
+      /** Each option of the question, in the calendar's order, with its share of all answers. */
+      shares: AdventCalendarShare[];
+    }
+
+    export interface AdventCalendarResults {
+      /** Every advent calendar question, by day. Shares count the answers of every PostHog user, not only this project's members. */
+      questions: AdventCalendarQuestionResult[];
+    }
+
+    /**
      * * `yes` - Yes
      * * `no` - No
      * * `inconclusive` - Inconclusive

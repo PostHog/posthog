@@ -1716,6 +1716,7 @@ rules:
                       regex: |
                           (?x)(
                               AccountAuditCredential
+                              |AdventCalendarAnswer
                               |CommunitySkillVote
                               |GitHubInstallRequest
                               |IdentityProviderEmailVerification
@@ -1774,6 +1775,7 @@ rules:
                 regex: |
                     (?x)(
                         AccountAuditCredential
+                        |AdventCalendarAnswer
                         |CommunitySkillVote
                         |GitHubInstallRequest
                         |IdentityProviderEmailVerification
