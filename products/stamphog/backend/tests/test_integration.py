@@ -3915,6 +3915,15 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
     return json.dumps(payload)
 
 
+def _size_refused_engine_output() -> str:
+    payload = {
+        "final_verdict": "REFUSED",
+        "gates": [{"gate": "size", "passed": False, "message": "over the ceiling"}],
+        "review_body": "Refused by stamphog.",
+    }
+    return json.dumps(payload)
+
+
 @pytest.mark.parametrize(
     "engine_output, trigger, expect_hint",
     [
@@ -3923,10 +3932,15 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
         pytest.param(
             _path_denied_engine_output(["infra_cicd", "migrations"]), "label", "gives the same result", id="path-deny"
         ),
-        # A pending Migration risk check gives WAIT, so a refusal means the check already reported.
+        # A rerun of the Migration risk check at the same head can lift this deny.
         pytest.param(
-            _path_denied_engine_output(["migrations"]), "label", "gives the same result", id="migrations-only"
+            _path_denied_engine_output(["migrations"]),
+            "label",
+            "once the `Migration risk` check passes",
+            id="migrations-only",
         ),
+        # A gate refusal is stored as a WAIT, so only the verdict tells it apart from a real wait.
+        pytest.param(_size_refused_engine_output(), "label", "Add the `stamphog` label", id="size-refusal"),
         # A label on an admitted bot's PR starts no review, so the review must not ask for one.
         pytest.param(_refused_engine_output(), "bot_admission", None, id="admitted-bot"),
     ],
@@ -3974,7 +3988,6 @@ def test_each_non_approval_posts_its_own_review(
         # COMMENT, never REQUEST_CHANGES: declining to auto-approve must not block a human merging.
         assert review["body"]["event"] == "COMMENT"
         assert review["body"]["commit_id"] == head_sha
-        # A gate refusal is stored as a WAIT, and must still not read as one.
         assert review["body"]["body"].startswith("**Not approved — this change needs a human reviewer.**")
         # LABEL mode strips the trigger label, so the review has to say how to ask again.
         assert (expect_hint or "") in review["body"]["body"]

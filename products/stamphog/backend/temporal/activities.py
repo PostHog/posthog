@@ -2769,15 +2769,15 @@ _PATH_DENY_GATES = frozenset({"deny-list", "tier"})
 def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
     """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
 
-    A deny on migrations alone counts too. While the `Migration risk` check is pending the engine
-    returns WAIT, not a refusal, so a refusal means the check already reported for this head without
-    lifting the deny.
+    A deny on migrations alone is excluded: a rerun of the `Migration risk` check at the same head can lift it.
     """
-    if parsed.verdict not in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
-        return False
     gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
     failed = {g.get("gate") for g in gates if not g.get("passed", True)}
-    return bool(failed) and failed <= _PATH_DENY_GATES
+    return bool(failed) and failed <= _PATH_DENY_GATES and _deny_categories(parsed) != ["migrations"]
+
+
+def _deny_categories(parsed: ReviewerVerdict) -> list:
+    return (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
 
 
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
@@ -2792,13 +2792,18 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     prepended to both, so the outcome is stated whichever one is available.
     """
     # A gate refusal is stored as a GATED WAIT, but the engine refused it, so it must not read as a wait.
-    if parsed.gate_blocked and parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+    gate_refused = parsed.gate_blocked and parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+    if gate_refused:
         verdict = ReviewVerdict.REFUSED
     headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
     if _only_a_human_can_approve(parsed):
         headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
         if relabel_label:
             headline += f"\n\nAdding the `{relabel_label}` label gives the same result unless the changed files change."
+    elif relabel_label and gate_refused and _deny_categories(parsed) == ["migrations"]:
+        headline += (
+            f"\n\nAdd the `{relabel_label}` label to request another review once the `Migration risk` check passes."
+        )
     elif relabel_label:
         headline += f"\n\nAdd the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
