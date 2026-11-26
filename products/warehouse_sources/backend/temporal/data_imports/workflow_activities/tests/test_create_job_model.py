@@ -223,6 +223,12 @@ class TestEnrichmentPending:
         self._annotate(team, table, "customer_id")
         assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is False
 
+    def test_not_pending_without_enrichable_columns_even_when_the_description_is_missing(self) -> None:
+        # The activity skips a table with no enrichable columns before it looks at the description.
+        team = _team()
+        table = _table(team, columns={"x" * 401: {}})
+        assert _enrichment_pending(team.id, table, _schema(team, table)) is False
+
     def test_pending_when_table_description_missing(self) -> None:
         # Columns all annotated, but neither a schema description nor a table-level ("") annotation exists.
         team = _team()
