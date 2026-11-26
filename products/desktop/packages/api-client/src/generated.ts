@@ -4293,6 +4293,11 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
+    export type ExperimentWarehouseNativeRowsLeftOut = Partial<{
+        empty_id: number | null;
+        exposed_without_rows: Record<string, number> | null;
+        unknown_variants: Record<string, number> | null;
+    }>;
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
@@ -4300,6 +4305,7 @@ export namespace Schemas {
         hogql: string | null;
         is_precomputed: boolean | null;
         kind: string;
+        rows_left_out: ExperimentWarehouseNativeRowsLeftOut | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
@@ -11801,6 +11807,9 @@ export namespace Schemas {
             | (Array<ExperimentExposureHealthFinding> | null)
             | undefined;
         kind?: string | undefined;
+        rows_left_out?:
+            | (ExperimentWarehouseNativeRowsLeftOut | null)
+            | undefined;
         sample_ratio_mismatch?: (SampleRatioMismatch | null) | undefined;
         timeseries: Array<ExperimentExposureTimeSeries>;
         total_exposures: Record<string, number>;
