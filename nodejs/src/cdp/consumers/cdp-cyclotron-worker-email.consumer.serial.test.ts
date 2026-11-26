@@ -25,6 +25,7 @@ import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2WorkerConfig } from 
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
+import { ATTACHMENT_SEND_DEADLINE_MS } from '~/cdp/services/messaging/email.service'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -497,6 +498,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: stallTimeoutMs,
             })
             await waitForExpect(() => expect(heldSes.holding).toBe(1))
+            const heldAt = Date.now()
 
             cyclotron.loseConnections()
             const janitor = new CyclotronV2Janitor({
@@ -518,9 +520,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             })
             expect(await ended(id)).toBe('completed')
 
+            const releasedBeforeTheSendDeadline = Date.now() - heldAt < ATTACHMENT_SEND_DEADLINE_MS
             const forwarded = heldSes.release()
             await waitForExpect(() => expect(delivered()).toHaveLength(1 + forwarded))
-            expect({ forwarded, delivered: delivered() }).toEqual({ forwarded: 0, delivered: [['invoice.pdf']] })
+            expect({ releasedBeforeTheSendDeadline, forwarded, delivered: delivered() }).toEqual({
+                releasedBeforeTheSendDeadline: true,
+                forwarded: 0,
+                delivered: [['invoice.pdf']],
+            })
         } finally {
             cyclotron.acceptConnections()
             await heldSes.close()
