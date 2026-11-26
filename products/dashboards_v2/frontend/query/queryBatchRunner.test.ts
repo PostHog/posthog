@@ -202,6 +202,36 @@ describe('createQueryBatchRunner', () => {
         }
     })
 
+    it('stops a stream once the query it kept open for is answered and only aborted ones remain', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const gone = new AbortController()
+        void runQuery(SQL, gone.signal).catch(() => {})
+        const kept = runQuery(TRENDS)
+        await flush()
+
+        gone.abort()
+        expect(streams[0].signal.aborted).toBe(false)
+        answer(streams[0], 1, 1)
+        await expect(kept).resolves.toEqual(totalOf(1))
+        expect(streams[0].signal.aborted).toBe(true)
+    })
+
+    it('does not ask again for an aborted query answered busy', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const gone = new AbortController()
+        void runQuery(SQL, gone.signal).catch(() => {})
+        const kept = runQuery(TRENDS)
+        await flush()
+
+        gone.abort()
+        streams[0].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
+        answer(streams[0], 1, 1)
+        streams[0].close()
+        await expect(kept).resolves.toEqual(totalOf(1))
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    })
+
     it('asks once more for a query answered busy, a second after the stream ends, even when another stream is free', async () => {
         const runQuery = createQueryBatchRunner(7)
         const result = runQuery(SQL)

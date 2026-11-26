@@ -85,6 +85,22 @@ describe('queryCache', () => {
         expect(runQuery).toHaveBeenCalledTimes(2)
     })
 
+    it('aborts a query in flight once no tile waits for it, even after the cache evicted it', async () => {
+        const runQuery = jest.fn<ReturnType<RunQuery>, Parameters<RunQuery>>().mockReturnValue(new Promise(() => {}))
+        const keyFor = (n: number): string => JSON.stringify({ language: 'hogql', query: `select ${n}` })
+        const gone = new AbortController()
+        void runCachedQuery(runQuery, keyFor(0), 0, gone.signal)
+        for (let n = 1; n <= MAX_CACHED_QUERIES; n++) {
+            void runCachedQuery(runQuery, keyFor(n))
+        }
+        await Promise.resolve()
+
+        gone.abort()
+        await Promise.resolve()
+
+        expect(runQuery.mock.calls[0][1]?.aborted).toBe(true)
+    })
+
     it('keeps a query in flight when its tile asks again in the same task, such as on a refresh', async () => {
         const runQuery = jest.fn<ReturnType<RunQuery>, Parameters<RunQuery>>().mockReturnValue(new Promise(() => {}))
         const before = new AbortController()

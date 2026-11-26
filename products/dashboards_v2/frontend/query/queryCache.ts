@@ -50,10 +50,12 @@ function wait(cache: Map<string, Entry>, queryKey: string, entry: Entry, signal:
             // A tile's effect aborts its old signal just before it asks again for the same query, such as on a
             // refresh, so the query is dropped only if no caller has come back for it by the end of this task.
             queueMicrotask(() => {
-                if (entry.waiting > 0 || entry.result || cache.get(queryKey) !== entry) {
+                if (entry.waiting > 0 || entry.result) {
                     return
                 }
-                cache.delete(queryKey)
+                if (cache.get(queryKey) === entry) {
+                    cache.delete(queryKey)
+                }
                 entry.controller.abort()
             })
         },
