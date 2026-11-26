@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import subprocess
 from pathlib import Path
 
@@ -146,3 +147,48 @@ class TestPreviousKeyAdvice:
         setup._print_undo_steps()
 
         assert ("Remove your previous signing key" in capsys.readouterr().out) == tells_to_remove
+
+
+class TestExportKeys:
+    # Mirrors ssh-keygen -K with Apple's provider: the PIN prompt reads stdin when there is no
+    # terminal, and every key goes to the same file behind an overwrite prompt.
+    FAKE_SSH_KEYGEN = """\
+import os
+import sys
+from pathlib import Path
+
+sys.stderr.write("Enter PIN for authenticator: ")
+sys.stderr.flush()
+sys.stdin.readline()
+blobs = os.environ["FAKE_SECURE_ENCLAVE_KEYS"].split()
+for blob in blobs:
+    path = Path("id_ecdsa_sk_rk")
+    if path.exists():
+        print(f"{path} already exists.")
+        print("Overwrite (y/n)? ", end="", flush=True)
+        if not sys.stdin.readline().startswith("y"):
+            sys.exit(1)
+    path.write_text(f"handle {blob}\\n")
+    Path(f"{path}.pub").write_text(f"sk-ecdsa-sha2-nistp256@openssh.com {blob} ssh:\\n")
+    print(f"Saved ECDSA-SK key to {path}", flush=True)
+# Before the first key exists, the provider has nothing to export.
+sys.exit(0 if blobs else 1)
+"""
+
+    @pytest.mark.parametrize("blobs", [[], ["AAAAONE"], ["AAAAONE", "AAAATWO", "AAAATHREE"]])
+    def test_exports_every_secure_enclave_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blobs: list[str]
+    ) -> None:
+        fake = tmp_path / "ssh-keygen"
+        fake.write_text(f"#!{sys.executable}\n{self.FAKE_SSH_KEYGEN}")
+        fake.chmod(0o755)
+        export_dir = tmp_path / "export"
+        export_dir.mkdir()
+        monkeypatch.setattr("hogli_commands.git_signing.SSH_KEYGEN", fake)
+        monkeypatch.setenv("FAKE_SECURE_ENCLAVE_KEYS", " ".join(blobs))
+
+        handles = SecureEnclaveSigningSetup(use_global=True, repos=())._export_keys(export_dir)
+
+        assert {identity: handle.read_text() for identity, handle in handles.items()} == {
+            f"sk-ecdsa-sha2-nistp256@openssh.com {blob}": f"handle {blob}\n" for blob in blobs
+        }

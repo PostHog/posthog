@@ -26,6 +26,10 @@ KEY_LABEL: Final = "git-signing"
 SSH_DIR: Final = Path.home() / ".ssh"
 KEY_PATH: Final = SSH_DIR / "id_ecdsa_sk_git_signing"
 SIGN_PROGRAM_PATH: Final = SSH_DIR / "ssh-keygen-secure-enclave"
+# Apple's provider gives every key the same application and no user, so `ssh-keygen -K` names them all alike.
+EXPORTED_HANDLE_NAME: Final = "id_ecdsa_sk_rk"
+PIN_PROMPT: Final = b"Enter PIN for authenticator: "
+OVERWRITE_PROMPT: Final = b"Overwrite (y/n)? "
 
 # git calls ssh-keygen without a provider flag, and SSH_SK_PROVIDER is missing in IDEs,
 # launchd jobs and agent shells. The wrapper sets the provider for every git process.
@@ -67,6 +71,16 @@ def pick_new_key(before: set[str], after: dict[str, Path]) -> Path:
             f"Check `sc_auth list-ctk-identities` for the `{KEY_LABEL}` key."
         )
     return new_handles[0]
+
+
+def move_exported_handle(directory: Path, handles: dict[str, Path]) -> None:
+    """Rename the handle that `ssh-keygen -K` just wrote to a unique name and record it by identity."""
+    exported = directory / EXPORTED_HANDLE_NAME
+    handle = directory / f"key_{len(handles)}"
+    exported.rename(handle)
+    public_path = Path(f"{handle}.pub")
+    Path(f"{exported}.pub").rename(public_path)
+    handles[public_key_identity(public_path.read_text())] = handle
 
 
 def add_allowed_signer(path: Path, email: str, public_key_line: str) -> bool:
@@ -191,19 +205,37 @@ class SecureEnclaveSigningSetup:
 
         A key handle only references the key in the Secure Enclave. It is not the private key.
         """
-        result = subprocess.run(
+        process = subprocess.Popen(
             [str(SSH_KEYGEN), "-K", "-N", "", "-w", str(PROVIDER)],
             cwd=directory,
-            capture_output=True,
-            text=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            # Without a terminal, ssh-keygen asks for the PIN on stdin, where this code can answer it.
+            start_new_session=True,
+            env={**os.environ, "SSH_ASKPASS_REQUIRE": "never"},
         )
+        assert process.stdin is not None and process.stdout is not None
+        handles: dict[str, Path] = {}
+        output = b""
+        while byte := process.stdout.read(1):
+            output += byte
+            if output.endswith(PIN_PROMPT):
+                # Secure Enclave keys have no PIN.
+                answer = b"\n"
+            elif output.endswith(OVERWRITE_PROMPT):
+                # Every key exports to the same file, so move each one aside before the next replaces it.
+                move_exported_handle(directory, handles)
+                answer = b"y\n"
+            else:
+                continue
+            process.stdin.write(answer)
+            process.stdin.flush()
         # Before the first key exists, the provider has nothing to export and ssh-keygen fails.
-        if result.returncode != 0:
+        if process.wait() != 0:
             return {}
-        return {
-            public_key_identity(public_path.read_text()): public_path.with_suffix("")
-            for public_path in directory.glob("*.pub")
-        }
+        move_exported_handle(directory, handles)
+        return handles
 
     def _create_key(self) -> None:
         subprocess.run(
