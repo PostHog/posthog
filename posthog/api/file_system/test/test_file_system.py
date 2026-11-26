@@ -26,6 +26,7 @@ from posthog.api.file_system.file_system import (
     MAX_PATH_LENGTH,
     MAX_PATH_SEGMENTS,
     FileSystemSerializer,
+    FileSystemViewSet,
     UndoDeleteItemSerializer,
     get_file_system_insight_type,
 )
@@ -377,6 +378,44 @@ class TestFileSystemAPI(APIBaseTest):
         file_obj.refresh_from_db()
         self.assertEqual(file_obj.path, "NewPath/file.txt")
         self.assertEqual(file_obj.type, "new-type")
+
+    @parameterized.expand(
+        [
+            ("rename", "patch", "/", {"path": "NewPath/file.txt"}, "NewPath/file.txt"),
+            ("link", "post", "/link", {"new_path": "Linked/file.txt"}, "Linked/file.txt"),
+        ]
+    )
+    def test_a_write_racing_a_delete_brings_no_row_back(
+        self, _name: str, method: str, suffix: str, body: dict[str, str], written_path: str
+    ) -> None:
+        file_obj = FileSystem.objects.create(
+            team=self.team, path="OldPath/file.txt", type="dashboard", ref="1", created_by=self.user
+        )
+        get_object = FileSystemViewSet.get_object
+
+        def read_then_lose_the_row(viewset: FileSystemViewSet) -> FileSystem:
+            instance = get_object(viewset)
+            FileSystem.objects.filter(pk=instance.pk).delete()
+            return instance
+
+        with patch.object(FileSystemViewSet, "get_object", read_then_lose_the_row):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{file_obj.pk}{suffix}", body
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path=written_path).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
+
+    def test_a_failed_create_keeps_none_of_its_parent_folders(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"path": "Brand/New/file", "type": "dashboard", "meta": {"note": "a\x00b"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Brand").exists())
 
     def test_delete_file(self):
         """

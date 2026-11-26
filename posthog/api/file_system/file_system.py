@@ -572,6 +572,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return list(locked.defer("meta") if without_meta else locked)
 
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        # The serializer creates the parent folders before the file, so a failed file insert must take them back.
+        with transaction.atomic():
+            super().perform_create(serializer)
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        instance = cast(FileSystem, serializer.instance)
+        with transaction.atomic():
+            # Saving the copy read before the lock would bring back a row a concurrent delete removed,
+            # or undo a concurrent move.
+            locked = self._lock_file_rows(Q(pk=instance.pk))
+            if not locked:
+                raise NotFound()
+            serializer.instance = locked[0]
+            super().perform_update(serializer)
+
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
 
@@ -1491,8 +1507,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 qs = self._scope_by_project_and_environment(qs)
                 qs = self._filter_by_access_control(qs)
+                children = self._lock_file_rows(
+                    Q(path__startswith=f"{instance.path}/", pk__in=list(qs.values_list("pk", flat=True)))
+                )
 
-                for file in qs:
+                for file in children:
                     file.pk = None  # This removes the id
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
@@ -1513,11 +1532,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.save()  # A new instance is created with a new id
 
         else:
-            instance.pk = None  # This removes the id
-            instance.path = new_path + instance.path[len(instance.path) :]
-            instance.depth = len(split_path(instance.path))
-            instance.shortcut = True
-            instance.save()  # A new instance is created with a new id
+            with transaction.atomic():
+                locked = self._lock_file_rows(Q(pk=instance.pk))
+                if not locked:
+                    raise NotFound()
+                instance = locked[0]
+                instance.pk = None  # This removes the id
+                instance.path = new_path
+                instance.depth = len(split_path(instance.path))
+                instance.shortcut = True
+                instance.save()  # A new instance is created with a new id
 
         return Response(
             FileSystemSerializer(instance).data,
