@@ -14,6 +14,7 @@ import type {
     AEOPromptStatsApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
+    AEOSetupContextApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 const EXAMPLE_PROMPT: AEOPromptApi = {
@@ -1014,5 +1015,26 @@ export const EXAMPLE_PROMPT_SET_SOURCES_RESPONSE = {
         ['community.example.org', 590, 0.24, 0],
         ['docs.example.net', 402, 0.163, 0],
         ['news.example.io', 233, 0.095, 0],
+    ],
+}
+
+export const EXAMPLE_SETUP_CONTEXT: AEOSetupContextApi = {
+    websites: [{ domain: 'hedgebox.net', source: 'own_brand', pageviews: null }],
+    own_domains: ['hedgebox.net'],
+    active_prompts: 20,
+    max_active_prompts: 100,
+    paused_prompts: 0,
+    keywords: 18,
+    has_checks: true,
+    checks_running: false,
+    ai_data_processing_approved: true,
+    first_run_available: true,
+    prompt_target: 20,
+    prompt_count_max: 50,
+    website_days: 7,
+    first_run_checks: [],
+    engines: [
+        { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+        { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
     ],
 }
