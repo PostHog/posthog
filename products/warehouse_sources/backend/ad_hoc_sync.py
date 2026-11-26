@@ -5,7 +5,7 @@ stage a reset first, cannot go through it. Operators reach this from "Trigger sy
 reaches it from the `resync_schemas_non_billable` management command. Those two share the sequence
 here so they cannot drift.
 
-The partition-tuning staff actions still hold their own copy in `SchemaStaffActions._pause_save_and_resync`. They stage
+The partition-tuning actions still hold their own copy in `logic/partitioning.py`. They stage
 arbitrary partition keys and skip the CDC re-snapshot, so folding them in would change their
 behavior rather than just their shape.
 """

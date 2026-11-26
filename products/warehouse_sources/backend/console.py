@@ -423,7 +423,10 @@ def _schema_id(request: HttpRequest) -> UUID:
 
 def repartition(request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
     assert isinstance(form, RepartitionForm)
-    return _report(request, repartition_schema_for_staff(_schema_id(request), form.request()))
+    return _report(
+        request,
+        repartition_schema_for_staff(_schema_id(request), form.request(), requested_by_id=request.user.pk),
+    )
 
 
 def trigger_sync(request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:

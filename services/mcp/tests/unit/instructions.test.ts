@@ -153,6 +153,7 @@ describe('buildToolDomainsBlock', () => {
             'refresh',
             'remove',
             'rename',
+            'repartition',
             'reset',
             'restore',
             'resume',

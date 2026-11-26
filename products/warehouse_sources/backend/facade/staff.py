@@ -70,8 +70,10 @@ def list_source_schemas_for_staff(source_id: UUID, page_number: str | None) -> S
     return SchemaStaffReads.source_schemas(source_id, page_number)
 
 
-def repartition_schema_for_staff(schema_id: UUID, request: RepartitionRequest) -> StaffActionResult:
-    return SchemaStaffActions.repartition(schema_id, request)
+def repartition_schema_for_staff(
+    schema_id: UUID, request: RepartitionRequest, *, requested_by_id: int | None = None
+) -> StaffActionResult:
+    return SchemaStaffActions.repartition(schema_id, request, requested_by_id=requested_by_id)
 
 
 def trigger_schema_sync_for_staff(schema_id: UUID, *, billable: bool, reset_pipeline: bool) -> StaffActionResult:

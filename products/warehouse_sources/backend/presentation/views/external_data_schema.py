@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 
@@ -17,6 +18,7 @@ from rest_framework.response import Response
 from posthog.hogql.database.database import Database
 
 from posthog.api.log_entries import LogEntryPagination, LogEntryRequestSerializer, log_entries_response
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -52,6 +54,9 @@ from products.warehouse_sources.backend.facade.contracts import (
     HistoryAccessRulesNotAllowedError,
     HistoryTableDropRefusedError,
     LegacyHistoryTableError,
+    PartitionPolicy,
+    RepartitionRefusal,
+    RepartitionRequest,
     UndecryptedConfigError,
 )
 from products.warehouse_sources.backend.facade.incremental_field_model import apply_stored_suggestion
@@ -78,6 +83,11 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
+)
+from products.warehouse_sources.backend.facade.partitioning import (
+    partitioning_controls_enabled_for_team,
+    partitioning_history,
+    stage_repartition,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
@@ -142,6 +152,15 @@ from products.warehouse_sources.backend.presentation.history_tracking import (
     report_history_change,
     report_history_table_deleted,
 )
+from products.warehouse_sources.backend.presentation.partitioning_serializers import (
+    PARTITION_POLICY_HELP_TEXT,
+    PartitioningHistorySerializer,
+    PartitioningSummarySerializer,
+    RepartitionErrorSerializer,
+    RepartitionSchemaRequestSerializer,
+    RepartitionSchemaResponseSerializer,
+    partitioning_summary,
+)
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SyncFrequencyField
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
@@ -193,6 +212,22 @@ def source_syncs_on_demand(source_type: str) -> bool:
         return False
     return source.syncs_on_demand is True
 
+
+PARTITIONING_CONTROLS_CONTEXT_KEY = "partitioning_controls_enabled"
+
+PARTITIONING_CONTROLS_UNAVAILABLE = "Partitioning controls are not available for this project yet."
+
+# 409 for limits that clear with time or when the running repartition ends, 503 for failures that a retry may fix.
+REPARTITION_REFUSAL_STATUS: dict[RepartitionRefusal, int] = {
+    RepartitionRefusal.INVALID_SCHEME: status.HTTP_400_BAD_REQUEST,
+    RepartitionRefusal.OVER_BUDGET: status.HTTP_400_BAD_REQUEST,
+    RepartitionRefusal.UNKNOWN_SIZE: status.HTTP_400_BAD_REQUEST,
+    RepartitionRefusal.UNSUPPORTED: status.HTTP_400_BAD_REQUEST,
+    RepartitionRefusal.BUSY: status.HTTP_409_CONFLICT,
+    RepartitionRefusal.COOLDOWN: status.HTTP_409_CONFLICT,
+    RepartitionRefusal.READ_FAILED: status.HTTP_503_SERVICE_UNAVAILABLE,
+    RepartitionRefusal.PAUSE_FAILED: status.HTTP_503_SERVICE_UNAVAILABLE,
+}
 
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
 WEBHOOK_ISSUES_CONTEXT_KEY = "webhook_issues"
@@ -1237,6 +1272,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         help_text="Name of the history table that keeps every version of each row, or `null` when the table "
         "keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.",
     )
+    partition_policy = serializers.ChoiceField(
+        choices=PartitionPolicy.choices, required=False, help_text=PARTITION_POLICY_HELP_TEXT
+    )
+    partitioning = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The table's current partitioning: scheme, size of the largest partition, whether the last "
+        "measurement found nothing to change, and when it was last repartitioned. Left out of the response "
+        "when the partitioning controls feature is off for the project.",
+    )
     drop_history_table = serializers.BooleanField(
         write_only=True,
         required=False,
@@ -1315,6 +1359,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "api_version",
             "api_version_deprecation",
             "user_access_level",
+            "partition_policy",
+            "partitioning",
         ]
 
         read_only_fields = [
@@ -1342,7 +1388,34 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "source",
             "api_version_deprecation",
             "user_access_level",
+            "partitioning",
         ]
+
+    def _partitioning_controls_enabled(self) -> bool:
+        # The context is shared by every row of a list, so the flag is evaluated once per request, and
+        # on the team the view already loaded. A serializer built outside the viewset has no team, and
+        # then the controls stay off.
+        if PARTITIONING_CONTROLS_CONTEXT_KEY not in self.context:
+            get_team = self.context.get("get_team")
+            self.context[PARTITIONING_CONTROLS_CONTEXT_KEY] = get_team is not None and (
+                partitioning_controls_enabled_for_team(get_team())
+            )
+        return self.context[PARTITIONING_CONTROLS_CONTEXT_KEY]
+
+    def validate_partition_policy(self, value: str) -> str:
+        instance = cast(Optional[ExternalDataSchema], self.instance)
+        # Clients send back the whole schema they read, so an unchanged value is not a change of policy.
+        if instance is None or value == instance.partition_policy:
+            return value
+        if not self._partitioning_controls_enabled():
+            raise ValidationError(
+                "Partitioning controls are not available for this project yet, so the partition policy can't be changed."
+            )
+        return value
+
+    @extend_schema_field(PartitioningSummarySerializer(allow_null=True))
+    def get_partitioning(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        return PartitioningSummarySerializer(partitioning_summary(schema)).data
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_history_table_name(self, schema: ExternalDataSchema) -> str | None:
@@ -1571,6 +1644,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def to_representation(self, instance: ExternalDataSchema) -> dict:
         ret = super().to_representation(instance)
+        if not self._partitioning_controls_enabled():
+            ret.pop("partitioning", None)
         try:
             ret["sync_type"] = resolve_sync_type(instance.sync_type)
         except UnsupportedSyncTypeError:
@@ -3238,8 +3313,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "delete_data",
         "delete_history_table",
         "destinations",
+        "repartition",
     ]
-    scope_object_read_actions = ["list", "retrieve", "logs"]
+    scope_object_read_actions = ["list", "retrieve", "logs", "partitioning"]
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
@@ -3495,6 +3571,122 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         mark_schema_running_unless_halted(instance)
         return Response(status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        summary="Partitioning history and sync speed for one table",
+        description=(
+            "Beta. Returns the table's current partitioning, its repartitions newest first, and sync stats "
+            "(job count, median and 90th percentile duration, median rows per second) for each layout the table "
+            "had. Jobs that ran a rewrite are left out of the stats, because their duration includes the rewrite."
+        ),
+        responses={
+            200: PartitioningHistorySerializer,
+            403: OpenApiResponse(
+                response=RepartitionErrorSerializer,
+                description="Partitioning controls are not available for this project.",
+            ),
+        },
+    )
+    @action(methods=["GET"], detail=True, filter_backends=[], pagination_class=None)
+    def partitioning(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+        if not partitioning_controls_enabled_for_team(self.team):
+            raise PermissionDenied(PARTITIONING_CONTROLS_UNAVAILABLE)
+        history = partitioning_history(instance.team_id, instance.id)
+        requester_ids = {row.requested_by_id for row in history.repartitions if row.requested_by_id is not None}
+        requesters = {user.id: user for user in User.objects.filter(id__in=requester_ids)} if requester_ids else {}
+        return Response(
+            PartitioningHistorySerializer(
+                {
+                    "summary": partitioning_summary(instance),
+                    "repartitions": [
+                        {
+                            **dataclasses.asdict(row),
+                            "requested_by": requesters.get(row.requested_by_id)
+                            if row.requested_by_id is not None
+                            else None,
+                        }
+                        for row in history.repartitions
+                    ],
+                    "sync_windows": history.sync_windows,
+                }
+            ).data
+        )
+
+    @validated_request(
+        request_serializer=RepartitionSchemaRequestSerializer,
+        responses={
+            202: OpenApiResponse(
+                response=RepartitionSchemaResponseSerializer,
+                description="The repartition is staged. The response says whether its run started now.",
+            ),
+            400: OpenApiResponse(
+                response=RepartitionErrorSerializer,
+                description="The scheme is invalid, its largest partition would be over the size limit, or its "
+                "partition sizes can't be predicted.",
+            ),
+            403: OpenApiResponse(
+                response=RepartitionErrorSerializer,
+                description="Partitioning controls are not available for this project.",
+            ),
+            409: OpenApiResponse(
+                response=RepartitionErrorSerializer,
+                description="A repartition is already queued or running, or the table was repartitioned in the "
+                "last 24 hours.",
+            ),
+        },
+        summary="Repartition one table now",
+        description=(
+            "Beta. Rewrites the table's synced data into the chosen partition scheme, in place, without "
+            "re-importing from the source. Starts a run now. The table's policy becomes `manual`, so PostHog keeps "
+            "the chosen layout. One repartition at a time per table, at most one a day."
+        ),
+    )
+    @action(methods=["POST"], detail=True)
+    def repartition(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+        if not partitioning_controls_enabled_for_team(self.team):
+            raise PermissionDenied(PARTITIONING_CONTROLS_UNAVAILABLE)
+        # The run imports new rows like any sync, so it gets the same billing limit gate as reload and resync.
+        if is_any_external_data_schema_paused(instance.team_id):
+            return Response(
+                {
+                    "detail": "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
+                    "code": RepartitionRefusal.UNSUPPORTED.value,
+                },
+                status=REPARTITION_REFUSAL_STATUS[RepartitionRefusal.UNSUPPORTED],
+            )
+        data = request.validated_data
+        outcome = stage_repartition(
+            instance.team_id,
+            instance.id,
+            RepartitionRequest(
+                partition_mode=data.get("partition_mode"),
+                partitioning_keys=tuple(data.get("partitioning_keys") or ()),
+                partition_format=data.get("partition_format"),
+                partition_count=data.get("partition_count"),
+                partition_size=data.get("partition_size"),
+            ),
+            trigger_reason="user",
+            # Service credentials act as a synthetic user with no row to point at.
+            requested_by_id=None if is_service_auth(request) else cast(User, request.user).pk,
+        )
+        if outcome.refusal is not None:
+            return Response(
+                {"detail": outcome.message, "code": outcome.refusal.value},
+                status=REPARTITION_REFUSAL_STATUS[outcome.refusal],
+            )
+        return Response(
+            RepartitionSchemaResponseSerializer(
+                {
+                    "message": outcome.message,
+                    "run_started": outcome.run_started,
+                    "partition_policy": outcome.partition_policy,
+                }
+            ).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         request=None,
