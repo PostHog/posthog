@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -81,12 +81,19 @@ function MonitoringMetricEvidence({
     now: number
 }): JSX.Element {
     const lead = summary.lead_check
-    const { reportChecks, reportChecksLoadFailed } = useValues(
-        monitoringRowLogic({ reportId: report.id, loadChecks: lead?.metric_id != null })
-    )
+    const logic = monitoringRowLogic({ reportId: report.id, loadChecks: lead?.metric_id != null })
+    const { reportChecks, reportChecksLoadFailed } = useValues(logic)
+    const { loadReportChecks } = useActions(logic)
 
     if (lead?.metric_id && reportChecks === null && !reportChecksLoadFailed) {
         return <LemonSkeleton className="h-36 w-full" />
+    }
+    if (reportChecksLoadFailed) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadReportChecks() }}>
+                Couldn't load the monitoring chart.
+            </LemonBanner>
+        )
     }
     const chart = monitoringMetricChart(summary, reportChecks, now)
     if (!chart) {

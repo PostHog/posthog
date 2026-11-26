@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -37,5 +38,32 @@ describe('MonitoringEvidence', () => {
         render(<MonitoringEvidence report={report} summary={summary} now={Date.parse(MONITORING_MOCK_NOW)} />)
 
         expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
+    })
+
+    it('shows a failed check load and loads the chart on retry', async () => {
+        const report = monitoringRows[3]!
+        const summary = report.monitoring_summary!
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [] },
+                '/api/projects/:team_id/signals/reports/:report_id/checks/': () => [500, {}],
+            },
+        })
+        initKeaTests()
+
+        render(<MonitoringEvidence report={report} summary={summary} now={Date.parse(MONITORING_MOCK_NOW)} />)
+
+        expect(await screen.findByText("Couldn't load the monitoring chart.")).toBeInTheDocument()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:report_id/checks/': {
+                    results: monitoringChecksForReport(report),
+                },
+            },
+        })
+        await userEvent.setup().click(screen.getAllByText('Retry')[0])
+
+        expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
+        expect(screen.queryByText("Couldn't load the monitoring chart.")).not.toBeInTheDocument()
     })
 })
