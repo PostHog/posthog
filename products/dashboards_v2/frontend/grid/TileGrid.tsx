@@ -84,6 +84,7 @@ export type TileGridProps = {
     width: number
     editable: boolean
     sizeOf: SizeOf
+    isLocked?: (tile: Tile) => boolean
     /** Draws a cell. Keep it stable: a new function re-renders every tile on each drag move. */
     renderTile: (tile: Tile, columnPx: number, onSectionRows: OnSectionRows) => ReactNode
     /** Looks up a tile carried in from another grid, so this grid can preview where it lands. */
@@ -94,7 +95,7 @@ export type TileGridProps = {
     onLiveRows?: (rows: number | null) => void
 }
 
-function toLayout(tiles: Tile[], sizeOf: SizeOf): Layout {
+function toLayout(tiles: Tile[], sizeOf: SizeOf, isLocked?: (tile: Tile) => boolean): Layout {
     return toPlacedItems(tiles, sizeOf).map((item, index) => {
         const tile = tiles[index]
         // A closed section is one row, so it is resized in width only. An open one can be made taller than its tiles
@@ -105,7 +106,13 @@ function toLayout(tiles: Tile[], sizeOf: SizeOf): Layout {
             }
             return { ...item, minH: contentRows(tile.panel), maxH: undefined, resizeHandles: ALL_HANDLES }
         }
-        return { ...item, minH: panelSize(tile.panel, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
+        const content = {
+            ...item,
+            minH: panelSize(tile.panel, sizeOf).minH,
+            maxH: undefined,
+            resizeHandles: ALL_HANDLES,
+        }
+        return isLocked?.(tile) ? { ...content, isDraggable: false, isResizable: false, resizeHandles: [] } : content
     })
 }
 
@@ -116,6 +123,7 @@ export function TileGrid({
     width,
     editable,
     sizeOf,
+    isLocked,
     renderTile,
     findCarried,
     onPlaceTiles,
@@ -159,10 +167,10 @@ export function TileGrid({
     }, [findCarried, tiles, cols, incoming, liveSectionRows, sizeOf])
     const layout = useMemo(
         () =>
-            toLayout(shownTiles, sizeOf).map((item) =>
+            toLayout(shownTiles, sizeOf, isLocked).map((item) =>
                 liveSectionRows[item.i] ? { ...item, minH: 1, maxH: undefined } : item
             ),
-        [shownTiles, liveSectionRows, sizeOf]
+        [shownTiles, liveSectionRows, sizeOf, isLocked]
     )
 
     const reportRows = useCallback(

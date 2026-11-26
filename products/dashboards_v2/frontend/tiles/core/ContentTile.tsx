@@ -26,6 +26,8 @@ import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from './tileAppearanc
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { isPartShown } from './tileParts'
 
+export const INTERACTIVE_ONLY_CLASS = 'dash-ContentTile--interactive-only'
+
 const NO_ACTIONS: MenuAction[] = []
 
 function cardLook(
@@ -84,7 +86,12 @@ export function ContentTile({
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
-                className={clsx('dash-ContentTile', look.className, editable && !showHeader && 'TileGrid__handle')}
+                className={clsx(
+                    'dash-ContentTile',
+                    look.className,
+                    editable && !showHeader && 'TileGrid__handle',
+                    definition?.showOnInteractiveOnly(panel) && INTERACTIVE_ONLY_CLASS
+                )}
                 style={look.style}
             >
                 {showHeader && (

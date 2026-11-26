@@ -30,6 +30,10 @@ export type PanelSpec<Config, Type extends string = string> = {
     /** The shape of `config` on panels of this type. Every saved config is checked against it before it is used. */
     configSchema: z.ZodType<Config>
     allowedCustomizations?: TileCustomization[]
+    /** Leaves the tile out of snapshots of the dashboard, such as an image or a printed page. */
+    showOnInteractiveOnly?(panel: ContentPanel<Config>): boolean
+    /** Locks the tile: a person cannot drag, resize, move or remove it. Other tiles can still push it down. */
+    locked?(panel: ContentPanel<Config>): boolean
 }
 
 /**
@@ -43,10 +47,16 @@ export type PanelTypeSpec<Type extends string = string> = {
     sizeOf: SizeOf
     configError(config: SavedPanel['config']): z.ZodError | null
     allowedCustomizations?: TileCustomization[]
+    showOnInteractiveOnly(panel: SavedPanel): boolean
+    locked(panel: SavedPanel): boolean
 }
 
 export function definePanelSpec<Config, const Type extends string>(spec: PanelSpec<Config, Type>): PanelTypeSpec<Type> {
-    const { configSchema, sizeFor } = spec
+    const { configSchema, sizeFor, showOnInteractiveOnly, locked } = spec
+    const checkParsed = (check: ((panel: ContentPanel<Config>) => boolean) | undefined, panel: SavedPanel): boolean => {
+        const config = parseOnce(configSchema, panel.config)
+        return !!check && config.success && check({ ...panel, config: config.data })
+    }
     return {
         type: spec.type,
         size: spec.size,
@@ -59,6 +69,8 @@ export function definePanelSpec<Config, const Type extends string>(spec: PanelSp
             return result.success ? null : result.error
         },
         allowedCustomizations: spec.allowedCustomizations,
+        showOnInteractiveOnly: (panel) => checkParsed(showOnInteractiveOnly, panel),
+        locked: (panel) => checkParsed(locked, panel),
     }
 }
 

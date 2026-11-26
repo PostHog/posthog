@@ -3,6 +3,7 @@ import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
 
 import type { MenuAction } from '../../menu/menuAction'
+import { INTERACTIVE_ONLY_CLASS } from '../../tiles/core/ContentTile'
 
 export type ImageFormat = 'png' | 'webp'
 
@@ -11,8 +12,7 @@ export const IMAGE_FORMATS: { format: ImageFormat; label: string }[] = [
     { format: 'webp', label: 'WebP' },
 ]
 
-const LEFT_OUT =
-    '.TileActions, .react-resizable-handle, .TileGrid__drop-preview, .DashboardActions, [data-attr="dashboard-v2-add-tab"]'
+const LEFT_OUT = `.TileActions, .${INTERACTIVE_ONLY_CLASS}, .react-resizable-handle, .TileGrid__drop-preview, .DashboardActions, [data-attr="dashboard-v2-add-tab"]`
 const NOT_READY = '.DashboardTileGrid__placeholder, [aria-busy="true"]'
 const READY_TIMEOUT_MS = 20000
 const POLL_MS = 100

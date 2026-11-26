@@ -163,6 +163,29 @@ A chart's query and its drawing are separate: `config.viz.type` picks a kind of 
 Add a kind when your product needs a chart no built-in kind draws, such as a heatmap with its own latency buckets. `DEFAULT_VIZ_TYPES` in `panels/chart/createChartPanel.tsx` lists the built-in kinds.
 Add a panel type instead only when the content is not a query result, such as a list of traces with its own loading. Use `/adding-dashboard-v2-panel-types` for that.
 
+## Your own component in a tile
+
+Use `/adding-dashboard-v2-custom-content` to add one or to migrate an existing component.
+
+To show your product's own React components in tiles, put them in a content package in your product's own folder, pass `createCustomPanel({ packages })` in the panel list, and name a content in the tile's `config.content` as `<namespace>/<name>`:
+
+```ts
+// products/web_analytics/frontend/dashboard/webAnalyticsContents.ts
+export const webAnalyticsContents = defineContentPackage('web-analytics', {
+  'browser-filter': { Component: BrowserFilter, size: { w: 8, h: 8, minW: 6, minH: 6 } },
+})
+
+const panels = [createChartPanel({ runQuery }), createCustomPanel({ packages: [webAnalyticsContents] })]
+// A tile names it as { type: 'custom', config: { content: 'web-analytics/browser-filter' } }
+```
+
+- Documents save the full name, so renaming a namespace or a content breaks saved dashboards.
+- Two packages with one namespace throw when the panel type is made.
+- Load each `Component` with `React.lazy`, so code that only checks documents never loads it.
+- A content is locked by default: it has no menu entries and cannot be dragged, resized, moved or removed. Set `movable` or `menuActions` to opt in.
+- Set `showOnInteractiveOnly` to leave the tile out of images and printed pages.
+- A component reads the dashboard's filters from `FiltersContext`, and changes them through the controllers in `FilterControlsContext`.
+
 Split the kind in two files, as `panels/chart/viz/metric/` does. The spec has no component, so code outside the browser can validate a document without loading React.
 
 ```ts
