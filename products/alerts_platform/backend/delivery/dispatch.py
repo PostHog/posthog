@@ -12,6 +12,7 @@ from datetime import UTC
 from django.utils import timezone
 
 import structlog
+import temporalio.activity
 
 from products.alerts_platform.backend.delivery import incident_io, pagerduty
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
@@ -20,6 +21,7 @@ from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import Opening, ThreadBusy, ThreadKey, ThreadStore
 from products.alerts_platform.backend.delivery.transport import (
+    FAILURE_OWNERS,
     DeliveryAmbiguous,
     DeliveryError,
     DeliveryTransport,
@@ -29,6 +31,7 @@ from products.alerts_platform.backend.delivery.transport import (
     RefusedEverywhere,
     RootEditor,
     RootImageEditor,
+    failure_reason,
 )
 from products.alerts_platform.backend.facade.contracts import (
     NO_LATE_IMAGE,
@@ -231,14 +234,7 @@ def _send(
             succeeded=False,
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
-        outcome: DeliveryOutcomeLabel
-        if _recorded_as_delivered(error, transport.provider):
-            outcome = "ambiguous"
-        elif isinstance(error, DestinationMisconfigured):
-            outcome = "misconfigured"
-        else:
-            outcome = "failed"
-        safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
+        count_failed_send(message.source.value, transport.provider, error)
         if isinstance(error, DestinationRefused):
             notify_refused(
                 team_id=team_id,
@@ -259,6 +255,44 @@ def _send(
     safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, "sent")
     safe_record(record_delivery_lag, message.source.value, transport.provider, _lag_ms(message.transition))
     return sent
+
+
+def count_failed_send(source: str, provider: str, error: Exception, count: int = 1) -> None:
+    """Counts a failed send by why it failed, who acts on it, and whether a retry follows.
+
+    `final` is false while the activity has attempts left for this error. A retry after a held
+    thread runs the delivery again with fresh attempts, so `final` is per activity run.
+    """
+    outcome: DeliveryOutcomeLabel
+    if _recorded_as_delivered(error, provider):
+        outcome = "ambiguous"
+    elif isinstance(error, DestinationMisconfigured):
+        outcome = "misconfigured"
+    else:
+        outcome = "failed"
+    reason = failure_reason(error)
+    final = outcome != "failed" or _last_attempt()
+    safe_record(
+        increment_deliveries,
+        source,
+        provider,
+        DeliveryPath.NATIVE.value,
+        outcome,
+        count,
+        reason=reason,
+        owner=FAILURE_OWNERS[reason],
+        final=final,
+    )
+
+
+def _last_attempt() -> bool:
+    # A web process sends inline, outside any worker, and nothing retries it.
+    if not temporalio.activity.in_activity():
+        return True
+    info = temporalio.activity.info()
+    # Zero attempts, or no policy, is Temporal's unlimited retry.
+    maximum = info.retry_policy.maximum_attempts if info.retry_policy else 0
+    return 0 < maximum <= info.attempt
 
 
 def _lag_ms(transition: AnnouncedTransition) -> int:

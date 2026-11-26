@@ -20,7 +20,7 @@ import hashlib
 from typing import Any, Final
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest, post_json, rfc3339
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
@@ -75,7 +75,7 @@ def dedup_key(message: AlertMessage) -> str:
 
 def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDutySeverity) -> dict[str, Any]:
     if message.incident_action is None:
-        raise DeliveryError("A PagerDuty destination receives only incident events.")
+        raise DeliveryError("A PagerDuty destination receives only incident events.", reason="platform_bug")
     body: dict[str, Any] = {
         "routing_key": routing_key,
         "event_action": message.incident_action.value,
@@ -124,12 +124,12 @@ class PagerDutyTransport:
     ) -> MessageHandle | None:
         routing_key = target.get("pagerduty_routing_key")
         if not routing_key:
-            raise DeliveryError("This PagerDuty destination has no integration key.")
+            raise DestinationMisconfigured("This PagerDuty destination has no integration key.")
         try:
             region = PagerDutyRegion(target.get("pagerduty_region") or DEFAULT_PAGERDUTY_REGION)
             severity = PagerDutySeverity(target.get("pagerduty_severity") or DEFAULT_PAGERDUTY_SEVERITY)
         except ValueError:
-            raise DeliveryError("This PagerDuty destination has an unknown region or severity.") from None
+            raise DestinationMisconfigured("This PagerDuty destination has an unknown region or severity.") from None
         body = pagerduty_body(message, routing_key=routing_key, severity=severity)
         post_json(
             ENDPOINTS[region],

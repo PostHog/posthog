@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
+from temporalio.common import RetryPolicy
 from temporalio.testing import ActivityEnvironment
 
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -315,7 +316,15 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [handle for _, handle in later.sends] == [None]
 
     def test_a_send_outside_a_worker_is_counted_in_the_process_registry(self) -> None:
-        labels = {"source": "logs", "provider": "fake", "path": "native", "outcome": "sent"}
+        labels = {
+            "source": "logs",
+            "provider": "fake",
+            "path": "native",
+            "outcome": "sent",
+            "reason": "",
+            "owner": "",
+            "final": "",
+        }
         before = REGISTRY.get_sample_value("alerts_platform_deliveries_total", labels) or 0
         lag_before = (
             REGISTRY.get_sample_value("alerts_platform_delivery_lag_ms_count", {"source": "logs", "provider": "fake"})
@@ -332,19 +341,73 @@ class TestDeliveryDispatch(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("outage", ConnectionError("slack unreachable"), "ConnectionError", "failed"),
-            ("misconfigured", DestinationMisconfigured("not_in_channel"), "not_in_channel", "misconfigured"),
+            # attempt None sends inline, outside any worker, where nothing retries.
+            (
+                "outage inline",
+                ConnectionError("slack unreachable"),
+                None,
+                "ConnectionError",
+                "failed",
+                "unreachable",
+                "transient",
+                "true",
+            ),
+            (
+                "outage with retries left",
+                ConnectionError("slack unreachable"),
+                1,
+                "ConnectionError",
+                "failed",
+                "unreachable",
+                "transient",
+                "false",
+            ),
+            (
+                "outage on the last attempt",
+                ConnectionError("slack unreachable"),
+                3,
+                "ConnectionError",
+                "failed",
+                "unreachable",
+                "transient",
+                "true",
+            ),
+            (
+                "rejected body",
+                DeliveryError("status 400", reason="rejected_body"),
+                1,
+                "status 400",
+                "failed",
+                "rejected_body",
+                "posthog",
+                "false",
+            ),
+            (
+                "misconfigured",
+                DestinationMisconfigured("not_in_channel"),
+                1,
+                "not_in_channel",
+                "misconfigured",
+                "destination_config",
+                "destination",
+                "true",
+            ),
         ]
     )
     def test_a_failed_send_is_counted_by_whose_fix_it_is(
-        self, _name: str, error: Exception, logged: str, outcome: str
+        self,
+        _name: str,
+        error: Exception,
+        attempt: int | None,
+        logged: str,
+        outcome: str,
+        reason: str,
+        owner: str,
+        final: str,
     ) -> None:
         transport = FakeTransport(error=error)
 
-        with (
-            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded,
-            recorded_metrics() as metrics,
-        ):
+        def send() -> None:
             with pytest.raises(type(error)):
                 deliver(
                     transport=transport,
@@ -357,10 +420,31 @@ class TestDeliveryDispatch(SimpleTestCase):
                     announcement=_announcement(),
                 )
 
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded,
+            recorded_metrics() as metrics,
+        ):
+            if attempt is None:
+                send()
+            else:
+                activity = ActivityEnvironment()
+                activity.info = replace(activity.info, attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=3))
+                activity.run(send)
+
         assert recorded.call_args.kwargs["succeeded"] is False
         # An outage's text can carry a credential URL, so only its class reaches the person's log.
         assert recorded.call_args.kwargs["error"] == logged
-        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
+        assert [m.attributes for m in metrics if m.name == "alerts_platform_deliveries_total"] == [
+            {
+                "source": "logs",
+                "provider": "fake",
+                "path": "native",
+                "outcome": outcome,
+                "reason": reason,
+                "owner": owner,
+                "final": final,
+            }
+        ]
 
     def test_a_refusal_is_noticed_and_counted_as_the_destination_owners_fix(self) -> None:
         refusal = DestinationRefused("The webhook destination refused the message with status 400.")

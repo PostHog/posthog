@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from posthog.slack.channels import clip_text
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, transition_delivery_key
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind
 from products.notifications.backend.facade.api import (
@@ -58,10 +58,12 @@ class InAppTransport:
     ) -> MessageHandle | None:
         user_ids = target.get("in_app_user_ids") or []
         if not user_ids:
-            raise DeliveryError("This in-app destination has no recipients.")
+            raise DestinationMisconfigured("This in-app destination has no recipients.")
         notification_type = _NOTIFICATION_TYPES.get(message.transition.kind.delivered_as)
         if notification_type is None:
-            raise DeliveryError(f"In-app notifications have no type for {message.transition.kind.value} alerts.")
+            raise DeliveryError(
+                f"In-app notifications have no type for {message.transition.kind.value} alerts.", reason="platform_bug"
+            )
         key = transition_delivery_key(message)
         raw_resource_type = target.get("in_app_resource_type")
         resource_type = cast(NotificationResourceType, raw_resource_type) if raw_resource_type else None

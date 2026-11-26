@@ -226,19 +226,22 @@ class TestWebhookTransport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("bad request", 400, True),
-            ("gone", 410, True),
-            ("request timeout", 408, False),
-            ("rate limited", 429, False),
-            ("server error", 503, False),
+            ("bad request", 400, True, "refused"),
+            ("gone", 410, True, "refused"),
+            ("request timeout", 408, False, "rate_limited"),
+            ("rate limited", 429, False, "rate_limited"),
+            ("server error", 503, False, "provider_error"),
         ]
     )
-    def test_only_a_client_error_a_retry_cannot_fix_is_a_refusal(self, _name: str, status: int, refused: bool) -> None:
+    def test_only_a_client_error_a_retry_cannot_fix_is_a_refusal(
+        self, _name: str, status: int, refused: bool, reason: str
+    ) -> None:
         with pinned_post(status):
             with pytest.raises(DeliveryError) as raised:
                 WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
 
         assert isinstance(raised.value, DestinationRefused) is refused
+        assert raised.value.reason == reason
 
     @parameterized.expand(
         [

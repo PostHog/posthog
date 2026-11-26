@@ -33,7 +33,9 @@ from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_L
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryAmbiguous,
     DeliveryError,
+    DestinationMisconfigured,
     DestinationRefused,
+    FailureReason,
     MessageHandle,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -216,12 +218,24 @@ _MISCONFIGURED_ERRORS: Final = {
     ),
 }
 
+# Slack's codes for a failure on its side, which a later attempt can get past. Any other code it
+# answers is a refusal that needs a look from PostHog.
+_TRANSIENT_ERRORS: Final[dict[str, FailureReason]] = {
+    "ratelimited": "rate_limited",
+    "internal_error": "provider_error",
+    "fatal_error": "provider_error",
+    "service_unavailable": "provider_error",
+    "request_timeout": "provider_error",
+}
+
 
 def _slack_refusal(code: Any, refused: str) -> DeliveryError:
     """The code stays in the text, so a refusal can be searched for in the worker's logs."""
     misconfigured = _MISCONFIGURED_ERRORS.get(code)
     if misconfigured is None:
-        return DeliveryError(f"Slack refused the {refused}: {code}")
+        return DeliveryError(
+            f"Slack refused the {refused}: {code}", reason=_TRANSIENT_ERRORS.get(code, "provider_refused")
+        )
     explanation, remedy = misconfigured
     return DestinationRefused(f"Slack refused the {refused}: {code}. {explanation}", remedy=remedy)
 
@@ -305,7 +319,7 @@ class SlackTransport:
         workspace_id = target.get("slack_workspace_id")
         channel = target.get("slack_channel_id")
         if workspace_id is None or channel is None:
-            raise DeliveryError("This Slack destination is missing its workspace or channel.")
+            raise DestinationMisconfigured("This Slack destination is missing its workspace or channel.")
 
         slack = SlackIntegration(
             self._integration(team_id=team_id, workspace_id=workspace_id),
@@ -347,7 +361,9 @@ class SlackTransport:
             ) from error
         timestamp = response.get("ts")
         if not timestamp:
-            raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
+            raise DeliveryError(
+                "Slack accepted the message but returned no timestamp to reply to.", reason="provider_error"
+            )
         root_content = None
         if in_reply_to is None:
             root_content = {"blocks": content.blocks, "text": content.text}
@@ -379,7 +395,7 @@ class SlackTransport:
         A slot that already holds an image is left as it is, so a retried edit changes nothing.
         """
         if not root.root_content:
-            raise DeliveryError("This Slack conversation has no opening message to edit.")
+            raise DeliveryError("This Slack conversation has no opening message to edit.", reason="platform_bug")
         slot = _image_slot(root.root_content)
         if slot is None:
             return None
@@ -409,7 +425,7 @@ class SlackTransport:
         channel = root.external_ref.get("channel")
         ts = root.external_ref.get("ts")
         if workspace_id is None or not channel or not ts or not root.root_content:
-            raise DeliveryError("This Slack conversation has no opening message to edit.")
+            raise DeliveryError("This Slack conversation has no opening message to edit.", reason="platform_bug")
         # An edit timeout is not ambiguous: `chat.update` sets the same content again on a retry,
         # and dispatch counts a failed state edit without failing the send.
         slack = SlackIntegration(
@@ -465,4 +481,4 @@ class SlackTransport:
         try:
             return IntegrationManager.slack.oauth.get(team_id, workspace_id)
         except IntegrationNotFound as error:
-            raise DeliveryError("The Slack workspace for this alert is not connected.") from error
+            raise DestinationMisconfigured("The Slack workspace for this alert is not connected.") from error

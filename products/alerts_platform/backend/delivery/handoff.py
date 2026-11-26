@@ -91,7 +91,7 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
     )
     if current is None and any(target.send.gained for target in targets):
         # Unreadable flags would read as no routed receivers and drop every routed trigger for good.
-        raise DeliveryError("Could not read whether this team routes alerts.")
+        raise DeliveryError("Could not read whether this team routes alerts.", reason="platform_read")
     targets = [target for target in targets if _still_owed(target, current, still_firing)]
     announced = opening_transitions(
         request.team_id,

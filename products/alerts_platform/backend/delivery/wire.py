@@ -17,7 +17,12 @@ from urllib3.exceptions import ProtocolError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
-from products.alerts_platform.backend.delivery.transport import DeliveryAmbiguous, DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationRefused,
+    FailureReason,
+)
 
 # Request Timeout and Too Many Requests: the destination accepts this request at another time.
 _RETRYABLE_CLIENT_ERRORS: Final = frozenset({408, 429})
@@ -96,7 +101,8 @@ def post_json(
             response.close()
     except SSRFBlockedError:
         raise DeliveryError(
-            f"The {display_name} destination URL points to an address PostHog does not send to."
+            f"The {display_name} destination URL points to an address PostHog does not send to.",
+            reason="blocked_address",
         ) from None
     except requests.RequestException as error:
         # Only the class name, and `from None` to keep the original out of the failure chain:
@@ -106,12 +112,23 @@ def post_json(
                 f"The {display_name} destination's answer was lost, so the message may have arrived: "
                 f"{type(error).__name__}"
             ) from None
-        raise DeliveryError(f"The {display_name} destination could not be reached: {type(error).__name__}") from None
+        raise DeliveryError(
+            f"The {display_name} destination could not be reached: {type(error).__name__}", reason="unreachable"
+        ) from None
     if not 200 <= status < 300:
         refusal = f"The {display_name} destination refused the message with status {status}."
         if refused:
             raise DestinationRefused(refusal)
-        raise DeliveryError(refusal)
+        raise DeliveryError(refusal, reason=_unrefused_status_reason(status))
+
+
+def _unrefused_status_reason(status: int) -> FailureReason:
+    if status >= 500:
+        return "provider_error"
+    if status in _RETRYABLE_CLIENT_ERRORS:
+        return "rate_limited"
+    # A 4xx the owner cannot fix rejects the body PostHog built.
+    return "rejected_body"
 
 
 def _maybe_received(error: requests.RequestException) -> bool:

@@ -232,16 +232,16 @@ class TestSlackTransport(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("not_in_channel", True),
-            ("account_inactive", True),
-            ("is_archived", True),
-            ("channel_not_found", True),
-            ("missing_scope", False),
-            ("ratelimited", False),
-            ("internal_error", False),
+            ("not_in_channel", True, "refused"),
+            ("account_inactive", True, "refused"),
+            ("is_archived", True, "refused"),
+            ("channel_not_found", True, "refused"),
+            ("missing_scope", False, "provider_refused"),
+            ("ratelimited", False, "rate_limited"),
+            ("internal_error", False, "provider_error"),
         ]
     )
-    def test_a_refusal_from_slack_becomes_a_delivery_error(self, code: str, misconfigured: bool) -> None:
+    def test_a_refusal_from_slack_becomes_a_delivery_error(self, code: str, misconfigured: bool, reason: str) -> None:
         with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
             slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError(code, {"error": code})
             with pytest.raises(DeliveryError) as refused:
@@ -249,6 +249,7 @@ class TestSlackTransport(APIBaseTest):
 
         assert isinstance(refused.value, DestinationMisconfigured) is misconfigured
         assert isinstance(refused.value, DestinationRefused) is misconfigured
+        assert refused.value.reason == reason
 
     @parameterized.expand(
         [

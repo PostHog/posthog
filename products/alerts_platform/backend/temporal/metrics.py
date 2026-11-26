@@ -301,7 +301,11 @@ _DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition a
 # the same family declared twice makes Prometheus reject the worker's whole scrape.
 @cache
 def _inline_deliveries() -> Counter:
-    return Counter("alerts_platform_deliveries", _DELIVERIES_DESCRIPTION, ["source", "provider", "path", "outcome"])
+    return Counter(
+        "alerts_platform_deliveries",
+        _DELIVERIES_DESCRIPTION,
+        ["source", "provider", "path", "outcome", "reason", "owner", "final"],
+    )
 
 
 @cache
@@ -314,7 +318,17 @@ def _inline_delivery_lag() -> Histogram:
     )
 
 
-def increment_deliveries(source: str, provider: str, path: str, outcome: DeliveryOutcomeLabel, count: int = 1) -> None:
+def increment_deliveries(
+    source: str,
+    provider: str,
+    path: str,
+    outcome: DeliveryOutcomeLabel,
+    count: int = 1,
+    *,
+    reason: str = "",
+    owner: str = "",
+    final: bool | None = None,
+) -> None:
     """What happened to each transition a delivery carried, per destination provider.
 
     `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
@@ -322,12 +336,18 @@ def increment_deliveries(source: str, provider: str, path: str, outcome: Deliver
     only reading that says alerts reach people. `misconfigured` is a refusal only the destination's
     owner can fix, so it stays out of `failed`, which measures the platform. `ambiguous` is a send
     whose answer was lost after the request went out, recorded as delivered rather than retried.
+
+    A failed send also carries `reason`, `owner` and `final`, so a rising `failed` says why, who
+    acts on it, and whether a retry still follows.
     """
     labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
+    if final is not None:
+        labels |= {"reason": reason, "owner": owner, "final": str(final).lower()}
     try:
         meter = get_metric_meter(labels)
     except RuntimeError:
-        _inline_deliveries().labels(**labels).inc(count)
+        # The registry's counter declares every label, and an empty value reads as no label.
+        _inline_deliveries().labels(**{"reason": "", "owner": "", "final": "", **labels}).inc(count)
         return
     meter.create_counter("alerts_platform_deliveries_total", _DELIVERIES_DESCRIPTION).add(count)
 

@@ -17,7 +17,7 @@ from typing import Any, Final
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import dedup_key
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest, post_json
 from products.alerts_platform.backend.facade.contracts import (
     INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE,
@@ -55,7 +55,7 @@ def endpoint(alert_source_config_id: str) -> str:
 
 def incident_io_body(message: AlertMessage) -> dict[str, Any]:
     if message.incident_action is None:
-        raise DeliveryError("An incident.io destination receives only incident events.")
+        raise DeliveryError("An incident.io destination receives only incident events.", reason="platform_bug")
     body: dict[str, Any] = {
         "title": message.headline,
         "status": _STATUSES[message.incident_action],
@@ -94,7 +94,7 @@ class IncidentIoTransport:
         config_id = target.get("incident_io_alert_source_config_id") or ""
         secret = target.get("incident_io_secret")
         if not INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE.fullmatch(config_id) or not secret:
-            raise DeliveryError("This incident.io destination has no valid alert source ID or secret.")
+            raise DestinationMisconfigured("This incident.io destination has no valid alert source ID or secret.")
         post_json(
             endpoint(config_id),
             incident_io_body(message),
