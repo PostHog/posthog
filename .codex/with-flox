@@ -245,6 +245,10 @@ if [[ "$prepare" -eq 0 ]]; then
     runtime_env+=("TMPDIR=${TMPDIR:-/tmp}")
     runtime_env+=("USER=${USER:-}")
     protected_environment_names+=(CARGO_TARGET_DIR HOME LANG LOGNAME PYTEST_ADDOPTS SCCACHE_DIR SHELL TMPDIR USER)
+    if [[ -n "${CODER+x}" || -n "${CODER_WORKSPACE_ID:-}" ]]; then
+        runtime_env+=("CODER=1")
+        protected_environment_names+=(CODER)
+    fi
     if [[ -n "${CODEX_SANDBOX:-}" ]]; then
         runtime_env+=("CODEX_SANDBOX=$CODEX_SANDBOX")
         protected_environment_names+=(CODEX_SANDBOX)

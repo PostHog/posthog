@@ -19212,6 +19212,10 @@
                     "key": "description"
                 },
                 {
+                    "param": "color",
+                    "key": "color"
+                },
+                {
                     "param": "filters",
                     "key": "filters"
                 },
@@ -19323,6 +19327,10 @@
                 {
                     "param": "description",
                     "key": "description"
+                },
+                {
+                    "param": "color",
+                    "key": "color"
                 },
                 {
                     "param": "filters",

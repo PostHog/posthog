@@ -99,7 +99,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     enabled_flag="error-tracking-issue-tag-blocks-checkout",
     taggers=(),
 )
-OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag")
+OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag", color="teal")
 THIRD_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="third_tag", label="Third tag")
 
 
@@ -1407,6 +1407,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "key": definition.key,
                 "label": definition.label,
                 "description": definition.description,
+                "color": definition.color,
                 "source": None,
             }
 

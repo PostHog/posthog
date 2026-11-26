@@ -25,7 +25,6 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.cohort import CohortSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import DefaultLimitOffsetPagination, FacadeLimitOffsetPagination, facade_page_response
@@ -47,6 +46,8 @@ from posthog.permissions import (
     is_scout_sandbox_request,
     is_service_auth,
     posthog_feature_flag_enabled,
+    request_subject,
+    resource_for_ref,
 )
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -75,8 +76,13 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.enums import Action
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade import experiments as experiments_facade
+from products.experiments.backend.facade import (
+    experiments as experiments_facade,
+    lifecycle,
+)
 from products.experiments.backend.facade.api import (
     get_experiment_health,
     get_latest_recalculation,
@@ -92,8 +98,10 @@ from products.experiments.backend.facade.contracts import (
     BaselineStats,
     ExperimentBasic,
     ExperimentDetail,
+    ExperimentHandle,
     ExperimentHealthReaderAccess,
     ExperimentListFilters,
+    ExperimentNotFound,
     ExperimentSessionBucket,
     ExperimentVersionConflict,
     LegacyMigrationError,
@@ -127,10 +135,7 @@ from products.experiments.backend.facade.sessions import (
     get_session_experiment_contexts,
 )
 from products.experiments.backend.facade.setup_context import build_setup_context
-from products.experiments.backend.facade.warehouse_native_access import (
-    validate_warehouse_native_connection_access,
-    warehouse_native_connection_id,
-)
+from products.experiments.backend.facade.warehouse_native_access import validate_warehouse_native_connection_access
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
@@ -512,12 +517,15 @@ class EnterpriseExperimentsViewSet(
             return ExperimentBasicSerializer
         return ExperimentSerializer
 
-    def read_object(self) -> ExperimentDetail | None:
-        if self.action != "retrieve":
+    def read_object(self) -> ExperimentDetail | ExperimentHandle | None:
+        if self.action == "retrieve":
+            return experiments_facade.get_experiment(team=self.team, experiment_id=self.kwargs["pk"])
+        # NotImplementedError makes get_object() fall back to the queryset, which gives the update its model.
+        if self.action in ("update", "partial_update"):
             raise NotImplementedError()
-        return experiments_facade.get_experiment(team=self.team, experiment_id=self.kwargs["pk"])
+        return experiments_facade.get_experiment_handle(team=self.team, experiment_id=self.kwargs["pk"])
 
-    def object_access_ref(self, record: ExperimentDetail) -> ObjectAccessRef:
+    def object_access_ref(self, record: ExperimentDetail | ExperimentHandle) -> ObjectAccessRef:
         return ObjectAccessRef(
             resource="experiment", id=str(record.id), team_id=self.team.id, created_by_id=record.created_by_id
         )
@@ -555,6 +563,8 @@ class EnterpriseExperimentsViewSet(
             if exc.conflicting_metric_uuids:
                 body["conflicting_metric_uuids"] = exc.conflicting_metric_uuids
             return Response(body, status=409)
+        if isinstance(exc, ExperimentNotFound):
+            exc = NotFound()
         if isinstance(exc, WarehouseNativeResultAccessDenied):
             exc = PermissionDenied(exc.detail)
         # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
@@ -622,10 +632,6 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "in_session_exposure", "session_buckets", "session_event_deltas"):
-            # The facade reads the experiment again with the joins it needs, so the object lookup here
-            # only checks access.
-            queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
         service = ExperimentService(team=self.team, user=getattr(request, "user", None))
         return service.filter_experiments_queryset(
             queryset,
@@ -758,9 +764,13 @@ class EnterpriseExperimentsViewSet(
         Returns 400 if the experiment has already been launched or if the feature flag
         configuration is invalid (e.g. fewer than 2 variants).
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        launched_experiment = service.launch_experiment(experiment, request=request)
+        experiment: ExperimentHandle = self.get_object()
+        launched_experiment = lifecycle.launch_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            request_context={"request": request},
+        )
         return self._experiment_response(launched_experiment.id)
 
     @extend_schema(
@@ -780,15 +790,16 @@ class EnterpriseExperimentsViewSet(
         archive it. Returns 400 if the experiment is already archived or has not
         ended yet.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         request_serializer = ArchiveExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        service = ExperimentService(team=self.team, user=request.user)
-        archived_experiment = service.archive_experiment(
-            experiment,
+        archived_experiment = lifecycle.archive_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
             disable_feature_flag=request_serializer.validated_data["disable_feature_flag"],
             can_write_feature_flag=self._token_can_write_feature_flag(request),
-            request=request,
+            request_context={"request": request},
         )
         return self._experiment_response(archived_experiment.id)
 
@@ -804,12 +815,13 @@ class EnterpriseExperimentsViewSet(
         Restores the experiment to the default list view. Returns 400 if the
         experiment is not currently archived.
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        unarchived_experiment = service.unarchive_experiment(
-            experiment,
+        experiment: ExperimentHandle = self.get_object()
+        unarchived_experiment = lifecycle.unarchive_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
             can_write_feature_flag=self._token_can_write_feature_flag(request),
-            request=request,
+            request_context={"request": request},
         )
         return self._experiment_response(unarchived_experiment.id)
 
@@ -845,7 +857,7 @@ class EnterpriseExperimentsViewSet(
 
         Returns 400 if the experiment is not running.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         refuse_scout_cleanup_pr(
@@ -853,15 +865,16 @@ class EnterpriseExperimentsViewSet(
         )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
-        service = ExperimentService(team=self.team, user=request.user)
-        ended_experiment = service.end_experiment(
-            experiment,
+        ended_experiment = lifecycle.end_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             repository=request_serializer.validated_data.get("repository"),
             set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
-            request=request,
+            request_context={"request": request},
         )
         return self._experiment_response(ended_experiment.id)
 
@@ -898,7 +911,7 @@ class EnterpriseExperimentsViewSet(
         refuse_scout_ship_variant_without_flag_write(
             is_scout_sandbox_request(request), can_write_feature_flag=self._token_can_write_feature_flag(request)
         )
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         refuse_scout_cleanup_pr(
@@ -906,9 +919,10 @@ class EnterpriseExperimentsViewSet(
         )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
-        service = ExperimentService(team=self.team, user=request.user)
-        shipped_experiment = service.ship_variant(
-            experiment,
+        shipped_experiment = lifecycle.ship_variant(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
             variant_key=request_serializer.validated_data["variant_key"],
             release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
@@ -916,7 +930,7 @@ class EnterpriseExperimentsViewSet(
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             repository=request_serializer.validated_data.get("repository"),
             set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
-            request=request,
+            request_context={"request": request},
         )
         return self._experiment_response(shipped_experiment.id)
 
@@ -934,7 +948,7 @@ class EnterpriseExperimentsViewSet(
         returns that task's latest run status and the PR URL once one is opened. Poll
         until is_terminal is true. Returns 404 when no cleanup task was opened.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         if not experiment.flag_cleanup_task_id:
             raise NotFound("No flag cleanup task was opened for this experiment.")
         # Read through the facade rather than the tasks API: cleanup tasks are creator-visible
@@ -981,9 +995,10 @@ class EnterpriseExperimentsViewSet(
         has several repositories and none is saved (source=ambiguous), pass one via
         `repository` on end/ship_variant.
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        target = service.get_cleanup_repository_target(experiment)
+        experiment: ExperimentHandle = self.get_object()
+        target = experiments_facade.get_flag_cleanup_target(
+            team=self.team, user=cast(User, request.user), experiment_id=experiment.id
+        )
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
 
     @validated_request(
@@ -1165,7 +1180,7 @@ class EnterpriseExperimentsViewSet(
         now. A check that needs exposures, a calculation or a flag change keeps the reason
         "Runs after launch".
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         # The checks read the stored results and the exposure counts, which came from the warehouse.
         _check_warehouse_native_result_access(experiment, self.team, request.user)
         health = get_experiment_health(
@@ -1177,7 +1192,7 @@ class EnterpriseExperimentsViewSet(
         )
         return Response(ExperimentHealthSerializer(health).data)
 
-    def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
+    def _health_reader_access(self, request: Request, experiment: ExperimentHandle) -> ExperimentHealthReaderAccess:
         # The split history is flag history, which `activity` keeps behind the flag's own access controls and
         # `activity_log:read`. It also queries events, which a scoped token reaches only with `query:read`.
         scopes = get_authenticator_scopes(request.successful_authenticator)
@@ -1186,17 +1201,26 @@ class EnterpriseExperimentsViewSet(
             if scopes is None or "*" in scopes
             else set(scopes_not_covered(scopes, ["activity_log:read", "query:read"]))
         )
-        can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
-            experiment.feature_flag, required_level="viewer"
-        )
+        can_view_flag = self._can_view_flag(experiment)
         restrictions = get_restricted_properties_with_group_type_index_for_team(
             user=cast(User, request.user), team_id=self.team_id
         )
         return ExperimentHealthReaderAccess(
-            can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
+            can_read_flag_history=can_view_flag and "activity_log:read" not in missing_scopes,
             can_query_events="query:read" not in missing_scopes,
             denied_event_properties=split_restricted_property_names(restrictions).event,
             restricted_properties=frozenset(restrictions),
+        )
+
+    def _can_view_flag(self, experiment: ExperimentHandle) -> bool:
+        flag = ObjectAccessRef(
+            resource="feature_flag",
+            id=str(experiment.feature_flag_id),
+            team_id=self.team.id,
+            created_by_id=experiment.feature_flag_created_by_id,
+        )
+        return authorization.check(
+            resource=resource_for_ref(flag), action=Action.VIEW, subject=request_subject(self.request)
         )
 
     @validated_request(
@@ -1218,7 +1242,7 @@ class EnterpriseExperimentsViewSet(
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
 
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
 
         # Holdout and shared-metric changes log under the Experiment scope with the child
         # object's own id, so they need their own type-matched clauses. The experiment's own
@@ -1231,14 +1255,12 @@ class EnterpriseExperimentsViewSet(
         )
         if experiment.holdout_id is not None:
             activity_filter |= Q(scope="Experiment", item_id=str(experiment.holdout_id), detail__type="holdout")
-        saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]
+        saved_metric_ids = [str(pk) for pk in experiments_facade.linked_saved_metric_ids(experiment_id=experiment.id)]
         if saved_metric_ids:
             activity_filter |= Q(scope="Experiment", item_id__in=saved_metric_ids, detail__type="shared_metric")
         # The flag's history stays behind the flag's own access controls: a viewer of the
         # experiment may have "none" access to the linked flag.
-        if experiment.feature_flag_id is not None and self.user_access_control.check_access_level_for_object(
-            experiment.feature_flag, required_level="viewer"
-        ):
+        if self._can_view_flag(experiment):
             activity_filter |= Q(scope="FeatureFlag", item_id=str(experiment.feature_flag_id))
 
         activity_query = (
@@ -1264,9 +1286,13 @@ class EnterpriseExperimentsViewSet(
         $feature_flag_called is not fired).
         Returns 400 if the experiment is not running or is already paused.
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        paused_experiment = service.pause_experiment(experiment, request=request)
+        experiment: ExperimentHandle = self.get_object()
+        paused_experiment = lifecycle.pause_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            request_context={"request": request},
+        )
         return self._experiment_response(paused_experiment.id)
 
     @extend_schema(
@@ -1283,9 +1309,13 @@ class EnterpriseExperimentsViewSet(
         before the pause, and exposure tracking resumes.
         Returns 400 if the experiment is not running or is not paused.
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        resumed_experiment = service.resume_experiment(experiment, request=request)
+        experiment: ExperimentHandle = self.get_object()
+        resumed_experiment = lifecycle.resume_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            request_context={"request": request},
+        )
         return self._experiment_response(resumed_experiment.id)
 
     @extend_schema(
@@ -1307,9 +1337,13 @@ class EnterpriseExperimentsViewSet(
         the experiment is group-aggregated (group flags cannot be frozen with a
         person cohort), or the exposed set is too large to snapshot synchronously.
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        frozen_experiment = service.freeze_exposure(experiment, request=request)
+        experiment: ExperimentHandle = self.get_object()
+        frozen_experiment = lifecycle.freeze_exposure(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            request_context={"request": request},
+        )
         return self._experiment_response(frozen_experiment.id)
 
     @extend_schema(
@@ -1328,9 +1362,13 @@ class EnterpriseExperimentsViewSet(
 
         Returns 400 if the experiment is not running or its exposure is not frozen.
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        unfrozen_experiment = service.unfreeze_exposure(experiment, request=request)
+        experiment: ExperimentHandle = self.get_object()
+        unfrozen_experiment = lifecycle.unfreeze_exposure(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            request_context={"request": request},
+        )
         return self._experiment_response(unfrozen_experiment.id)
 
     @extend_schema(
@@ -1351,14 +1389,18 @@ class EnterpriseExperimentsViewSet(
 
         Returns 400 if the experiment is already in draft state.
         """
-        experiment: Experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        reset_experiment = service.reset_experiment(experiment, request=request)
+        experiment: ExperimentHandle = self.get_object()
+        reset_experiment = lifecycle.reset_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            request_context={"request": request},
+        )
         return self._experiment_response(reset_experiment.id)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        source_experiment: Experiment = self.get_object()
+        source_experiment: ExperimentHandle = self.get_object()
 
         if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
@@ -1369,9 +1411,10 @@ class EnterpriseExperimentsViewSet(
         feature_flag_key = request.data.get("feature_flag_key")
         name = request.data.get("name")
 
-        service = ExperimentService(team=self.team, user=request.user)
-        duplicate_experiment = service.duplicate_experiment(
-            source_experiment,
+        duplicate_experiment = lifecycle.duplicate_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=source_experiment.id,
             feature_flag_key=feature_flag_key,
             name=name,
             serializer_context=self.get_serializer_context(),
@@ -1403,7 +1446,7 @@ class EnterpriseExperimentsViewSet(
         Returns 400 if the experiment already uses the new engine.
         """
         refuse_scout_experiment_migrate(is_scout_sandbox_request(request))
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
 
         if not experiment_uses_legacy_metrics(team=self.team, experiment_id=experiment.id):
             raise ValidationError(
@@ -1411,11 +1454,11 @@ class EnterpriseExperimentsViewSet(
             )
 
         try:
-            migration = migrate_legacy_experiment(experiment.id, self.team.id, migrate_shared_metrics=True)
+            migrated_experiment = migrate_legacy_experiment(experiment.id, self.team.id, migrate_shared_metrics=True)
         except (LegacyMigrationError, ValueError) as e:
             raise ValidationError(f"Couldn't migrate this experiment: {e}. Contact support if it keeps happening.")
 
-        return self._experiment_response(migration.experiment.id)
+        return self._experiment_response(migrated_experiment.id)
 
     @extend_schema(
         request=CreateFromPromptInputSerializer,
@@ -1534,7 +1577,7 @@ class EnterpriseExperimentsViewSet(
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Copy an experiment into another project in the same organization as a new draft."""
         refuse_scout_experiment_copy_to_project(is_scout_sandbox_request(request))
-        source_experiment: Experiment = self.get_object()
+        source_experiment: ExperimentHandle = self.get_object()
 
         if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
@@ -1555,10 +1598,11 @@ class EnterpriseExperimentsViewSet(
         feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
         name = request_serializer.validated_data.get("name")
 
-        service = ExperimentService(team=self.team, user=request.user)
-        new_experiment = service.copy_experiment_to_project(
-            source_experiment,
-            target_team,
+        new_experiment = lifecycle.copy_experiment_to_project(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=source_experiment.id,
+            target_team=target_team,
             feature_flag_key=feature_flag_key,
             name=name,
             serializer_context={
@@ -1575,17 +1619,17 @@ class EnterpriseExperimentsViewSet(
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment = self.get_object()
-        service = ExperimentService(team=self.team, user=request.user)
-        cohort = service.create_exposure_cohort(
-            experiment,
+        experiment: ExperimentHandle = self.get_object()
+        cohort_data = lifecycle.create_exposure_cohort(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
             serializer_context={
                 "request": request,
                 "team": self.team,
                 "team_id": self.team_id,
             },
-        )
-        cohort_data = CohortSerializer(cohort, context={"request": request, "team": self.team}).data
+        ).cohort
         return Response({"cohort": cohort_data}, status=201)
 
     @extend_schema(
@@ -1616,23 +1660,21 @@ class EnterpriseExperimentsViewSet(
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         _check_warehouse_native_result_access(experiment, self.team, request.user)
         metric_uuid = request.query_params.get("metric_uuid")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
 
-        service = ExperimentService(team=self.team, user=request.user)
-        return Response(
-            ExperimentTimeseriesResultsSerializer(
-                service.get_timeseries_results(experiment, metric_uuid=metric_uuid)
-            ).data
+        results = experiments_facade.get_timeseries_results(
+            team=self.team, user=cast(User, request.user), experiment_id=experiment.id, metric_uuid=metric_uuid
         )
+        return Response(ExperimentTimeseriesResultsSerializer(results).data)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
 
         # Only the metric's uuid is read, and a `fingerprint` in the body is ignored: the service derives the
         # definition and the key from the experiment.
@@ -1641,16 +1683,19 @@ class EnterpriseExperimentsViewSet(
         if not isinstance(metric, dict) or not metric:
             raise ValidationError("metric is required")
 
-        service = ExperimentService(team=self.team, user=request.user)
-        service.assert_user_may_run_warehouse_native_sources(experiment)
-        result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
-        is_existing = result.pop("is_existing", False)
+        recalculation = lifecycle.request_timeseries_recalculation(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            metric_uuid=metric.get("uuid") or "",
+        )
 
-        if not is_existing:
-            start_timeseries_recalculation_workflow(str(result["id"]), team_id=self.team.id)
+        if not recalculation.is_existing:
+            start_timeseries_recalculation_workflow(str(recalculation.id), team_id=self.team.id)
 
-        status_code = 200 if is_existing else 201
-        return Response(result, status=status_code)
+        result = {field.name: getattr(recalculation, field.name) for field in fields(recalculation)}
+        del result["is_existing"]
+        return Response(result, status=200 if recalculation.is_existing else 201)
 
     @extend_schema(
         request=RecalculateMetricsRequestSerializer,
@@ -1683,7 +1728,7 @@ class EnterpriseExperimentsViewSet(
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         request_serializer = RecalculateMetricsRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
@@ -1695,7 +1740,9 @@ class EnterpriseExperimentsViewSet(
         )
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
-        ExperimentService(team=self.team, user=request.user).assert_user_may_run_warehouse_native_sources(experiment)
+        experiments_facade.assert_user_may_run_warehouse_native_sources(
+            team=self.team, user=cast(User, request.user), experiment_id=experiment.id
+        )
         result = request_metrics_recalculation(
             team_id=experiment.team_id,
             experiment_id=experiment.id,
@@ -1708,7 +1755,7 @@ class EnterpriseExperimentsViewSet(
             start_metrics_recalculation_workflow(
                 result.id,
                 team_id=experiment.team_id,
-                organization_id=str(experiment.team.organization_id),
+                organization_id=str(self.team.organization_id),
             )
 
         return Response(
@@ -1725,7 +1772,7 @@ class EnterpriseExperimentsViewSet(
         required_scopes=["experiment:read"],
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         latest = get_latest_recalculation(
             team_id=experiment.team_id, experiment_id=experiment.id, user_id=_request_user_id(request)
         )
@@ -1760,7 +1807,7 @@ class EnterpriseExperimentsViewSet(
     def metrics_recalculation_detail(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         run = get_recalculation_run(
             team_id=experiment.team_id,
             experiment_id=experiment.id,
@@ -1789,7 +1836,7 @@ class EnterpriseExperimentsViewSet(
         current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
         traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         # The target is sized from the stored result of the primary metric, which came from the warehouse.
         _check_warehouse_native_result_access(experiment, self.team, request.user)
         target = get_running_time_target(
@@ -2033,7 +2080,7 @@ class EnterpriseExperimentsViewSet(
         when sessions are matched on the stamped flag property rather than on the exposure event.
         Postgres reads only, so it can serve the tab's mount path.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
         semantics = resolve_in_session_exposure_semantics(team_id=self.team_id, experiment_id=experiment.id)
         if semantics is None:
             raise NotFound()
@@ -2066,7 +2113,7 @@ class EnterpriseExperimentsViewSet(
         experiment analysis counts per person over the whole run window. A session can be in the
         drop-off bucket while the same person converts in a later one.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
 
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading experiment session buckets requires session replay access.")
@@ -2129,7 +2176,7 @@ class EnterpriseExperimentsViewSet(
         is what lets a card sit on one of the experiment's own metric events, which it names, so a
         reader is sent to the results rather than given a second answer.
         """
-        experiment: Experiment = self.get_object()
+        experiment: ExperimentHandle = self.get_object()
 
         if not self._session_event_deltas_enabled():
             raise NotFound()
@@ -2183,10 +2230,11 @@ def _request_user_id(request: Request) -> int | None:
     return request.user.id if isinstance(request.user, User) else None
 
 
-def _check_warehouse_native_result_access(experiment: Experiment, team: Team, user: Any) -> None:
+def _check_warehouse_native_result_access(experiment: ExperimentHandle, team: Team, user: Any) -> None:
     """A stored run holds totals read from the customer's warehouse. The reader needs the connection access
     that the query endpoint asks for, or the run hands out what that endpoint refuses."""
-    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
-    if connection_id is None:
+    if experiment.warehouse_native_connection_id is None:
         return
-    validate_warehouse_native_connection_access(team, user if isinstance(user, User) else None, connection_id)
+    validate_warehouse_native_connection_access(
+        team, user if isinstance(user, User) else None, experiment.warehouse_native_connection_id
+    )
