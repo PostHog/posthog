@@ -124,7 +124,7 @@ export function QuillSourceSetupPanel({
                 <div className="flex items-start gap-4" role={busy ? 'status' : undefined}>
                     {busy ? <Spinner className="mt-1 shrink-0" /> : null}
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <Heading size={compact ? 'base' : 'lg'} render={<h3 className="m-0" />}>
+                        <Heading size="base" render={<h3 className="m-0" />}>
                             {title}
                         </Heading>
                         <Text size="xs" variant="muted" render={<p className="m-0 max-w-xl" />}>
@@ -257,7 +257,11 @@ export function QuillSourceSetupPanel({
                                                 <IconExternal />
                                             </Button>
                                         )}
-                                        {onDismiss && <Button onClick={() => onDismiss(suggestion.id)}>Dismiss</Button>}
+                                        {onDismiss && (
+                                            <Button variant="outline" onClick={() => onDismiss(suggestion.id)}>
+                                                Dismiss
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
                                 {!compact && (

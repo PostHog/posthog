@@ -8,6 +8,10 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuTrigger,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
     Skeleton,
     Text,
     ToggleGroup,
@@ -72,16 +76,18 @@ export function QuillSearchPerformanceTab({
 
     const emptyState = useMemo(
         () => (
-            <>
-                <Text size="xs" variant="muted" render={<span className="m-0" />}>
-                    {emptyMessage}
-                </Text>
+            <Empty>
+                <EmptyHeader>
+                    <EmptyDescription>{emptyMessage}</EmptyDescription>
+                </EmptyHeader>
                 {hasActiveFilters && (
-                    <Button variant="outline" onClick={clearFilters}>
-                        Clear filters
-                    </Button>
+                    <EmptyContent>
+                        <Button variant="outline" onClick={clearFilters}>
+                            Clear filters
+                        </Button>
+                    </EmptyContent>
                 )}
-            </>
+            </Empty>
         ),
         [emptyMessage, hasActiveFilters, clearFilters]
     )

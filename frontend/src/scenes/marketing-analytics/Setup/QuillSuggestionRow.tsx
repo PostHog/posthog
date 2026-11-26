@@ -142,11 +142,12 @@ export function QuillSuggestionRow({
                     </Button>
                 )}
                 {isDismissed ? (
-                    <Button tooltip="Put this back in the list" onClick={onRestore}>
+                    <Button variant="outline" tooltip="Put this back in the list" onClick={onRestore}>
                         Restore
                     </Button>
                 ) : (
                     <Button
+                        variant="outline"
                         tooltip="Hide this — it stays hidden across rescans until you restore it, and nothing is fixed"
                         onClick={onDismiss}
                     >

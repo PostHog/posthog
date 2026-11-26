@@ -137,7 +137,9 @@ export function QuillSuggestedActions({
                             <Button variant="outline" onClick={toggleShowDismissed}>
                                 {showDismissed ? 'Hide' : 'Review hidden'}
                             </Button>
-                            <Button onClick={restoreAllDismissed}>Restore all</Button>
+                            <Button variant="outline" onClick={restoreAllDismissed}>
+                                Restore all
+                            </Button>
                         </div>
                     </div>
                     {showDismissed && (

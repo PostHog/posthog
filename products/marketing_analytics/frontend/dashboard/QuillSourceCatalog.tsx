@@ -87,9 +87,11 @@ export function QuillSourceCatalog({
                                 <Tooltip>
                                     <TooltipTrigger
                                         delay={0}
-                                        render={<span tabIndex={0} className="inline-flex cursor-help" />}
+                                        render={
+                                            <Button size="icon-xs" aria-label={`About ${group.title.toLowerCase()}`} />
+                                        }
                                     >
-                                        <IconInfo className="size-3 text-muted-foreground" />
+                                        <IconInfo />
                                     </TooltipTrigger>
                                     <TooltipContent>{group.tooltip}</TooltipContent>
                                 </Tooltip>

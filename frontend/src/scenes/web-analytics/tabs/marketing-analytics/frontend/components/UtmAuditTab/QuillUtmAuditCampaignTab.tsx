@@ -9,9 +9,7 @@ import {
     Empty,
     EmptyDescription,
     EmptyHeader,
-    Field,
     Heading,
-    Input,
     Text,
     Tooltip,
     TooltipContent,
@@ -20,6 +18,7 @@ import {
 } from '@posthog/quill'
 
 import { IconLink } from 'lib/lemon-ui/icons'
+import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
@@ -183,16 +182,14 @@ export function QuillUtmAuditCampaignTab({
                         <Heading size="sm" render={<h4 className="m-0" />}>
                             Ad platform campaigns
                         </Heading>
-                        <Field className="w-48">
-                            <Input
-                                type="search"
-                                size="sm"
-                                aria-label="Search ad platform campaigns"
-                                placeholder="Search..."
-                                value={campaignSearch}
-                                onChange={(event) => onCampaignSearchChange(event.target.value)}
-                            />
-                        </Field>
+                        <AnalyticsSearchInput
+                            value={campaignSearch}
+                            onChange={onCampaignSearchChange}
+                            label="Search ad platform campaigns"
+                            placeholder="Search..."
+                            dataAttr="marketing-utm-audit-ad-campaign-search"
+                            className="w-48 max-w-full"
+                        />
                     </div>
                     <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading || undefined}>
                         <DataTable
@@ -227,16 +224,14 @@ export function QuillUtmAuditCampaignTab({
                         <Heading size="sm" render={<h4 className="m-0" />}>
                             UTM campaigns
                         </Heading>
-                        <Field className="w-48">
-                            <Input
-                                type="search"
-                                size="sm"
-                                aria-label="Search UTM campaigns"
-                                placeholder="Search..."
-                                value={utmSearch}
-                                onChange={(event) => onUtmSearchChange(event.target.value)}
-                            />
-                        </Field>
+                        <AnalyticsSearchInput
+                            value={utmSearch}
+                            onChange={onUtmSearchChange}
+                            label="Search UTM campaigns"
+                            placeholder="Search..."
+                            dataAttr="marketing-utm-audit-utm-campaign-search"
+                            className="w-48 max-w-full"
+                        />
                     </div>
                     <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading || undefined}>
                         <DataTable

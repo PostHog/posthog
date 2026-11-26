@@ -78,7 +78,7 @@ export function QuillConversionRecommendationCard({
                     Review suggestion
                 </Button>
                 {onDismiss && (
-                    <Button onClick={onDismiss} data-attr="marketing-conversion-dismiss-suggestion">
+                    <Button variant="outline" onClick={onDismiss} data-attr="marketing-conversion-dismiss-suggestion">
                         Dismiss
                     </Button>
                 )}

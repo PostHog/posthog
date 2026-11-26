@@ -2,7 +2,7 @@ import './SearchPerformanceTable.scss'
 
 import { useMemo } from 'react'
 
-import { DataTable, type DataTableProps, Skeleton, Text } from '@posthog/quill'
+import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, Skeleton } from '@posthog/quill'
 
 import { QuillColumnHeaderTooltip } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/common/QuillColumnHeaderTooltip'
 
@@ -68,16 +68,14 @@ export function QuillSearchPerformanceTable({
                         <Skeleton key={index} className="h-10" />
                     ))}
                 </div>
+            ) : typeof emptyState === 'string' ? (
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyDescription>{emptyState}</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
             ) : (
-                <div className="flex flex-col items-center gap-2 py-4 text-center">
-                    {typeof emptyState === 'string' ? (
-                        <Text size="xs" variant="muted" render={<span className="m-0" />}>
-                            {emptyState}
-                        </Text>
-                    ) : (
-                        emptyState
-                    )}
-                </div>
+                emptyState
             ),
         [loading, emptyState]
     )

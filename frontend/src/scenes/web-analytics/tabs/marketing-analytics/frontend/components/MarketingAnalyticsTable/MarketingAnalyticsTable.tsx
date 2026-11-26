@@ -7,8 +7,6 @@ import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import {
     Button,
-    Field,
-    Input,
     ToggleGroup,
     ToggleGroupItem,
     Tooltip as QuillTooltip,
@@ -18,6 +16,7 @@ import {
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 import { teamLogic } from 'scenes/teamLogic'
 import { TileId } from 'scenes/web-analytics/common'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
@@ -225,17 +224,14 @@ export const MarketingAnalyticsTable = ({
                 }}
             />,
             todayRailNav ? (
-                <Field key="search" className="w-56">
-                    <Input
-                        type="search"
-                        size="sm"
-                        placeholder="Search..."
-                        aria-label="Search..."
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                        data-attr="marketing-analytics-search"
-                    />
-                </Field>
+                <AnalyticsSearchInput
+                    key="search"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    label="Search..."
+                    placeholder="Search..."
+                    dataAttr="marketing-analytics-search"
+                />
             ) : (
                 <LemonInput
                     key="search"
@@ -250,13 +246,8 @@ export const MarketingAnalyticsTable = ({
             ),
             todayRailNav ? (
                 <QuillTooltip key="search-info">
-                    <TooltipTrigger
-                        delay={0}
-                        render={
-                            <span tabIndex={0} className="inline-flex" aria-label="Search filters the loaded rows" />
-                        }
-                    >
-                        <IconInfo className="text-xl text-muted-foreground" />
+                    <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label="About table search" />}>
+                        <IconInfo />
                     </TooltipTrigger>
                     <TooltipContent>Search filters the loaded rows</TooltipContent>
                 </QuillTooltip>

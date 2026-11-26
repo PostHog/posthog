@@ -6,9 +6,7 @@ import {
     Empty,
     EmptyDescription,
     EmptyHeader,
-    Field,
     Heading,
-    Input,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -16,6 +14,7 @@ import {
 } from '@posthog/quill'
 
 import { IconLink } from 'lib/lemon-ui/icons'
+import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 
 import type { AggregatedUtmSource } from '../../logic/utmAuditLogic'
 import { QuillTableLoadingRows } from '../common/QuillTableLoadingRows'
@@ -93,16 +92,14 @@ export function QuillUtmAuditSourceTab({
                 <Heading size="sm" render={<h4 className="m-0" />}>
                     UTM sources
                 </Heading>
-                <Field className="w-48">
-                    <Input
-                        type="search"
-                        size="sm"
-                        aria-label="Search UTM sources"
-                        placeholder="Search..."
-                        value={utmSearch}
-                        onChange={(event) => onUtmSearchChange(event.target.value)}
-                    />
-                </Field>
+                <AnalyticsSearchInput
+                    value={utmSearch}
+                    onChange={onUtmSearchChange}
+                    label="Search UTM sources"
+                    placeholder="Search..."
+                    dataAttr="marketing-utm-audit-source-search"
+                    className="w-48 max-w-full"
+                />
             </div>
             <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading || undefined}>
                 <DataTable
