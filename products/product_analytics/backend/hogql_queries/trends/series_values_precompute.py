@@ -128,6 +128,7 @@ _Uses = Callable[[TrendsQueryRunner, EventsNode], bool]
 # for each feature it used. A new feature starts here.
 _SHADOW_FEATURES: dict[Feature, _Uses] = {
     Feature.EVENT_PROPERTY_FILTERS: lambda runner, series: bool(_properties(runner, series)),
+    Feature.MULTIPLE_SERIES: lambda runner, series: len(runner.query.series) > 1,
 }
 
 # Features the stored path refuses. The first one a query uses is the reason it gets no stored values.
@@ -168,10 +169,10 @@ _REFUSED_SERIES_KINDS: dict[type, Feature] = {
 }
 
 
-def _counted_series(runner: TrendsQueryRunner) -> EventsNode | SeriesValuesUnavailable:
-    if len(runner.query.series) != 1:
-        return SeriesValuesUnavailable(reason=Feature.MULTIPLE_SERIES)
-    series = runner.query.series[0]
+def _counted_series(runner: TrendsQueryRunner, series_index: int) -> EventsNode | SeriesValuesUnavailable:
+    if not 0 <= series_index < len(runner.query.series):
+        return SeriesValuesUnavailable(reason=Blocker.SERIES_NOT_FOUND)
+    series = runner.query.series[series_index]
     if not isinstance(series, EventsNode):
         return SeriesValuesUnavailable(reason=_REFUSED_SERIES_KINDS.get(type(series), Feature.OTHER_SERIES_KIND))
     return series
@@ -345,11 +346,15 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
 
 
 def precomputed_series_values(
-    runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
+    runner: TrendsQueryRunner,
+    *,
+    series_index: int = 0,
+    run_inserts: bool,
+    wait_timeout_seconds: float | None = None,
 ) -> PrecomputedSeriesValues | SeriesValuesUnavailable:
     # One deadline for the build and the read, so the call cannot outlast the caller's budget.
     deadline = None if wait_timeout_seconds is None else time.monotonic() + wait_timeout_seconds
-    series = _counted_series(runner)
+    series = _counted_series(runner, series_index)
     if isinstance(series, SeriesValuesUnavailable):
         return series
     features = _features_used(runner, series)
@@ -415,6 +420,8 @@ def precomputed_series_values(
 
 def execute_precomputed_trends(runner: TrendsQueryRunner, *, run_inserts: bool) -> list[dict[str, Any]] | None:
     try:
+        if len(runner.query.series) != 1:
+            return None
         precomputed = precomputed_series_values(runner, run_inserts=run_inserts)
         if isinstance(precomputed, SeriesValuesUnavailable):
             return None

@@ -16,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import dashboard_filter_from_dict
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.tasks.alerts.trends import _pick_series_result
 
 from products.alerts.backend.evaluation.attempt_budget import attempt_outlasts
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -81,14 +82,11 @@ def effective_trends_runner(
     return runner
 
 
-def compare_precomputed_values(
-    precomputed: PrecomputedSeriesValues | SeriesValuesUnavailable, live: list[Any]
-) -> ShadowComparison:
-    if isinstance(precomputed, SeriesValuesUnavailable):
-        return ShadowComparison(outcome="unavailable", reason=precomputed.reason.value)
+def compare_precomputed_values(precomputed: PrecomputedSeriesValues, live_series: dict[str, Any]) -> ShadowComparison:
     features = tuple(sorted(feature.value for feature in precomputed.features))
-    series = live[0]
-    live_by_bucket = {datetime.fromisoformat(day): value for day, value in zip(series["days"], series["data"])}
+    live_by_bucket = {
+        datetime.fromisoformat(day): value for day, value in zip(live_series["days"], live_series["data"])
+    }
     differences = [
         abs(float(live_by_bucket[bucket]) - stored)
         for bucket, stored in precomputed.values.items()
@@ -142,10 +140,15 @@ def compare_series_values_shadow(
             comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
         else:
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
+            series_index = (alert.config or {}).get("series_index", 0)
             precomputed = precomputed_series_values(
-                runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS
+                runner, series_index=series_index, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS
             )
-            comparison = compare_precomputed_values(precomputed, live)
+            if isinstance(precomputed, SeriesValuesUnavailable):
+                comparison = ShadowComparison(outcome="unavailable", reason=precomputed.reason.value)
+            else:
+                live_series = _pick_series_result(series_index, calculation_result, query)
+                comparison = compare_precomputed_values(precomputed, dict(live_series))
     except _CANCELLATION:
         raise
     except Exception as err:
