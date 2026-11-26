@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import { Skeleton, Table, TableBody, TableCell, TableEmpty, TableRow, Text } from '@posthog/quill'
+import { Skeleton, Table, TableBody, TableCell, TableEmpty, TableRow, Text, cn } from '@posthog/quill'
 
 import type { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
@@ -49,7 +49,7 @@ export function QuillAiVisibilityTable<T extends Record<string, any>>(props: Lem
         if (pagination?.controlled) {
             ;(step === 1 ? pagination.onForward : pagination.onBackward)?.()
         } else {
-            setAutoPage((current) => current + step)
+            setAutoPage(pager.page + step)
         }
     }
 
@@ -92,7 +92,7 @@ export function QuillAiVisibilityTable<T extends Record<string, any>>(props: Lem
                         <EmptyState emptyState={emptyState} />
                     </TableEmpty>
                 ) : (
-                    <TableBody>
+                    <TableBody aria-busy={loading} className={cn(loading && 'opacity-50')}>
                         {rows.map((record, index) => {
                             const id = rowId(record, index)
                             return (

@@ -6,9 +6,11 @@ import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBranded
 import type { FilterOption } from './contentAutopilotFilterBarLogic'
 
 // A quill Select reads a null value as nothing chosen, so the "All …" option, whose value is null, gets a key of its own.
-const ALL = '__all__'
-const toKey = (value: string | null): string => value ?? ALL
-const fromKey = (key: string): string | null => (key === ALL ? null : key)
+// Every real value takes a prefix, so no topic name can collide with that key.
+const ALL = 'all'
+const VALUE_PREFIX = 'value:'
+const toKey = (value: string | null): string => (value === null ? ALL : `${VALUE_PREFIX}${value}`)
+const fromKey = (key: string): string | null => (key === ALL ? null : key.slice(VALUE_PREFIX.length))
 
 const FilterSelect = ({
     label,

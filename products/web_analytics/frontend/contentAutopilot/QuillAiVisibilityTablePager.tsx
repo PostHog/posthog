@@ -21,7 +21,7 @@ export function QuillAiVisibilityTablePager({
     return (
         <div className="flex items-center justify-end gap-2">
             <Text size="xs" variant="muted" render={<span />}>
-                {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, entryCount)} of {entryCount}
+                {`${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, entryCount)} of ${entryCount}`}
             </Text>
             <Button
                 size="icon"

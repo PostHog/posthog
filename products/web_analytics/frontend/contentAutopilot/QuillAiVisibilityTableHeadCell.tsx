@@ -31,7 +31,10 @@ export function QuillAiVisibilityTableHeadCell<T extends Record<string, any>>({
 }): JSX.Element {
     const label = <HeaderLabel title={column.title} tooltip={column.tooltip} />
     return (
-        <TableHead align={column.align} className={cn(column.width === 0 && 'w-0')}>
+        <TableHead
+            align={column.align}
+            className={cn(column.width === 0 && 'w-0', typeof column.className === 'string' && column.className)}
+        >
             {column.sorter ? (
                 <Button size="sm" className="-mx-2 uppercase" onClick={onSort}>
                     {label}

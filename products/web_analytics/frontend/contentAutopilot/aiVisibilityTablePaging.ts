@@ -31,13 +31,15 @@ export function pagerState(
             slice: null,
         }
     }
+    // Rows can leave the list, such as a confirmed competitor, so the page in state may now be past the last one.
+    const page = pageSize ? Math.min(autoPage, Math.max(1, Math.ceil(rowCount / pageSize))) : 1
     return {
         show: !!pagination && rowCount > pageSize,
-        page: autoPage,
+        page,
         pageSize,
         entryCount: rowCount,
-        canGoBack: autoPage > 1,
-        canGoForward: autoPage * pageSize < rowCount,
-        slice: pagination?.pageSize ? [(autoPage - 1) * pageSize, autoPage * pageSize] : null,
+        canGoBack: page > 1,
+        canGoForward: page * pageSize < rowCount,
+        slice: pageSize ? [(page - 1) * pageSize, page * pageSize] : null,
     }
 }
