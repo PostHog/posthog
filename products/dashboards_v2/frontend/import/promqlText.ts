@@ -54,6 +54,16 @@ export function promqlMetrics(expr: string): string[] {
             skipDepth++
             continue
         }
+        if (
+            token.text === '__name__' &&
+            tokens[index + 1]?.text === '=' &&
+            tokens[index + 2]?.kind === 'string' &&
+            tokens[index + 2].text.length > 2
+        ) {
+            names.push(tokens[index + 2].text.slice(1, -1))
+            index += 2
+            continue
+        }
         if (token.kind === 'punct' && (token.text === '}' || token.text === ']')) {
             skipDepth = Math.max(0, skipDepth - 1)
             continue
@@ -89,21 +99,31 @@ const STEP_WINDOW = /^\$\{?__(rate_interval|interval|auto)\}?$/
  */
 export function stripStepWindows(expr: string): string {
     const tokens = tokenize(expr)
-    let out = expr
-    for (let index = tokens.length - 1; index >= 0; index--) {
-        if (tokens[index].text !== '[') {
-            continue
-        }
-        const close = tokens.findIndex((token, at) => at > index && token.text === ']')
-        if (close < 0) {
-            continue
-        }
-        const inner = expr.slice(tokens[index].end, tokens[close].start).trim()
-        if (STEP_WINDOW.test(inner)) {
-            out = out.slice(0, tokens[index].start) + out.slice(tokens[close].end)
+    let out = ''
+    let kept = 0
+    let open = -1
+    for (let index = 0; index < tokens.length; index++) {
+        if (tokens[index].text === '[') {
+            open = index
+        } else if (tokens[index].text === ']' && open >= 0) {
+            const inner = expr.slice(tokens[open].end, tokens[index].start).trim()
+            if (STEP_WINDOW.test(inner)) {
+                out += expr.slice(kept, tokens[open].start)
+                kept = tokens[index].end
+            }
+            open = -1
         }
     }
-    return out
+    return out + expr.slice(kept)
+}
+
+export function fixLogqlWindows(expr: string, window: string): { text: string; replaced: boolean } {
+    let replaced = false
+    const text = expr.replace(/\[\s*(\$\{?__(?:rate_interval|interval|auto|range)\}?)\s*\]/g, () => {
+        replaced = true
+        return `[${window}]`
+    })
+    return { text, replaced }
 }
 
 const VARIABLE_REFERENCE = /\$\{(\w+)(?::\w+)?\}|\$(\w+)|\[\[(\w+)\]\]/g
@@ -167,9 +187,13 @@ export function metricsqlFunctions(expr: string): string[] {
     return [...new Set(found)]
 }
 
+// A selector, with any quoted values inside it, so a label matcher such as `status!="200"` isn't read as a line filter.
+const SELECTOR = /\{(?:[^{}"`]|"(?:\\.|[^"\\])*"|`[^`]*`)*\}/g
+
 export function looksLikeLogql(expr: string): boolean {
-    return /\|=|\|~|!=\s*"|\|\s*(json|logfmt|line_format|pattern|regexp|unwrap)\b|(count|bytes|rate)_over_time\s*\(\s*\{/.test(
-        expr
+    const outside = expr.replace(SELECTOR, '{}')
+    return /\|=|\|~|(!=|!~)\s*["`]|\|\s*(json|logfmt|line_format|pattern|regexp|unwrap)\b|(count|bytes|rate)_over_time\s*\(\s*\{/.test(
+        outside
     )
 }
 
@@ -183,26 +207,33 @@ const LOKI_LABELS: Record<string, string> = {
     service: 'service_name',
 }
 
+// String literals come first in each pattern, so a line filter such as `|= "by (pod)"` is kept as written.
+const STRING_LITERAL = '"(?:\\\\.|[^"\\\\])*"|`[^`]*`'
+
 export function rewriteLogql(expr: string): string {
     const to = (label: string): string => LOKI_LABELS[label] ?? label
     return expr
-        .replace(/\{([^{}"]*(?:"(?:[^"\\]|\\.)*"[^{}"]*)*)\}/g, (match, body: string) =>
-            /^\s*[A-Za-z_]\w*\s*(=~|!~|!=|=)/.test(body)
-                ? `{${body.replace(
-                      /(^|,)(\s*)([A-Za-z_]\w*)(\s*)(?==~|!~|!=|=)/g,
-                      (_m, sep: string, space: string, label: string, after: string) =>
-                          `${sep}${space}${to(label)}${after}`
-                  )}}`
-                : match
+        .replace(
+            new RegExp(`(${STRING_LITERAL})|\\{([^{}"]*(?:"(?:[^"\\\\]|\\\\.)*"[^{}"]*)*)\\}`, 'g'),
+            (match, literal: string | undefined, body: string) =>
+                literal !== undefined || !/^\s*[A-Za-z_]\w*\s*(=~|!~|!=|=)/.test(body)
+                    ? match
+                    : `{${body.replace(
+                          /(^|,)(\s*)([A-Za-z_]\w*)(\s*)(?==~|!~|!=|=)/g,
+                          (_m, sep: string, space: string, label: string, after: string) =>
+                              `${sep}${space}${to(label)}${after}`
+                      )}}`
         )
         .replace(
-            /\b(by|without)\s*\(([^)]*)\)/g,
-            (_m, keyword: string, list: string) =>
-                `${keyword} (${list
-                    .split(',')
-                    .map((label) => to(label.trim()))
-                    .filter(Boolean)
-                    .join(', ')})`
+            new RegExp(`(${STRING_LITERAL})|\\b(by|without)\\s*\\(([^)]*)\\)`, 'g'),
+            (match, literal: string | undefined, keyword: string, list: string) =>
+                literal !== undefined
+                    ? match
+                    : `${keyword} (${list
+                          .split(',')
+                          .map((label) => to(label.trim()))
+                          .filter(Boolean)
+                          .join(', ')})`
         )
 }
 
