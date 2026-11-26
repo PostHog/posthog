@@ -129,10 +129,9 @@ const FIRST_STEP_AFTER_SIGNING = 'deserialize'
 
 const BENEATH_THE_DESERIALIZER = 'low'
 
-const sesRefused = (response: unknown): boolean => {
-    const statusCode = (response as { statusCode?: number } | undefined)?.statusCode
-    return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
-}
+const ABOVE_THE_DESERIALIZER = 'high'
+
+const sesAnsweredInFull = (error: unknown): boolean => typeof (error as { $fault?: unknown })?.$fault === 'string'
 
 type SendAttempts = {
     mayHaveReachedSes: () => boolean
@@ -147,11 +146,7 @@ function trackAttempts(command: SendEmailCommand): SendAttempts {
             attemptsSesMayHaveAccepted++
             lastNeverLeftTheWorker = false
             try {
-                const httpAnswer = await next(args)
-                if (sesRefused(httpAnswer.response)) {
-                    attemptsSesMayHaveAccepted--
-                }
-                return httpAnswer
+                return await next(args)
             } catch (error) {
                 if (failedBeforeTheRequestLeft(error)) {
                     attemptsSesMayHaveAccepted--
@@ -161,6 +156,19 @@ function trackAttempts(command: SendEmailCommand): SendAttempts {
             }
         },
         { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttempts' }
+    )
+    command.middlewareStack.add(
+        (next) => async (args) => {
+            try {
+                return await next(args)
+            } catch (error) {
+                if (sesAnsweredInFull(error)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                throw error
+            }
+        },
+        { step: FIRST_STEP_AFTER_SIGNING, priority: ABOVE_THE_DESERIALIZER, name: 'trackRefusals' }
     )
     return {
         mayHaveReachedSes: () => attemptsSesMayHaveAccepted > 0,

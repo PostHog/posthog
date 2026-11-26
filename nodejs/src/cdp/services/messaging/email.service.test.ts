@@ -3271,6 +3271,47 @@ describe('EmailService', () => {
                 }
             )
 
+            it('when SES records the email, answers 500 and its body stalls past the deadline, fails the send without a retry', async () => {
+                let timesSesRecordedIt = 0
+                const ses500ThenStall = createServer((request, response) => {
+                    request.resume()
+                    request.on('end', () => {
+                        timesSesRecordedIt++
+                        response
+                            .writeHead(500, {
+                                'content-type': 'application/json',
+                                'x-amzn-errortype': 'InternalFailure',
+                            })
+                            .write('{"message":')
+                    })
+                })
+                await new Promise<void>((resolve) => ses500ThenStall.listen(0, '127.0.0.1', resolve))
+                const emailService = sender({ attachmentSendDeadlineMs: 1000 })
+                emailService.sesTransport = sesTransportFor({
+                    endpoint: `http://127.0.0.1:${(ses500ThenStall.address() as AddressInfo).port}`,
+                })
+
+                try {
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect({
+                        finished: result.finished,
+                        error: result.error,
+                        failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
+                        timesSesRecordedIt,
+                    }).toEqual({
+                        finished: true,
+                        error: expect.stringMatching(/^Failed to send email via SES: /),
+                        failed: true,
+                        timesSesRecordedIt: 1,
+                    })
+                } finally {
+                    emailService.sesTransport?.destroy()
+                    ses500ThenStall.closeAllConnections()
+                    await new Promise<void>((resolve) => ses500ThenStall.close(() => resolve()))
+                }
+            })
+
             const bucketRefuses = (): void => {
                 bucket.answer = 'refuse'
             }
