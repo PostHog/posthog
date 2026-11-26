@@ -113,6 +113,7 @@ def record_kernel_read_scopes(team_id: int, run_id: str, read_scopes: set[str]) 
     if kernel_runtime_id is None:
         return
     with transaction.atomic():
+        # nosemgrep: idor-lookup-without-user-and-team (internal data-plane path; a user filter would skip a kernel another user owns and lift its gate)
         runtime = KernelRuntime.objects.select_for_update().filter(id=kernel_runtime_id, team_id=team_id).first()
         if runtime is None or read_scopes.issubset(runtime.read_scopes or []):
             return
@@ -124,6 +125,7 @@ def kernel_read_scopes(team_id: int, kernel_runtime_id: UUID | None) -> list[str
     if kernel_runtime_id is None:
         return []
     scopes = (
+        # nosemgrep: idor-lookup-without-user-and-team (internal data-plane path; a user filter would skip a kernel another user owns and lift its gate)
         KernelRuntime.objects.filter(id=kernel_runtime_id, team_id=team_id)
         .values_list("read_scopes", flat=True)
         .first()
