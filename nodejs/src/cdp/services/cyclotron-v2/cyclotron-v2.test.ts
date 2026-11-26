@@ -24,7 +24,7 @@ import {
 } from '../monitoring/hog-invocation-results.service'
 import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager, EMAIL_IDEMPOTENCY_KEY_TTL_MS } from './manager'
+import { CyclotronV2Manager } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -1662,7 +1662,7 @@ describe('Cyclotron V2', () => {
                 expect(row.dequeue_seq).toEqual(before.dequeue_seq)
             })
 
-            it('keeps a keyed job claimed for a day past the latest time it was rescheduled to', async () => {
+            it('keeps a keyed email claimed for 7 days past the latest time it was rescheduled to', async () => {
                 const id = uuidv7()
                 await manager.createJobsIdempotently([
                     {
@@ -1684,7 +1684,7 @@ describe('Cyclotron V2', () => {
                 const extended = await claimExpiry()
                 await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
 
-                expect(extended).toEqual(new Date(inTwentyDays.getTime() + EMAIL_IDEMPOTENCY_KEY_TTL_MS))
+                expect(extended).toEqual(new Date(inTwentyDays.getTime() + 7 * 24 * 60 * 60 * 1000))
                 expect(await claimExpiry()).toEqual(extended)
             })
 
