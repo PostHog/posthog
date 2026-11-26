@@ -30,7 +30,7 @@ export function statusReasonLabel(reason: EvaluationStatusReason | null | undefi
 
 export function statusReasonRecoveryLabel(reason: EvaluationStatusReason | null | undefined): string {
     if (reason === 'provider_key_required') {
-        return 'Add a provider API key in settings, then re-enable the evaluation to resume running.'
+        return 'Choose a model with a working provider API key, adding one in settings if needed, then re-enable the evaluation to resume running.'
     }
     if (reason === 'no_default_model' || reason === 'model_not_found') {
         return 'Choose an available model, then re-enable the evaluation to resume running.'

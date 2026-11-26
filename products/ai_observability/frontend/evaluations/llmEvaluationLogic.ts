@@ -51,6 +51,7 @@ import {
 } from './constants'
 import {
     evaluationCanResolveModel,
+    evaluationEnableBlockedReason,
     evaluationSupportsReports,
     evaluationSupportsRunOutcomes,
     isBooleanEvaluationOutput,
@@ -589,7 +590,8 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             originalEvaluation: EvaluationConfig | null,
             evaluationId: string,
-            judgeModelGroups: ProviderModelGroup[]
+            providerKeys: LLMProviderKey[],
+            providerKeysLoading: boolean
         ) => boolean
         selectedModelOption: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => ModelOption | null
         judgeMethod: (evaluation: EvaluationConfig | null, selectedModelOption: ModelOption | null) => JudgeMethod
@@ -613,8 +615,12 @@ export interface llmEvaluationLogicMeta {
             numericBoundsRequired: boolean
         ) => boolean
         canEnable: (evaluation: EvaluationConfig | null) => boolean
-        enableSavedReason: (originalEvaluation: EvaluationConfig | null) => string | null
-        canEnableReason: (canEnable: boolean) => string | null
+        enableSavedReason: (
+            originalEvaluation: EvaluationConfig | null,
+            canEnable: boolean,
+            providerKeys: LLMProviderKey[]
+        ) => string | null
+        canEnableReason: (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]) => string | null
         evaluationProviderKeyIssue: (
             evaluation: EvaluationConfig | null,
             providerKeys: LLMProviderKey[]
@@ -1675,22 +1681,29 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         modelSelectionRequired: [
-            (s, props) => [s.evaluation, s.originalEvaluation, props.evaluationId, s.judgeModelGroups],
+            (s, props) => [
+                s.evaluation,
+                s.originalEvaluation,
+                props.evaluationId,
+                s.providerKeys,
+                s.providerKeysLoading,
+            ],
             (
                 evaluation: EvaluationConfig | null,
                 originalEvaluation: EvaluationConfig | null,
                 evaluationId: string,
-                judgeModelGroups: ProviderModelGroup[]
+                providerKeys: LLMProviderKey[],
+                providerKeysLoading: boolean
             ): boolean => {
                 if (!isLLMJudgeEvaluation(evaluation)) {
                     return false
                 }
-                // A team with no provider key has no model to pick. Its judge stays paused without one, and
-                // gets a model once a key is added.
+                // A team with no working provider key has no model to pick. Its judge stays paused without one,
+                // and gets a model once a key is added.
                 if (
-                    !evaluation.enabled &&
                     !evaluation.model_configuration &&
-                    !judgeModelGroups.some((group) => group.models.length > 0)
+                    !providerKeysLoading &&
+                    !providerKeys.some((key) => key.state === 'ok')
                 ) {
                     return false
                 }
@@ -1824,21 +1837,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Pause and Turn on change only the saved evaluation, so they check it rather than an unsaved draft.
         enableSavedReason: [
-            (s) => [s.originalEvaluation],
-            (originalEvaluation: EvaluationConfig | null): string | null =>
-                !originalEvaluation || evaluationCanResolveModel(originalEvaluation)
-                    ? null
-                    : 'Choose a model with a provider API key to enable this evaluation.',
+            (s) => [s.originalEvaluation, s.canEnable, s.providerKeys],
+            (
+                originalEvaluation: EvaluationConfig | null,
+                canEnable: boolean,
+                providerKeys: LLMProviderKey[]
+            ): string | null => {
+                const reason = originalEvaluation
+                    ? evaluationEnableBlockedReason(originalEvaluation, providerKeys)
+                    : null
+                // The draft already has a keyed model that isn't saved yet.
+                return reason && canEnable ? 'Save your changes, then turn it on.' : reason
+            },
         ],
 
         canEnableReason: [
-            (s) => [s.canEnable],
-            (canEnable: boolean): string | null => {
-                if (canEnable) {
-                    return null
-                }
-                return 'Add a provider API key to enable this evaluation.'
-            },
+            (s) => [s.evaluation, s.providerKeys],
+            (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): string | null =>
+                evaluation ? evaluationEnableBlockedReason(evaluation, providerKeys) : null,
         ],
 
         evaluationProviderKeyIssue: [

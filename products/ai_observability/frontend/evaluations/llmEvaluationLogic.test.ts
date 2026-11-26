@@ -969,6 +969,48 @@ return result`,
             })
         })
 
+        describe('a new judge with no model yet', () => {
+            it.each([
+                ['a working key', 'ok', true],
+                ['no working key', 'invalid', false],
+            ] as const)(
+                'requires a model when the team has %s, even before models load',
+                async (_name, state, required) => {
+                    logic = llmEvaluationLogic({ evaluationId: 'new' })
+                    logic.mount()
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    keysLogic.actions.loadProviderKeysSuccess([{ ...mockProviderKeys[0], state }])
+
+                    await expectLogic(logic).toMatchValues({ modelSelectionRequired: required })
+                }
+            )
+        })
+
+        describe('enableSavedReason', () => {
+            it('asks to save once the unsaved draft has a keyed model', async () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(logic).toFinishAllListeners()
+                keysLogic.actions.loadProviderKeysSuccess([mockProviderKeys[0]])
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation, enabled: false, model_configuration: null })
+
+                await expectLogic(logic).toMatchValues({
+                    enableSavedReason: 'Choose a model with a provider API key to enable this evaluation.',
+                })
+
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
+
+                await expectLogic(logic).toMatchValues({ enableSavedReason: 'Save your changes, then turn it on.' })
+            })
+        })
+
         describe('evaluationProviderKeyIssue', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })

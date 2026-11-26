@@ -12,7 +12,7 @@ import type { EvaluationConfig } from '../types'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationResultActions({ config }: { config: EvaluationConfig }): JSX.Element {
-    const { evaluationDirectories, movingEvaluationId, canEnableEvaluation } = useValues(llmEvaluationsLogic)
+    const { evaluationDirectories, movingEvaluationId, enableEvaluationReason } = useValues(llmEvaluationsLogic)
     const { toggleEvaluationEnabled, moveEvaluation, deleteEvaluation } = useActions(llmEvaluationsLogic)
     const { togglingIds, evaluationUrl } = useValues(evaluationsOverviewLogic)
     const { trackTableAction } = useActions(evaluationsOverviewLogic)
@@ -24,7 +24,7 @@ export function EvaluationResultActions({ config }: { config: EvaluationConfig }
     const moving = movingEvaluationId === config.id
     const toggling = togglingIds.includes(config.id)
     const errored = config.status === 'error'
-    const blocked = !config.enabled && !canEnableEvaluation(config)
+    const blockedReason = config.enabled ? null : enableEvaluationReason(config)
 
     return (
         <div className="flex gap-1">
@@ -54,11 +54,7 @@ export function EvaluationResultActions({ config }: { config: EvaluationConfig }
                                       onClick: () => toggleEvaluationEnabled(config.id),
                                       disabledReason:
                                           editorReason ??
-                                          (toggling
-                                              ? 'Saving the change'
-                                              : blocked
-                                                ? 'Add a provider API key to enable this evaluation.'
-                                                : undefined),
+                                          (toggling ? 'Saving the change' : (blockedReason ?? undefined)),
                                       'data-attr': 'evaluation-overview-table-toggle',
                                   },
                             {

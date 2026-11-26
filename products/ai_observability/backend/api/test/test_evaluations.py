@@ -2468,9 +2468,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):
-    """Enabling an llm_judge eval needs a pinned provider key. The project's active key no longer
-    stands in for one, because that fallback is being retired. Anything the serializer lets through
-    here would just flap back to disabled on the next Temporal run."""
+    """Enabling an llm_judge eval needs a pinned provider key. The project's active key does not count."""
 
     def _create_keyless_eval(self, model_configuration=...):
         if model_configuration is ...:
@@ -2509,10 +2507,10 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         [
             ("explicit_config_no_key", True, None, "doesn't have a working one yet"),
             ("null_config_no_key", False, None, "doesn't have a working one yet"),
-            ("explicit_config_unused_key", True, "unused", "isn't set to use it"),
-            ("null_config_unused_key", False, "unused", "isn't set to use it"),
-            ("explicit_config_active_key", True, "active", "isn't set to use it"),
-            ("null_config_active_key", False, "active", "isn't set to use it"),
+            ("explicit_config_unused_key", True, "unused", "doesn't use one"),
+            ("null_config_unused_key", False, "unused", "doesn't use one"),
+            ("explicit_config_active_key", True, "active", "doesn't use one"),
+            ("null_config_active_key", False, "active", "doesn't use one"),
         ]
     )
     def test_blocks_enabling_keyless_eval_without_key(self, _name, explicit_config, project_key, expected):
@@ -2530,6 +2528,30 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         self.assertIn(expected, str(response.data))
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
+
+    @parameterized.expand(
+        [
+            ("unpin_model", {"model_configuration": _DEFAULT_MODEL_CONFIGURATION}, status.HTTP_400_BAD_REQUEST),
+            ("rename", {"name": "Renamed"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_an_enabled_judge_cannot_lose_its_key(self, _name, payload, expected_status):
+        key = self._create_active_key()
+        eval_obj = self._create_keyless_eval(
+            model_configuration=LLMModelConfiguration.objects.create(
+                team=self.team, provider="openai", model="gpt-5-mini", provider_key=key
+            )
+        )
+        Evaluation.objects.filter(id=eval_obj.id).update(enabled=True)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/", payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.data)
+        eval_obj.refresh_from_db()
+        assert eval_obj.model_configuration is not None
+        self.assertEqual(eval_obj.model_configuration.provider_key_id, key.id)
 
     def test_blocks_creating_enabled_keyless_eval_without_key(self):
         response = self.client.post(

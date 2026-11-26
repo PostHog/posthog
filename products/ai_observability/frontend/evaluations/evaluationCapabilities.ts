@@ -1,3 +1,4 @@
+import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
 // Mirrors REPORTABLE_OUTPUT_TYPES_BY_TARGET in evaluation_configs.py — keep the two in step.
@@ -65,13 +66,26 @@ export function evaluationTypeUsesProviderKey(evaluationType: EvaluationType | n
     return evaluationTypeUsesModelConfiguration(evaluationType)
 }
 
-/** A judge runs only on the key it pins. The project's active key is being retired as a fallback. */
+/** Enabling a judge needs a pinned key. */
 export function evaluationCanResolveModel(
     evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>
 ): boolean {
     return (
         !evaluationTypeUsesProviderKey(evaluation.evaluation_type) || !!evaluation.model_configuration?.provider_key_id
     )
+}
+
+/** Why a judge can't be turned on yet, or null when it can. */
+export function evaluationEnableBlockedReason(
+    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
+    providerKeys: Pick<LLMProviderKey, 'state'>[]
+): string | null {
+    if (evaluationCanResolveModel(evaluation)) {
+        return null
+    }
+    return providerKeys.some((key) => key.state === 'ok')
+        ? 'Choose a model with a provider API key to enable this evaluation.'
+        : 'Add a provider API key, then choose a model with it to enable this evaluation.'
 }
 
 export function evaluationTypeDefaultsToBooleanOutput(evaluationType: EvaluationType | null | undefined): boolean {

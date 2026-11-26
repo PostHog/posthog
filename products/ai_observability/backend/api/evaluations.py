@@ -765,11 +765,15 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             except ValueError as e:
                 raise serializers.ValidationError({"target_config": str(e)})
 
-        if data.get("enabled"):
-            if self.instance is None:
+        if self.instance is None:
+            if data.get("enabled"):
                 self._validate_can_run(data)
-            elif not self.instance.enabled:
+        elif not self.instance.enabled:
+            if data.get("enabled"):
                 self._validate_re_enable(data)
+        elif data.get("enabled", True) and "model_configuration" in data:
+            # A judge that stays on must keep a working pinned key when its model changes.
+            self._validate_can_run(data)
 
         return data
 
@@ -832,26 +836,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if not evaluation_uses_model_configuration(evaluation_type):
             return
 
-        # _validate_can_run mirrors runtime resolution, so it already rejects a re-enable whose key is
-        # missing/unhealthy or whose keyless config can't resolve — no separate provider-key gate needed.
         self._validate_can_run(data)
-
-        status_reason = getattr(self.instance, "status_reason", None)
-
-        if status_reason == "model_not_found" and not self._has_model_configuration_after_update(data):
-            raise serializers.ValidationError(
-                {"enabled": "Choose an available model before re-enabling this evaluation."}
-            )
-
-        # No default model: the team's active key is for a provider we have no default model for, and
-        # the eval left its model unset. Require an explicit model so it can't immediately re-disable.
-        if status_reason == "no_default_model":
-            if not self._has_model_configuration_after_update(data):
-                raise serializers.ValidationError(
-                    {
-                        "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before re-enabling."
-                    }
-                )
 
     def _missing_key_message(self, team: Team, provider: str | None) -> str:
         """A team with a working key the eval isn't set to use needs to pick it, not add another one."""
@@ -860,13 +845,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             keys = keys.filter(provider=provider)
         if keys.exists():
             return (
-                "This project has a working AI provider API key, but this evaluation isn't set to use it. "
-                "Choose that key for the evaluation's model, then enable the evaluation."
+                "This project has a working AI provider API key, but this evaluation doesn't use one. "
+                "Set the evaluation's model to one from a working key, then enable it."
             )
         return (
             "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
-            "A project admin can add one in Settings > AI observability > Bring your own key (BYOK), "
-            "then enable this evaluation."
+            "A project admin can add one in Settings > AI observability > Bring your own key (BYOK). "
+            "Then set the evaluation's model to one from that key and enable it."
         )
 
     def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
@@ -885,12 +870,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             }
         return None
 
-    def _has_model_configuration_after_update(self, data: dict) -> bool:
-        return bool(data.get("model_configuration")) or bool(self.instance and self.instance.model_configuration_id)
-
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
-        """The provider key the evaluation pins after this update. An enabled judge needs one, because
-        the project's active key is being retired as a fallback."""
+        """The provider key the evaluation pins after this update. Enabling a judge needs one."""
         provider_key_id = (self._effective_model_configuration(data) or {}).get("provider_key_id")
         if not provider_key_id:
             return None

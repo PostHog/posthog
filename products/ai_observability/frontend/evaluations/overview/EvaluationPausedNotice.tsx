@@ -15,7 +15,7 @@ import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 /** Turning an evaluation off is a normal choice, so this offers the way back without pressing it. */
 export function EvaluationPausedNotice({ row }: { row: EvaluationResultApi }): JSX.Element {
     const { configById, togglingIds, timezone } = useValues(evaluationsOverviewLogic)
-    const { canEnableEvaluation } = useValues(llmEvaluationsLogic)
+    const { enableEvaluationReason } = useValues(llmEvaluationsLogic)
     const { toggleEvaluationEnabled } = useActions(llmEvaluationsLogic)
     const config = configById.get(row.id)
     const day = lastResultDay(row, timezone)
@@ -41,7 +41,8 @@ export function EvaluationPausedNotice({ row }: { row: EvaluationResultApi }): J
                             AccessControlLevel.Editor,
                             config.user_access_level ?? undefined
                         ) ??
-                        (canEnableEvaluation(config) ? undefined : 'Add a provider API key to enable this evaluation.')
+                        enableEvaluationReason(config) ??
+                        undefined
                     }
                     data-attr="evaluation-overview-drawer-resume"
                 >

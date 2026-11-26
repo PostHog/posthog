@@ -602,12 +602,11 @@ tools:
         description: >
             Create an evaluation that scores live traffic. Don't use it to record evals that run elsewhere (CI, local
             eval suites); those are offline experiments. 'llm_judge': set evaluation_config.prompt and
-            model_configuration with provider and model; provider_key_id may be null when no key is pinned. An llm_judge
-            runs on one of the team's own AI provider keys, and keys can't be added through MCP. Check
-            llma-evaluation-config-get and llma-provider-key-list first: pin an ok-state key with provider_key_id when
-            one exists. With no usable key, still create the judge with enabled=false, and tell the user it starts
-            scoring once a project admin adds a key in Settings > AI observability > Bring your own key (BYOK) and
-            enables it. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys).
+            model_configuration with provider and model. An llm_judge runs only on the key pinned in
+            model_configuration.provider_key_id, and keys can't be added through MCP. Check llma-provider-key-list
+            first and pin an ok-state key; enabling needs one. With no usable key, create the judge with
+            enabled=false and provider_key_id null, and tell the user it starts scoring once a project admin adds a key
+            in Settings > AI observability > Bring your own key (BYOK), picks it as the judge's model, and enables it. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys).
             For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config
             accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options,
             selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration,

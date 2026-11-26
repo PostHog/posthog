@@ -27,7 +27,7 @@ const WIDER_RANGE_DAYS = 30
 /** What the drawer shows when an evaluation graded nothing in the range, with the next steps for its state. */
 export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }): JSX.Element {
     const { configById, togglingIds, interval, periodLength, evaluationUrl } = useValues(evaluationsOverviewLogic)
-    const { canEnableEvaluation } = useValues(llmEvaluationsLogic)
+    const { enableEvaluationReason } = useValues(llmEvaluationsLogic)
     const { toggleEvaluationEnabled, setDates } = useActions(llmEvaluationsLogic)
     const { trackEmptyStateAction } = useActions(evaluationResultDrawerLogic)
     const config = configById.get(row.id)
@@ -106,12 +106,7 @@ export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }
                                     toggleEvaluationEnabled(config.id)
                                 }}
                                 loading={togglingIds.includes(config.id)}
-                                disabledReason={
-                                    editorReason ??
-                                    (canEnableEvaluation(config)
-                                        ? undefined
-                                        : 'Add a provider API key to enable this evaluation.')
-                                }
+                                disabledReason={editorReason ?? enableEvaluationReason(config) ?? undefined}
                                 data-attr="evaluation-overview-drawer-empty-turn-on"
                             >
                                 Turn it back on

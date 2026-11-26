@@ -212,6 +212,20 @@ describe('llmEvaluationsLogic', () => {
             expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-pinned', 'key-ok'))).toBe(true)
         })
 
+        it.each([
+            ['has a working key', 'ok', 'Choose a model with a provider API key to enable this evaluation.'],
+            [
+                'has no working key',
+                'invalid',
+                'Add a provider API key, then choose a model with it to enable this evaluation.',
+            ],
+        ] as const)('tells a team that %s what a keyless judge needs', async (_name, state, reason) => {
+            keysLogic.actions.loadProviderKeysSuccess([{ ...mockProviderKeys[0], state }])
+
+            expect(logic.values.enableEvaluationReason(evaluationWithKey('llm-default', null))).toBe(reason)
+            expect(logic.values.enableEvaluationReason(evaluationWithKey('llm-pinned', 'key-ok'))).toBeNull()
+        })
+
         it('returns unhealthy keys used by evaluations without duplicates', async () => {
             logic.actions.loadEvaluations()
             keysLogic.actions.loadProviderKeys()

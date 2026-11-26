@@ -40,7 +40,6 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 
 | Tool                                        | Purpose                                                       |
 | ------------------------------------------- | ------------------------------------------------------------- |
-| `posthog:llma-evaluation-config-get`        | Check the active provider key used by unpinned judges         |
 | `posthog:llma-provider-key-list`            | Find a usable (`ok` state) provider key to pin                |
 | `posthog:llma-evaluation-judge-models`      | List valid provider+model combos                              |
 | `posthog:llma-evaluation-directory-list`    | List directories available for organizing the evaluation      |
@@ -243,15 +242,13 @@ An `llm_judge` evaluation requires only a valid `provider` and `model` to create
 provider key is needed to enable it, not to save it, so no `ok` key is a reason to keep the eval disabled,
 not a reason to stop. `provider_key_id` controls whether the evaluation pins one specific key:
 
-- Set `provider_key_id` to the UUID of an `ok`-state key for the same provider to pin it.
-- Set `provider_key_id` to `null` to use the team's active provider key. This is always a valid saved
-  value. To enable the eval, the active key must be in the `ok` state and use the same provider as
-  `model_configuration.provider`.
+- Set `provider_key_id` to the UUID of an `ok`-state key for the same provider to pin it. Enabling a
+  judge needs a pinned key.
+- Set `provider_key_id` to `null` only for a disabled draft, when the team has no usable key yet.
 
 Hog and sentiment evaluations skip this step.
 
 ```json
-posthog:llma-evaluation-config-get        // check active_provider_key for an unpinned judge
 posthog:llma-provider-key-list            // find an ok-state key to pin
 posthog:llma-evaluation-judge-models      // {} → every provider and its models; { "provider": "openai" } narrows it
 ```
@@ -260,9 +257,7 @@ Confirm the provider and model with `llma-evaluation-judge-models`.
 Call it with no arguments to see the whole catalog at once.
 Providers PostHog funds no models for come back empty unless you pass `key_id` for one of the team's keys; the response's `providers` list flags which ones those are.
 A listed model is not a free model. Running any `llm_judge` needs one of the team's own provider keys, so enabling fails until a usable key exists.
-Prefer pinning the chosen key so a later team-wide active-key change does not change how the evaluation runs.
-Leave `provider_key_id` as `null` to run on the team's active key; before enabling, confirm with
-`llma-evaluation-config-get` that the active key is usable and its provider matches.
+Pin the chosen key with `provider_key_id`. Enabling a judge fails without a pinned `ok`-state key.
 
 No usable key does not block creating the judge. Keys cannot be added through MCP, so:
 
@@ -302,8 +297,8 @@ posthog:llma-evaluation-create
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
 `"model_configuration": { "provider": "openai", "model": "gpt-6-luna", "provider_key_id": null }`.
-Pin `provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` to run on one specific
-key; `null` runs on the team's active key. Either value saves a draft. Full field reference:
+Pin `provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list`. `null` saves a disabled
+draft, but enabling needs a pinned key. Full field reference:
 [references/evaluation-payload.md](references/evaluation-payload.md).
 
 ### 2.5 — Verify the scope before enabling
@@ -433,8 +428,8 @@ creating so the user can review and toggle it in the UI.
 - **Always create disabled, verify scope, then enable.** An eval firing on the wrong events is worse than
   none — noise, and (for llm_judge) cost.
 - **A judge draft needs only a provider and model.** A usable provider key is needed to enable it, not to
-  save it, so no `ok` key means keep it disabled — not stop. `provider_key_id` may be `null` to run on the
-  team's active key.
+  save it, so no `ok` key means keep it disabled — not stop. Enabling needs `provider_key_id` pinned to an
+  `ok` key.
 - **Online evals are for live traffic, not a registry.** Don't create disabled online evals as records or
   placeholders for evals that run elsewhere (CI, a local eval folder, a test suite). Record those as offline
   experiments (`analyzing-offline-evaluations`). Every online eval you create should be one you mean to enable.

@@ -30,7 +30,7 @@ import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKey
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
 import { evaluationIsDetector } from './constants'
-import { evaluationCanResolveModel } from './evaluationCapabilities'
+import { evaluationCanResolveModel, evaluationEnableBlockedReason } from './evaluationCapabilities'
 import { listAllEvaluations, patchEvaluation } from './evaluationsApi'
 import { EvaluationConfig } from './types'
 
@@ -58,6 +58,7 @@ export interface llmEvaluationsLogicValues {
     deletingDirectoryId: string | null
     detectorEvaluationIds: string[]
     directoryEditor: EvaluationDirectoryEditor | null
+    enableEvaluationReason: (evaluation: EvaluationConfig) => string | null
     evaluationDirectories: EvaluationDirectoryApi[]
     evaluationDirectoriesLoading: boolean
     evaluations: EvaluationConfig[]
@@ -196,6 +197,7 @@ export interface llmEvaluationsLogicMeta {
             evaluationDirectories: EvaluationDirectoryApi[],
             selectedDirectoryId: string | null
         ) => EvaluationDirectoryApi | null
+        enableEvaluationReason: (providerKeys: LLMProviderKey[]) => (evaluation: EvaluationConfig) => string | null
         unhealthyProviderKeysUsedByEvaluations: (
             evaluations: EvaluationConfig[],
             providerKeys: LLMProviderKey[]
@@ -546,6 +548,12 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             () =>
                 (evaluation: EvaluationConfig): boolean =>
                     evaluationCanResolveModel(evaluation),
+        ],
+        enableEvaluationReason: [
+            (s) => [s.providerKeys],
+            (providerKeys: LLMProviderKey[]) =>
+                (evaluation: EvaluationConfig): string | null =>
+                    evaluationEnableBlockedReason(evaluation, providerKeys),
         ],
 
         unhealthyProviderKeysUsedByEvaluations: [
