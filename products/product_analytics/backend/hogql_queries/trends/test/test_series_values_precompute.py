@@ -35,7 +35,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ServedWindow,
 )
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.product_analytics.backend.facade.contracts import SeriesValuesUnavailable
+from products.product_analytics.backend.facade.contracts import (
+    ClosedSeriesValues,
+    SeriesValuesBlocker,
+    SeriesValuesFeature,
+    SeriesValuesUnavailable,
+)
 from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import (
     closed_series_values,
     execute_precomputed_trends,
@@ -217,7 +222,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         ):
             closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
 
-        assert closed == SeriesValuesUnavailable(reason="not_ready")
+        assert closed == SeriesValuesUnavailable(reason=SeriesValuesBlocker.NOT_READY)
 
     @time_machine.travel(_NOW, tick=False)
     def test_cold_cache_without_inserts_returns_none(self) -> None:
@@ -230,10 +235,10 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("series_count", {"series": [EventsNode(event="a"), EventsNode(event="b")]}, None),
-            ("actions_node", {"series": [ActionsNode(id=1)]}, None),
+            (SeriesValuesFeature.MULTIPLE_SERIES, {"series": [EventsNode(event="a"), EventsNode(event="b")]}, None),
+            (SeriesValuesFeature.ACTION_SERIES, {"series": [ActionsNode(id=1)]}, None),
             (
-                "data_warehouse_node",
+                SeriesValuesFeature.DATA_WAREHOUSE_SERIES,
                 {
                     "series": [
                         DataWarehouseNode(
@@ -243,43 +248,65 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
                 },
                 None,
             ),
-            ("math", {"series": [EventsNode(event="signed_up", math="dau")]}, None),
-            ("breakdown", {"breakdownFilter": BreakdownFilter(breakdown="plan", breakdown_type="event")}, None),
-            ("compare", {"compareFilter": CompareFilter(compare=True)}, None),
-            ("formula", {"trendsFilter": TrendsFilter(formula="A * 2")}, None),
-            ("display", {"trendsFilter": TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)}, None),
-            ("smoothing", {"trendsFilter": TrendsFilter(smoothingIntervals=7)}, None),
-            ("sampling", {"samplingFactor": 0.1}, None),
-            ("modifiers", {"modifiers": HogQLQueryModifiers(convertToProjectTimezone=False)}, None),
-            ("interval", {"interval": IntervalType.WEEK}, None),
-            ("test_account_filters", {"filterTestAccounts": True}, None),
-            ("property_type", {"properties": [PersonPropertyFilter(key="email", value="x", operator="exact")]}, None),
-            ("timezone", {}, "Asia/Kolkata"),
+            (SeriesValuesFeature.OTHER_MATH, {"series": [EventsNode(event="signed_up", math="dau")]}, None),
             (
-                "dst_transition",
+                SeriesValuesFeature.BREAKDOWN,
+                {"breakdownFilter": BreakdownFilter(breakdown="plan", breakdown_type="event")},
+                None,
+            ),
+            (SeriesValuesFeature.COMPARE, {"compareFilter": CompareFilter(compare=True)}, None),
+            (SeriesValuesFeature.FORMULA, {"trendsFilter": TrendsFilter(formula="A * 2")}, None),
+            (
+                SeriesValuesFeature.OTHER_DISPLAY,
+                {"trendsFilter": TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)},
+                None,
+            ),
+            (SeriesValuesFeature.SMOOTHING, {"trendsFilter": TrendsFilter(smoothingIntervals=7)}, None),
+            (SeriesValuesFeature.SAMPLING, {"samplingFactor": 0.1}, None),
+            (
+                SeriesValuesFeature.QUERY_MODIFIERS,
+                {"modifiers": HogQLQueryModifiers(convertToProjectTimezone=False)},
+                None,
+            ),
+            (SeriesValuesFeature.OTHER_INTERVAL, {"interval": IntervalType.WEEK}, None),
+            (SeriesValuesFeature.TEST_ACCOUNT_FILTERS, {"filterTestAccounts": True}, None),
+            (
+                SeriesValuesFeature.OTHER_PROPERTY_TYPE,
+                {"properties": [PersonPropertyFilter(key="email", value="x", operator="exact")]},
+                None,
+            ),
+            (SeriesValuesBlocker.TIMEZONE, {}, "Asia/Kolkata"),
+            (
+                SeriesValuesBlocker.DST_TRANSITION,
                 {"interval": IntervalType.HOUR, "dateRange": DateRange(date_from="2023-11-04", date_to="2023-11-06")},
                 "America/New_York",
             ),
             (
-                "dst_transition",
+                SeriesValuesBlocker.DST_TRANSITION,
                 {"interval": IntervalType.HOUR, "dateRange": DateRange(date_from="2023-10-01", date_to="2024-04-01")},
                 "America/New_York",
             ),
-            ("nothing_closed", {"dateRange": DateRange(date_from="dStart")}, None),
-            ("unaligned_range", {"dateRange": DateRange(date_from="-24h")}, None),
+            (SeriesValuesBlocker.NOTHING_CLOSED, {"dateRange": DateRange(date_from="dStart")}, None),
+            (SeriesValuesBlocker.PARTIAL_BUCKET, {"dateRange": DateRange(date_from="-24h")}, None),
             (
-                "unaligned_range",
+                SeriesValuesBlocker.PARTIAL_BUCKET,
                 {
                     "interval": IntervalType.HOUR,
                     "dateRange": DateRange(date_from="2024-01-10", date_to="2024-01-10T15:20:00"),
                 },
                 None,
             ),
-            ("date_range_too_long", {"dateRange": DateRange(date_from="2022-01-01", date_to="2024-01-10")}, None),
+            (
+                SeriesValuesBlocker.DATE_RANGE_TOO_LONG,
+                {"dateRange": DateRange(date_from="2022-01-01", date_to="2024-01-10")},
+                None,
+            ),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
-    def test_refuses_unsupported_shapes(self, reason: str, overrides: dict[str, Any], timezone: str | None) -> None:
+    def test_refuses_unsupported_shapes(
+        self, reason: SeriesValuesFeature | SeriesValuesBlocker, overrides: dict[str, Any], timezone: str | None
+    ) -> None:
         if timezone is not None:
             self._set_timezone(timezone)
 
@@ -287,6 +314,23 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert closed == SeriesValuesUnavailable(reason=reason)
         assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
+
+    @parameterized.expand(
+        [
+            ("no_filter", None, frozenset()),
+            ("event_property_filter", [_PRO], frozenset({SeriesValuesFeature.EVENT_PROPERTY_FILTERS})),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    def test_reports_the_features_a_query_uses(
+        self, _name: str, properties: list[EventPropertyFilter] | None, features: frozenset[SeriesValuesFeature]
+    ) -> None:
+        query = _query(properties=properties)
+
+        closed = closed_series_values(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+
+        assert isinstance(closed, ClosedSeriesValues)
+        assert closed.features == features
 
     @time_machine.travel(_NOW, tick=False)
     def test_refuses_teams_with_property_access_rules(self) -> None:
@@ -296,4 +340,4 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         ):
             closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
 
-        assert closed == SeriesValuesUnavailable(reason="property_access_rules")
+        assert closed == SeriesValuesUnavailable(reason=SeriesValuesBlocker.PROPERTY_ACCESS_RULES)

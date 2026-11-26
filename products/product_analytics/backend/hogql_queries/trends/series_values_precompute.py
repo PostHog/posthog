@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -11,6 +12,7 @@ from posthog.schema import (
     EventsNode,
     IntervalType,
     PropertyGroupFilter,
+    TrendsFilter,
 )
 
 from posthog.hogql import ast
@@ -32,7 +34,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
-from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
+from products.product_analytics.backend.facade.contracts import (
+    ClosedSeriesValues,
+    SeriesValuesBlocker as Blocker,
+    SeriesValuesFeature as Feature,
+    SeriesValuesUnavailable,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (
     TrendsQueryRunner,
     resolve_series_custom_name,
@@ -100,70 +107,82 @@ def _interval(runner: TrendsQueryRunner) -> str:
     return (runner.query.interval or IntervalType.DAY).value
 
 
-def _properties(runner: TrendsQueryRunner) -> list[Any]:
-    series = runner.query.series[0]
-    assert isinstance(series, EventsNode)
+def _properties(runner: TrendsQueryRunner, series: EventsNode) -> list[Any]:
     return [*(runner.query.properties or []), *(series.properties or [])]
 
 
-def _shape_refusal(runner: TrendsQueryRunner) -> str | None:
-    query = runner.query
-    if len(query.series) != 1:
-        return "series_count"
-    series = query.series[0]
-    if isinstance(series, ActionsNode):
-        return "actions_node"
-    if isinstance(series, DataWarehouseNode):
-        return "data_warehouse_node"
+def _trends_filter(runner: TrendsQueryRunner) -> TrendsFilter:
+    return runner.query.trendsFilter or TrendsFilter()
+
+
+def _counts_something_else(series: EventsNode) -> bool:
+    extras = (series.math_property, series.math_hogql, series.math_multiplier, series.math_group_type_index)
+    return series.math not in (None, "total") or any(value is not None for value in extras)
+
+
+_Uses = Callable[[TrendsQueryRunner, EventsNode], bool]
+
+# Features in shadow. A query that uses them still gets stored values, and its comparison is reported
+# for each feature it used. A new feature starts here.
+_SHADOW_FEATURES: dict[Feature, _Uses] = {
+    Feature.EVENT_PROPERTY_FILTERS: lambda runner, series: bool(_properties(runner, series)),
+}
+
+# Features the stored path refuses. The first one a query uses is the reason it gets no stored values.
+# The stored path counts the events of one series per hour, so it refuses what that count cannot reproduce.
+_REFUSED_FEATURES: dict[Feature, _Uses] = {
+    Feature.OTHER_MATH: lambda runner, series: _counts_something_else(series),
+    Feature.FIXED_PROPERTIES: lambda runner, series: bool(series.fixedProperties),
+    Feature.BREAKDOWN: lambda runner, series: runner.breakdown_enabled,
+    Feature.COMPARE: lambda runner, series: bool(runner.query.compareFilter and runner.query.compareFilter.compare),
+    Feature.SAMPLING: lambda runner, series: runner.query.samplingFactor not in (None, 1),
+    Feature.QUERY_MODIFIERS: lambda runner, series: bool(
+        runner.query.modifiers and runner.query.modifiers.model_dump(exclude_none=True)
+    ),
+    Feature.CONVERSION_GOAL: lambda runner, series: runner.query.conversionGoal is not None,
+    Feature.MARKETING_COST_FALLBACK: lambda runner, series: runner.query.marketingAnalyticsCostFallback is not None,
+    Feature.FORMULA: lambda runner, series: bool(
+        _trends_filter(runner).formula or _trends_filter(runner).formulas or _trends_filter(runner).formulaNodes
+    ),
+    Feature.OTHER_DISPLAY: lambda runner, series: _trends_filter(runner).display not in (None, *_TIME_SERIES_DISPLAYS),
+    Feature.SMOOTHING: lambda runner, series: (_trends_filter(runner).smoothingIntervals or 1) > 1,
+    Feature.OTHER_INTERVAL: lambda runner, series: _interval(runner) not in _BUCKET_EXPRS,
+    Feature.TEST_ACCOUNT_FILTERS: lambda runner, series: bool(runner.query.filterTestAccounts),
+    Feature.EXPLICIT_DATE: lambda runner, series: bool(runner.query.dateRange and runner.query.dateRange.explicitDate),
+    Feature.DAYS_OF_WEEK: lambda runner, series: bool(runner.query.dateRange and runner.query.dateRange.daysOfWeek),
+    Feature.PROPERTY_GROUP: lambda runner, series: isinstance(runner.query.properties, PropertyGroupFilter),
+    Feature.OTHER_PROPERTY_TYPE: lambda runner, series: any(
+        get_property_type(prop) != "event" for prop in _properties(runner, series)
+    ),
+}
+
+_REFUSED_SERIES_KINDS: dict[type, Feature] = {
+    ActionsNode: Feature.ACTION_SERIES,
+    DataWarehouseNode: Feature.DATA_WAREHOUSE_SERIES,
+}
+
+
+def _counted_series(runner: TrendsQueryRunner) -> EventsNode | SeriesValuesUnavailable:
+    if len(runner.query.series) != 1:
+        return SeriesValuesUnavailable(reason=Feature.MULTIPLE_SERIES)
+    series = runner.query.series[0]
     if not isinstance(series, EventsNode):
-        return "unsupported_series_node"
-    if series.math not in (None, "total") or any(
-        value is not None
-        for value in (series.math_property, series.math_hogql, series.math_multiplier, series.math_group_type_index)
-    ):
-        return "math"
-    if series.fixedProperties:
-        return "fixed_properties"
-    if runner.breakdown_enabled:
-        return "breakdown"
-    if query.compareFilter is not None and query.compareFilter.compare:
-        return "compare"
-    if query.samplingFactor is not None and query.samplingFactor != 1:
-        return "sampling"
-    if query.modifiers is not None and query.modifiers.model_dump(exclude_none=True):
-        return "modifiers"
-    if query.conversionGoal is not None:
-        return "conversion_goal"
-    if query.marketingAnalyticsCostFallback is not None:
-        return "marketing_cost_fallback"
-    trends_filter = query.trendsFilter
-    if trends_filter is not None:
-        if trends_filter.formula or trends_filter.formulas or trends_filter.formulaNodes:
-            return "formula"
-        if trends_filter.display is not None and trends_filter.display not in _TIME_SERIES_DISPLAYS:
-            return "display"
-        if trends_filter.smoothingIntervals is not None and trends_filter.smoothingIntervals > 1:
-            return "smoothing"
-    if _interval(runner) not in _BUCKET_EXPRS:
-        return "interval"
-    if query.filterTestAccounts:
-        return "test_account_filters"
-    if query.dateRange is not None and query.dateRange.explicitDate:
-        return "explicit_date"
-    if query.dateRange is not None and query.dateRange.daysOfWeek:
-        return "days_of_week"
-    if isinstance(query.properties, PropertyGroupFilter):
-        return "property_group"
-    if any(get_property_type(prop) != "event" for prop in _properties(runner)):
-        return "property_type"
-    return None
+        return SeriesValuesUnavailable(reason=_REFUSED_SERIES_KINDS.get(type(series), Feature.OTHER_SERIES_KIND))
+    return series
 
 
-def _team_refusal(runner: TrendsQueryRunner) -> str | None:
+def _features_used(runner: TrendsQueryRunner, series: EventsNode) -> frozenset[Feature] | SeriesValuesUnavailable:
+    for feature, uses in _REFUSED_FEATURES.items():
+        if uses(runner, series):
+            return SeriesValuesUnavailable(reason=feature)
+    return frozenset(feature for feature, uses in _SHADOW_FEATURES.items() if uses(runner, series))
+
+
+def _project_blocker(runner: TrendsQueryRunner) -> Blocker | None:
     if not is_integer_timezone(runner.team.timezone):
-        return "timezone"
+        return Blocker.TIMEZONE
     if team_has_property_access_rules(team_id=runner.team.pk):
-        return "property_access_rules"
+        return Blocker.PROPERTY_ACCESS_RULES
     return None
 
 
@@ -178,6 +197,16 @@ def _first_or_last_bucket_is_partial(runner: TrendsQueryRunner, buckets: list[da
         return True
     end = date_to + timedelta(microseconds=1)
     return (end.minute, end.second, end.microsecond) != (0, 0, 0)
+
+
+def _range_blocker(runner: TrendsQueryRunner, buckets: list[datetime], date_to: datetime) -> Blocker | None:
+    if _interval(runner) == "hour" and _crosses_dst(buckets):
+        return Blocker.DST_TRANSITION
+    if not buckets:
+        return Blocker.NOTHING_CLOSED
+    if _first_or_last_bucket_is_partial(runner, buckets, date_to):
+        return Blocker.PARTIAL_BUCKET
+    return None
 
 
 def _live_boundary(buckets: list[datetime], today_start_utc: datetime) -> datetime:
@@ -200,15 +229,14 @@ def _covers(windows: tuple[ServedWindow, ...], start: datetime, end: datetime) -
 
 def _ensure(
     runner: TrendsQueryRunner,
+    series: EventsNode,
     *,
     start: datetime,
     end: datetime,
     run_inserts: bool,
     wait_timeout_seconds: float | None = None,
 ) -> LazyComputationResult:
-    series = runner.query.series[0]
-    assert isinstance(series, EventsNode)
-    properties = _properties(runner)
+    properties = _properties(runner, series)
     return ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
@@ -309,17 +337,17 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
 def closed_series_values(
     runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
 ) -> ClosedSeriesValues | SeriesValuesUnavailable:
-    reason = _shape_refusal(runner) or _team_refusal(runner)
+    series = _counted_series(runner)
+    if isinstance(series, SeriesValuesUnavailable):
+        return series
+    features = _features_used(runner, series)
+    if isinstance(features, SeriesValuesUnavailable):
+        return features
     buckets = runner.query_date_range.all_values()
     date_to = runner.query_date_range.date_to()
-    if reason is None and _interval(runner) == "hour" and _crosses_dst(buckets):
-        reason = "dst_transition"
-    if reason is None and not buckets:
-        reason = "nothing_closed"
-    if reason is None and _first_or_last_bucket_is_partial(runner, buckets, date_to):
-        reason = "unaligned_range"
-    if reason is not None:
-        return SeriesValuesUnavailable(reason=reason)
+    blocker = _project_blocker(runner) or _range_blocker(runner, buckets, date_to)
+    if blocker is not None:
+        return SeriesValuesUnavailable(reason=blocker)
 
     now_utc = datetime.now(UTC)
     today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -331,22 +359,27 @@ def closed_series_values(
         read_end_utc = live_from.astimezone(UTC)
     read_start_utc = buckets[0].astimezone(UTC)
     if read_start_utc >= read_end_utc:
-        return SeriesValuesUnavailable(reason="nothing_closed")
+        return SeriesValuesUnavailable(reason=Blocker.NOTHING_CLOSED)
 
     range_start = read_start_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     range_end = read_end_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     if range_end < read_end_utc:
         range_end += timedelta(days=1)
     if (range_end - range_start).days > MAX_RANGE_DAYS:
-        return SeriesValuesUnavailable(reason="date_range_too_long")
+        return SeriesValuesUnavailable(reason=Blocker.DATE_RANGE_TOO_LONG)
 
     result = _ensure(
-        runner, start=range_start, end=range_end, run_inserts=run_inserts, wait_timeout_seconds=wait_timeout_seconds
+        runner,
+        series,
+        start=range_start,
+        end=range_end,
+        run_inserts=run_inserts,
+        wait_timeout_seconds=wait_timeout_seconds,
     )
     # A job can expire while the executor collects its result. A day that no returned job covers would
     # read as zero.
     if not result.ready or not result.job_ids or not _covers(result.served_windows, range_start, range_end):
-        return SeriesValuesUnavailable(reason="not_ready")
+        return SeriesValuesUnavailable(reason=Blocker.NOT_READY)
 
     stored = _read_values(
         runner, job_ids=[str(job_id) for job_id in result.job_ids], start=read_start_utc, end=read_end_utc
@@ -356,6 +389,7 @@ def closed_series_values(
         values={bucket: stored.get(bucket, 0) for bucket in closed_buckets},
         live_from=live_from,
         freshly_built=result.freshly_built,
+        features=features,
     )
 
 

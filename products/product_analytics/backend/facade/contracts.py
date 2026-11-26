@@ -14,6 +14,7 @@ loses a field surfaces at the facade boundary instead of further down the caller
 
 from dataclasses import field
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -65,23 +66,64 @@ class TrendsQueryRunResult:
     last_refresh: datetime | None = None
 
 
+class SeriesValuesFeature(StrEnum):
+    """Something a Trends query asks for, which the stored path must either reproduce or refuse."""
+
+    EVENT_PROPERTY_FILTERS = "event_property_filters"
+    MULTIPLE_SERIES = "multiple_series"
+    ACTION_SERIES = "actions_node"
+    DATA_WAREHOUSE_SERIES = "data_warehouse_node"
+    OTHER_SERIES_KIND = "unsupported_series_node"
+    OTHER_MATH = "math"
+    FIXED_PROPERTIES = "fixed_properties"
+    BREAKDOWN = "breakdown"
+    COMPARE = "compare"
+    SAMPLING = "sampling"
+    QUERY_MODIFIERS = "modifiers"
+    CONVERSION_GOAL = "conversion_goal"
+    MARKETING_COST_FALLBACK = "marketing_cost_fallback"
+    FORMULA = "formula"
+    OTHER_DISPLAY = "display"
+    SMOOTHING = "smoothing"
+    OTHER_INTERVAL = "interval"
+    TEST_ACCOUNT_FILTERS = "test_account_filters"
+    EXPLICIT_DATE = "explicit_date"
+    DAYS_OF_WEEK = "days_of_week"
+    PROPERTY_GROUP = "property_group"
+    OTHER_PROPERTY_TYPE = "property_type"
+
+
+class SeriesValuesBlocker(StrEnum):
+    """Why a query gets no stored values although the stored path supports every feature it uses."""
+
+    TIMEZONE = "timezone"
+    PROPERTY_ACCESS_RULES = "property_access_rules"
+    DST_TRANSITION = "dst_transition"
+    NOTHING_CLOSED = "nothing_closed"
+    PARTIAL_BUCKET = "partial_bucket"
+    DATE_RANGE_TOO_LONG = "date_range_too_long"
+    NOT_READY = "not_ready"
+
+
 @dataclass(frozen=True)
 class ClosedSeriesValues:
     """Stored Trends counts for every bucket before ``live_from``, keyed by the naive bucket start in the team timezone.
 
     ``live_from`` is the first bucket that still needs a live read, or None when the whole range is closed.
+    ``features`` are the supported features the query used, so a comparison can be reported for each one.
     """
 
     values: dict[datetime, int]
     live_from: datetime | None
     freshly_built: bool = False
+    features: frozenset[SeriesValuesFeature] = frozenset()
 
 
 @dataclass(frozen=True)
 class SeriesValuesUnavailable:
-    """Why stored Trends counts cannot serve a query."""
+    """Why stored Trends counts cannot serve a query: a feature the stored path refuses, or a blocker."""
 
-    reason: str
+    reason: SeriesValuesFeature | SeriesValuesBlocker
 
 
 @dataclass(frozen=True)
