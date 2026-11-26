@@ -169,6 +169,8 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    // The submission page shows its own retry, and the floating request card stays hidden when the read fails
+    loadSubmission: 'products.agent_transcripts.frontend.agentTranscriptSubmissionLogic',
     // The logic toasts every failure itself, including network errors that have no HTTP status
     setIssueSummariesEnabled:
         'products.error_tracking.scenes.ErrorTrackingConfigurationScene.ai_features.aiFeaturesSettingsLogic',

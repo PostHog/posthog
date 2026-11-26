@@ -382,6 +382,8 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert kwargs["backend_processor"] == "AgenticProvisioning"
         assert kwargs["is_organization_first_user"] is True
         assert kwargs["social_provider"] == self.pkce_partner.name
+        # Partner-provisioned organizations are attributed through the partner, never as AI signups
+        assert kwargs.get("ai_signup_attribution") is None
 
     def test_pkce_partner_with_skip_consent_existing_user_requires_consent(self):
         # A public PKCE caller is identified only by a client_id anyone can send, so even with
