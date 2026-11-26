@@ -1852,10 +1852,10 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             self._create_access_control(resource="hog_flow", resource_id=None, access_level="viewer")
         else:
             key = self.create_personal_api_key_with_scopes(["file_system:read", "file_system:write"])
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+            headers["Authorization"] = f"Bearer {key}"
 
         target_id = folder.pk if target == "folder" else row.pk
-        self.client.delete(f"/api/projects/{self.team.id}/file_system/{target_id}/{query}", **headers)
+        self.client.delete(f"/api/projects/{self.team.id}/file_system/{target_id}/{query}", headers=headers)
 
         self.assertTrue(FileSystem.objects.filter(pk=row.pk).exists())
 
