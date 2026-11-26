@@ -14511,7 +14511,7 @@ Note: Enumerated from the vendor's full single-page reference; GET availability 
 
 ## SurveySparrow — **thin**
 
-Today (12): `channels`, `contact_lists`, `contact_properties`, `contacts`, `questions`, `reputation_reviews`, `responses`, `surveys`, `teams`, `ticket_comments`, `tickets`, `users`
+Today (16): `channels`, `contact_lists`, `contact_properties`, `contacts`, `questions`, `reputation_app_platforms`, `reputation_platforms`, `reputation_reviews`, `responses`, `survey_subjects`, `surveys`, `teams`, `ticket_comments`, `ticket_fields`, `tickets`, `users`
 
 Diffed against: <https://developers.surveysparrow.com/rest-apis>
 
@@ -14522,11 +14522,11 @@ Diffed against: <https://developers.surveysparrow.com/rest-apis>
 - [x] `GET /v3/reputation_reviews` — Online review records from the Reputation Management product - a whole analytical dataset with no coverage (high). Added as `reputation_reviews`. The real path is `GET /v3/reputation/reviews`, which requires `app_platform_id`, so the table fans out over `/v3/reputation/app_platforms`. Full refresh only: a scraped review can arrive after reviews with a later `review_date`.
 - [x] `GET /v3/tickets/{id}/comments` — Ticket conversation history for resolution-time and agent-activity analysis (medium). Added as `ticket_comments` (fan-out over `tickets`), incremental on `created_at` via `created_date.gte`.
 - [x] `GET /v3/contact_properties` — Lookup table defining the custom contact fields whose values appear on synced contacts (medium). Added as `contact_properties` (one unpaginated request).
-- [ ] `GET /v3/ticket_fields` — Lookup table decoding custom ticket field IDs (medium)
+- [x] `GET /v3/ticket_fields` — Lookup table decoding custom ticket field IDs (medium). Added as `ticket_fields`, incremental on `updated_at` via `updated_date.gte`.
 - [x] `GET /v3/teams` — Lookup table for the team IDs on users and tickets (medium). Added as `teams`.
-- [ ] `GET /v3/reports and /v3/reports/question` — Per-question aggregate report dimensions (distributions, averages) without recomputing from responses (medium)
-- [ ] `GET /v3/survey_subjects, /v3/survey_subject_evaluators, /v3/survey_subject_report` — Employee 360 subject/evaluator membership and scores - the entire 360-review dataset (medium)
-- [ ] `GET /v3/reputation_platforms and /v3/reputation_app_platforms` — Lookup tables resolving the platform IDs on reputation reviews (medium)
+- [ ] `GET /v3/reports and /v3/reports/question` — Per-question aggregate report dimensions (distributions, averages) without recomputing from responses (medium). Skipped: `/v3/reports` returns a public report link, and `/v3/reports/question` returns one aggregate per survey and question with an undocumented string schema, not a list of records.
+- [x] `GET /v3/survey_subjects, /v3/survey_subject_evaluators, /v3/survey_subject_report` — Employee 360 subject/evaluator membership and scores - the entire 360-review dataset (medium). Added as `survey_subjects`. The real path is `GET /v3/survey/subjects`, which requires `survey_id`, so the table fans out over `/v3/surveys?survey_type=Employee360`. Not built: `/v3/survey/subject/evaluators` needs a second fan-out level per subject, and `/v3/survey/subject/report` has an undocumented string response.
+- [x] `GET /v3/reputation_platforms and /v3/reputation_app_platforms` — Lookup tables resolving the platform IDs on reputation reviews (medium). Added as `reputation_platforms` (`/v3/reputation/platforms`) and `reputation_app_platforms` (`/v3/reputation/app_platforms`), both full refresh.
 
 Note: Static endpoint list in products/warehouse_sources/sources/surveysparrow/settings.py (5 paths, no dynamic discovery). Full v3 GET-endpoint list enumerated from https://developers.surveysparrow.com/sitemap.xml, whose `get-v-3-\*` slugs map 1:1 to endpoints. The v3 API has ~30 resource categories; PostHog exposes 5.
 
