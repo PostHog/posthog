@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { Spinner } from '@posthog/quill'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,7 +12,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardV2Actions } from './dashboard/DashboardV2Actions'
 import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
+import { DashboardV2Unavailable } from './dashboard/DashboardV2Unavailable'
 import { DashboardV2View } from './dashboard/DashboardV2View'
+import type { MenuAction } from './dashboard/menuAction'
 import { dashboardV2Logic } from './dashboardV2Logic'
 import { createQueryBatchRunner } from './data/queryBatchRunner'
 import { runSampleQuery } from './fixtures/runSampleQuery'
@@ -34,8 +38,24 @@ export function DashboardV2Scene(): JSX.Element {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
-    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
+    const { boardLoading, boardError } = useValues(dashboardV2Logic)
+    if (boardLoading) {
+        return (
+            <div className="flex h-full items-center justify-center" data-attr="dashboard-v2-board-loading">
+                <Spinner />
+            </div>
+        )
+    }
+    if (boardError) {
+        return <DashboardV2Unavailable problem={boardError.problem} description={boardError.description} />
+    }
+    return <LoadedDashboardV2 />
+}
+
+function LoadedDashboardV2(): JSX.Element {
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo, boardUid, savingBoard } =
+        useValues(dashboardV2Logic)
+    const { applyDashboardEdit, setActiveTab, undo, redo, saveAsBoard } = useActions(dashboardV2Logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
@@ -62,8 +82,24 @@ function DashboardV2(): JSX.Element {
             onActiveTabChange: setActiveTab,
             history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
             refresh: {},
+            dashboardActions: (actions: MenuAction[]): MenuAction[] =>
+                boardUid
+                    ? actions
+                    : [
+                          {
+                              key: 'save-as-board',
+                              label: 'Save as board',
+                              dataAttr: 'dashboard-v2-save-as-board',
+                              disabledReason: savingBoard ? 'Saving…' : null,
+                              onSelect: saveAsBoard,
+                          },
+                          ...actions,
+                      ],
         }),
         [
+            boardUid,
+            savingBoard,
+            saveAsBoard,
             dashboard,
             activeTabId,
             panels,

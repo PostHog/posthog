@@ -142,17 +142,20 @@ export const gridTabSchema = z.strictObject({
     tiles: z.array(tileSchema),
 })
 
+/** A path in PostHog or an http(s) URL. Anything else, such as `javascript:`, could run script. */
+const safeHrefSchema = z
+    .string()
+    .refine(
+        (href) => /^\/(?![/\\])/.test(href) || /^https?:\/\//i.test(href),
+        'A link goes to a PostHog path or an http(s) URL'
+    )
+
 /** A tab that goes somewhere else when picked, such as another dashboard or another page, and holds no tiles. */
 export const linkTabSchema = z.strictObject({
     id: z.string().min(1),
     title: z.string(),
     /** A path in PostHog, such as `/dashboard-v2?tab=errors`, or an http(s) URL. Anything else could run script. */
-    href: z
-        .string()
-        .refine(
-            (href) => /^\/(?![/\\])/.test(href) || /^https?:\/\//i.test(href),
-            'A link tab goes to a PostHog path or an http(s) URL'
-        ),
+    href: safeHrefSchema,
 })
 
 export const dashboardTabSchema = z.union([gridTabSchema, linkTabSchema])
@@ -167,6 +170,23 @@ export const dashboardSchema = z.strictObject({
     user_access_level: z.enum(AccessControlLevel).optional(),
     /** The time range of every panel that does not set its own. Missing means `DEFAULT_TIME_RANGE`. */
     time: timeRangeSchema.optional(),
+    /*
+     * Stored with the board and not shown yet. They match the dashboard-level fields of Dash and Grafana dashboards,
+     * so a board imported from either keeps them. Each entry stays open, so its shape can grow without a new schema.
+     */
+    tags: z.array(z.string()).optional(),
+    /** Folder titles separated by `/`. */
+    folder: z.string().optional(),
+    links: z.array(z.looseObject({ title: z.string(), href: safeHrefSchema })).optional(),
+    /** How often the board reloads its data, such as `5m`. */
+    refresh: z.string().optional(),
+    /** An IANA time zone such as `Europe/London`. Missing means the project's. */
+    timezone: z.string().optional(),
+    variables: z.array(z.looseObject({ name: z.string().min(1) })).optional(),
+    /** Markers such as deploys, drawn over time series. */
+    annotations: z.array(z.looseObject({ name: z.string().min(1) })).optional(),
+    /** The events, tables and metrics the board reads, so a project without them can be told before it loads. */
+    requires: z.array(z.looseObject({ kind: z.string().min(1) })).optional(),
     tabs: z.array(dashboardTabSchema).refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
 
