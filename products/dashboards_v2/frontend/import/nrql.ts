@@ -141,7 +141,7 @@ const UNITS: Record<string, { since: string; interval: string; seconds: number }
     WEEK: { since: 'w', interval: 'Week', seconds: 604800 },
     MONTH: { since: 'M', interval: 'Month', seconds: 2592000 },
 }
-const own = <T>(record: Record<string, T>, key: string): T | undefined =>
+export const own = <T>(record: Record<string, T>, key: string): T | undefined =>
     Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
 const unitOf = (token: Token | undefined): (typeof UNITS)[string] | undefined =>
     own(UNITS, upper(token).replace(/S$/, ''))

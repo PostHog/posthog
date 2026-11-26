@@ -173,6 +173,17 @@ describe('importDashboard', () => {
         expect(JSON.stringify(result.dashboard)).not.toContain('1234567')
     })
 
+    it('keeps a New Relic widget whose visualization is named like an object property as a note', () => {
+        const widget = {
+            title: 'Odd',
+            visualization: { id: '__proto__' },
+            rawConfiguration: { nrqlQueries: [{ query: 'SELECT count(*) FROM OrderPlaced TIMESERIES' }] },
+        }
+        const result = imported({ name: 'Odd', pages: [{ name: 'Page', widgets: [widget] }] })
+
+        expect(statuses(result)).toEqual({ Odd: 'unsupported' })
+    })
+
     it('gives each column of a New Relic line chart its own query and leaves out a query with another time range', () => {
         const widget = {
             title: 'Latency',

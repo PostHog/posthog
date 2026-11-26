@@ -11,7 +11,7 @@ import {
     notePanel,
     reportBuilder,
 } from './importReport'
-import { type NrqlTranslation, translateNrql } from './nrql'
+import { type NrqlTranslation, own, translateNrql } from './nrql'
 
 /**
  * A New Relic dashboard export as a board: each page is a tab, each widget a tile, and each NRQL query HogQL through
@@ -105,7 +105,7 @@ export function importNewRelic(input: unknown): ImportResult {
                 .map((query: Json) => String(query?.query ?? '').trim())
                 .filter(Boolean)
             const translations = queries.map((nrql) => ({ nrql, result: translateNrql(nrql) }))
-            const viz = VIZ[vizId]
+            const viz = own(VIZ, vizId)
             const overTime = viz !== undefined && viz.viz.type !== 'stat'
             const targets: { refId: string; query: PanelQuery }[] = []
             const failed: string[] = []
