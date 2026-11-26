@@ -138,7 +138,7 @@ class AIObservabilityTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         """Apply rate limiting to prevent abuse of text formatting endpoint."""
         return [AIObservabilityTextReprBurstThrottle(), AIObservabilityTextReprSustainedThrottle()]
 
-    def _get_cache_key(self, event_type: str, data: dict, options: dict) -> str:
+    def _get_cache_key(self, event_type: str, data: object, options: object) -> str:
         """Generate cache key for text repr results.
 
         The rendering depends only on what the caller sends, so the key hashes the whole payload. Keying on the
