@@ -335,7 +335,11 @@ export function WorkflowMetricsSummary({
                             <WorkflowMetricCard
                                 key={key}
                                 name={metric.name}
-                                description={metric.description}
+                                description={
+                                    key === 'email_delivered'
+                                        ? `${metric.description} When no delivery confirmation arrived in this date range, it counts emails sent minus bounced, as the Email steps table does.`
+                                        : metric.description
+                                }
                                 loading={appMetricsTrendsLoading}
                                 timeSeries={transactionalSeries(key)}
                                 previousPeriodTimeSeries={transactionalSeries(key, true)}
