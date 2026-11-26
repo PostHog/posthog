@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Editor as TiptapEditor } from '@tiptap/core'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -81,7 +84,7 @@ describe('emailTemplaterLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
                 '/api/projects/:team_id/property_definitions/': { results: [] },
             },
         })
@@ -381,6 +384,123 @@ describe('emailTemplaterLogic', () => {
             editor.destroy()
         })
 
+        const mountDocumentEditor = async (
+            value: Record<string, any>,
+            onChange: jest.Mock,
+            layout: 'inline' | 'modal' = 'inline'
+        ): Promise<{ editor: TiptapEditor }> => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic({
+                ...makeProps({ value: { ...blankEmail, ...value } as any }),
+                layout,
+                onChange,
+            })
+            logic.mount()
+            if (layout === 'modal') {
+                logic.actions.setIsModalOpen(true)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            const editor = new TiptapEditor({
+                extensions: buildEmailExtensions(''),
+                content: logic.values.documentEditorInitialDoc,
+            })
+            logic.actions.setEmailEditorRef({ editor: createEmailEditorAdapter(editor) } as any)
+            logic.actions.onEmailEditorReady()
+            await expectLogic(logic).toFinishAllListeners()
+            return { editor }
+        }
+
+        it('keeps the html when the plain text tab is edited, and keeps that text on later edits', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, onChange)
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Written by hand, café ✨')
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({ html: expect.stringContaining('Old'), text: 'Written by hand, café ✨' })
+            )
+
+            const html = '<p>New</p>'
+            editor.view.dispatch(editor.state.tr.setNodeAttribute(0, 'html', html))
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({ html, text: 'Written by hand, café ✨' })
+            )
+            editor.destroy()
+        })
+
+        it('keeps plain text the person cleared empty on later edits', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, onChange)
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', '')
+            await logic.asyncActions.flushPendingDesignEdit()
+            const html = '<p>New</p>'
+            editor.view.dispatch(editor.state.tr.setNodeAttribute(0, 'html', html))
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ html, text: '' }))
+            editor.destroy()
+        })
+
+        it('keeps text typed in the plain text tab as the email own when the editor modal saves from the canvas', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, onChange, 'modal')
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Written by hand')
+            logic.actions.setActiveContentTab('visual')
+            await logic.asyncActions.submitEmailTemplate()
+
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    html: expect.stringContaining('Old'),
+                    text: 'Written by hand',
+                    design: expect.objectContaining({
+                        emailDocument: expect.objectContaining({
+                            doc: expect.objectContaining({ attrs: expect.objectContaining({ ownPlainText: true }) }),
+                        }),
+                    }),
+                })
+            )
+            editor.destroy()
+        })
+
+        it('keeps a text-only email without a design text-only when its plain text is edited', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '', text: 'Only text', design: null }, onChange)
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Only text, edited')
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ html: '', text: 'Only text, edited' }))
+            editor.destroy()
+        })
+
+        it('keeps the text of an email a plain text edit left without html once the canvas is edited', async () => {
+            const source = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, jest.fn())
+            let design: Record<string, any> = {}
+            logic.values.emailEditorRef?.editor?.exportHtml((data: { design: Record<string, any> }) => {
+                design = data.design
+            })
+            source.editor.destroy()
+            logic.unmount()
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '', text: 'Only text', design }, onChange)
+
+            const html = '<p>New</p>'
+            editor.view.dispatch(editor.state.tr.setNodeAttribute(0, 'html', html))
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ html, text: 'Only text' }))
+            editor.destroy()
+        })
+
         it('does not load the new template sample over the new editor starter', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
@@ -497,6 +617,28 @@ describe('emailTemplaterLogic', () => {
     })
 
     describe('starting-point picker', () => {
+        it('looks for templates in the open environment, not in its parent project', async () => {
+            const environmentId = MOCK_DEFAULT_TEAM.id + 1
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/messaging_templates/': (req) => [
+                        200,
+                        { results: req.params.team_id === String(environmentId) ? [{ id: 'template-1' }] : [] },
+                    ],
+                },
+            })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                id: environmentId,
+                project_id: MOCK_DEFAULT_TEAM.id,
+            })
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+            expect(logic.values.templates).toHaveLength(1)
+        })
+
         it('closes the picker when the editor modal closes', async () => {
             logic = emailTemplaterLogic(makeProps())
             logic.mount()

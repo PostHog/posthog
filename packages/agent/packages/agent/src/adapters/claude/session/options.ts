@@ -97,7 +97,6 @@ export type GatewayEnv = {
   openaiCustomHeaders?: Record<string, string>;
   /** PostHog project ID used to build the gateway project-scope header. */
   posthogProjectId?: string;
-  isAiGateway?: boolean;
 };
 
 export interface BuildOptionsParams {

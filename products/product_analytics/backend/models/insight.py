@@ -99,7 +99,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
     # DEPRECATED: using the new "dashboards" relation instead
     dashboard = models.ForeignKey(
         "dashboards.Dashboard",
-        related_name="items",
+        related_name="+",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

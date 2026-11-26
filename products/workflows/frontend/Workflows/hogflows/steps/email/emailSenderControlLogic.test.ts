@@ -151,4 +151,27 @@ describe('emailSenderControlLogic', () => {
 
         expect(logic.values.showSandboxOption).toBe(false)
     })
+
+    it.each([
+        ['cancel', 'function_email'],
+        ['confirm', 'email_sandbox'],
+    ])(
+        'asks before dropping click_tracking_enabled: false on switch to sandbox, and %s decides the step kind',
+        async (decision, expectedType) => {
+            await setUp({
+                ...ownStep(),
+                config: { ...ownStep().config, click_tracking_enabled: false },
+            } as HogFlowAction)
+
+            logic.actions.chooseSender('sandbox')
+            expect(logic.values.pendingSwitch).toEqual({ droppedSettings: ['click_tracking_off'] })
+            expect(storedStep()?.type).toEqual('function_email')
+
+            const decide = decision === 'cancel' ? logic.actions.cancelSwitch : logic.actions.confirmSwitch
+            decide()
+
+            expect(logic.values.pendingSwitch).toBeNull()
+            expect(storedStep()?.type).toEqual(expectedType)
+        }
+    )
 })

@@ -38,7 +38,11 @@ export function emailCohortToastButton(
 }
 
 /** Confirms a static cohort saved from a list of people, with links to the cohort and to a broadcast for it. */
-export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source: string, toastId?: string): void {
+export function cohortSavedToast(
+    cohort: { id: CohortType['id']; name?: string | null },
+    source: string,
+    toastId?: string
+): void {
     const savedCohort = { id: cohort.id as number, name: cohort.name }
     lemonToast.success('Cohort saved', {
         toastId,

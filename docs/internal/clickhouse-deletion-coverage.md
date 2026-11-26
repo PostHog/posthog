@@ -20,6 +20,7 @@ It is a property of every table that stores rows attributable to a person.
 
 The first five use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
+A target of derived rows (`derived_from_events`) has neither an `event` nor a `properties` column, so those two requests leave it out before resolving placements, and never count or sweep its rows.
 
 The event arm deletes one row by `(team_id, uuid)` from an `AsyncDeletion` row of type `Event`, which any Postgres writer can queue in the same transaction as its own delete.
 Replay Vision writes those rows: the recording-api inserts one per `$recording_observed` event in the same statement that deletes the recording's observations, so the queue entry and the observation delete commit together.
@@ -104,6 +105,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Event removal with a HogQL predicate compiles the predicate for this table and sweeps the rows it matches (below). Property removal with a predicate does not sweep it. Stored on the `flags` cluster where that cluster exists. Optional.
 - `sharded_ai_events` — person, team, queued-uuid, and immediate and deferred event removal without a HogQL predicate, on the ai_events cluster (`CLICKHOUSE_AI_EVENTS_CLUSTER`). It holds the raw prompts and completions that ingestion strips from the events copy. Event removal with a HogQL predicate and property removal do not sweep it, and refuse while it holds rows in the request's window and events (below). Optional.
+- `sharded_experiment_exposures_preaggregated` and `sharded_experiment_metric_events_preaggregated` — person, team and queued-uuid deletion, person removal, and the squash. The experiment precompute cache: a row summarizes one person's exposure to an experiment, or one metric event of that person, and stores the `person_id`, the `distinct_id` and the `uuid` of the event it was built from. The sweeps match on the `timestamp`, `uuid` and `inserted_at` aliases migration 0383 added; `inserted_at` is always NULL, so a person sweep removes every row of the person, including one a rebuild wrote after the request. Event removal and property removal skip both tables (`derived_from_events`): a build after the events are removed does not write the row again, and the row expires on its TTL, at most about 74 days after it was built. Until then it can keep a value derived from a removed property, for example a breakdown value. A row built while the `experiments-precompute-person-resolution` flag is off for the team stores no `distinct_id`, so the squash cannot rewrite its `person_id`, and a deletion of the surviving person after a merge misses it; the row keeps the person of its build until it expires, as it did before this registration. Turning the flag on builds the team's rows again with the `distinct_id`. The metric-events table is stored on the `aux` cluster where that cluster exists, so the deletes job stages its dictionaries there the same way it does for `flags`. Optional for that reason.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
   A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
@@ -216,6 +218,14 @@ Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
 
 ## Known gaps
+
+### Event and property removal leave the experiment precompute cache to its TTL
+
+An event-removal or property-removal request completes while the cache tables still hold rows built from the rows it removed.
+A cache row has no `event` or `properties` column, so neither request can match it, and `derived_from_events` makes both skip the table instead of failing on an unknown column.
+The rows stay readable until their TTL, about 74 days after the build at most, and an exposure row can carry the removed property's value in `breakdown_value`.
+A deferred event removal is the exception: it queues the uuid of each removed event, and the queued-uuid drain deletes the cache rows built from those events.
+Deleting the cache rows of the request's window instead would leave a completed precompute job with missing rows and silently wrong experiment results, so that is not done.
 
 ### The survivor count is a report, not a gate
 
@@ -465,6 +475,7 @@ A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
 If it has no `inserted_at`, set `inserted_at_column` to a column that ingestion stamps, never one that the event supplies.
 If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
+If its rows are summaries built from events rather than copies of events, set `derived_from_events`, so event removal and property removal skip it instead of counting rows on columns it does not have; record the TTL you accept as the bound for values derived from a removed property.
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither deletion list, so that decision has to be made rather than skipped.
 It fails the same way on a registered target that neither sets `accepts_person_id_rewrite` nor appears in `PERSON_ID_REWRITE_EXEMPT`, and on a squash target carrying `person_id` in its sorting or partition key.

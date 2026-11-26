@@ -138,6 +138,7 @@ export const McpAnalyticsSessionsListParams = () => zod.object({
         ),
 })
 
+export const mcpAnalyticsSessionsListQueryFeedbackOnlyDefault = false
 export const mcpAnalyticsSessionsListQueryFilterTestAccountsDefault = false
 export const mcpAnalyticsSessionsListQueryLimitDefault = 100
 export const mcpAnalyticsSessionsListQueryLimitMax = 500
@@ -160,6 +161,10 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.'),
+    feedback_only: zod
+        .boolean()
+        .default(mcpAnalyticsSessionsListQueryFeedbackOnlyDefault)
+        .describe('Only sessions where the agent sent feedback or reported a missing capability.'),
     filter_test_accounts: zod
         .boolean()
         .default(mcpAnalyticsSessionsListQueryFilterTestAccountsDefault)

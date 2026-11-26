@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { posix } from "node:path";
 export interface ContextWikiEnv {
   path: string;
   commitsPath: string;
@@ -25,6 +26,42 @@ export function resolveContextWikiPath(
   return contextWikiPath && fs.existsSync(contextWikiPath)
     ? contextWikiPath
     : undefined;
+}
+
+// The directories that hold content pages, as the server's wiki linter defines them.
+const CONTENT_PAGE_DIRECTORIES = new Set([
+  "org",
+  "areas",
+  "decisions",
+  "projects",
+]);
+
+/**
+ * The kind of wiki content page a path names: `org`, `areas`, `decisions`, a
+ * project subdirectory such as `spaces`, or `project` for a project's own page.
+ * Undefined for any other path, including generated indexes and the
+ * instruction files every agent reads, which would make each run look like a
+ * wiki read. Normalizing first keeps a `..` path that leaves the mount out.
+ */
+export function contextWikiPageKind(
+  path: string,
+  mountPath: string,
+): string | undefined {
+  const root = `${posix.normalize(mountPath).replace(/\/+$/, "")}/`;
+  const normalized = posix.normalize(path);
+  if (!normalized.startsWith(root) || !normalized.endsWith(".md")) {
+    return undefined;
+  }
+  const parts = normalized.slice(root.length).split("/");
+  if (
+    !CONTENT_PAGE_DIRECTORIES.has(parts[0]) ||
+    parts[parts.length - 1] === "index.md" ||
+    parts.some((part) => part.startsWith("."))
+  ) {
+    return undefined;
+  }
+  if (parts[0] !== "projects") return parts[0];
+  return parts.length >= 4 ? parts[2] : "project";
 }
 
 /**

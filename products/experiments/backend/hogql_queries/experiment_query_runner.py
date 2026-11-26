@@ -21,6 +21,7 @@ from posthog.schema import (
     ExperimentRetentionMetric,
     ExperimentStatsBase,
     ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeRowsLeftOut,
     HogQLQueryModifiers,
     IntervalType,
     MultipleVariantHandling,
@@ -208,6 +209,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
         if self.is_warehouse_native_query:
             refuse_anonymous_warehouse_native_reader(self.user)
+        # What the warehouse-native statement left out, read from its diagnostic column. Only that path sets it.
+        self._rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = None
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -637,7 +640,21 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             timings=self.timings,
             settings=HogQLGlobalSettings(max_execution_time=self.max_execution_time),
         )
-        return self._variant_rows(response.results, response.columns or [])
+        columns = list(response.columns or [])
+        rows: list[tuple] = [tuple(row) for row in response.results or []]
+        # The diagnostic column leaves the rows before the stats parser reads them.
+        if "entities_with_rows" in columns:
+            at, variant_at, users_at = (columns.index(name) for name in ("entities_with_rows", "variant", "num_users"))
+            self._rows_left_out = ExperimentWarehouseNativeRowsLeftOut(
+                exposed_without_rows={
+                    str(row[variant_at]): int(row[users_at]) - int(row[at])
+                    for row in rows
+                    if row[variant_at] in self.variants
+                }
+            )
+            columns = [column for index, column in enumerate(columns) if index != at]
+            rows = [tuple(value for index, value in enumerate(row) if index != at) for row in rows]
+        return self._variant_rows(rows, columns)
 
     def _validate_warehouse_native_sources(self, user: User | None) -> str | None:
         """The connection id of the experiment's warehouse-native sources, after the same checks as a save.
@@ -717,6 +734,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         result.clickhouse_sql = self.clickhouse_sql
         result.hogql = self.hogql
         result.is_precomputed = self._is_precomputed
+        if self.is_warehouse_native_query:
+            result.rows_left_out = self._rows_left_out
 
         return result
 

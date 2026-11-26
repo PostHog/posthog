@@ -22,7 +22,7 @@ describe('PropertyValue', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/event/values': {
+                '/api/projects/:team_id/events/values': {
                     results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
                     refreshing: false,
                 },
@@ -179,7 +179,7 @@ describe('PropertyValue', () => {
             const values = { results: [{ name: suggestedValue }], refreshing: false }
             useMocks({
                 get: {
-                    '/api/event/values': values,
+                    '/api/projects/:team_id/events/values': values,
                     '/api/environments/:team/events/values': values,
                 },
             })
@@ -225,7 +225,7 @@ describe('PropertyValue', () => {
             new URL(request.url).searchParams.get('value') ? searchResults : unsearchedResults
         useMocks({
             get: {
-                '/api/event/values': respondToSearch,
+                '/api/projects/:team_id/events/values': respondToSearch,
                 '/api/environments/:team/events/values': respondToSearch,
             },
         })
@@ -276,7 +276,7 @@ describe('PropertyValue', () => {
             valuesForKey[new URL(request.url).searchParams.get('key') ?? ''] ?? { results: [], refreshing: false }
         useMocks({
             get: {
-                '/api/event/values': respondToKey,
+                '/api/projects/:team_id/events/values': respondToKey,
                 '/api/environments/:team/events/values': respondToKey,
             },
         })
@@ -351,7 +351,7 @@ describe('PropertyValue', () => {
         const refreshedValues = { results: [{ name: 'Edge' }], refreshing: false }
         useMocks({
             get: {
-                '/api/event/values': refreshedValues,
+                '/api/projects/:team_id/events/values': refreshedValues,
                 '/api/environments/:team/events/values': refreshedValues,
             },
         })

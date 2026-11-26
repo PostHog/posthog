@@ -44,6 +44,8 @@ from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.oauth_provenance import ID_JAG_ORIGIN_HEADER
+from posthog.permissions import ID_JAG_CANNOT_WRITE_TASKS
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
@@ -55,6 +57,7 @@ from posthog.temporal.oauth import (
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+from posthog.test.id_jag import id_jag_access_token
 from posthog.token_bucket import BucketDecision, BucketUnavailable
 from posthog.utils import absolute_uri
 
@@ -1812,6 +1815,27 @@ class TestTaskAPI(BaseTaskAPITest):
         task_titles = [t["title"] for t in data["results"]]
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
+
+    @parameterized.expand([("id_jag_token",), ("connection_forwarding_for_an_id_jag_token",)])
+    def test_id_jag_token_can_read_tasks_but_not_run_one(self, caller):
+        task = self.create_task("Task 1")
+        headers: dict[str, str] = {}
+        if caller == "id_jag_token":
+            client = APIClient()
+            token = id_jag_access_token(self.user, self.organization, "task:read task:write")
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        else:
+            client = self._oauth_client("connection-client")
+            headers = {ID_JAG_ORIGIN_HEADER: "1"}
+
+        listed = client.get(f"/api/projects/{self.team.id}/tasks/", headers=headers)
+        run = client.post(f"/api/projects/{self.team.id}/tasks/{task.id}/run/", {}, format="json", headers=headers)
+
+        self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.content)
+        self.assertEqual([row["id"] for row in listed.json()["results"]], [str(task.id)])
+        self.assertEqual(run.status_code, status.HTTP_403_FORBIDDEN, run.content)
+        self.assertEqual(run.json()["detail"], ID_JAG_CANNOT_WRITE_TASKS)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
     @parameterized.expand(
         [
@@ -8906,6 +8930,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
                 "agent_egress_probe": egress_probe,
+                "agent_egress_git_reads": True,
                 "sandbox_cpu_cores": 2,
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
@@ -8984,6 +9009,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
                     "agent_egress_probe": {"sandbox_id": "sb-attacker"},
+                    "agent_egress_git_reads": False,
                     "sandbox_cpu_cores": 128,
                     "sandbox_memory_gb": 512,
                     "sandbox_ttl_seconds": 86400,
@@ -9064,6 +9090,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "dev_stack_preview" not in run.state
         assert run.state["sandbox_id"] == "sb-real"
         assert run.state["agent_egress_probe"] == egress_probe
+        assert run.state["agent_egress_git_reads"] is True
         assert run.state["sandbox_cpu_cores"] == 2
         assert run.state["sandbox_memory_gb"] == 8
         assert run.state["sandbox_ttl_seconds"] == 1800
@@ -9148,6 +9175,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "stream_thin_tail",
                     "sandbox_id",
                     "agent_egress_probe",
+                    "agent_egress_git_reads",
                     "use_modal_vm_sandbox",
                     "custom_image_id",
                     "snapshot_external_id",
@@ -9198,6 +9226,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["agent_egress_probe"] == egress_probe
+        assert run.state["agent_egress_git_reads"] is True
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["custom_image_id"] == "img-server"
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
@@ -9245,6 +9274,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state_append": {
                     "agent_egress_probe": {"sandbox_id": "sb-attacker"},
+                    "agent_egress_git_reads": False,
                     "include_live_context": True,
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
@@ -9269,6 +9299,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["include_live_context"] is False
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["agent_egress_probe"] == egress_probe
+        assert run.state["agent_egress_git_reads"] is True
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
@@ -16996,6 +17027,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("billing_product", "posthog_ai"),
             ("gateway_token_hashes", ["a" * 64]),
             ("gateway_token_revoke_pending", True),
+            ("codex_apps_disabled", True),
         ]
     )
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
@@ -20453,8 +20485,7 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
         )
         self.organization.save()
 
-        with patch("posthog.llm.gateway_client.get_llm_client", side_effect=AssertionError("no gateway call")):
-            response = self.client.get("/api/projects/@current/tasks/models/")
+        response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         models = {m["model"]: m for m in response.json()["models"]}
