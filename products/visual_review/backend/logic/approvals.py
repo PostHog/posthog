@@ -45,6 +45,7 @@ from . import (
     baselines,
     ci_status,
     comment_markdown,
+    comments,
     commit_status,
     errors,
     gating,
@@ -506,6 +507,7 @@ def _finalize_run(
         commit_status.publish_for_run(run)
     elif commit_to_github:
         ci_status._post_commit_status(run, repo, "success", "Visual changes approved")
+    comments.schedule_rejection_comment_sync_if_tracked(run)
 
     # A baseline commit starts a new CI run. Without one, the job that completed a `ci_job` run
     # keeps the red verdict it read before the review, so it has to read it again. A
@@ -832,13 +834,6 @@ def _missing_artifact_refusals(run: Run, writes: list[tuple[RunSnapshot, Decisio
     ]
 
 
-def _schedule_rejection_comment(head: Run) -> None:
-    from ..tasks.tasks import sync_rejection_comment  # noqa: PLC0415 — avoids the logic/tasks circular import
-
-    team_id, head_id = head.team_id, str(head.id)
-    transaction.on_commit(lambda: sync_rejection_comment.delay(team_id, head_id), using=WRITER_DB, robust=True)
-
-
 @transaction.atomic(using=WRITER_DB)
 def _decide_on_pull_request(
     call: _DecisionCall, requests: list[DecisionRequest], head_sha: str | None
@@ -921,7 +916,7 @@ def _decide_on_pull_request(
     if writes:
         commit_status.publish_for_run(head)
     if writes and (call.action == DecisionAction.REJECT or replaces_rejection):
-        _schedule_rejection_comment(head)
+        comments.schedule_rejection_comment_sync(head)
     return DecisionOutcome(
         run=run,
         head=head,

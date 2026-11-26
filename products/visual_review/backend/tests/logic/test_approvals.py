@@ -4,7 +4,7 @@ from contextlib import ExitStack
 from datetime import timedelta
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from django.db import connections, transaction
 from django.test.utils import CaptureQueriesContext
@@ -32,6 +32,7 @@ from products.visual_review.backend.logic import (
     artifact_store,
     baselines,
     ci_status,
+    comments,
     errors,
     gating,
     github_api,
@@ -43,6 +44,7 @@ from products.visual_review.backend.logic import (
 )
 from products.visual_review.backend.logic.github_api import PullRequestState
 from products.visual_review.backend.models import BaselineApproval, QuarantinedIdentifier, Run, RunSnapshot
+from products.visual_review.backend.tasks.tasks import sync_rejection_comment
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, LedgerFlow, approve, button_flow
 
@@ -613,6 +615,41 @@ class TestReviewDecisions:
 
         _decide(run, bob, CLEAR)
         assert approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True).approved is True
+
+    @pytest.mark.parametrize(
+        ("history", "stored_comment", "syncs"),
+        [
+            pytest.param([], False, False, id="never_rejected"),
+            pytest.param([REJECT], False, True, id="open_rejection"),
+            pytest.param([REJECT, CLEAR], True, True, id="undone_with_a_comment"),
+            pytest.param([REJECT, CLEAR], False, False, id="undone_without_a_comment"),
+        ],
+    )
+    def test_a_new_push_and_its_finalize_sync_the_rejection_comment_only_when_there_is_one_to_keep_true(
+        self, ledger, user, bob, django_capture_on_commit_callbacks, history, stored_comment, syncs
+    ):
+        repo, git, flow = ledger
+        repo.enable_pr_comments = True
+        repo.save(update_fields=["enable_pr_comments"])
+        first = _changed_run(git, flow)
+        for action in history:
+            if action == REJECT:
+                _decide(first, bob, REJECT, new_hash="b1", reason="Too blue")
+            else:
+                _decide(first, bob, action)
+        if stored_comment:
+            first.refresh_from_db()
+            first.metadata = {**(first.metadata or {}), comments.REJECTION_COMMENT_KEY: 555}
+            first.save(update_fields=["metadata"])
+        sync_rejection_comment.delay.reset_mock()
+
+        # The new picture makes the rejection of b1 stop counting, so finalize goes through.
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            head = _push(git, flow, "p1b", "p1a", {"Button": "b2"})
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            approvals.finalize_run(run_id=head.id, user_id=user.id, approve_all=True)
+
+        assert sync_rejection_comment.delay.call_args_list == ([call(repo.team_id, str(head.id))] * 2 if syncs else [])
 
     @pytest.mark.parametrize(
         ("setup", "via", "action", "fields", "code"),

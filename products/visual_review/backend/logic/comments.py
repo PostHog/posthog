@@ -373,6 +373,30 @@ def _sync_rejection_comment(run: Run, head: Run, repo: Repo) -> None:
         _remember_rejection_comment(head, posted_id)
 
 
+def schedule_rejection_comment_sync(run: Run) -> None:
+    """Sync the rejection comment of the run's pull request once the transaction commits."""
+    from ..tasks.tasks import sync_rejection_comment  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    team_id, run_id = run.team_id, str(run.id)
+    transaction.on_commit(lambda: sync_rejection_comment.delay(team_id, run_id), using=WRITER_DB, robust=True)
+
+
+def schedule_rejection_comment_sync_if_tracked(run: Run) -> None:
+    """Sync the rejection comment after a run completes or finalizes, when the pull request has one to keep true.
+
+    A new picture can make a rejection stop counting, and a finalize unblocks the pull request, so
+    the comment can say finalize is blocked when it is not. A pull request without the comment and
+    without an open rejection has nothing to sync, so its runs make no GitHub call.
+    """
+    if not review_decisions.decides_by_pull_request(run):
+        return
+    if not run.repo.enable_pr_comments or not run.repo.repo_full_name:
+        return
+    if _rejection_comment_id(run) is None and not review_decisions.pull_request_decisions(run).open_rejections():
+        return
+    schedule_rejection_comment_sync(run)
+
+
 def sync_rejection_comment(run_id: UUID, team_id: int) -> None:
     """Post or edit the one PR comment per run type that lists the rejections blocking the pull request.
 
