@@ -19,6 +19,8 @@ from posthog.hogql.parser import parse_select
 
 from posthog.models import Team
 
+from common.hogvm.python.utils import HogVMException
+
 # A metrics insight defaults to the last 24 hours.
 DEFAULT_DATE_FROM = "-24h"
 
@@ -66,7 +68,7 @@ def sql_insight_for_metrics_sql(team: Team, query: dict[str, Any]) -> dict[str, 
         )
         if not tables_outside_metrics(parsed, context):
             return None
-    except BaseHogQLError:
+    except (BaseHogQLError, HogVMException):
         return None
     display = query.get("display")
     display_type = display.get("type") if isinstance(display, dict) else None

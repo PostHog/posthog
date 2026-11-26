@@ -30,6 +30,7 @@ class TestMetricsSqlInsight(APIBaseTest):
             ("dashboard_variable", "SELECT count() FROM events WHERE event = $event", None),
             ("quoted_dashboard_variable", "SELECT count() FROM events WHERE event = '$event'", None),
             ("invalid_sql", "SELECT FROM WHERE", None),
+            ("unknown_placeholder", "SELECT count() FROM events WHERE event = {unknown}", None),
             (
                 "other_table",
                 "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= { date_from }",
