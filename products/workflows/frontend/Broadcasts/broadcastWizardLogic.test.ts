@@ -558,6 +558,33 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.emailSettings).toMatchObject({ utmTagsEnabled: enabled, utmParams: params })
     })
 
+    it.each([
+        { type: 'function_email' as const, stored: {}, connected: true, sensitive: false },
+        {
+            type: 'function_email' as const,
+            stored: { run_link_tag_enabled: false },
+            connected: false,
+            sensitive: false,
+        },
+        { type: 'function_email' as const, stored: { sensitive: true }, connected: true, sensitive: true },
+        { type: 'function_push' as const, stored: { sensitive: true }, connected: true, sensitive: false },
+    ])(
+        'reads $stored from a saved $type step as connecting clicks to sessions: $connected',
+        async ({ type, stored, connected, sensitive }) => {
+            latest = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+            const emailStep = latest.actions[1]
+            latest.actions[1] = { ...emailStep, type, config: { ...emailStep.config, ...stored } }
+            router.actions.push('/broadcasts/broadcast-1')
+            const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+            draftLogic.mount()
+            await expectLogic(draftLogic).toFinishAllListeners()
+
+            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected })
+            expect(draftLogic.values.emailStepSensitive).toBe(sensitive)
+            draftLogic.unmount()
+        }
+    )
+
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {
         router.actions.push('/broadcasts/new')
         await expectLogic(logic, () => {
@@ -1138,6 +1165,39 @@ describe('broadcastWizardLogic', () => {
             }
         }
     )
+
+    it.each([
+        { opens: 'a broadcast', origin_product: 'broadcasts', actions: undefined, recent: true },
+        {
+            opens: 'an unowned workflow shaped like a broadcast',
+            origin_product: null,
+            actions: undefined,
+            recent: true,
+        },
+        { opens: 'a workflow another product owns', origin_product: 'loops', actions: undefined, recent: false },
+        {
+            opens: 'an unowned workflow of another shape',
+            origin_product: null,
+            actions: [{ id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event' } }],
+            recent: false,
+        },
+    ])('opening $opens records a recent only when the page shows it', async ({ origin_product, actions, recent }) => {
+        const id = '01a1f39d-0000-7000-8000-000000000002'
+        const base = savedBroadcast({ name: 'Launch email', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+        const flow = { ...base, id, origin_product, actions: actions ?? base.actions } as HogFlowApi
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, flow] } })
+        const opened = broadcastWizardLogic({ id })
+        try {
+            await expectLogic(opened, () => {
+                opened.mount()
+            }).toDispatchActions(['loadBroadcastSuccess'])
+            expect(opened.values.todayRecent).toEqual(
+                recent ? { type: 'broadcast', name: 'Launch email', href: `/broadcasts/${id}` } : null
+            )
+        } finally {
+            opened.unmount()
+        }
+    })
 
     it.each([
         {

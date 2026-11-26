@@ -13,6 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus } from '~/types'
 
+import { FeatureFlagCalledMetricsBanner } from 'products/experiments/frontend/components/FeatureFlagCalledMetricsBanner'
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { ExperimentHealthChip } from 'products/experiments/frontend/health/ExperimentHealthChip'
 import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
@@ -77,7 +78,8 @@ describe('health finding reporting', () => {
                 properties.open_kind ?? properties.action_kind,
             ])
 
-    // A running experiment whose flag is off, so the flag-state banner renders with its flag link.
+    // A running experiment whose flag is off, so the flag-state banner renders with its flag link, and whose metric
+    // reads `$feature_flag_called`.
     const renderWarnings = (exposures: Record<string, unknown>): void => {
         logic.actions.setExperiment({
             ...NEW_EXPERIMENT,
@@ -85,12 +87,22 @@ describe('health finding reporting', () => {
             status: ExperimentStatus.Running,
             start_date: dayjs().subtract(3, 'day').toISOString(),
             feature_flag: { id: 1, key: 'checkout-flag', active: false, filters: { groups: [] } },
+            metrics: [
+                {
+                    kind: 'ExperimentMetric',
+                    metric_type: 'mean',
+                    uuid: 'flag-calls',
+                    name: 'Flag calls',
+                    source: { kind: 'EventsNode', event: '$feature_flag_called' },
+                },
+            ],
         } as unknown as Experiment)
         logic.actions.loadExposuresSuccess(exposures)
         render(
             <Provider>
                 <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
                     <ExperimentWarningBanner />
+                    <FeatureFlagCalledMetricsBanner />
                     <Exposures />
                     <MultiVariantBiasWarning />
                 </BindLogic>
@@ -187,9 +199,10 @@ describe('health finding reporting', () => {
                 ['experiment health finding shown', 'flag_off_while_running', undefined],
                 ['experiment health finding shown', 'srm', undefined],
                 ['experiment health finding shown', 'bias_risk_multiple_excluded', undefined],
+                ['experiment health finding shown', 'metric_uses_feature_flag_called', undefined],
             ])
         )
-        expect(findingEvents()).toHaveLength(3)
+        expect(findingEvents()).toHaveLength(4)
     })
 
     it.each([
@@ -208,6 +221,12 @@ describe('health finding reporting', () => {
         { control: 'First seen', step: 'opened', code: 'bias_risk_multiple_excluded', kind: 'docs' },
         { control: 'checkout-flag', step: 'acted on', code: 'flag_off_while_running', kind: 'open_feature_flag' },
         { control: 'Exposures', step: 'opened', code: 'srm', kind: 'evidence' },
+        {
+            control: 'Read more about the change',
+            step: 'opened',
+            code: 'metric_uses_feature_flag_called',
+            kind: 'docs',
+        },
     ])('reports $code as $step with $kind when a person uses "$control"', async ({ control, step, code, kind }) => {
         renderWarnings(UNEVEN_EXPOSURES)
         captureSpy.mockClear()
@@ -330,7 +349,10 @@ describe('health finding reporting', () => {
 
     it('reports zero exposures only from the open panel, as shown and then as opened', async () => {
         renderWarnings(NO_EXPOSURES)
-        expect(findingEvents()).toEqual([['experiment health finding shown', 'flag_off_while_running', undefined]])
+        expect(findingEvents()).toEqual([
+            ['experiment health finding shown', 'flag_off_while_running', undefined],
+            ['experiment health finding shown', 'metric_uses_feature_flag_called', undefined],
+        ])
         captureSpy.mockClear()
 
         await userEvent.click(screen.getByText('Exposures'))

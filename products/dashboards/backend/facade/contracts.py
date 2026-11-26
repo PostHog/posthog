@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.dashboards.backend.facade.enums import (
+    BoardManagedBy,
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
@@ -474,3 +475,83 @@ class QueryBatchInput:
     cache_only: bool = False
     max_data_points: int | None = None
     tile: str | None = None
+
+
+class DashboardCustomizationRejected(ValueError):
+    """A dashboard's group key or group settings break a group rule.
+
+    The API answers 400 with `message`, on `field` when it names one.
+    """
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field
+
+
+# A board document is stored as the client sends it. Only its size and schema version are checked, so a malformed
+# tile still saves and the scene shows it as an error tile.
+MAX_BOARD_SPEC_BYTES = 1_000_000
+
+
+class BoardNotFound(Exception):
+    """No live board in this team has the uid."""
+
+
+class BoardSpecInvalid(Exception):
+    """The board document is not one this code can read, or is over the size cap. The message says why."""
+
+
+class BoardReadOnly(Exception):
+    """The board is built in or managed from code, so the API cannot change or delete it."""
+
+
+class BoardVersionConflict(Exception):
+    """The board was saved since the version the update is based on."""
+
+    def __init__(self, current_version: int, base_version: int) -> None:
+        super().__init__(f"current={current_version} base={base_version}")
+        self.current_version = current_version
+        self.base_version = base_version
+
+
+@dataclass(frozen=True)
+class BoardListAccess:
+    """Which boards a list may show the viewer, read from access control under the `dashboard` resource.
+
+    Object rules for a board name its row `id`, a UUID, so they never collide with a classic dashboard's integer id.
+    With `only_allowed` the viewer has no resource-level access and sees the allowed boards and their own.
+    Otherwise the blocked boards are hidden, except the viewer's own.
+    """
+
+    viewer_id: int
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class BoardSummary:
+    """A saved `dashboard-v2` board, without its document."""
+
+    id: UUID
+    team_id: int
+    uid: str
+    title: str
+    tags: list[str]
+    folder: str
+    version: int
+    managed_by: BoardManagedBy
+    template_id: str | None
+    template_version: int | None
+    created_at: datetime
+    created_by_id: int | None
+    last_modified_at: datetime
+    last_modified_by_id: int | None
+
+
+@dataclass(frozen=True)
+class BoardDetail(BoardSummary):
+    """A saved `dashboard-v2` board with its document, upgraded to the current schema version."""
+
+    spec: dict[str, Any]

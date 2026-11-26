@@ -91,6 +91,7 @@ const mockAgentRun = vi.hoisted(() =>
 );
 
 const mockResumeFromLog = vi.hoisted(() => vi.fn());
+const mockHasClaudeLogin = vi.hoisted(() => vi.fn());
 const mockFormatConversationForResume = vi.hoisted(() => vi.fn());
 const mockHydrateSessionJsonl = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ hasSession: false }),
@@ -128,6 +129,18 @@ vi.mock("@posthog/agent", () => ({
     REFRESH_SESSION: "_posthog/refresh_session",
   },
 }));
+
+vi.mock(
+  "@posthog/agent/adapters/claude/subscription-login",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@posthog/agent/adapters/claude/subscription-login")
+      >();
+    mockHasClaudeLogin.mockImplementation(actual.hasClaudeLogin);
+    return { ...actual, hasClaudeLogin: mockHasClaudeLogin };
+  },
+);
 
 vi.mock("@posthog/agent/resume", () => ({
   resumeFromLog: mockResumeFromLog,
@@ -234,7 +247,6 @@ function createMockDependencies() {
         .mockResolvedValue(new Response(JSON.stringify({ models: [] }))),
       ensureGatewayProxy: vi.fn().mockResolvedValue({
         proxyUrl: "http://127.0.0.1:9999",
-        mode: "go",
       }),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
@@ -984,18 +996,38 @@ describe("AgentService", () => {
       );
     });
 
-    it("pins the session to the gateway mode chosen at start", async () => {
-      deps.agentAuthAdapter.ensureGatewayProxy.mockResolvedValueOnce({
-        proxyUrl: "http://127.0.0.1:9998",
-        mode: "go",
-      });
+    // The proxy refuses a blocked org's requests, so a subscription session
+    // must reach the agent marked as own-plan.
+    it.each([
+      { adapter: "claude", access: { claudeModelAccess: "own-subscription" } },
+      { adapter: "codex", access: { codexModelAccess: "own-subscription" } },
+    ] as const)(
+      "hands a $adapter subscription session to the agent as own-subscription",
+      async ({ adapter, access }) => {
+        mockHasClaudeLogin.mockResolvedValueOnce({ state: "logged-in" });
+        // A Codex subscription session makes its own CODEX_HOME under app data.
+        vi.spyOn(fs.promises, "mkdir").mockResolvedValue(undefined);
 
-      const session = await service.startSession(baseSessionParams);
+        await service.startSession({
+          ...baseSessionParams,
+          adapter,
+          ...access,
+        });
+
+        expect(mockAgentRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({ adapter, ...access }),
+        );
+      },
+    );
+
+    it("starts the gateway session for the task's project", async () => {
+      await service.startSession(baseSessionParams);
 
       expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
         baseSessionParams.projectId,
       );
-      expect(session?.gatewayMode).toBe("go");
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {

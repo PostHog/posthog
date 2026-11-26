@@ -215,23 +215,15 @@ class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
         except OAuthApplication.DoesNotExist:
             return None
 
-        if not app.is_provisioning_partner or not app.provisioning_allowed:
+        if not app.is_provisioning_partner:
             return None
 
-        if app.is_cimd_client:
-            # A confidential CIMD partner reaches every provisioning endpoint through this
-            # path, so without a refresh here its metadata document would never be re-read
-            # again: scope ceiling and jwks_uri edits would freeze at whatever the app was
-            # promoted with. Async, so this request still serves the app we already have.
-            try:
-                enqueue_cimd_refresh_if_stale(app.client_id)
-            except Exception as e:
-                logger.warning(
-                    "provisioning_cimd_refresh_enqueue_error",
-                    client_id=client_id,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
+        # Before the gate, so a partner refused for a stale reason, such as an organization link this
+        # region has not seen yet, gets its document read again and can pass on a later request.
+        refresh_partner_metadata(app)
+
+        if not app.provisioning_allowed:
+            return None
 
         return app
 
@@ -247,10 +239,31 @@ class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
         return self._resolve_partner(client_id)
 
 
+def refresh_partner_metadata(app: OAuthApplication) -> None:
+    """Queue a re-read of a self-registered partner's metadata document when the cached copy is stale.
+
+    The document is the only place a partner can change its keys, its scope ceiling or its organization
+    link, and every region keeps its own copy of what it last read. A region re-reads it only when the
+    partner calls that region, so every partner endpoint queues the re-read, including on a request it
+    is about to refuse. Async, so this request still sees the app as it was stored."""
+    if not app.is_cimd_client:
+        return
+    try:
+        enqueue_cimd_refresh_if_stale(app.client_id)
+    except Exception as e:
+        logger.warning(
+            "provisioning_cimd_refresh_enqueue_error",
+            client_id=app.client_id,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+
+
 def require_usable_bearer_partner(app: OAuthApplication | None) -> OAuthApplication:
     """The partner behind a bearer token, or a refusal that says why it cannot use the partner endpoints."""
     if app is None or not app.is_provisioning_partner:
         raise ProvisioningError("unauthorized", "Authentication failed", status=401)
+    refresh_partner_metadata(app)
     if app.needs_organization_link:
         raise ProvisioningError("unauthorized", ORGANIZATION_LINK_REQUIRED_MESSAGE, status=401)
     if not app.provisioning.active:

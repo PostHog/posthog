@@ -262,6 +262,20 @@ class TestDocusignTransport:
         assert result.rows[0]["envelopeCreatedDateTime"] == "2024-01-01T00:00:00.0000000Z"
         assert result.requests[-1].param("include") == "custom_fields"
 
+    def test_account_custom_fields_are_flattened_from_the_response_body(self, logger: FilteringBoundLogger) -> None:
+        body = {
+            "textCustomFields": [{"fieldId": "1", "name": "Deal ID", "required": "true"}, {"show": "true"}],
+            "listCustomFields": [{"fieldId": "1", "name": "Region", "listItems": ["EMEA", "APAC"]}],
+        }
+        result = driver().run("account_custom_fields", [*auth_responses(), ScriptedResponse(json=body)], logger=logger)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"fieldId": "1", "name": "Deal ID", "required": "true", "customFieldType": "text"},
+            {"fieldId": "1", "name": "Region", "listItems": ["EMEA", "APAC"], "customFieldType": "list"},
+        ]
+        assert result.paths[-1] == "/restapi/v2.1/accounts/222/custom_fields"
+
     def test_envelopes_without_children_yield_no_rows_but_still_paginate(self, logger: FilteringBoundLogger) -> None:
         result = driver().run(
             "envelope_recipients",
@@ -402,6 +416,11 @@ class TestDocusignTransport:
                 {"billingInvoices": [{"invoiceId": "inv-1", "balance": "0.00"}], "nextUri": "/restapi/next"},
                 [{"invoiceId": "inv-1", "balance": "0.00"}],
             ),
+            (
+                "billing_payments",
+                {"billingPayments": [{"paymentId": "pay-1", "amount": "10.00"}], "nextUri": "/restapi/next"},
+                [{"paymentId": "pay-1", "amount": "10.00"}],
+            ),
         ],
     )
     def test_date_scoped_full_refresh_endpoints_always_send_from_date(
@@ -500,6 +519,55 @@ class TestDocusignTransport:
             ["pf-3", "form_data"],
         ]
         assert result.requests[-1].param("data_layout") == "Native"
+
+    @pytest.mark.parametrize(
+        "endpoint_name,parent_path,parent_id_column,parents,members",
+        [
+            (
+                "group_users",
+                "groups",
+                "groupId",
+                [{"groupId": "g-1"}, {"groupId": "g-2"}],
+                [{"userId": "u-1", "email": "a@example.com"}, {"userId": "u-2", "email": "b@example.com"}],
+            ),
+            (
+                "signing_group_users",
+                "signing_groups",
+                "signingGroupId",
+                [{"signingGroupId": "sg-1"}, {"signingGroupId": "sg-2"}],
+                [{"userName": "A", "email": "a@example.com"}, {"userName": "B", "email": "b@example.com"}],
+            ),
+        ],
+    )
+    def test_group_members_are_fetched_per_group_and_deleted_groups_are_skipped(
+        self,
+        endpoint_name: str,
+        parent_path: str,
+        parent_id_column: str,
+        parents: list[dict[str, Any]],
+        members: list[dict[str, Any]],
+        logger: FilteringBoundLogger,
+    ) -> None:
+        result = driver().run(
+            endpoint_name,
+            [
+                *auth_responses(),
+                ScriptedResponse(json={"groups": parents}),
+                ScriptedResponse(status=404, json={"errorCode": "INVALID_GROUP_ID"}),
+                ScriptedResponse(json={"users": members}),
+            ],
+            logger=logger,
+        )
+
+        second_id = parents[1][parent_id_column]
+        assert result.raised is None
+        assert result.rows == [{**member, parent_id_column: second_id} for member in members]
+        base = "/restapi/v2.1/accounts/222"
+        assert result.paths[-3:] == [
+            f"{base}/{parent_path}",
+            f"{base}/{parent_path}/{parents[0][parent_id_column]}/users",
+            f"{base}/{parent_path}/{second_id}/users",
+        ]
 
     @pytest.mark.parametrize(
         "endpoint_name,parent_body,status",

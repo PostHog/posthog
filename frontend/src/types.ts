@@ -805,6 +805,7 @@ export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
     blockSelector?: string
+    mobile?: { maskAllText?: boolean; maskAllImages?: boolean }
 }
 
 export enum ActivationTaskStatus {
@@ -860,6 +861,7 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_rerun_mode?: 'first_message' | 'until_team_reply' | null
     ai_reply_custom_instructions?: string | null
     docs_source?: 'posthog' | null
     ai_context_account_property_ids?: string[] | null
@@ -4807,6 +4809,8 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
+    /** False on an instance that runs no batch exports, where their API is absent. */
+    batch_exports_enabled?: boolean
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean
@@ -5174,7 +5178,7 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
-    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (`experiment_exposure_event_cutoff` in preflight), otherwise `$feature_flag_called`. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
     resolved_exposure_event?: string
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]

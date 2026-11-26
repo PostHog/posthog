@@ -1,16 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
-import { IconArrowRight, IconCheckCircle, IconExternal, IconInfo } from '@posthog/icons'
+import { IconArrowRight, IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import {
     VALID_FILE_MARKETING_SOURCES,
@@ -22,6 +20,8 @@ import {
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 
 const HedgehogMoney = pngHoggie(moneyPng)
 
@@ -72,13 +72,6 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
             intent_context: ProductIntentContext.MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED,
             metadata: { source_type: sourceId },
         })
-        window.open(
-            addProjectIdIfMissing(
-                urls.dataWarehouseSourceNew(sourceId, urls.marketingAnalyticsApp(), 'Marketing analytics')
-            ),
-            '_blank',
-            'noopener'
-        )
     }
 
     const matchingSources = allSources.filter((s) =>
@@ -91,7 +84,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
     const totalConnected = validNativeSources.length + validExternalTables.length
 
     return (
-        <LemonCard hoverEffect={false} className="w-full mt-6 p-0 overflow-hidden">
+        <LemonCard hoverEffect={false} className="w-full p-0 overflow-hidden">
             <div className="p-6 space-y-3">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-4">
@@ -202,7 +195,7 @@ function SourceChip({ source, onSelect }: { source: MarketingSource; onSelect: (
         <LemonButton
             type="secondary"
             icon={<SourceIcon type={source.id} size="small" disableTooltip />}
-            sideIcon={<IconExternal className="!w-3 !h-3 text-muted" />}
+            to={marketingSourceConnectUrl(source.id, 'marketing_analytics_source_catalog')}
             onClick={() => onSelect(source.id)}
             data-attr="marketing-manual-connect-source"
         >

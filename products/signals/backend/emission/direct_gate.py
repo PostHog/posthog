@@ -27,7 +27,7 @@ from typing import Any
 import structlog
 
 from posthog.exceptions import QuotaLimitExceeded
-from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
+from posthog.llm.gateway_client import build_async_anthropic_client
 from posthog.models import Organization, Team
 
 from products.signals.backend.emission.pipeline import (
@@ -117,16 +117,13 @@ async def steering_filters_signal(
     try:
         # Closed on the way out: unlike the batch pipeline, which builds one client for a whole run,
         # this path builds one per signal, and each carries its own httpx connection pool.
-        async with build_async_anthropic_client(
-            product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id
-        ) as client:
+        async with build_async_anthropic_client(ai_product=EMISSION_AI_PRODUCT, team_id=team.id) as client:
             actionable = await asyncio.wait_for(
                 check_actionability(
                     client,
                     team.id,
                     output,
                     apply_steering(system_one_prompt.policy, steering),
-                    gateway_mode=resolve_ai_gateway_config() is not None,
                     # Steering rules reference facts the description does not always carry (a host, a
                     # check kind), so the steered gate sees all of `extra`, as in the batch pipeline.
                     include_record_metadata=True,

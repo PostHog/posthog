@@ -272,6 +272,42 @@ describe('resolveModelCostForProvider()', () => {
             expect(result!.provider).toBe('default')
             expect(result!.cost.prompt_token).toBe(0.000004)
         })
+
+        it.each(['openrouter', 'OpenRouter', 'or'])('resolves %s to the openrouter key when present', (provider) => {
+            const costs = createMockCosts({
+                anthropic: { prompt_token: 0.000003, completion_token: 0.000015 },
+                default: { prompt_token: 0.000004, completion_token: 0.000018 },
+                openrouter: { prompt_token: 0.000002, completion_token: 0.00001 },
+            })
+
+            const result = resolveModelCostForProvider(costs, provider, 'claude-3-5-sonnet')
+
+            expect(result!.provider).toBe('openrouter')
+            expect(result!.cost.prompt_token).toBe(0.000002)
+        })
+
+        it('resolves "or" to default when the row has no openrouter key', () => {
+            const costs = createMockCosts({
+                fireworks: { prompt_token: 0.000001, completion_token: 0.000002 },
+                default: { prompt_token: 0.000004, completion_token: 0.000018 },
+            })
+
+            const result = resolveModelCostForProvider(costs, 'or', 'some-model')
+
+            expect(result!.provider).toBe('default')
+        })
+
+        it('ignores the openrouter key for other providers', () => {
+            const costs = createMockCosts({
+                anthropic: { prompt_token: 0.000003, completion_token: 0.000015 },
+                default: { prompt_token: 0.000004, completion_token: 0.000018 },
+                openrouter: { prompt_token: 0.000002, completion_token: 0.00001 },
+            })
+
+            expect(resolveModelCostForProvider(costs, 'anthropic', 'claude-3-5-sonnet')!.provider).toBe('anthropic')
+            expect(resolveModelCostForProvider(costs, 'unknown-host', 'claude-3-5-sonnet')!.provider).toBe('default')
+            expect(resolveModelCostForProvider(costs, undefined, 'claude-3-5-sonnet')!.provider).toBe('default')
+        })
     })
 
     describe('exact matching (backward compatibility)', () => {

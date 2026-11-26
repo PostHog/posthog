@@ -182,7 +182,9 @@ ContextLoadError.decorators = [
         get: { '/api/projects/:team_id/aeo_setup/context/': () => [500, { detail: 'Server error' }] },
     }),
 ]
-ContextLoadError.parameters = { testOptions: { waitForSelector: '.LemonBanner' } }
+ContextLoadError.parameters = {
+    testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-context-error"]' },
+}
 
 export const FirstChecksRunning: StoryFn = () => (
     <WithJob job={FIRST_RUN_QUEUED_JOB}>
