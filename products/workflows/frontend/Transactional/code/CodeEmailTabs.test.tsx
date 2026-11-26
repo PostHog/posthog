@@ -68,6 +68,7 @@ describe('CodeEmailTabs', () => {
             '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                 const { query } = ((await request.json()) as { query: { query: string } }).query
                 const isEmailTotals = query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
+                const isTrends = query.includes('groupArray(bucket)')
                 return [
                     200,
                     {
@@ -76,7 +77,12 @@ describe('CodeEmailTabs', () => {
                                   [10, 'email-step', 'email_sent'],
                                   [3, 'email-step', 'email_bounced_transient'],
                               ]
-                            : [],
+                            : isTrends
+                              ? [
+                                    [['2026-03-14'], 'email_delivered', [2]],
+                                    [['2026-03-14'], 'email_sandbox_delivered', [3]],
+                                ]
+                              : [],
                     },
                 ]
             },
@@ -174,6 +180,14 @@ describe('CodeEmailTabs', () => {
 
         expect(await screen.findByText(/^3 soft bounced/)).toBeInTheDocument()
         expect(screen.queryByText(BANNER)).not.toBeInTheDocument()
+    })
+
+    it('shows email outcome cards instead of workflow run cards, counting test sender deliveries as delivered', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs()
+
+        expect(await screen.findByText('vs. 5 prior')).toBeInTheDocument()
+        expect(screen.queryByText('Workflows in progress')).not.toBeInTheDocument()
     })
 
     it("lists this email's sends, each linked to its page with the filters to come back to", async () => {
