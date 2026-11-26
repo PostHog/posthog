@@ -4288,7 +4288,7 @@ Note: Parsed the 2026-07 Marketing Solutions OpenAPI file. Report endpoints are 
 
 ## Cronitor — gaps
 
-Today (7): `groups`, `invocations`, `issues`, `metrics`, `monitors`, `site_errors`, `sites`
+Today (10): `environments`, `groups`, `invocations`, `issues`, `maintenance_windows`, `metrics`, `monitors`, `site_daily_metrics`, `site_errors`, `sites`
 
 Diffed against: <https://cronitor.io/docs/api.md>
 
@@ -4296,9 +4296,9 @@ Diffed against: <https://cronitor.io/docs/api.md>
 - [x] `GET /api/groups` — lookup table resolving the group each synced monitor belongs to; enables per-service rollups (high)
 - [x] `GET /api/site_errors` — RUM JavaScript errors, the analytical event stream for the Sites product (medium)
 - [x] `GET /api/sites` — lookup for RUM sites that site_errors and RUM analytics rows reference (medium)
-- [ ] `RUM analytics query endpoint (aggregate/breakdown/timeseries over sites)` — pageviews, web vitals, and top-pages breakdowns - the headline RUM metrics (medium)
-- [ ] `GET /api/maintenance_windows` — scheduled maintenance periods needed to exclude planned downtime from uptime and alert analysis (medium)
-- [ ] `GET /api/environments` — lookup resolving the environment tag on telemetry, invocations, and monitors (low)
+- [x] `RUM analytics query endpoint (aggregate/breakdown/timeseries over sites)` — pageviews, web vitals, and top-pages breakdowns - the headline RUM metrics (medium)
+- [x] `GET /api/maintenance_windows` — scheduled maintenance periods needed to exclude planned downtime from uptime and alert analysis (medium)
+- [x] `GET /api/environments` — lookup resolving the environment tag on telemetry, invocations, and monitors (low)
 
 Note: Notifications, API keys, and status pages were excluded as configuration. Telemetry API is write-only ingestion. Source is static (endpoint catalog in cronitor/settings.py), no dynamic table discovery.
 
