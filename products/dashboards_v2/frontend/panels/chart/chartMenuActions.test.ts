@@ -1,4 +1,4 @@
-import type { ContentWidget } from '../../dashboard/document/dashboardTypes'
+import type { ContentPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import { chartMenuActions } from './chartMenuActions'
 import type { ChartConfig } from './chartSpec'
@@ -8,10 +8,10 @@ import { statSpec } from './viz/stat/statSpec'
 
 const query = { language: 'hogql', query: 'select 1' } as const
 
-function select(widget: ContentWidget<ChartConfig>, path: string[]): ChartConfig | undefined {
+function select(panel: ContentPanel<ChartConfig>, path: string[]): ChartConfig | undefined {
     let saved: ChartConfig | undefined
     let entries: MenuAction[] = chartMenuActions([statSpec, lineSpec, barSpec], {
-        widget,
+        panel,
         setConfig: (config) => (saved = config),
         disabledReason: null,
     })

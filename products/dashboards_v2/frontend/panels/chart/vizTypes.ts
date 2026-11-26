@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 import type { z } from 'zod'
 
-import type { WidgetSize } from '../../dashboard/document/dashboardTypes'
+import type { PanelSize } from '../../dashboard/document/dashboardTypes'
 import type { DataFrame } from '../../query/queryTypes'
 
 /** One kind of chart, without its component, so code outside the browser can load it. */
@@ -9,14 +9,14 @@ export type VizSpec<Options = unknown> = {
     /** Matches `config.viz.type` on the charts it draws. */
     type: string
     label: string
-    size: WidgetSize
+    size: PanelSize
     /** The shape of `config.viz.options`. Missing options are `{}`. */
     optionsSchema: z.ZodType<Options>
 }
 
 /**
  * What a chart shows before it has rows to draw. Each one is optional: a kind of chart can set its own, the host can
- * set defaults for every chart with `createChartWidget`, and the chart widget has built-in ones for the rest. The
+ * set defaults for every chart with `createChartPanel`, and the chart panel has built-in ones for the rest. The
  * built-in kinds of chart set a skeleton shaped like the chart, which a host's `states.Loading` replaces.
  */
 export type ChartStates<Options = unknown> = {
