@@ -719,6 +719,16 @@ class TestDeniedTableError(BaseTest):
                 True,
                 True,
             ),
+            (
+                "expression_edited_after_build",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "(SELECT any(name) FROM posthog.trace_spans)",
+                True,
+                True,
+            ),
         ]
     )
     def test_materialized_view_over_trace_tables_follows_tracing_access(
@@ -729,7 +739,7 @@ class TestDeniedTableError(BaseTest):
         edited_after_build: bool,
         joins: list[tuple[str, str]],
         events_expression: str | None,
-        joins_deleted_after_build: bool,
+        changed_after_build: bool,
         denied: bool,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
@@ -771,9 +781,10 @@ class TestDeniedTableError(BaseTest):
             )
             for source, target in joins
         ]
+        expression = None
         if events_expression is not None:
             with team_scope(self.team.id, canonical=True):
-                DataWarehouseExpression.objects.create(
+                expression = DataWarehouseExpression.objects.create(
                     team=self.team, table_name="events", field_name="span_name", expression=events_expression
                 )
         built_at = datetime.now(UTC) - timedelta(minutes=5)
@@ -788,9 +799,13 @@ class TestDeniedTableError(BaseTest):
             last_run_at=built_at,
             query_updated_at=built_at + timedelta(minutes=1) if edited_after_build else None,
         )
-        if joins_deleted_after_build:
+        if changed_after_build:
             for join in created_joins:
                 join.delete()
+            if expression is not None:
+                with team_scope(self.team.id, canonical=True):
+                    expression.expression = "''"
+                    expression.save()
         modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
         database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
         context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
