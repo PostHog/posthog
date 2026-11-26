@@ -67,7 +67,6 @@ export class SecretKeyTeams {
     }
 }
 
-/** A digest is unknown only when no key row has it: a consumer with no secret key lookup records none. */
 export async function isUnknownToken(
     token: string,
     secretKeyTeams: Pick<SecretKeyTeams, 'exists'> | undefined
