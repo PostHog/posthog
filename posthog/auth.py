@@ -399,6 +399,10 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 return None
 
             key_value, source = personal_api_key_with_source
+            # An ID-JAG access token is not a personal API key, so leave it to IDJagAccessTokenAuthentication.
+            # `find_key_with_source` still returns it, so the rate limiter gives each ID-JAG token its own bucket.
+            if source == self.SOURCE_HEADER and IDJagAccessTokenAuthentication.is_id_jag_token(key_value):
+                return None
             span.set_attribute("auth.source", source)
 
             personal_api_key_object = self.validate_key(personal_api_key_with_source)
@@ -1015,8 +1019,11 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
         authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
         if not authorization_match:
             return None
+        token = authorization_match.group(1).strip()
+        # `decode_jwt` rejects the algorithm of an ID-JAG token, and the handler below would call it a bad export token.
+        if IDJagAccessTokenAuthentication.is_id_jag_token(token):
+            return None
         try:
-            token = authorization_match.group(1).strip()
             info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
             user_id = info["id"]
             team_id = info["team_id"]
