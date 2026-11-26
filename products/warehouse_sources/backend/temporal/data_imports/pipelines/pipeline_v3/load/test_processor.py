@@ -1802,14 +1802,24 @@ class TestSourceCopiesHeldThroughTheUpsert:
 
 
 class TestDuckLakeRegistrationTrigger:
-    @patch("posthog.models.Team.objects")
-    @patch(
-        "products.managed_warehouse.backend.facade.access.data_imports_registration_allowed",
-        side_effect=RuntimeError("flag definitions not loaded"),
+    @parameterized.expand(
+        [
+            ("allowed", True, True),
+            ("refused", False, False),
+            ("check_raises", RuntimeError("flag definitions not loaded"), None),
+        ]
     )
+    @patch(f"{_PROCESSOR}.logger")
+    @patch("posthog.models.Team.objects")
     @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
-    def test_a_failed_precheck_still_starts_the_registration(
-        self, mock_connect: AsyncMock, _mock_allowed: MagicMock, _mock_teams: MagicMock
+    def test_the_start_always_happens_and_logs_the_shadow_answer(
+        self,
+        _name: str,
+        answer: bool | Exception,
+        expected_logged: bool | None,
+        mock_connect: AsyncMock,
+        _mock_teams: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
         client = MagicMock()
         client.start_workflow = AsyncMock(return_value=None)
@@ -1821,9 +1831,16 @@ class TestDuckLakeRegistrationTrigger:
         signal.job_id = "job-1"
         signal.schema_id = str(uuid.uuid4())
 
-        _trigger_ducklake_register_data_imports(signal, "prepared/folder")
+        with patch(
+            "products.managed_warehouse.backend.facade.access.data_imports_registration_allowed",
+            side_effect=answer if isinstance(answer, Exception) else None,
+            return_value=answer,
+        ):
+            _trigger_ducklake_register_data_imports(signal, "prepared/folder")
 
         assert client.start_workflow.call_count == 1
+        started = [c for c in mock_logger.info.call_args_list if c.args[0] == "ducklake_registration_workflow_started"]
+        assert [c.kwargs["registration_allowed"] for c in started] == [expected_logged]
 
 
 class TestPostImportTrigger:

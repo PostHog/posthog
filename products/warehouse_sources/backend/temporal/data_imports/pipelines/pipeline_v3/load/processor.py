@@ -942,12 +942,7 @@ def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> Non
 
 
 def _ducklake_registration_allowed(team_id: int) -> bool | None:
-    """The first condition of the registration workflow's own gate, or None when the check fails.
-
-    Shadow only: the answer goes into the start log so it can be compared with the workflow's gate
-    before the start is skipped on it. Skipping the start saves the workflow and its gate activity
-    for every organization without the managed warehouse.
-    """
+    """Shadow of the registration gate's first condition, logged with the start. None when it cannot answer."""
     try:
         from posthog.models import Team
 
