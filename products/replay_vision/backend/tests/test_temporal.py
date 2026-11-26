@@ -1522,6 +1522,7 @@ class TestObservationStateActivities:
         [event] = payload["batch"]
         assert event["event"] == "replay_vision_scan_completed"
         assert event["distinct_id"] == f"replay-vision:{observation.team_id}"
+        assert event["uuid"] == str(observation.id)
         properties = event["properties"]
         assert properties["scanner_id"] == str(scanner.id)
         assert properties["scanner_type"] == model_output.scanner_type.value
