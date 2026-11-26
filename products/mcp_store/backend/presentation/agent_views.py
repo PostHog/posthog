@@ -122,7 +122,9 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         return list(
             MCPServiceAccountServerAccess.objects.for_team(account.team_id)
             .filter(service_account=account, gateway_server__is_team_enabled=True)
-            .filter(reachable_agent_grants(account.team_id, principal.credential_owner_id))
+            .filter(
+                reachable_agent_grants(account.team_id, principal.credential_owner_id, service_account_id=account.id)
+            )
             .select_related("gateway_server__template", "installation", "user")
             .order_by("gateway_server__name", "created_at")
         )
@@ -225,7 +227,14 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         candidates = (
             MCPServiceAccountServerAccess.objects.for_team(account.team_id)
             .filter(service_account=account, gateway_server_id=gateway_server_id)
-            .filter(reachable_agent_grants(account.team_id, principal.credential_owner_id))
+            .filter(
+                reachable_agent_grants(
+                    account.team_id,
+                    principal.credential_owner_id,
+                    service_account_id=account.id,
+                    gateway_server_id=gateway_server_id,
+                )
+            )
             .select_related("gateway_server", "installation")
             .order_by("created_at", "id")
         )

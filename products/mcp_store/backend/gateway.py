@@ -7,6 +7,8 @@ an untouched catalog template when they toggle it (the gateway API's
 set_template_enabled action). Servers with no row follow the team's
 `default_servers_enabled` posture."""
 
+import uuid
+
 from django.db.models import Exists, OuterRef, Q
 
 import structlog
@@ -108,7 +110,13 @@ def installation_for_agent_grant(
     )
 
 
-def reachable_agent_grants(team_id: int, credential_owner_id: int | None) -> Q:
+def reachable_agent_grants(
+    team_id: int,
+    credential_owner_id: int | None,
+    *,
+    service_account_id: uuid.UUID,
+    gateway_server_id: uuid.UUID | str | None = None,
+) -> Q:
     """The grants an agent run may use: the run's own credential owner's grants
     at any scope, plus every eligible member's team-scoped grants.
 
@@ -116,7 +124,9 @@ def reachable_agent_grants(team_id: int, credential_owner_id: int | None) -> Q:
     run) reaches team-scoped grants only. Grant rows with no user resolve for
     nobody, so they are excluded from every lane. A team-scoped grant whose
     owner was deactivated or lost access to the team is excluded too, because
-    grant rows outlive offboarding.
+    grant rows outlive offboarding. `service_account_id` and `gateway_server_id`
+    must match the caller's own filter: they limit that eligibility check to
+    the owners whose grants the caller can select.
 
     An admin's per-member revocation of the server applies here as well as on
     the member paths. Otherwise a member whose access an admin turned off would
@@ -126,13 +136,12 @@ def reachable_agent_grants(team_id: int, credential_owner_id: int | None) -> Q:
         gateway_server_id=OuterRef("gateway_server_id"),
         user_id=OuterRef("user_id"),
     )
-    team_grant_owner_ids = (
-        MCPServiceAccountServerAccess.objects.for_team(team_id)
-        .filter(scope="team", user__isnull=False)
-        .order_by()
-        .values_list("user_id", flat=True)
-        .distinct()
+    team_grant_owners = MCPServiceAccountServerAccess.objects.for_team(team_id).filter(
+        scope="team", user__isnull=False, service_account_id=service_account_id
     )
+    if gateway_server_id is not None:
+        team_grant_owners = team_grant_owners.filter(gateway_server_id=gateway_server_id)
+    team_grant_owner_ids = team_grant_owners.order_by().values_list("user_id", flat=True).distinct()
     eligible_owner_ids = eligible_credential_owners(team_grant_owner_ids, team_id)
     reachable = Q(scope="team", user_id__in=eligible_owner_ids)
     if credential_owner_id is not None:
