@@ -12,6 +12,7 @@ import { selectorsOf } from './selectors'
 
 const ENGINE_MS = 120_000
 const GROUP_INTERVAL_MS = 1000
+const DAY_S = 24 * 60 * 60
 const SCENARIOS_DIR = path.join(__dirname, '..')
 
 type Metrics = { server: Server; url: string }
@@ -27,7 +28,10 @@ async function serveMetrics(): Promise<Metrics> {
 
 const fixtureDirs: string[] = []
 
-function writeFiles(groups: { name: string; interval: string; rules: unknown[] }[]): { rules: string; labels: string } {
+function writeFiles(groups: { name: string; interval: string; eval_offset?: string; rules: unknown[] }[]): {
+    rules: string
+    labels: string
+} {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-alerts-test-'))
     fixtureDirs.push(dir)
     const files = { rules: path.join(dir, 'rules.yaml'), labels: path.join(dir, 'labels.yaml') }
@@ -80,6 +84,8 @@ describe('alerts on a scenario run', () => {
                 {
                     name: 'synthetic-daily',
                     interval: '24h',
+                    // Without an offset vmalert starts the group after a random delay of up to five minutes.
+                    eval_offset: `${(Math.floor(Date.now() / 1000) + DAY_S / 2) % DAY_S}s`,
                     rules: [{ alert: 'SyntheticNeverEvaluated', expr: 'sum(synthetic_queue_depth) > 100' }],
                 },
             ])
@@ -143,6 +149,8 @@ describe('selectorsOf', () => {
             ['x', 'y', 'z'],
         ],
         ['a limit and a join prefix', 'sum(x) by (q) limit 3 * on (q) group_left (p) prefix "rhs_" y', ['x', 'y']],
+        ['a join without a label list', 'x + on (q) group_left y', ['x', 'y']],
+        ['metrics named like modifiers', 'sum(limit) > 0 or prefix', ['limit', 'prefix']],
     ])('%s', (_, expr, selectors) => {
         expect(selectorsOf(expr)).toEqual(selectors)
     })
