@@ -10075,8 +10075,7 @@ class TestExperimentTags(APILicensedTest):
         return view_only
 
     def test_bulk_update_tags(self):
-        # The experiments viewset has its own bulk_update_tags, not the shared mixin's, so this guards its edit check,
-        # its project scope, the skipped entries and the activity log entry of each experiment whose tags change.
+        # This viewset's own bulk_update_tags: edit check, project scope, skipped entries and activity log.
         experiment = self._create_experiment("Bulk", "tags-bulk-flag", tags=["existing"])
         view_only = self._create_view_only_experiment("tags-bulk-flag-b")
         other_project = Team.objects.create(organization=self.organization, name="Other project")

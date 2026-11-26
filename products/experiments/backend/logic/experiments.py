@@ -40,8 +40,7 @@ from products.feature_flags.backend.facade.filters import stored_payloads
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
-# Heavy JSON columns that the list does not return and a bulk tag change does not read. The list filters, the status
-# and the list mapper must not read them.
+# Heavy JSON columns that the list and bulk tag changes skip. The list filters, status and mapper must not read them.
 LIST_DEFERRED_FIELDS = (
     "metrics",
     "metrics_secondary",
