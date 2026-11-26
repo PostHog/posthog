@@ -1679,7 +1679,12 @@ class TrinoPrinter(PostgresPrinter):
             if node.name.lower() == "tuplehammingdistance":
                 return ast.IntegerType()
             return self._tuple_arithmetic_type(node)
-        if isinstance(node, ast.Call) and node.name.lower() in {"jsonhas", "multisearchanycaseinsensitive"}:
+        if isinstance(node, ast.Call) and node.name.lower() in {
+            "empty",
+            "notempty",
+            "jsonhas",
+            "multisearchanycaseinsensitive",
+        }:
             return ast.BooleanType()
         offset = self._date_offset_of(node)
         if offset is not None:

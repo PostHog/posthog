@@ -583,6 +583,10 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
         ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
+        (
+            "notEmpty(user_id) = 1",
+            '(CAST(("users"."user_id" IS NOT NULL AND "users"."user_id" <> \'\') AS INTEGER) = 1)',
+        ),
         ("id = 1", '("users"."id" = 1)'),
         # ClickHouse reads date + n as n days and datetime + n as n seconds, with the number on either side.
         ("toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), CAST("),
