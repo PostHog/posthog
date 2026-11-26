@@ -214,17 +214,13 @@ export interface visualReviewRunSceneLogicActions {
     loadHeadPictureKeysSuccess: (
         headPictureKeys: {
             headRunId: string
-            keys: {
-                [k: string]: string
-            }
+            keys: Record<string, string>
         } | null,
         payload?: any
     ) => {
         headPictureKeys: {
             headRunId: string
-            keys: {
-                [k: string]: string
-            }
+            keys: Record<string, string>
         } | null
         payload?: any
     }
