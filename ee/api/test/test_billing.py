@@ -1336,6 +1336,33 @@ class TestActivateBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert manager.call_args.args[0] == self.organization
 
+    @parameterized.expand(
+        [
+            ("overview_query", "get", "", "query"),
+            ("payment_body", "post", "activate/authorize/", "body"),
+            ("startup_body", "post", "startups/apply/", "body"),
+        ]
+    )
+    def test_organization_in_the_path_refuses_another_organization(
+        self, _name: str, method: str, path: str, sent_in: str
+    ) -> None:
+        organization = Organization.objects.create(name="Another organization")
+        OrganizationMembership.objects.create(
+            organization=organization, user=self.user, level=OrganizationMembership.Level.OWNER
+        )
+        url = f"/api/billing/{self.organization.id}/{path}"
+        other = {"organization_id": str(organization.id)}
+
+        with patch("ee.api.billing.BillingManager") as manager:
+            if sent_in == "query":
+                response = self.client.get(url, other)
+            else:
+                response = getattr(self.client, method)(url, other, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "organization_id"
+        manager.assert_not_called()
+
     def test_organization_in_the_path_requires_membership(self) -> None:
         organization = Organization.objects.create(name="Organization the user is not in")
 
@@ -1803,7 +1830,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
     UNLOCKED_WRITE_ACTIONS = {
         "deactivate",
         "cancel_trial",
-        "patch",
+        "update_limits",
         "license",
         "authorize_status",
         "apply_startup_program",
@@ -2577,19 +2604,27 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_get_usage_data.assert_called_once()
 
-    @parameterized.expand([("current_project", "/api/billing//"), ("organization_in_path", "/api/billing/{}///")])
+    @parameterized.expand(
+        [
+            ("limits_route", "/api/billing//", status.HTTP_403_FORBIDDEN),
+            ("list_route", "/api/billing/", status.HTTP_403_FORBIDDEN),
+            ("read_only_route", "/api/billing/period/", status.HTTP_405_METHOD_NOT_ALLOWED),
+            ("organization_list_route", "/api/billing/{organization_id}/", status.HTTP_403_FORBIDDEN),
+            ("organization_limits_route", "/api/billing/{organization_id}///", status.HTTP_403_FORBIDDEN),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
     def test_owner_only_billing_rejects_admin_limit_update(
-        self, _name: str, path: str, _mock_feature_enabled: MagicMock, mock_update_billing: MagicMock
-    ) -> None:
+        self, _name: str, url: str, expected_status: int, _mock_feature_enabled, mock_update_billing
+    ):
         response = self.client.patch(
-            path.format(self.organization.id),
+            url.format(organization_id=self.organization.id),
             data={"custom_limits_usd": {"events": 10}},
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, expected_status)
         mock_update_billing.assert_not_called()
 
     def test_mutating_action_rejects_wildcard_personal_api_key(self):
@@ -3149,7 +3184,7 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         [
             ("activate", "post", "/api/billing/activate", {"products": "all_products:"}, BILLING_ACCESS_DENIED_MESSAGE),
             ("deactivate", "post", "/api/billing/deactivate", {"products": "product_1"}, BILLING_ACCESS_DENIED_MESSAGE),
-            ("patch", "patch", "/api/billing//", {"custom_limits_usd": {}}, BILLING_ACCESS_DENIED_MESSAGE),
+            ("update_limits", "patch", "/api/billing//", {"custom_limits_usd": {}}, BILLING_ACCESS_DENIED_MESSAGE),
             (
                 "subscription_switch_plan",
                 "post",
