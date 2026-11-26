@@ -19,6 +19,8 @@ from posthog.schema import (
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationsConversionSource,
+    MarketingAnalyticsRecommendationsConversionSourceKind,
     MarketingAnalyticsRecommendationsDataGap,
     MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsQuery,
@@ -70,6 +72,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     TermKeywordStats,
     apply_resolutions,
     dedupe_account_agnostic_rules,
+    hidden_search_spend,
     recommend,
 )
 from products.marketing_analytics.backend.recommendation_access import can_resolve
@@ -127,6 +130,7 @@ class PostHogConversions:
     gap_message: str | None = None
     unmatched_campaigns: tuple[str, ...] = ()
     skipped_goals: tuple[str, ...] = ()
+    counted_goals: tuple[str, ...] = ()
 
 
 class _RecommendationGoalsTableQueryRunner(MarketingAnalyticsTableQueryRunner):
@@ -322,6 +326,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             by_campaign=dict(by_campaign),
             unmatched_campaigns=_unmatched_campaigns(sum(by_campaign.values()), unmatched),
             skipped_goals=tuple(goal.message for goal in skipped),
+            counted_goals=tuple(names),
         )
 
     @cached_property
@@ -395,6 +400,16 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             )
             has_performance_max = any(campaign.channel_type == "PERFORMANCE_MAX" for campaign in campaigns)
             data_gaps.extend(self._data_gaps(source, actions, missing, has_performance_max))
+            currency = self._currency(source)
+            term_cost = self._search_term_cost_by_campaign(source)
+            if term_cost is not None and (hidden := hidden_search_spend(campaigns, term_cost, currency)):
+                data_gaps.append(
+                    MarketingAnalyticsRecommendationsDataGap(
+                        kind=MarketingAnalyticsRecommendationsDataGapKind.HIDDEN_SEARCH_SPEND,
+                        campaignTable=source.campaignTable,
+                        message=hidden,
+                    )
+                )
             results.extend(
                 recommend(
                     RecommendationInputs(
@@ -402,7 +417,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         search_terms=tuple(self._search_terms(source, actions)),
                         organic_queries=organic_queries,
                         site_urls=site_urls,
-                        currency=self._currency(source),
+                        currency=currency,
                         days=self._days_with_data(source) or days,
                         term_keywords=tuple(self._term_keywords(source)),
                         ranking_pages=ranking_pages,
@@ -418,7 +433,10 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 )
             )
         return MarketingAnalyticsRecommendationsQueryResponse(
-            results=dedupe_account_agnostic_rules(results), disclaimer=DISCLAIMER, dataGaps=data_gaps
+            results=dedupe_account_agnostic_rules(results),
+            disclaimer=DISCLAIMER,
+            dataGaps=data_gaps,
+            conversionSource=_conversion_source(posthog) if ads else None,
         )
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
@@ -725,6 +743,41 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             table,
             actions=ast.Constant(value=actions),
         )
+        return {row[0]: float(row[1] or 0) for row in rows}
+
+    def _search_term_cost_by_campaign(self, source: MarketingAnalyticsRecommendationsSource) -> dict[str, float] | None:
+        # Summed apart from the search term rows, which stop at the row limit and would make the rest look hidden.
+        if not self._readable(source.searchTermTable) or not self._readable(source.campaignStatsTable):
+            return None
+        assert source.searchTermTable and source.campaignStatsTable
+        rows = self._select(
+            """
+            SELECT toString(campaign_id), sum(toFloat(metrics_cost_micros)) / 1000000, max(toDate(segments_date))
+            FROM {table}
+            WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
+            GROUP BY campaign_id
+            """,
+            source.searchTermTable,
+        )
+        if not rows:
+            return None
+        # Other channels keep serving after Search stops, so only campaigns with search terms date the sync.
+        last_campaign_day = self._select(
+            """
+            SELECT max(toDate(segments_date)) FROM {table}
+            WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
+                AND has({campaign_ids}, toString(campaign_id))
+            """,
+            source.campaignStatsTable,
+            campaign_ids=ast.Constant(value=[row[0] for row in rows]),
+        )
+        # The two tables sync apart, so days the search terms have not synced yet would look hidden.
+        if (
+            not last_campaign_day
+            or not last_campaign_day[0][0]
+            or max(row[2] for row in rows) < last_campaign_day[0][0]
+        ):
+            return None
         return {row[0]: float(row[1] or 0) for row in rows}
 
     def _search_terms(
@@ -1065,6 +1118,16 @@ def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]
     if total < UNMATCHED_MIN_SHARE * (matched_conversions + total):
         return ()
     return tuple(sorted(named, key=lambda campaign: -named[campaign]))
+
+
+def _conversion_source(posthog: PostHogConversions | None) -> MarketingAnalyticsRecommendationsConversionSource:
+    if posthog is None or posthog.by_campaign is None:
+        return MarketingAnalyticsRecommendationsConversionSource(
+            kind=MarketingAnalyticsRecommendationsConversionSourceKind.GOOGLE_ADS, goalNames=[]
+        )
+    return MarketingAnalyticsRecommendationsConversionSource(
+        kind=MarketingAnalyticsRecommendationsConversionSourceKind.POSTHOG, goalNames=list(posthog.counted_goals)
+    )
 
 
 def _posthog_gaps(posthog: PostHogConversions) -> list[MarketingAnalyticsRecommendationsDataGap]:

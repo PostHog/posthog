@@ -19,6 +19,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import CloningVisitor
@@ -33,6 +35,8 @@ from products.alerts_platform.backend.facade.rolling_checks import CheckWindow, 
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
 from products.logs.backend.logs_query_runner import LogsFilterBuilder
+
+_ALERT_QUERY_MODIFIERS = HogQLQueryModifiers(convertToProjectTimezone=False)
 
 
 class AlertQuerySubject(Protocol):
@@ -127,7 +131,13 @@ def _run_alert_query(
         ch_user=ch_user,
         settings=settings,
         limit_context=LimitContext.QUERY,
-        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        modifiers=_ALERT_QUERY_MODIFIERS,
+        context=HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            database=Database.create_for_posthog_tables(team, modifiers=_ALERT_QUERY_MODIFIERS),
+        ),
     )
 
 
@@ -341,15 +351,7 @@ class AlertCheckQuery:
         if not isinstance(query, ast.SelectQuery):
             raise ValueError("Failed to build alert check query")
 
-        return execute_hogql_query(
-            query_type="alert_check",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,
-            settings=self.SETTINGS,
-            limit_context=LimitContext.QUERY,
-            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
-        )
+        return _run_alert_query(self.team, query, ch_user=ClickHouseUser.DEFAULT, settings=self.SETTINGS)
 
     def _tag(self) -> None:
         _tag_alert_query(team=self.team, alert_config_id=str(self.alert.id), source="logs_alert")

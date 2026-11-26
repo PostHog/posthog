@@ -3935,7 +3935,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
         queried_resources = queried_access_controlled_resources(
-            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
+            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes, modifiers=self.modifiers
         )
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
@@ -4012,7 +4012,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
-                return ["*"]
+                queried_resources = set(API_SCOPE_OBJECTS)
             restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 
@@ -4020,7 +4020,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if user_access_control is None:
             return None
         if queried_resources is None:
-            return user_access_control.blocked_resources or None
+            queried_resources = set(API_SCOPE_OBJECTS)
         # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
         # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
         # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.

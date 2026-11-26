@@ -34,6 +34,7 @@ from products.error_tracking.backend.facade import (
 from products.error_tracking.backend.presentation.views.external_references import (
     ErrorTrackingExternalReferenceResultSerializer,
 )
+from products.error_tracking.backend.presentation.views.issue_tag_rules import COLOR_HELP_TEXT
 
 IssueNotFoundError = facade_api.IssueNotFoundError
 
@@ -78,6 +79,7 @@ class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
     )
     label = serializers.CharField(help_text="Short name of the tag.")  # type: ignore[assignment]  # shadows DRF Field.label
     description = serializers.CharField(help_text="What the tag means, for a tooltip.")
+    color = serializers.ChoiceField(choices=contracts.IssueTagColor.choices, allow_null=True, help_text=COLOR_HELP_TEXT)
 
 
 class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSerializer):

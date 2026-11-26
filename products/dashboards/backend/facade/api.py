@@ -304,6 +304,21 @@ def _team_dashboards(team_id: int, *, include_deleted: bool) -> QuerySet[Dashboa
     return manager.filter(team_id=team_id)
 
 
+def metric_variable_names(*, team_id: int) -> frozenset[str]:
+    """The names of the metrics variables that this team's dashboards define."""
+    names: set[str] = set()
+    for filters in (
+        _team_dashboards(team_id, include_deleted=False)
+        .filter(filters__has_key="metricVariables")
+        .values_list("filters", flat=True)
+    ):
+        variables = filters.get("metricVariables") if isinstance(filters, dict) else None
+        for variable in variables if isinstance(variables, list) else []:
+            if isinstance(variable, dict) and isinstance(variable.get("name"), str):
+                names.add(variable["name"])
+    return frozenset(names)
+
+
 def get_dashboard(*, team_id: int, dashboard_id: int, include_deleted: bool = False) -> DashboardSummary | None:
     """One dashboard of this team, or None. A soft-deleted dashboard counts only with `include_deleted`.
 

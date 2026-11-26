@@ -826,7 +826,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
 
     team_id = told.prs[0].team_id
     try:
-        # No Python-gateway fallback: it has no stamphog route, so an unset pair posts the plain list.
+        # Raises when the gateway pair is unset, which posts the plain list below.
         client = build_anthropic_client(
             ai_product="aio_stamphog",
             team_id=team_id,

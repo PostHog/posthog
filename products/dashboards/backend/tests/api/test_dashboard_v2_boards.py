@@ -175,6 +175,14 @@ class TestDashboardV2Boards(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "spec"
 
+    @parameterized.expand([("in_a_key", '{"\\ud800": "x"}'), ("in_a_value", '{"note": "a\\udc00"}')])
+    def test_rejects_an_unpaired_surrogate(self, _name: str, extra: str) -> None:
+        # Sent as raw JSON, because the test client cannot encode a lone surrogate itself.
+        body = '{"spec": {"version": 2, "title": "x", "tabs": [], "extra": ' + extra + "}}"
+        response = self.client.post(self._url(), body, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
     def test_rejects_a_document_nested_deeper_than_json_dumps_can_recurse(self) -> None:
         depth = 40000
         body = '{"spec": ' + '{"k":' * depth + "1" + "}" * depth + "}"

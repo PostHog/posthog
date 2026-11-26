@@ -74,6 +74,7 @@ def _detail(board: DashboardV2Board) -> BoardDetail:
 
 
 def _prepare(spec: dict[str, Any]) -> dict[str, Any]:
+    # Before anything serializes the document, which recurses once per level of nesting.
     check_storable(spec)
     spec = upgrade(spec)
     check_size(spec)

@@ -1,18 +1,18 @@
 import {
-    type ContentPanelParts,
+    type ContentWidgetParts,
     type Dashboard,
     type Tile,
     type TileAppearance,
-    isSectionPanel,
-} from '../dashboard/dashboardTypes'
-import { changeTilesWhere } from '../dashboard/tileTree'
+    isSectionWidget,
+} from '../dashboard/document/dashboardTypes'
+import { changeTilesWhere } from '../dashboard/document/tileTree'
 
 /**
  * Presentational edits: they change how a tile looks, such as which of its parts show, and never where a tile sits or
  * what it contains. Layout edits live in `dashboardEdits.ts`. `applyEdit` sends these here and settles the layout after.
  */
 export type PresentationEdit =
-    | { edit: 'setTilesParts'; ids: string[]; parts: ContentPanelParts }
+    | { edit: 'setTilesParts'; ids: string[]; parts: ContentWidgetParts }
     | { edit: 'setTilesAppearance'; ids: string[]; appearance: AppearanceChange }
 
 /** A null removes the setting, so the tile goes back to its default. */
@@ -30,21 +30,21 @@ function withAppearance(current: TileAppearance | undefined, change: AppearanceC
     return next
 }
 
-function changeParts({ panel, ...tile }: Tile, parts: ContentPanelParts): Tile {
-    if (isSectionPanel(panel)) {
-        return { ...tile, panel }
+function changeParts({ widget, ...tile }: Tile, parts: ContentWidgetParts): Tile {
+    if (isSectionWidget(widget)) {
+        return { ...tile, widget }
     }
-    return { ...tile, panel: { ...panel, parts: { ...panel.parts, ...parts } } }
+    return { ...tile, widget: { ...widget, parts: { ...widget.parts, ...parts } } }
 }
 
-function changeAppearance({ panel, ...tile }: Tile, change: AppearanceChange): Tile {
-    if (!isSectionPanel(panel)) {
-        return { ...tile, panel: { ...panel, appearance: withAppearance(panel.appearance, change) } }
+function changeAppearance({ widget, ...tile }: Tile, change: AppearanceChange): Tile {
+    if (!isSectionWidget(widget)) {
+        return { ...tile, widget: { ...widget, appearance: withAppearance(widget.appearance, change) } }
     }
     if (change.border === undefined) {
-        return { ...tile, panel }
+        return { ...tile, widget }
     }
-    return { ...tile, panel: { ...panel, appearance: withAppearance(panel.appearance, { border: change.border }) } }
+    return { ...tile, widget: { ...widget, appearance: withAppearance(widget.appearance, { border: change.border }) } }
 }
 
 export function applyPresentationEdit(dashboard: Dashboard, edit: PresentationEdit): Dashboard {
