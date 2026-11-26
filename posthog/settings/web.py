@@ -420,6 +420,7 @@ CAN_LOGIN_AS = lambda request, target_user: (
     request.user.is_staff
     # cannot impersonate other staff
     and not target_user.is_staff
+    and target_user.is_human
     # target user must not have opted out of impersonation (None treated as allowed)
     and target_user.allow_impersonation is not False
 )
