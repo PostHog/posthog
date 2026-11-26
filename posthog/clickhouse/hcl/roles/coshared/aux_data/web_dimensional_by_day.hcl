@@ -1,6 +1,6 @@
-# Distributed proxies onto the day-partitioned dimensional tables on the aux cluster. Aux, data and the events
-# cluster co-host them, because the events cluster serves every query of a project that reads events_json.
-# Their columns come from the abstracts in roles/shared/web_dimensional_columns.hcl.
+# Distributed proxies onto the day-partitioned dimensional tables on the aux cluster. They sit in their own file so
+# the events cluster can compose them without the rest of aux_data: it serves every query of a project that reads
+# events_json. Their columns come from the abstracts in roles/shared/web_dimensional_columns.hcl.
 database "posthog" {
   table "web_bounces_dimensional_preaggregated_by_day" {
     extend = "_web_bounces_dimensional_preaggregated_columns"
