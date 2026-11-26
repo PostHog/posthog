@@ -5832,6 +5832,38 @@ describe('CDP API', () => {
                     ])
                 })
 
+                it('refuses with 503 a batch that arrives while another waits on its team lookup', async () => {
+                    const { app: one } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 1 })
+                    const teamManager = served[served.length - 1].cdpApi['deps'].teamManager
+                    const lookup = teamManager.getTeam.bind(teamManager)
+                    let finishLookup!: () => void
+                    const lookupHeld = new Promise<void>((resolve) => (finishLookup = resolve))
+                    let startedLookup!: () => void
+                    const lookupReached = new Promise<void>((resolve) => (startedLookup = resolve))
+                    jest.spyOn(teamManager, 'getTeam').mockImplementationOnce(async (teamId) => {
+                        startedLookup()
+                        await lookupHeld
+                        return lookup(teamId)
+                    })
+
+                    const waiting = sendBatchTo(one, TEMPLATE, batchOf(recipient('ada@example.com'))).then(
+                        (answer) => answer
+                    )
+                    await Promise.race([
+                        lookupReached,
+                        waiting.then((answer) =>
+                            Promise.reject(new Error(`the waiting batch answered first with ${answer.status}`))
+                        ),
+                    ])
+                    const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    finishLookup()
+                    const waited = await waiting
+                    const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
+
+                    expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([waited.status, after.status]).toEqual([200, 200])
+                })
+
                 it("refuses a batch from an organization holding its share across two teams, and admits another organization's", async () => {
                     const flowOf = async (teamId: number) => ({
                         teamId,
