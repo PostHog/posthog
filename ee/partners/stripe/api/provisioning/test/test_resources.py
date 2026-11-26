@@ -30,6 +30,7 @@ from ee.partners.stripe.api.provisioning.authentication import StripeBearerAuthe
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
+GRANTED_SCOPES = ["insight:read", "project:read"]
 UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
 ONE_PROJECT_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 1}
 SIX_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 6}
@@ -63,8 +64,27 @@ class TestResources(StripeProvisioningTestBase):
         pat = PersonalAPIKey.objects.get(user=self.user)
         assert pat.label == f"Stripe - {self.team.name}"[:40]
         assert pat.scoped_teams == [self.team.id]
+        assert pat.provisioned_by_id == self.stripe_app.id
 
         assert TeamProvisioningConfig.objects.get(team=self.team).service_id == "analytics"
+
+    def test_create_mints_granted_scopes_for_an_app_without_ceiling_or_key_flag(self) -> None:
+        self.stripe_app.scopes = []
+        self.stripe_app.save(update_fields=["scopes"])
+        self.stripe_app.update_provisioning(issues_personal_api_key=False)
+        self._seed_auth_code("code_wide", scopes=GRANTED_SCOPES)
+        token = self._post_signed(
+            f"{BASE_PATH}/oauth/token",
+            data={"grant_type": "authorization_code", "code": "code_wide"},
+            content_type="application/x-www-form-urlencoded",
+        ).json()["access_token"]
+
+        res = self._post_signed_with_bearer(RESOURCES_URL, data={"service_id": "analytics"}, token=token)
+
+        assert res.status_code == 200
+        assert res.json()["complete"]["access_configuration"]["personal_api_key"].startswith("phx_")
+        pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.stripe_app)
+        assert sorted(pat.scopes) == sorted(GRANTED_SCOPES)
 
     def test_create_with_project_id_is_idempotent(self):
         self.organization.available_product_features = [UNLIMITED_PROJECTS_FEATURE]

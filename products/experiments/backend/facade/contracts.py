@@ -2086,3 +2086,62 @@ class ProportionTestResult:
     confidence_interval: tuple[float, float]
     p_value: float
     is_significant: bool
+
+
+@frozen
+class MetricRecalculationResult:
+    metric_uuid: str
+    status: str
+    result: dict[str, Any] | None
+    error_message: str | None
+    configuration_status: str
+
+
+@frozen
+class ActiveRecalculationRun:
+    id: str
+    status: str
+
+
+@frozen
+class RecalculationRunSummary:
+    id: str
+    experiment_id: int
+    status: str
+    total_metrics: int
+    completed_metrics: int
+    failed_metrics: int
+    metric_errors: dict[str, dict[str, Any]]
+    created_at: datetime | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    query_to: datetime | None
+
+
+@frozen
+class RequestedRecalculation(RecalculationRunSummary):
+    is_existing: bool
+
+
+@frozen
+class RecalculationRun(RecalculationRunSummary):
+    metric_retries: dict[str, dict[str, Any]]
+    results: tuple[MetricRecalculationResult, ...]
+    rows_read: int | None = None
+    estimated_rows_total: int | None = None
+
+
+@frozen
+class LatestRecalculation(RecalculationRun):
+    active_run: ActiveRecalculationRun | None
+    result_source: Literal["recalculation", "timeseries_fallback"]
+    exceeds_recalculation_age_limit: bool
+
+
+class WarehouseNativeResultAccessDenied(Exception):
+    """Raised when the reader may not read the stored results of a warehouse-native experiment. The detail is written
+    for the reader, so a caller at an HTTP boundary can return it as a 403."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail

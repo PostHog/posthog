@@ -3,6 +3,7 @@ import type { z } from 'zod'
 
 import type { WidgetQuery } from '../../dashboard/dashboardSchema'
 import type { TimeRange, WidgetSize } from '../../dashboard/dashboardTypes'
+import type { AppliedFilter } from '../../filters/filtersContext'
 
 export type { WidgetQuery }
 
@@ -23,6 +24,8 @@ export interface QueryRequest {
     query: WidgetQuery
     time: TimeRange
     legend?: string
+    /** The filters around the chart that have a value. Left out when none do. The runner applies the kinds it knows. */
+    filters?: AppliedFilter[]
 }
 
 /** A query's frames, and how fresh they are when the host's runner knows it, such as from a cached result. */
