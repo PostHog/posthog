@@ -7035,12 +7035,13 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['', 'refuses', 503, 0],
-            [',,', 'refuses', 503, 0],
-            ['00feed0000feed0000feed0000feed00', 'produces', 202, 1],
-        ])('with the seal keys %p, %s a sensitive push', async (keys, _verb, status, count) => {
+            ['', true, 'refuses', 503, 0],
+            [',,', true, 'refuses', 503, 0],
+            ['', false, 'refuses', 503, 0],
+            ['00feed0000feed0000feed0000feed00', true, 'produces', 202, 1],
+        ])('with the seal keys %p and sensitive %p, %s the push', async (keys, isSensitive, _verb, status, count) => {
             api['config'].CDP_SEALED_STATE_KEYS = keys
-            const hogFlow = await insertHogFlow(sensitive(pushFlow()))
+            const hogFlow = await insertHogFlow(isSensitive ? sensitive(pushFlow()) : pushFlow())
             const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
 
             const res = await send(hogFlow.id, keyed)
@@ -7048,23 +7049,6 @@ describe('CDP API', () => {
             expect(res.status).toEqual(status)
             expect(produced()).toHaveLength(count)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
-        })
-
-        it('refuses a push marked sensitive after the workflow was cached, while the seal key is missing', async () => {
-            api['config'].CDP_SEALED_STATE_KEYS = ''
-            const hogFlow = await insertHogFlow(sensitive(pushFlow()))
-            const actions = hogFlow.actions.map((action) =>
-                action.type === 'function_push' ? { ...action, config: { ...action.config, sensitive: false } } : action
-            ) as HogFlow['actions']
-            jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockResolvedValue({
-                ...hogFlow,
-                actions,
-            })
-
-            const res = await send(hogFlow.id)
-
-            expect([res.status, res.body]).toEqual([503, { error: 'not_sealing' }])
-            expect(produced()).toEqual([])
         })
 
         it('produces nothing for a sensitive push whose seal key cannot encrypt', async () => {

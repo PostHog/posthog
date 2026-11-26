@@ -54,7 +54,6 @@ import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.s
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE, checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
-import { hasSensitiveMessageStep } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import {
     SCHEDULED_RUNS_PER_BATCH,
@@ -1938,9 +1937,10 @@ export class CdpApi {
             }
 
             const { seal, sealing } = createInvocationSanitizer(this.config)
-            // Checked before the claim, because claims made with the missing key would read as another request's.
-            if (!sealing && (await this.isSensitiveNow(hogFlow))) {
-                logger.error('🔑', 'Sensitive transactional push refused: CDP_SEALED_STATE_KEYS is unset')
+            // Any push may be marked sensitive mid-request, so none goes out unencrypted. Checked before the claim,
+            // because claims made with the missing key would read as another request's.
+            if (!sealing) {
+                logger.error('🔑', 'Transactional push refused: CDP_SEALED_STATE_KEYS is unset')
                 return reply('not_sealing', 503, { error: 'not_sealing' })
             }
 
@@ -2012,12 +2012,6 @@ export class CdpApi {
             logger.error('Error queueing transactional push', { error: e instanceof Error ? e.message : String(e) })
             return reply('error', 500, { error: 'internal_error' })
         }
-    }
-
-    // A cached workflow can miss that its push was just marked sensitive.
-    private async isSensitiveNow(cached: HogFlow): Promise<boolean> {
-        const current = await this.hogFlowManager.getHogFlowFromPrimary(cached.id)
-        return hasSensitiveMessageStep(cached) || !current || hasSensitiveMessageStep(current)
     }
 
     private transactionalPushIntakeForRequest(seal: ReturnType<typeof createInvocationSanitizer>['seal']): RunIntake {
