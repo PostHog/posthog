@@ -1,13 +1,7 @@
 import { type ComponentType, Suspense, memo, useContext, useLayoutEffect } from 'react'
 
-import * as constructionHoggie from '@posthog/brand/hoggies/png/construction-1'
-import * as errorHoggie from '@posthog/brand/hoggies/png/error'
-import * as panicHoggie from '@posthog/brand/hoggies/png/panic'
-import * as puzzleHoggie from '@posthog/brand/hoggies/png/puzzle'
-import { IconLineGraph } from '@posthog/icons'
+import { IconLineGraph, IconPuzzle, IconWarning, IconWrench } from '@posthog/icons'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
-
-import { pngHoggie } from 'lib/brand/hoggies'
 
 import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
 import type { WidgetType } from './widgetDefinition'
@@ -21,29 +15,24 @@ function HoldsLoad(): null {
     return null
 }
 
-const HedgehogError = pngHoggie(errorHoggie)
-const HedgehogPuzzle = pngHoggie(puzzleHoggie)
-const HedgehogConstruction = pngHoggie(constructionHoggie)
-const HedgehogPanic = pngHoggie(panicHoggie)
-
-/** Why a widget shows a message instead of its content. A problem gets a hedgehog, and an empty result an icon. */
+/** Why a widget shows a message instead of its content. */
 export type WidgetProblem = 'error' | 'unknownType' | 'invalidSettings' | 'failedQuery' | 'empty'
 
-const HOGGIE_CLASS = 'size-10 shrink-0 object-contain @min-[20rem]:size-16'
-
-// The empty icon matches the quill empty state on v1 insights, so an empty chart reads the same on both dashboards.
-const ILLUSTRATIONS: Record<WidgetProblem, JSX.Element> = {
-    error: <HedgehogError className={HOGGIE_CLASS} />,
-    unknownType: <HedgehogPuzzle className={HOGGIE_CLASS} />,
-    invalidSettings: <HedgehogConstruction className={HOGGIE_CLASS} />,
-    failedQuery: <HedgehogPanic className={HOGGIE_CLASS} />,
-    empty: (
+function ProblemIcon({ icon, color }: { icon: JSX.Element; color: string }): JSX.Element {
+    return (
         <IconStack>
-            <IconStackItem color="var(--color-product-product-analytics-light)">
-                <IconLineGraph />
-            </IconStackItem>
+            <IconStackItem color={color}>{icon}</IconStackItem>
         </IconStack>
-    ),
+    )
+}
+
+// Icons and colors match the quill states on v1 insights, so a tile reads the same on both dashboards.
+const ILLUSTRATIONS: Record<WidgetProblem, JSX.Element> = {
+    error: <ProblemIcon icon={<IconWarning />} color="var(--destructive-foreground)" />,
+    unknownType: <ProblemIcon icon={<IconPuzzle />} color="var(--warning-foreground)" />,
+    invalidSettings: <ProblemIcon icon={<IconWrench />} color="var(--warning-foreground)" />,
+    failedQuery: <ProblemIcon icon={<IconWarning />} color="var(--destructive-foreground)" />,
+    empty: <ProblemIcon icon={<IconLineGraph />} color="var(--color-product-product-analytics-light)" />,
 }
 
 const LINE_WIDTHS = ['w-3/4', 'w-full', 'w-5/6', 'w-2/3']
