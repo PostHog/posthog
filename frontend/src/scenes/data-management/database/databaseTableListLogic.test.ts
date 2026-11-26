@@ -111,6 +111,39 @@ describe('databaseTableListLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(2)
     })
 
+    it.each([
+        {
+            name: 'keeps the loaded tables while the same scope refreshes',
+            reload: (): void => logic.actions.refreshDatabaseSchema(),
+            expectedWhileLoading: ['events'],
+        },
+        {
+            name: 'hides the previous scope tables while another connection loads',
+            reload: (): void => {
+                logic.actions.setConnection('conn-123')
+                logic.actions.loadDatabase()
+            },
+            expectedWhileLoading: [],
+        },
+    ])('$name', async ({ reload, expectedWhileLoading }) => {
+        ;(performQuery as jest.Mock).mockResolvedValueOnce({
+            tables: { events: { name: 'events', type: 'posthog' } },
+            joins: [],
+        })
+        logic = databaseTableListLogic()
+        logic.mount()
+        await logic.asyncActions.loadDatabase({ force: true })
+        let resolveReload: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
+        ;(performQuery as jest.Mock).mockImplementation(() => new Promise((resolve) => (resolveReload = resolve)))
+
+        reload()
+
+        expect(logic.values.databaseLoading).toBe(true)
+        expect(logic.values.allTables.map((table) => table.name)).toEqual(expectedWhileLoading)
+        resolveReload?.({ tables: {}, joins: [] })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('discards a superseded in-flight response so a refreshed post-deletion schema is not overwritten', async () => {
         let resolveStale: ((value: { tables: Record<string, unknown>; joins: never[] }) => void) | undefined
         let resolveFresh: ((value: { tables: Record<string, unknown>; joins: never[] }) => void) | undefined

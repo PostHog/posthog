@@ -70,6 +70,7 @@ export interface databaseTableListLogicValues {
     databaseFieldsComplete: boolean
     databaseLoadError: string | null
     databaseLoading: boolean
+    databaseScopeChanging: boolean
     endpointTables: DatabaseSchemaEndpointTable[]
     externalDataSourceTables: DatabaseSchemaDataWarehouseTable[]
     filteredTables: DatabaseSchemaTable[]
@@ -155,7 +156,8 @@ export interface databaseTableListLogicMeta {
         filteredTables: (allTables: DatabaseSchemaTable[], searchTerm: string) => DatabaseSchemaTable[]
         allTables: (
             database: Required<DatabaseSchemaQueryResponse> | null,
-            databaseLoading: boolean
+            databaseLoading: boolean,
+            databaseScopeChanging: boolean
         ) => DatabaseSchemaTable[]
         allTablesMap: (allTables: DatabaseSchemaTable[]) => Record<string, DatabaseSchemaTable>
         posthogTables: (allPosthogTables: DatabaseSchemaTable[], connectionId: string | null) => DatabaseSchemaTable[]
@@ -374,6 +376,15 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             null as string | null,
             { setConnection: (_, { connectionId }) => connectionId, resetConnectionScope: () => null },
         ],
+        databaseScopeChanging: [
+            false,
+            {
+                setConnection: () => true,
+                resetConnectionScope: () => true,
+                loadDatabaseSuccess: () => false,
+                loadDatabaseFailure: () => false,
+            },
+        ],
     }),
     selectors({
         allPosthogTables: [
@@ -393,12 +404,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         allTables: [
-            (s) => [s.database, s.databaseLoading],
+            (s) => [s.database, s.databaseLoading, s.databaseScopeChanging],
             (
                 database: Required<DatabaseSchemaQueryResponse> | null,
-                databaseLoading: boolean
+                databaseLoading: boolean,
+                databaseScopeChanging: boolean
             ): DatabaseSchemaTable[] => {
-                if (databaseLoading || !database || !database.tables) {
+                if ((databaseLoading && databaseScopeChanging) || !database || !database.tables) {
                     return []
                 }
 
