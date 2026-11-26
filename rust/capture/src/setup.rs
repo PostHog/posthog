@@ -20,7 +20,7 @@ use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::events::ai_byte_limit::ENVELOPE_WEIGHT_BYTES;
-use crate::fallback::{self, FallbackSettings};
+use crate::fallback::Fallback;
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{self as outputs_layer, Output, OutputRegistry, Target};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
@@ -567,34 +567,9 @@ async fn create_output(
         info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
     }
 
-    let mut producer_configs = producer_configs.clone();
-    let fallback = match FallbackSettings::from_config(config)? {
-        Some(settings) if producer_configs.contains_key(&ProducerName::Fallback) => {
-            Some((settings, fallback::secondary_table(&outputs, env)?))
-        }
-        Some(settings) => {
-            anyhow::ensure!(
-                settings.check == fallback::CheckMode::Warn,
-                "{}=strict but {} is not set",
-                fallback::CHECK_VAR,
-                fallback::FALLBACK_BROKERS_VAR,
-            );
-            None
-        }
-        None => {
-            if producer_configs.remove(&ProducerName::Fallback).is_some() {
-                info!(
-                    "{} is ignored outside CAPTURE_MODE=events",
-                    fallback::FALLBACK_BROKERS_VAR
-                );
-            }
-            None
-        }
-    };
-    for table in [Some(&outputs), fallback.as_ref().map(|(_, s)| s)]
-        .into_iter()
-        .flatten()
-    {
+    let fallback = Fallback::resolve(config, &outputs, env, producer_configs)?;
+    let producer_configs = fallback.producer_configs(producer_configs);
+    for table in std::iter::once(&outputs).chain(fallback.secondary()) {
         for name in table.producers() {
             anyhow::ensure!(
                 producer_configs.contains_key(&name),
@@ -623,11 +598,9 @@ async fn create_output(
     let producers = ProducerRegistry::build(&producer_configs, liveness)
         .context("failed to start Kafka producers")?;
 
-    if let Some((settings, secondary)) = &fallback {
-        fallback::ensure_checks_cannot_create_topics(secondary, &producer_configs)?;
-        let secondary = secondary.map_producers(|name| producers.get(*name));
-        fallback::run_boot_checks(&secondary, *settings).await?;
-    }
+    fallback
+        .check_at_boot(&producers, &producer_configs)
+        .await?;
     let kafka_output = Output::single(KafkaSink::new(
         outputs.map_producers(|name| producers.get(*name)),
         config.replay_envelope_compression,
@@ -900,6 +873,7 @@ fn create_event_restriction_service(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fallback;
     use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
     use rstest::rstest;
     use std::collections::HashMap;

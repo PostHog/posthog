@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use metrics::gauge;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::config::{CaptureMode, Config};
 use crate::outputs::Target;
-use crate::producers::{ProducerConfig, ProducerName};
+use crate::producers::{ProducerConfig, ProducerName, ProducerRegistry};
 use crate::sinks::producer::KafkaProducer;
 use crate::sinks::registry::{OutputTable, OutputTarget};
 
@@ -97,6 +97,75 @@ pub fn secondary_table(
         },
         custom_producer,
     ))
+}
+
+pub enum Fallback {
+    NotApplicable,
+    NotConfigured,
+    Configured {
+        settings: FallbackSettings,
+        secondary: Box<OutputTable>,
+    },
+}
+
+impl Fallback {
+    pub fn resolve(
+        config: &Config,
+        primary: &OutputTable,
+        env: &HashMap<String, String>,
+        producer_configs: &HashMap<ProducerName, ProducerConfig>,
+    ) -> anyhow::Result<Self> {
+        let Some(settings) = FallbackSettings::from_config(config)? else {
+            return Ok(Self::NotApplicable);
+        };
+        if !producer_configs.contains_key(&ProducerName::Fallback) {
+            anyhow::ensure!(
+                settings.check == CheckMode::Warn,
+                "{CHECK_VAR}=strict but {FALLBACK_BROKERS_VAR} is not set"
+            );
+            return Ok(Self::NotConfigured);
+        }
+        Ok(Self::Configured {
+            settings,
+            secondary: Box::new(secondary_table(primary, env)?),
+        })
+    }
+
+    pub fn secondary(&self) -> Option<&OutputTable> {
+        match self {
+            Self::Configured { secondary, .. } => Some(secondary),
+            Self::NotApplicable | Self::NotConfigured => None,
+        }
+    }
+
+    pub fn producer_configs(
+        &self,
+        configs: &HashMap<ProducerName, ProducerConfig>,
+    ) -> HashMap<ProducerName, ProducerConfig> {
+        let mut configs = configs.clone();
+        if matches!(self, Self::NotApplicable) && configs.remove(&ProducerName::Fallback).is_some()
+        {
+            info!("{FALLBACK_BROKERS_VAR} is ignored outside CAPTURE_MODE=events");
+        }
+        configs
+    }
+
+    pub async fn check_at_boot(
+        &self,
+        producers: &ProducerRegistry,
+        producer_configs: &HashMap<ProducerName, ProducerConfig>,
+    ) -> anyhow::Result<()> {
+        let Self::Configured {
+            settings,
+            secondary,
+        } = self
+        else {
+            return Ok(());
+        };
+        ensure_checks_cannot_create_topics(secondary, producer_configs)?;
+        let secondary = secondary.map_producers(|name| producers.get(*name));
+        run_boot_checks(&secondary, *settings).await
+    }
 }
 
 /// A topic check that names a missing topic makes the broker create it when
