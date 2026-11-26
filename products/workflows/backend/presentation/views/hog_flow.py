@@ -273,6 +273,7 @@ from products.workflows.backend.facade.proposals import (
     approve_proposal,
     as_the_serializer_stores_it,
     conversion_evidence_error,
+    conversion_sample_error,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -5290,16 +5291,28 @@ class SuggestionsScoutStatus(models.TextChoices):
 class SuggestionsSampleSerializer(serializers.Serializer):
     reached = serializers.BooleanField(
         read_only=True,
-        help_text="Whether an email step of the live version has enough tracked sends, over enough time, for "
-        "PostHog to judge it.",
+        help_text="Whether an email step of the live version has enough sends, over enough time, for PostHog to "
+        "judge it. Only tracked sends count unless `reads_conversion` is true.",
     )
     tracked_sends = serializers.IntegerField(
         read_only=True,
         help_text="Tracked sends (sends with open tracking on) from the live version's busiest email step in the "
         "last 7 days.",
     )
+    sends = serializers.IntegerField(
+        read_only=True,
+        help_text="All sends, with open tracking on or off, from the live version's busiest email step in the last "
+        "7 days.",
+    )
+    reads_conversion = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether PostHog can read this workflow's conversion goal. When true, sends without open tracking "
+        "count toward `required_sends` too, because suggestions can aim at conversion instead of opens.",
+    )
     required_sends = serializers.IntegerField(
-        read_only=True, help_text="Tracked sends an email step needs before PostHog judges it."
+        read_only=True,
+        help_text="Sends an email step needs before PostHog judges it: tracked sends, or all sends when "
+        "`reads_conversion` is true.",
     )
     version_live_since = serializers.DateTimeField(
         read_only=True, help_text="When the live version was published. PostHog waits 48 hours before judging it."
@@ -7274,6 +7287,17 @@ class HogFlowViewSet(
         if conversion_error:
             raise exceptions.ValidationError({"evidence": conversion_error})
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
+        sample_error = conversion_sample_error(
+            hog_flow_id=instance.id,
+            live=snapshot_flow_content(instance),
+            base_version=params["base_version"],
+            step_id=step_id,
+            changes=content,
+            evidence=evidence,
+            measured=measured,
+        )
+        if sample_error:
+            raise exceptions.ValidationError({"evidence": sample_error})
         if measured is not None:
             evidence["measured"] = measured
 
