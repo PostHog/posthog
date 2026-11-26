@@ -315,7 +315,9 @@ describe('createQueryBatchRunner', () => {
             streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
             await expect(sql).rejects.toThrow('Query timed out')
             clock = 1400
-            streams[0].push(`${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true } } })}\n`)
+            streams[0].push(
+                `${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true }, provenance: { mode: 'derived', timeline: [{ source: 'engine', ms: 250.4 }] } } })}\n`
+            )
             await expect(latency).resolves.toEqual({ frames: [], stale: true })
             clock = 1500
             streams[0].close()
@@ -345,6 +347,8 @@ describe('createQueryBatchRunner', () => {
                         error_lines: 1,
                         cache_hits: 1,
                         stale_lines: 1,
+                        derived_lines: 1,
+                        engine_ms: 250,
                         since_mount_request_ms: 40,
                         since_mount_first_result_ms: 400,
                         since_mount_last_result_ms: 400,

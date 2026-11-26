@@ -76,6 +76,8 @@ export class QueryBatchTimer {
     private errorLines = 0
     private cacheHits = 0
     private staleLines = 0
+    private engineMs = 0
+    private derivedLines = 0
     private busyLines = 0
     private failure: string | null = null
     private aborted = false
@@ -129,6 +131,15 @@ export class QueryBatchTimer {
         if (line.result?.cache?.stale) {
             this.staleLines++
         }
+        const provenance = line.result?.provenance
+        if (provenance?.mode === 'derived') {
+            this.derivedLines++
+        }
+        for (const step of provenance?.timeline ?? []) {
+            if (step.source === 'engine') {
+                this.engineMs += step.ms
+            }
+        }
         this.board.firstResultAt ??= now
         this.board.lastResultAt = now
     }
@@ -178,6 +189,9 @@ export class QueryBatchTimer {
             error_lines: this.errorLines,
             cache_hits: this.cacheHits,
             stale_lines: this.staleLines,
+            derived_lines: this.derivedLines,
+            // Summed over the queries, which run in parallel on the server, so it can exceed `total_ms`.
+            engine_ms: round(this.engineMs),
             busy_lines: this.busyLines,
             since_mount_request_ms: round(this.startedAt - this.board.mountedAt),
             since_mount_first_result_ms: round(fromMount(this.board.firstResultAt)),
