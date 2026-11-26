@@ -28,8 +28,6 @@ from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID
 
-from django.conf import settings
-
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -41,6 +39,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -118,7 +117,7 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
     tried_ids = [str(doc.document_id) for doc in docs]
     if not docs:
         return {"classified": 0, "unsafe": 0, "scanned": 0, "tried_ids": tried_ids}
-    recorded = bool(getattr(settings, "GEMINI_API_KEY", ""))
+    recorded = resolve_ai_gateway_config() is not None
     if recorded:
         await database_sync_to_async(logic.record_classification_attempts, thread_sensitive=False)(docs)
     async with Heartbeater():
