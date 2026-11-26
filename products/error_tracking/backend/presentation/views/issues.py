@@ -253,15 +253,19 @@ class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
     resolved_until = serializers.ChoiceField(
         choices=contracts.IssueResolvedUntil.choices,
         required=False,
+        allow_null=True,
         help_text=(
             "What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. "
             "new_release reopens it only on an exception from a newer release than any it was seen in, or on an "
-            "exception without a release. Send it together with status resolved. When omitted, an issue that becomes "
-            "resolved gets next_occurrence, and an issue that is already resolved keeps its value."
+            "exception without a release. Send it together with status resolved. When omitted or null, an issue "
+            "that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value."
         ),
     )
 
     def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        # Null counts as omitted, so a client can write back an issue it read, which carries null unless resolved.
+        if attrs.get("resolved_until") is None:
+            attrs.pop("resolved_until", None)
         if "resolved_until" in attrs and attrs.get("status") != "resolved":
             raise serializers.ValidationError({"resolved_until": "Send it together with status resolved."})
         return attrs

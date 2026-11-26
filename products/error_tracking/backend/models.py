@@ -197,7 +197,11 @@ class ErrorTrackingIssue(UUIDTModel):
                 target_updates["status"] = ErrorTrackingIssue.Status.ACTIVE
                 target_updates["resolved_at"] = None
                 target_updates["resolved_until"] = None
-            if latest is not None and latest is not target:
+            # Ingestion moves an issue's latest release only while the issue is active, because the release of an
+            # issue resolved until a new release is the cutoff for its reopen. A target that does not end up active
+            # keeps its own release.
+            ends_active = reopened or target.status == ErrorTrackingIssue.Status.ACTIVE
+            if latest is not None and latest is not target and ends_active:
                 target_updates["latest_release_id"] = latest.latest_release_id
                 target_updates["latest_release_created_at"] = latest.latest_release_created_at
             ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(**target_updates)

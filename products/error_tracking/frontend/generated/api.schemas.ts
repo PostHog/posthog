@@ -1102,11 +1102,11 @@ export interface ErrorTrackingIssueWriteApi {
      * @nullable
      */
     description?: string | null
-    /** What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.
+    /** What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted or null, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.
      *
      * * `next_occurrence` - Next occurrence
      * * `new_release` - New release */
-    resolved_until?: ResolvedUntilEnumApi
+    resolved_until?: ResolvedUntilEnumApi | null
 }
 
 export interface PatchedErrorTrackingIssueWriteApi {
@@ -1128,11 +1128,11 @@ export interface PatchedErrorTrackingIssueWriteApi {
      * @nullable
      */
     description?: string | null
-    /** What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.
+    /** What reopens the issue while it is resolved. next_occurrence reopens it on any new exception. new_release reopens it only on an exception from a newer release than any it was seen in, or on an exception without a release. Send it together with status resolved. When omitted or null, an issue that becomes resolved gets next_occurrence, and an issue that is already resolved keeps its value.
      *
      * * `next_occurrence` - Next occurrence
      * * `new_release` - New release */
-    resolved_until?: ResolvedUntilEnumApi
+    resolved_until?: ResolvedUntilEnumApi | null
 }
 
 export type ErrorTrackingIssueAssigneeIdApi = number | string

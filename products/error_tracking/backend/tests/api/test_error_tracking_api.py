@@ -68,6 +68,7 @@ from products.error_tracking.backend.models import (
 from products.error_tracking.backend.presentation.views.issues import (
     SUMMARIZE_ERRORS,
     ErrorTrackingIssueAssignRequestSerializer,
+    ErrorTrackingIssueWriteSerializer,
 )
 from products.error_tracking.backend.presentation.views.symbol_sets import (
     BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
@@ -134,6 +135,20 @@ class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "id" in serializer.errors["assignee"]
+
+
+class TestErrorTrackingIssueWriteSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("with_another_status", {"status": "active", "resolved_until": None}),
+            ("without_a_status", {"name": "Renamed", "resolved_until": None}),
+        ]
+    )
+    def test_null_resolve_mode_counts_as_omitted(self, _name: str, data: dict[str, object]) -> None:
+        serializer = ErrorTrackingIssueWriteSerializer(data=data)
+
+        assert serializer.is_valid(), serializer.errors
+        assert "resolved_until" not in serializer.validated_data
 
 
 class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
