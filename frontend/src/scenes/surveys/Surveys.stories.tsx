@@ -32,7 +32,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     type: SurveyType.Popover,
     created_at: '2023-04-27T10:04:37.977401Z',
     created_by: {
-        type: 'human' as const,
+        type: 'human',
         id: 1,
         uuid: '01863799-062b-0000-8a61-b2842d5f8642',
         distinct_id: 'Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE',
@@ -63,7 +63,7 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     type: SurveyType.Popover,
     created_at: '2023-04-27T10:04:37.977401Z',
     created_by: {
-        type: 'human' as const,
+        type: 'human',
         id: 1,
         uuid: '01863799-062b-0000-8a61-b2842d5f8642',
         distinct_id: 'Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE',
@@ -106,7 +106,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     type: SurveyType.Popover,
     created_at: '2023-04-28T10:04:37.977401Z',
     created_by: {
-        type: 'human' as const,
+        type: 'human',
         id: 1,
         uuid: '01863799-062b-0000-8a61-b2842d5f8642',
         distinct_id: 'Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE',
@@ -253,7 +253,7 @@ const MOCK_SURVEY_WITH_RESULTS: Survey = {
     type: SurveyType.Popover,
     created_at: '2023-05-01T10:04:37.977401Z',
     created_by: {
-        type: 'human' as const,
+        type: 'human',
         id: 1,
         uuid: '01863799-062b-0000-8a61-b2842d5f8642',
         distinct_id: 'Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE',

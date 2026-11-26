@@ -16,7 +16,7 @@ import type { AlertType } from '../types'
 import { AlertHistoryChart, type AlertHistoryChartPoint } from './AlertHistoryChart'
 
 const STORY_USER: UserBasicType = {
-    type: 'human' as const,
+    type: 'human',
     id: 1,
     uuid: '00000000-0000-0000-0000-000000000001',
     distinct_id: 'story',

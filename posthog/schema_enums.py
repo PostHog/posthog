@@ -3460,6 +3460,11 @@ class UsageMetricFormat(StrEnum):
     CURRENCY = "currency"
 
 
+class UserTypeEnumApi(StrEnum):
+    HUMAN = "human"
+    SERVICE_ACCOUNT = "service_account"
+
+
 class WarehouseSuggestionNoteKind(StrEnum):
     MATERIALIZE = "materialize"
     UNMATERIALIZE = "unmaterialize"

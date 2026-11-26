@@ -21,7 +21,7 @@ import {
 } from '~/types'
 
 export const mockBasicUser: UserBasicType = {
-    type: 'human' as const,
+    type: 'human',
     id: 0,
     uuid: '1234',
     distinct_id: '1234',

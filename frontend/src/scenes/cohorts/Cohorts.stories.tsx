@@ -45,7 +45,7 @@ const createCohort = (id: number, name: string, count: number, isStatic: boolean
         is_calculating: isCalculating,
         last_calculation: isStatic ? null : '2023-07-03T10:00:00Z',
         created_by: {
-            type: 'human' as const,
+            type: 'human',
             id: 1,
             uuid: 'user-1',
             distinct_id: 'user-1',

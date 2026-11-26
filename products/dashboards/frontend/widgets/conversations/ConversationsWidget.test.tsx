@@ -72,7 +72,7 @@ describe('ConversationsWidget', () => {
                     id: 1,
                     uuid: 'user-1',
                     email: 'creator@example.com',
-                    type: 'human' as const,
+                    type: 'human',
                     hedgehog_config: null,
                 },
             },

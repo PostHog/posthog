@@ -224,7 +224,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
-    type: 'human' as const,
+    type: 'human',
     id: 178,
     uuid: MOCK_USER_UUID,
     distinct_id: 'mock-user-178-distinct-id',
@@ -233,7 +233,7 @@ export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
 }
 
 export const MOCK_DEFAULT_USER: UserType = {
-    type: 'human' as const,
+    type: 'human',
     date_joined: '2023-02-28T13:03:32.333971Z',
     uuid: MOCK_USER_UUID,
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
@@ -307,7 +307,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
 }
 
 export const MOCK_SECOND_BASIC_USER: UserBasicType = {
-    type: 'human' as const,
+    type: 'human',
     id: 202,
     uuid: 'bf313676-e728-4221-a975-d8e90b9d168c',
     distinct_id: 'mock-user-202-distinct-id',

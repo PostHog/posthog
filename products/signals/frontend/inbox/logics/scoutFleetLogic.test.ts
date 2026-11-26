@@ -114,7 +114,7 @@ const OWNER: UserBasicApi = {
     last_name: 'Ellis',
     email: 'ada@example.com',
     is_email_verified: true,
-    type: 'human' as const,
+    type: 'human',
     hedgehog_config: null,
 }
 

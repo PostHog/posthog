@@ -47,7 +47,7 @@ const DRIFTED_MARKDOWN_METRIC = metric({
     status: 'approved',
     is_drifted: true,
     source_insight_short_id: 'abc123',
-    approved_by: { id: 2, uuid: 'user-2', email: 'sam@example.com', type: 'human' as const, hedgehog_config: null },
+    approved_by: { id: 2, uuid: 'user-2', email: 'sam@example.com', type: 'human', hedgehog_config: null },
     approved_at: '2026-09-02T09:00:00Z',
     created_source: 'user',
 })

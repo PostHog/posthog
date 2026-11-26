@@ -23,7 +23,7 @@ const BASE: PlatformAlertConfigurationApi = {
         distinct_id: 'user-1',
         first_name: 'Ada',
         email: 'ada@example.com',
-        type: 'human' as const,
+        type: 'human',
         hedgehog_config: null,
     },
     last_checked_at: '2026-11-11T11:59:00Z',

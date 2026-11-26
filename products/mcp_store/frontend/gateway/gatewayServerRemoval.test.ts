@@ -11,7 +11,7 @@ function user(id: number): UserBasicApi {
         id,
         uuid: `user-${id}`,
         email: `user-${id}@example.com`,
-        type: 'human' as const,
+        type: 'human',
         hedgehog_config: null,
     }
 }

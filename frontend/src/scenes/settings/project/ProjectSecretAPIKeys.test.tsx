@@ -34,7 +34,7 @@ const createKeys = (count: number): ProjectSecretAPIKeyApi[] =>
             uuid: 'test-user',
             first_name: 'Test',
             email: 'test@example.com',
-            type: 'human' as const,
+            type: 'human',
             hedgehog_config: null,
         },
         last_used_at: null,

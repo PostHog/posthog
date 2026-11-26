@@ -24,7 +24,7 @@ const MOCK_DASHBOARD: DashboardType = {
     tags: [],
     created_at: '2020-01-01T00:00:00Z',
     created_by: {
-        type: 'human' as const,
+        type: 'human',
         id: 1,
         first_name: 'Test',
         last_name: 'User',

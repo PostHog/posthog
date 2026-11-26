@@ -23,7 +23,7 @@ const makeTextTile = (body: string, color: InsightColor | null = null, agentCont
             body: body,
             agent_context: agentContext,
             last_modified_by: {
-                type: 'human' as const,
+                type: 'human',
                 id: 1,
                 uuid: 'a uuid',
                 distinct_id: 'another uuid',

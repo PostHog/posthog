@@ -80,7 +80,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     },
     created_at: '2023-10-12T06:46:32.113745Z',
     created_by: {
-        type: 'human' as const,
+        type: 'human',
         id: 1,
         uuid: '018aa8a6-10e8-0000-dba2-0e956f7bae38',
         distinct_id: 'TGqg9Cn4jLkj9X87oXni9ZPBD6VbOxMtGV1GfJeB5LO',
@@ -484,7 +484,7 @@ describe('set response-based survey branching', () => {
         },
         created_at: '2023-10-12T06:46:32.113745Z',
         created_by: {
-            type: 'human' as const,
+            type: 'human',
             id: 1,
             uuid: '018aa8a6-10e8-0000-dba2-0e956f7bae38',
             distinct_id: 'TGqg9Cn4jLkj9X87oXni9ZPBD6VbOxMtGV1GfJeB5LO',

@@ -354,6 +354,7 @@ from posthog.schema_enums import (
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
+    UserTypeEnumApi as UserTypeEnumApi,
     ValueDisplay as ValueDisplay,
     ValueLabelPosition as ValueLabelPosition,
     ValueLabels as ValueLabels,
@@ -3800,21 +3801,6 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
-class UserBasicType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    distinct_id: str
-    email: str
-    first_name: str
-    hedgehog_config: MinimalHedgehogConfig | None = None
-    id: float
-    is_email_verified: Any | None = None
-    last_name: str | None = None
-    role_at_organization: str | None = None
-    uuid: str
-
-
 class UserUIConfiguration(BaseModel):
     analytics_list: AnalyticsListDisplayConfiguration | None = None
     session_replay: SessionReplayListConfiguration | None = None
@@ -5865,20 +5851,6 @@ class DataWarehousePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
     value: list[str | float | bool] | str | float | bool | None = None
-
-
-class DataWarehouseViewLink(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str | None = None
-    created_by: UserBasicType | None = None
-    field_name: str | None = None
-    id: str
-    joining_table_key: str | None = None
-    joining_table_name: str | None = None
-    source_table_key: str | None = None
-    source_table_name: str | None = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -9224,6 +9196,22 @@ class UsageMetric(BaseModel):
         description=("ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'."),
     )
     value: float
+
+
+class UserBasicType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    email: str
+    first_name: str
+    hedgehog_config: MinimalHedgehogConfig | None = None
+    id: float
+    is_email_verified: Any | None = None
+    last_name: str | None = None
+    role_at_organization: str | None = None
+    type: UserTypeEnumApi
+    uuid: str
 
 
 class WarehouseSuggestionNote(BaseModel):
@@ -19419,6 +19407,20 @@ class Response20(BaseModel):
             " when the query ran without its requested breakdown."
         ),
     )
+
+
+class DataWarehouseViewLink(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str | None = None
+    created_by: UserBasicType | None = None
+    field_name: str | None = None
+    id: str
+    joining_table_key: str | None = None
+    joining_table_name: str | None = None
+    source_table_key: str | None = None
+    source_table_name: str | None = None
 
 
 class DatabaseSchemaBatchExportTable(BaseModel):

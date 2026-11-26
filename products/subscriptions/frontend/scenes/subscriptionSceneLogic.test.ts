@@ -23,7 +23,7 @@ const MOCK_USER = {
     email: 'test@posthog.com',
     first_name: 'Test',
     last_name: 'User',
-    type: 'human' as const,
+    type: 'human',
     hedgehog_config: null,
 } as const
 

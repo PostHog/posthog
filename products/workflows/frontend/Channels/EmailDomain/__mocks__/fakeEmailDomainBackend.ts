@@ -116,7 +116,7 @@ const FAKE_USER: IntegrationConfigApi['created_by'] = {
     distinct_id: 'fake-user',
     first_name: 'Jane',
     email: 'jane@example.com',
-    type: 'human' as const,
+    type: 'human',
     hedgehog_config: null,
 }
 

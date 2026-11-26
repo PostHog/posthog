@@ -19,7 +19,7 @@ export const alice: UserBasicApi = {
     first_name: 'Alice',
     last_name: 'Anderson',
     email: 'alice@example.com',
-    type: 'human' as const,
+    type: 'human',
     hedgehog_config: null,
 }
 
@@ -29,7 +29,7 @@ export const bob: UserBasicApi = {
     first_name: 'Bob',
     last_name: 'Brown',
     email: 'bob@example.com',
-    type: 'human' as const,
+    type: 'human',
     hedgehog_config: null,
 }
 

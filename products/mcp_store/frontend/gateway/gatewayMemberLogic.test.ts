@@ -51,7 +51,7 @@ function gatewayMember(): GatewayMemberSummaryApi {
             distinct_id: MOCK_DEFAULT_BASIC_USER.distinct_id,
             first_name: MOCK_DEFAULT_BASIC_USER.first_name,
             email: MOCK_DEFAULT_BASIC_USER.email,
-            type: 'human' as const,
+            type: 'human',
             hedgehog_config: null,
         },
         is_org_admin: false,

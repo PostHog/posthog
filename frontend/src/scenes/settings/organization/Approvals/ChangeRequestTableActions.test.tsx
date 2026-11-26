@@ -27,7 +27,7 @@ const pendingChangeRequest: ChangeRequest = {
     validated_at: null,
     state: ChangeRequestState.Pending,
     created_by: {
-        type: 'human' as const,
+        type: 'human',
         id: 1,
         uuid: 'user-1',
         distinct_id: 'distinct-1',
