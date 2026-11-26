@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import DatabaseError, connection
 from django.test import override_settings
 
@@ -15,6 +16,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.workflows.backend.facade.tasks import capture_workflow_first_real_sends
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.first_real_sends import FIRST_REAL_SEND_CUTOFF, FirstRealSendCaptureError
+from products.workflows.backend.tasks.workflow_email_health import FIRST_REAL_SENDS_LOCK_KEY
 
 SERVICE = "products.workflows.backend.services.first_real_sends"
 NOW = FIRST_REAL_SEND_CUTOFF + timedelta(days=3)
@@ -116,6 +118,21 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         self._metric(flow, NOW - timedelta(hours=2))
 
         capture_workflow_first_real_sends()
+
+        flow.refresh_from_db()
+        assert flow.first_real_send_at is None
+        assert captured_events(scoped_capture) == []
+
+    @patch(f"{SERVICE}.ph_scoped_capture")
+    def test_a_run_that_overlaps_another_records_and_captures_nothing(self, scoped_capture: MagicMock) -> None:
+        flow = self._flow()
+        self._metric(flow, NOW - timedelta(hours=2))
+        cache.add(FIRST_REAL_SENDS_LOCK_KEY, "running")
+
+        try:
+            capture_workflow_first_real_sends()
+        finally:
+            cache.delete(FIRST_REAL_SENDS_LOCK_KEY)
 
         flow.refresh_from_db()
         assert flow.first_real_send_at is None

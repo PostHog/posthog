@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.utils import timezone
 
 from celery import shared_task
@@ -10,6 +11,9 @@ from products.workflows.backend.services.first_real_sends import capture_first_r
 from products.workflows.backend.services.workflow_email_health import sweep_workflow_email_health
 
 logger = get_logger(__name__)
+
+FIRST_REAL_SENDS_LOCK_KEY = "workflows_first_real_sends_running"
+FIRST_REAL_SENDS_LOCK_TIMEOUT_SECONDS = 6 * 60 * 60
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
@@ -24,4 +28,10 @@ def sweep_workflow_email_deliverability() -> None:
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 @skip_team_scope_audit
 def capture_workflow_first_real_sends() -> None:
-    capture_first_real_sends(now=timezone.now())
+    if not cache.add(FIRST_REAL_SENDS_LOCK_KEY, "running", timeout=FIRST_REAL_SENDS_LOCK_TIMEOUT_SECONDS):
+        logger.info("workflows_first_real_sends_already_running")
+        return
+    try:
+        capture_first_real_sends(now=timezone.now())
+    finally:
+        cache.delete(FIRST_REAL_SENDS_LOCK_KEY)
