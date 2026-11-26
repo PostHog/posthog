@@ -121,7 +121,7 @@ Run `email-worker-killed-after-accept` once per seed as a pair. Run each pair to
 Start with the card's default seed 8, then use 13, 21 and 34.
 Version 3 killed the worker after the first SES acceptance once the trigger armed. Use it as the timing-picked baseline.
 Version 4 waits for the first acceptance that qualifies under the seed, including when you omit `--seed`.
-Eligibility is stable for a given seed, unit ordinal and attempt. The order of qualifying requests can affect which send the trigger holds.
+Eligibility is stable for a given seed, unit ordinal and attempt since the trigger armed. The order of qualifying requests can affect which send the trigger holds.
 The sweep is judged when all four controls hold and each faulted run has a judged `no_loss` result.
 Leave a seed open when its control fails or either run is unjudged.
 For every seed, record the pair's verdict, whether the faulted run broke `no_loss`, which units the fault hit, how many times each was resent, and the unit and invocation ID counts.

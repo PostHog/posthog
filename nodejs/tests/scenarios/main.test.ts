@@ -297,16 +297,22 @@ describe('runCards', () => {
             /^--pair runs on the local target only/,
         ],
         [
-            'a run host',
+            'a run host whose manifest requests one run',
             ['run', 'smoke', '--pair'],
-            { SCENARIO_RUN_MANIFEST: '/nonexistent/manifest.json' },
+            { SCENARIO_RUN_MANIFEST: 'manifest.json' },
             /^--pair runs on the local target only/,
         ],
     ])('refuses --pair for %s before it starts the stack', async (_story, argv, env, refusal) => {
         jest.spyOn(processes, 'terminate').mockRejectedValue(new Error('The preflight test reached process cleanup.'))
         jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
 
-        expect(await main(argv, env)).toBe(EXIT_CODE.invalid)
+        const runEnv = { ...env }
+        if (env.SCENARIO_RUN_MANIFEST) {
+            const manifest = path.join(cacheHome, env.SCENARIO_RUN_MANIFEST)
+            writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID)))
+            runEnv.SCENARIO_RUN_MANIFEST = manifest
+        }
+        expect(await main(argv, runEnv)).toBe(EXIT_CODE.invalid)
 
         const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
         expect(stderr.join('')).toMatch(refusal)
@@ -425,26 +431,32 @@ describe('runCards', () => {
         }
     })
 
-    it('runs a pair under the run ids of the host manifest that asks for the pair', async () => {
+    it('records the run IDs and seed from a host manifest in both scorecards', async () => {
         const api = await startFakeProjectApi()
         const manifest = path.join(cacheHome, 'manifest.json')
         writeFileSync(
             manifest,
-            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID }))
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID, seed: 0 }))
         )
-        const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
-        const runner = createRunner(
-            fakeEnvironment({ resetFails: false }),
-            runnerEnv(cacheHome, { ...unseedable, SCENARIO_RUN_MANIFEST: manifest })
-        )
+        jest.spyOn(environment, 'createEnvironment').mockReturnValue(fakeEnvironment({ resetFails: false }))
+        const env = runnerEnv(cacheHome, {
+            ...api.credentials,
+            DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario',
+            SCENARIO_RUN_MANIFEST: manifest,
+        })
 
         try {
-            await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
+            await main(['run', 'email-worker-killed-after-accept', '--pair'], env)
 
-            const runs = api.captured.map(({ properties }) => [properties.pair_role, properties.run_id])
+            const runs = api.captured.map(({ properties }) => [
+                properties.pair_role,
+                properties.run_id,
+                properties.seed,
+                properties.seed_source,
+            ])
             expect(runs).toEqual([
-                ['control', CONTROL_RUN_ID],
-                ['faulted', HOST_RUN_ID],
+                ['control', CONTROL_RUN_ID, 0, 'override'],
+                ['faulted', HOST_RUN_ID, 0, 'override'],
             ])
         } finally {
             await api.close()
@@ -502,6 +514,19 @@ describe('runCards', () => {
         expect(stderr.join('')).toMatch(
             /^destination-errors: --pair needs a card that applies valves and judges no_loss/
         )
+    })
+
+    it('reports an invalid host manifest seed before checking whether the run can pair', async () => {
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID, seed: 2 ** 32 }))
+        )
+
+        expect(await main(['run', 'smoke', '--pair'], { SCENARIO_RUN_MANIFEST: manifest })).toBe(EXIT_CODE.invalid)
+
+        const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
+        expect(stderr.join('')).toContain('has an invalid seed')
     })
 
     it('says the scorecard was captured when the run is interrupted before it was read back', async () => {

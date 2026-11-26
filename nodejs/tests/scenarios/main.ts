@@ -59,14 +59,6 @@ function preflight(
     return problems.length > 0 ? { problems } : { loaded, dev }
 }
 
-function manifestAsksForPair(env: NodeJS.ProcessEnv): boolean {
-    try {
-        return runManifestOf(env)?.pair === true
-    } catch {
-        return false
-    }
-}
-
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
     const { positionals, values } = parseArgs({
         args: argv,
@@ -99,7 +91,19 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         return EXIT_CODE.invalid
     }
     const onHost = Boolean(env.SCENARIO_RUN_MANIFEST)
-    if (pair && (target !== 'local' || (onHost && !manifestAsksForPair(env)))) {
+    let manifest: ReturnType<typeof runManifestOf>
+    let seed: number | undefined
+    try {
+        if (onHost && values.seed !== undefined) {
+            throw new Error('Set --seed on the cloud controller. The run host reads the seed from its manifest.')
+        }
+        manifest = runManifestOf(env)
+        seed = values.seed === undefined ? manifest?.seed : parseSeed(values.seed)
+    } catch (error) {
+        process.stderr.write(`${(error as Error).message}\n`)
+        return EXIT_CODE.invalid
+    }
+    if (pair && (target !== 'local' || (onHost && manifest?.pair !== true))) {
         process.stderr.write(
             '--pair runs on the local target only, or on a run host whose manifest asks for the pair: dev cards apply no valves, and a run host otherwise runs one card per manifest.\n'
         )
@@ -107,16 +111,6 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     }
     if (onHost && cards.length > 1) {
         process.stderr.write('A run host runs one card per manifest, so it takes one card id.\n')
-        return EXIT_CODE.invalid
-    }
-    let seed: number | undefined
-    try {
-        if (onHost && values.seed !== undefined) {
-            throw new Error('Set --seed on the cloud controller. The run host reads the seed from its manifest.')
-        }
-        seed = values.seed === undefined ? runManifestOf(env)?.seed : parseSeed(values.seed)
-    } catch (error) {
-        process.stderr.write(`${(error as Error).message}\n`)
         return EXIT_CODE.invalid
     }
     const checked = preflight(cards, values.profile, target, env, seed)
