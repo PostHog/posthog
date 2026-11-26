@@ -674,7 +674,6 @@ function SearchableChoiceCombobox({
     // ComboboxInput rendered inside ComboboxContent so the search field stays visible on
     // open. Combobox primitive auto-scrolls the active item into view but the input lives
     // outside the scrolling list, so it doesn't get pushed offscreen.
-    const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
     const selectedLabel = choices.find((choice) => choice.value === value)?.label ?? null
 
@@ -682,8 +681,6 @@ function SearchableChoiceCombobox({
         <Combobox
             items={choices}
             itemToStringValue={(choice: SearchableChoice) => choice.label}
-            open={open}
-            onOpenChange={setOpen}
             value={choices.find((choice) => choice.value === value) ?? null}
             onValueChange={(choice: SearchableChoice | null) => onChange(choice ? choice.value : null)}
         >

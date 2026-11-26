@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     Button,
@@ -9,7 +9,6 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxTrigger,
-    SelectTriggerIcon,
 } from '@posthog/quill'
 
 import { KeySelectOption } from '../logics/viewLinkLogic'
@@ -30,7 +29,6 @@ export function QuillJoinKeyColumnCombobox({
     'aria-label': ariaLabel,
 }: QuillJoinKeyColumnComboboxProps): JSX.Element {
     const triggerRef = useRef<HTMLButtonElement>(null)
-    const [open, setOpen] = useState(false)
 
     return (
         <Combobox<KeySelectOption>
@@ -40,17 +38,13 @@ export function QuillJoinKeyColumnCombobox({
                 if (next) {
                     onChange(next.value)
                 }
-                setOpen(false)
             }}
-            open={open}
-            onOpenChange={setOpen}
             itemToStringLabel={(option) => option.value}
             itemToStringValue={(option) => option.value}
             isItemEqualToValue={(item, selected) => item.value === selected.value}
         >
             <ComboboxTrigger
                 ref={triggerRef}
-                showChevron={false}
                 render={
                     <Button
                         variant="outline"
@@ -62,7 +56,6 @@ export function QuillJoinKeyColumnCombobox({
                 }
             >
                 <span className="min-w-0 truncate">{value || 'Select a key'}</span>
-                <SelectTriggerIcon />
             </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="min-w-60">
                 <ComboboxInput placeholder="Search columns..." showTrigger={false} />

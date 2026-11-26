@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -101,21 +101,17 @@ function AddDefinitionDropdown({
     onSelect: (id: string) => void
     loading: boolean
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     return (
         <Combobox
             items={available}
             itemToStringValue={(d: AccountRelationshipDefinitionApi) => d.name}
-            open={open}
-            onOpenChange={setOpen}
             value={null}
             onValueChange={(d: AccountRelationshipDefinitionApi | null) => {
                 if (d) {
                     onSelect(d.id)
                 }
-                setOpen(false)
             }}
         >
             <ComboboxTrigger

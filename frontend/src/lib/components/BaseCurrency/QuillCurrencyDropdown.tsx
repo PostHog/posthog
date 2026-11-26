@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     Button,
@@ -13,7 +13,6 @@ import {
     ComboboxList,
     ComboboxSeparator,
     ComboboxTrigger,
-    SelectTriggerIcon,
 } from '@posthog/quill'
 
 import { cn } from 'lib/utils/css-classes'
@@ -49,26 +48,21 @@ export function QuillCurrencyDropdown({
     disabledReason?: string
     className?: string
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     return (
         <Combobox<CurrencyCode>
             items={CURRENCY_GROUPS}
-            open={open}
-            onOpenChange={setOpen}
             value={value}
             onValueChange={(next) => {
                 if (next) {
                     onChange(next)
                 }
-                setOpen(false)
             }}
             itemToStringLabel={currencyLabel}
         >
             <ComboboxTrigger
                 ref={triggerRef}
-                showChevron={false}
                 render={
                     <Button
                         variant="outline"
@@ -81,7 +75,6 @@ export function QuillCurrencyDropdown({
                 <span className="min-w-0 truncate">
                     {value ? `${CURRENCY_SYMBOL_TO_EMOJI_MAP[value]} ${currencyLabel(value)}` : 'Select currency'}
                 </span>
-                <SelectTriggerIcon />
             </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-80">
                 <ComboboxInput placeholder="Search currencies" showTrigger={false} />

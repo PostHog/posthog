@@ -436,7 +436,7 @@ Attached panel outside the popup: pass `popupSibling` on `SelectContent` — ren
 
 A Combobox in a `DropdownMenuSubContent` takes `inline` and no `ComboboxContent`: the submenu is its popup, and its items keep the check mark's gutter. `ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
 
-A button that opens the popup, with `ComboboxInput` inside `ComboboxContent`: render the button through `ComboboxTrigger` and anchor the popup to it. Never open the popup from the button's `onClick`, because the Combobox then does not know the button is its trigger: the button gets no `aria-expanded` and does not stay pressed while the popup is open. `ComboboxTrigger` appends a chevron; pass `showChevron={false}` when the button carries its own icon, or none.
+A button that opens the popup, with `ComboboxInput` inside `ComboboxContent`: render the button through `ComboboxTrigger` and anchor the popup to it. Never open the popup from the button's `onClick`, because the Combobox then does not know the button is its trigger: the button gets no `aria-expanded` and does not stay pressed while the popup is open. `ComboboxTrigger` appends the chevron, so never add `SelectTriggerIcon` to the button. Pass `showChevron={false}` only for a button that shows no chevron, such as an "Add" button.
 
 ```tsx
 <Combobox items={items} open={open} onOpenChange={setOpen}>

@@ -9,7 +9,6 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxTrigger,
-    SelectTriggerIcon,
     Spinner,
 } from '@posthog/quill'
 
@@ -143,17 +142,12 @@ export function QuillMemberSelect({
                 }
             }}
         >
-            <ComboboxTrigger
-                ref={triggerRef}
-                showChevron={false}
-                render={<Button variant={variant} className="min-w-0" />}
-            >
+            <ComboboxTrigger ref={triggerRef} render={<Button variant={variant} className="min-w-0" />}>
                 <span className="ph-no-capture min-w-0 truncate">
                     {selectedUser
                         ? `${fullName(selectedUser)}${currentUserUuid === selectedUser.uuid ? ' (you)' : ''}`
                         : defaultLabel}
                 </span>
-                <SelectTriggerIcon />
             </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-64">
                 <ComboboxInput placeholder="Search" showTrigger={false} />

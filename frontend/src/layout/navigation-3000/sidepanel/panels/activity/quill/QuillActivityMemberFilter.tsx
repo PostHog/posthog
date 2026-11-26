@@ -10,7 +10,6 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxTrigger,
-    SelectTriggerIcon,
     Spinner,
 } from '@posthog/quill'
 
@@ -89,11 +88,9 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
         >
             <ComboboxTrigger
                 ref={triggerRef}
-                showChevron={false}
                 render={<Button variant="outline" className="min-w-0 shrink" data-attr="activity-member-filter" />}
             >
                 <span className="ph-no-capture min-w-0 truncate">{selected ? fullName(selected) : 'Any user'}</span>
-                <SelectTriggerIcon />
             </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-64">
                 <ComboboxInput placeholder="Search members…" showTrigger={false} />

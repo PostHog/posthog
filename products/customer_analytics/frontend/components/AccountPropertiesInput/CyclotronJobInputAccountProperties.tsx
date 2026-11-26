@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonColorGlyph, LemonSelect } from '@posthog/lemon-ui'
@@ -126,21 +126,17 @@ function AddPropertyDropdown({
     onSelect: (id: string) => void
     loading: boolean
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     return (
         <Combobox
             items={available}
             itemToStringValue={(d: CustomPropertyDefinitionApi) => d.name}
-            open={open}
-            onOpenChange={setOpen}
             value={null}
             onValueChange={(d: CustomPropertyDefinitionApi | null) => {
                 if (d) {
                     onSelect(d.id)
                 }
-                setOpen(false)
             }}
         >
             <ComboboxTrigger

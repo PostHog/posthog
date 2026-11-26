@@ -34,7 +34,7 @@ function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props): React.React
 const ComboboxTrigger = React.forwardRef<
     HTMLButtonElement,
     ComboboxPrimitive.Trigger.Props & {
-        /** Appends a chevron after the children. Turn it off when the rendered button carries its own icon, or none. */
+        /** Appends a chevron after the children. Turn it off for a button that shows no chevron, such as an "Add" button. */
         showChevron?: boolean
     }
 >(({ className, children, showChevron = true, ...props }, ref) => {
