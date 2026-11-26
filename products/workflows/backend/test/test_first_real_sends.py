@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, connection
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -58,10 +59,16 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
             timestamp=at,
         )
 
-    @parameterized.expand([("with_entry_attempt", ENTRY_ATTEMPT_ID), ("without_entry_attempt", None)])
+    @parameterized.expand(
+        [
+            ("with_entry_attempt", ENTRY_ATTEMPT_ID, False),
+            ("without_entry_attempt", None, False),
+            ("over_the_http_transport", ENTRY_ATTEMPT_ID, True),
+        ]
+    )
     @patch(f"{SERVICE}.ph_scoped_capture")
     def test_first_run_records_the_first_billable_email_and_captures_it_once(
-        self, _name: str, entry_attempt_id: UUID | None, scoped_capture: MagicMock
+        self, _name: str, entry_attempt_id: UUID | None, use_http: bool, scoped_capture: MagicMock
     ) -> None:
         flow = self._flow(entry_attempt_id=entry_attempt_id)
         first_send = (NOW - timedelta(hours=20)).replace(microsecond=0)
@@ -78,7 +85,8 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
             len(connection.atomic_blocks)
         )
 
-        capture_workflow_first_real_sends()
+        with override_settings(CLICKHOUSE_USE_HTTP=use_http):
+            capture_workflow_first_real_sends()
 
         flow.refresh_from_db()
         assert flow.first_real_send_at == first_send

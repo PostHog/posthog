@@ -51,7 +51,7 @@ def _first_billable_emails(since: datetime) -> dict[tuple[int, UUID], datetime]:
             hog_flow_id = UUID(app_source_id)
         except ValueError:
             continue
-        first_sends[(team_id, hog_flow_id)] = first_send
+        first_sends[(team_id, hog_flow_id)] = first_send if first_send.tzinfo else first_send.replace(tzinfo=UTC)
     return first_sends
 
 
@@ -80,16 +80,19 @@ def _record_batch(first_sends: dict[tuple[int, UUID], datetime]) -> int:
     hog_flow_ids_by_team: dict[int, list[UUID]] = defaultdict(list)
     for team_id, hog_flow_id in first_sends:
         hog_flow_ids_by_team[team_id].append(hog_flow_id)
-    candidates = [
-        flow
-        for team_id, hog_flow_ids in hog_flow_ids_by_team.items()
-        for flow in HogFlow.objects.filter(
-            team_id=team_id,
-            pk__in=hog_flow_ids,
-            created_at__gte=FIRST_REAL_SEND_CUTOFF,
-            first_real_send_at__isnull=True,
-        ).only("id", "team_id", "entry_attempt_id", "origin_product")
-    ]
+    candidates = sorted(
+        (
+            flow
+            for team_id, hog_flow_ids in hog_flow_ids_by_team.items()
+            for flow in HogFlow.objects.filter(
+                team_id=team_id,
+                pk__in=hog_flow_ids,
+                created_at__gte=FIRST_REAL_SEND_CUTOFF,
+                first_real_send_at__isnull=True,
+            ).only("id", "team_id", "entry_attempt_id", "origin_product")
+        ),
+        key=lambda flow: flow.id,
+    )
     teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({flow.team_id for flow in candidates})
     recorded = []
     with transaction.atomic():
