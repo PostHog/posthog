@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 
@@ -6,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
+import httpx
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -579,6 +581,37 @@ def _make_oauth_installation(
     }
 
 
+_RealAsyncClient = httpx.AsyncClient
+
+
+def _fake_mcp_server(*, failing_method: str, status_code: int):
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.method != "POST":
+            return httpx.Response(405)
+        message = json.loads(request.content)
+        if message["method"] == failing_method and request.headers["Authorization"] == "Bearer old-access-token":
+            return httpx.Response(status_code)
+        if "id" not in message:
+            return httpx.Response(202)
+        result: dict[str, object]
+        if message["method"] == "initialize":
+            result = {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "serverInfo": {"name": "Fake", "version": "1"},
+            }
+        elif message["method"] == "tools/list":
+            result = {"tools": [{"name": "some_tool", "inputSchema": {"type": "object"}}]}
+        else:
+            result = {"content": [{"type": "text", "text": "ok"}], "isError": False}
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": message["id"], "result": result})
+
+    transport = httpx.MockTransport(handle)
+    return patch.object(
+        httpx, "AsyncClient", side_effect=lambda **kwargs: _RealAsyncClient(transport=transport, **kwargs)
+    )
+
+
 class TestIsTokenExpiring(TestCallMCPServerTool):
     @parameterized.expand(
         [
@@ -695,6 +728,38 @@ class TestAuthRefresh(TestCallMCPServerTool):
 
         tool._refresh_token_for_server.assert_called_once_with(self.SERVER_URL)
         self.assertEqual(result, "success after refresh")
+
+    @parameterized.expand([("initialize",), ("tools/call",)])
+    async def test_http_401_from_server_refreshes_token_and_retries(self, failing_method: str):
+        installation = await sync_to_async(self._install_server)(url=self.SERVER_URL, tool_names=("some_tool",))
+        inst = _make_oauth_installation(server_url=self.SERVER_URL, installation_id=str(installation.id))
+        tool = self._create_tool(installations=[inst])
+
+        with (
+            _fake_mcp_server(failing_method=failing_method, status_code=401),
+            patch(
+                "ee.hogai.tools.call_mcp_server.tool._refresh_token_sync",
+                return_value={"access_token": "new-access-token"},
+            ),
+        ):
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
+
+        self.assertEqual(result, "ok")
+
+    async def test_non_auth_http_error_skips_refresh_and_reauth(self):
+        installation = await sync_to_async(self._install_server)(
+            name="OAuth Server", url=self.SERVER_URL, auth_type="oauth", tool_names=("some_tool",)
+        )
+        inst = _make_oauth_installation(server_url=self.SERVER_URL, installation_id=str(installation.id))
+        tool = self._create_tool(installations=[inst])
+
+        with _fake_mcp_server(failing_method="tools/call", status_code=500):
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
+
+        self.assertIn("HTTP 500", str(ctx.exception))
+        await sync_to_async(installation.refresh_from_db)()
+        self.assertFalse(installation.sensitive_configuration.get("needs_reauth"))
 
     async def test_refresh_failure_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL)

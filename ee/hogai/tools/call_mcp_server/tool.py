@@ -219,7 +219,11 @@ class CallMCPServerTool(MaxTool):
     async def _call_server(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
         try:
             return await self._attempt_call(server_url, tool_name, arguments)
-        except MCPClientError:
+        except MCPClientError as e:
+            # Of the HTTP statuses, only a 401 means that the server rejected the credentials.
+            # A refresh cannot fix other statuses, and a failed refresh marks the installation for re-authentication.
+            if e.status_code is not None and e.status_code != 401:
+                raise
             # Refresh auth in case that was the issue and retry the tool call once.
             await self._refresh_auth_or_mark_reauth(server_url)
             return await self._attempt_call(server_url, tool_name, arguments)
