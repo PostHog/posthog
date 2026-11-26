@@ -1805,7 +1805,7 @@ def social_reauth(
 def social_access_rules_allow(
     strategy: DjangoStrategy, backend: BaseAuth, user: User | None = None, **kwargs: Any
 ) -> None:
-    """Refuse an SSO login for an account that is not human or that an enforced access rule blocks, before a session starts."""
+    """Refuse an SSO login for a service account or an account that an enforced access rule blocks, before a session starts."""
     if user is None:
         # A new account is checked where it is created: the signup serializer, or the SSO invite
         # and verified-domain joins in posthog/api/signup.py.

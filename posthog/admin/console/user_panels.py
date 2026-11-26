@@ -297,7 +297,7 @@ class Impersonation:
         if user.is_staff:
             return "This user is staff. Nobody can log in as a staff account"
         if not user.is_human:
-            return "This account is not a human account. Only human accounts use browser sessions"
+            return "Service accounts cannot use browser sessions"
         if user.allow_impersonation is False:
             return "This user turned off log in as user"
         return None
