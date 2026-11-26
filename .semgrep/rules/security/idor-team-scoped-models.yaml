@@ -361,7 +361,9 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookAppEmbed
                               |NotebookAppRelease
+                              |NotebookAppViewGrant
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
@@ -913,7 +915,9 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookAppEmbed
                         |NotebookAppRelease
+                        |NotebookAppViewGrant
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
