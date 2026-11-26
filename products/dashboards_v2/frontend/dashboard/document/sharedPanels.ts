@@ -1,11 +1,13 @@
 import type { z } from 'zod'
 
-import type { sharedPanelSchema } from './dashboardSchema'
+import { sharedPanelSchema } from './dashboardSchema'
 import { type Dashboard, type DashboardDocument, type Tile, isGridTab, isSectionPanel } from './dashboardTypes'
 
 type DocumentGridTab = Extract<DashboardDocument['tabs'][number], { tiles: unknown }>
 type DocumentTile = DocumentGridTab['tiles'][number]
 type SharedPanel = z.infer<typeof sharedPanelSchema>
+
+const SHARED_KEYS = new Set(Object.keys(sharedPanelSchema.shape))
 
 function loadTiles(tiles: DocumentTile[], panels: Record<string, SharedPanel>): Tile[] {
     return tiles.flatMap((tile): Tile[] => {
@@ -40,7 +42,15 @@ function saveTiles(tiles: Tile[], panels: Record<string, SharedPanel>): Document
         if (!panel.ref) {
             return tile
         }
-        const { ref, parts, appearance, ...content } = panel
+        const { ref } = panel
+        // Fields a host added stay on the tile, so two tiles of one panel keep their own values.
+        const content: Record<string, unknown> = {}
+        const own: Record<string, unknown> = Object.create(null)
+        for (const [key, value] of Object.entries(panel)) {
+            if (value !== undefined) {
+                ;(SHARED_KEYS.has(key) ? content : own)[key] = value
+            }
+        }
         // A ref such as `constructor` or `__proto__` would otherwise reach the object's prototype and never be stored.
         if (!Object.hasOwn(panels, ref)) {
             Object.defineProperty(panels, ref, {
@@ -50,7 +60,7 @@ function saveTiles(tiles: Tile[], panels: Record<string, SharedPanel>): Document
                 configurable: true,
             })
         }
-        return { ...tile, panel: { ref, ...(parts && { parts }), ...(appearance && { appearance }) } }
+        return { ...tile, panel: own as DocumentTile['panel'] }
     })
 }
 
