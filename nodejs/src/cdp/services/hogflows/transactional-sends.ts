@@ -106,7 +106,7 @@ const transactionalEmailFingerprint = (
         ? [
               ...request,
               ACCEPTED_SEND_FINGERPRINT_MARKER,
-              { ...send, from: senderTheCallerChose(send.from) },
+              { ...send, from: senderTheCallerChose(send.from), category: send.category?.id },
               ...schedule,
           ]
         : [...request, ...schedule]

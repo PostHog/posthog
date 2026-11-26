@@ -3161,6 +3161,12 @@ describe('CDP API', () => {
                     { ...body, send: addresslessSend },
                     { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                 ],
+                [
+                    'a code send after its category changed type',
+                    'transactional_email/send',
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'transactional' } } },
+                ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
@@ -3226,6 +3232,17 @@ describe('CDP API', () => {
                     'a changed cc',
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
+                ],
+                [
+                    'another category',
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    ],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, category: { id: 'tips', type: 'marketing' } } },
+                    ],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',
