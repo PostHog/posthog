@@ -183,6 +183,27 @@ function doorsOf(day: number, progress: AdventProgress, today: number, rewards: 
     )
 }
 
+function linksInto(current: AdventDoor[], previous: AdventDoor[], trigger: AdventPoint): AdventLink[] {
+    const sources = previous.length ? previous : [null]
+    return current.flatMap((target) =>
+        sources
+            .filter((source) => {
+                const sourceLane = source ? laneOf(source) : null
+                const targetLane = laneOf(target)
+                return !sourceLane || !targetLane || sourceLane === targetLane
+            })
+            .map(
+                (source): AdventLink => ({
+                    id: `${source?.id ?? ADVENT_TRIGGER_ID}>${target.id}`,
+                    from: source?.id ?? ADVENT_TRIGGER_ID,
+                    to: target.id,
+                    ...sides(source ?? trigger, target),
+                    walked: target.status === 'open' && (!source || source.status === 'open'),
+                })
+            )
+    )
+}
+
 export function buildAdventGraph(progress: AdventProgress, today: number, rewards: AdventRewards): AdventGraph {
     const first = trailPoint(1)
     const trigger = { x: first.x - TRAIL_GAP.x, y: first.y }
@@ -192,22 +213,7 @@ export function buildAdventGraph(progress: AdventProgress, today: number, reward
 
     for (const day of DAYS) {
         const current = doorsOf(day, progress, today, rewards)
-        for (const target of current) {
-            for (const source of previous.length ? previous : [null]) {
-                const sourceLane = source ? laneOf(source) : null
-                const targetLane = laneOf(target)
-                if (sourceLane && targetLane && sourceLane !== targetLane) {
-                    continue
-                }
-                links.push({
-                    id: `${source?.id ?? ADVENT_TRIGGER_ID}>${target.id}`,
-                    from: source?.id ?? ADVENT_TRIGGER_ID,
-                    to: target.id,
-                    ...sides(source ?? trigger, target),
-                    walked: target.status === 'open' && (!source || source.status === 'open'),
-                })
-            }
-        }
+        links.push(...linksInto(current, previous, trigger))
         doors.push(...current)
         previous = current
     }
