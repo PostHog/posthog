@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -249,14 +250,20 @@ def credential_owner_eligible(credential_owner_id: int, team_id: int) -> bool:
     stateless and re-validated on every proxied call, so a revocation takes
     effect on the next request rather than racing a persisted credential.
     """
-    owner = User.objects.filter(id=credential_owner_id, is_active=True).first()
-    if owner is None:
-        return False
+    return credential_owner_id in eligible_credential_owners([credential_owner_id], team_id)
+
+
+def eligible_credential_owners(owner_ids: Iterable[int], team_id: int) -> set[int]:
+    """The subset of `owner_ids` that pass `credential_owner_eligible`, checked in one pass."""
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        return False
-    return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
+        return set()
+    return {
+        owner.id
+        for owner in User.objects.filter(id__in=owner_ids, is_active=True)
+        if UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
+    }
 
 
 def create_gateway_agent_token(account: MCPServiceAccount, *, credential_owner_id: int | None) -> str:

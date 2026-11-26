@@ -2457,7 +2457,8 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert revoked_catalog_response.status_code == status.HTTP_200_OK
         assert revoked_catalog_response.json()["results"] == []
 
-    def test_revoked_grant_owner_serializes_reachable_false_for_their_grant_only(self) -> None:
+    @parameterized.expand([("server_revoked",), ("deactivated",), ("removed_from_org",)])
+    def test_grant_owner_who_lost_access_serializes_reachable_false_for_their_grant_only(self, loss: str) -> None:
         account = self._active_scout_account()
         server = MCPGatewayServer.objects.for_team(self.team.id).create(
             team=self.team,
@@ -2474,12 +2475,18 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 scope="team",
                 granted_by=grant_user,
             )
-        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
-            team=self.team,
-            gateway_server=server,
-            user=revoked_member,
-            revoked_by=self.user,
-        )
+        if loss == "server_revoked":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team=self.team,
+                gateway_server=server,
+                user=revoked_member,
+                revoked_by=self.user,
+            )
+        elif loss == "deactivated":
+            revoked_member.is_active = False
+            revoked_member.save()
+        else:
+            OrganizationMembership.objects.filter(user=revoked_member, organization=self.organization).delete()
 
         response = self.client.get(self._api_url())
 

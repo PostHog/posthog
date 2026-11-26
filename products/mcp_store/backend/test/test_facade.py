@@ -1072,16 +1072,30 @@ class TestGetInstallationsForSandbox(BaseTest):
 
         assert [result.id for result in results] == [str(teammate_installation.id)]
 
-    @parameterized.expand([("nobodys_run", False), ("owners_own_run", True)])
-    def test_revoked_members_team_share_is_not_mounted(self, _name: str, run_has_owner: bool) -> None:
+    @parameterized.expand(
+        [
+            (f"{loss}_{run}", loss, run_has_owner)
+            for loss in ("server_revoked", "deactivated", "removed_from_org")
+            for run, run_has_owner in (("nobodys_run", False), ("teammates_run", True))
+        ]
+    )
+    def test_team_share_of_member_who_lost_access_is_not_mounted(
+        self, _name: str, loss: str, run_has_owner: bool
+    ) -> None:
         account = self._support_agent()
-        server = self._create_gateway_server(name="Revoked", url="https://revoked.example.com/mcp")
-        installation = self._create_installation(gateway_server=server, url=server.url)
-        self._grant(account, server, user=self.user, installation=installation, scope="team")
-        admin = User.objects.create_and_join(self.organization, "revoking-admin@posthog.com", "password")
-        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
-            team_id=self.team.id, gateway_server=server, user=self.user, revoked_by=admin
-        )
+        member = User.objects.create_and_join(self.organization, "leaving-member@posthog.com", "password")
+        server = self._create_gateway_server(name="Lost access", url="https://lost-access.example.com/mcp")
+        installation = self._create_installation(user=member, gateway_server=server, url=server.url)
+        self._grant(account, server, user=member, installation=installation, scope="team")
+        if loss == "server_revoked":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team_id=self.team.id, gateway_server=server, user=member, revoked_by=self.user
+            )
+        elif loss == "deactivated":
+            member.is_active = False
+            member.save()
+        else:
+            OrganizationMembership.objects.filter(user=member, organization=self.organization).delete()
 
         assert self._agent_results(self.user.id if run_has_owner else None) == []
 
