@@ -86,9 +86,15 @@ export function isCredentialName(name: string, rule: CredentialNameRule = isLogC
     return decoded === null || rule(decoded.toLowerCase().replace(/[^a-z0-9]/g, ''))
 }
 
-// Usage counts such as `gen_ai.usage.input_tokens` are named like credentials but hold integers.
+// Normalized names ending in these, such as `gen_ai.usage.input_tokens`, are LLM usage counts, not credentials.
+const TOKEN_COUNT_NAME_PATTERN = /(?:input|output|prompt|completion|total|max|num|cached|reasoning)tokens$/
+// Span attribute values arrive as strings, so a digit string counts as an integer too.
 function isTokenCount(name: string, value: unknown): boolean {
-    return /tokens/i.test(name) && (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value)))
+    const isInteger = Number.isSafeInteger(value)
+        ? (value as number) >= 0
+        : typeof value === 'string' && /^\d+$/.test(value)
+    const decoded = isInteger ? decodeEscapes(name) : null
+    return decoded !== null && TOKEN_COUNT_NAME_PATTERN.test(decoded.toLowerCase().replace(/[^a-z0-9]/g, ''))
 }
 
 export function isCredentialField(

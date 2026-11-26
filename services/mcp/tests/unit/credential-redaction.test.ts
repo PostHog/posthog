@@ -449,6 +449,21 @@ describe('credential redaction', () => {
             input: { refresh_tokens: [OTHER_SECRET] },
             expected: { refresh_tokens: '[REDACTED]' },
         },
+        {
+            name: 'a numeric string under a tokens name that is not a usage count',
+            input: { 'auth.tokens': '8493021234' },
+            expected: { 'auth.tokens': '[REDACTED]' },
+        },
+        {
+            name: 'a number under a tokens name that is not a usage count',
+            input: { 'x-tokens': 1234 },
+            expected: { 'x-tokens': '[REDACTED]' },
+        },
+        {
+            name: 'a numeric tokens parameter that is not a usage count',
+            input: '/cb?api_tokens=8493021234&a=1',
+            expected: '/cb?api_tokens=[REDACTED]&a=1',
+        },
     ])('masks $name', ({ input, expected }) => {
         expect(redactCredentials(input)).toEqual(expected)
     })
@@ -457,7 +472,7 @@ describe('credential redaction', () => {
         {
             name: 'numeric token counts',
             input: {
-                'gen_ai.usage.input_tokens': 1200,
+                'gen_ai.usage.input_tokens': 812,
                 'gen_ai.usage.output_tokens': '87',
                 'gen_ai.request.max_tokens': 4096,
             },
