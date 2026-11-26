@@ -3271,7 +3271,11 @@ class Resolver(CloningVisitor):
             from posthog.models import Team  # noqa: PLC0415
 
             team = self.context.team or Team.objects.get(id=self.context.team_id)
-            scopes = materialized_view_read_scopes(table, team)
+            if self.context.materialized_view_lookups is None:
+                from posthog.hogql_queries.access_controlled_resources import warehouse_lookups  # noqa: PLC0415
+
+                self.context.materialized_view_lookups = warehouse_lookups(team.pk)
+            scopes = materialized_view_read_scopes(table, team, self.context.materialized_view_lookups)
             self.context.materialized_view_read_scopes[table.saved_query_id] = scopes
         if not scopes:
             return

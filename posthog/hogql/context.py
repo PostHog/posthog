@@ -126,6 +126,7 @@ class HogQLContext:
     materialized_saved_query_ids: set[str] = field(default_factory=set)
     # Saved query id -> the gated resources its definition reads, so one query walks each definition once.
     materialized_view_read_scopes: dict[str, frozenset[str]] = field(default_factory=dict)
+    materialized_view_lookups: Any = None
     referenced_warehouse_table_ids: set[str] = field(default_factory=set)
     directly_read_ids: set[str] = field(default_factory=set)
     view_body_depth: int = 0
