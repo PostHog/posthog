@@ -141,7 +141,7 @@ def _resolve_report(*, team: Team, run: SignalScoutRun, report_id: str | None) -
         report_uuid = uuid.UUID(str(report_id))
     except ValueError:
         raise InvalidMessageError(f"`report_id` {report_id!r} is not a report id.")
-    report = SignalReport.objects.for_team(team.id).filter(id=report_uuid).first()
+    report = SignalReport.objects.filter(team_id=team.id, id=report_uuid).first()
     if report is None:
         raise InvalidMessageError(f"No report {report_id} exists in this project.")
     touched = (
