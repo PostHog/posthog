@@ -2622,6 +2622,12 @@ describe('EmailService', () => {
             })
 
             it.each([
+                [
+                    'a transactional email with click tracking off',
+                    { click_tracking_enabled: false },
+                    undefined,
+                    'clicks_untracked',
+                ],
                 ['a sensitive transactional email', { sensitive: true }, undefined, 'clicks_untracked'],
                 [
                     'a sensitive transactional email that turns click tracking back on',
