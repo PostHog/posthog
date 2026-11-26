@@ -17,8 +17,43 @@ from products.product_analytics.backend.presentation.insight import (
     BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,
     MCPInsightSerializer,
 )
+from products.product_analytics.backend.presentation.metrics_sql_insight import sql_insight_for_metrics_sql
 
 from ee.api.test.base import LicensedTestMixin
+
+
+class TestMetricsSqlInsight(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("metrics_table", "SELECT now() AS time, count() AS value FROM posthog.metrics", None),
+            ("interval_placeholder", "SELECT toStartOfInterval(timestamp, {interval}) AS time FROM events", None),
+            ("dashboard_variable", "SELECT count() FROM events WHERE event = $event", None),
+            ("invalid_sql", "SELECT FROM WHERE", None),
+            (
+                "other_table",
+                "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= {date_from}",
+                "SELECT count() FROM events WHERE event = '$pageview' AND timestamp >= {filters.dateRange.from}",
+            ),
+        ]
+    )
+    def test_sql_over_other_tables_becomes_a_sql_insight(self, _name: str, sql: str, expected: str | None) -> None:
+        converted = sql_insight_for_metrics_sql(
+            self.team,
+            {"kind": "MetricsQuery", "language": "sql", "sql": sql, "clauses": [], "display": {"type": "table"}},
+        )
+
+        if expected is None:
+            assert converted is None
+        else:
+            assert converted is not None
+            source = converted["source"]
+            assert (converted["kind"], converted["display"], source["kind"], source["query"]) == (
+                "DataVisualizationNode",
+                "ActionsTable",
+                "HogQLQuery",
+                expected,
+            )
+            assert source["filters"]["dateRange"]["date_from"] == "-24h"
 
 
 class TestMCPInsightSerializer(SimpleTestCase):
@@ -413,6 +448,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
                 "InsightVizNode",
                 "WebStatsTableQuery",
+            ),
+            (
+                "sql_metrics_query_over_events",
+                {"kind": "MetricsQuery", "language": "sql", "clauses": [], "sql": "SELECT count() FROM events"},
+                "DataVisualizationNode",
+                "HogQLQuery",
             ),
         ]
     )
