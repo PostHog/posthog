@@ -630,7 +630,7 @@ describe('drive', () => {
                     gates: {},
                     judgesRefusals: false,
                     driveStartedAt: startedAt,
-                    profile: {},
+                    admission: {},
                     journal: () => journaled,
                     samples: () => [],
                     host: () => [],
