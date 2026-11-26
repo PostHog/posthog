@@ -5,7 +5,6 @@ from posthog.models.ai_events.sql import (
     AI_EVENTS_MV_SQL,
     DISTRIBUTED_AI_EVENTS_TABLE_SQL,
     KAFKA_AI_EVENTS_TABLE_SQL,
-    TABLE_BASE_NAME,
 )
 
 # Bootstrap the ai_events data, distributed, and MSK Kafka + MV tables on the
@@ -33,7 +32,7 @@ operations = [
         node_roles=[NodeRole.AI_EVENTS],
     ),
     run_sql_with_exceptions(
-        AI_EVENTS_MV_SQL(TABLE_BASE_NAME),
+        AI_EVENTS_MV_SQL(),
         node_roles=[NodeRole.AI_EVENTS],
     ),
 ]

@@ -66,6 +66,7 @@ from products.messaging.backend.facade.api import (
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
+    MessageTemplateListFilter,
     MessageTemplateMissing,
     MessageTemplateRow,
     create_template,
@@ -112,6 +113,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     AddressListField,
     AttachmentListField,
     EmailTrackingField,
+    NullableOmittableBooleanField,
     attachment_size,
     field_not_accepted_refusal,
     refused_attachment,
@@ -437,10 +439,18 @@ class MessageTemplateSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(
         required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
     )
-    sensitive = serializers.BooleanField(
+    sensitive = OmittableBooleanField(
         required=False,
         help_text="For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent "
-        "email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
+        "email's body or filled-in subject, turns click tracking off by default, and records only the site address "
+        "when click tracking is on. Can change at any time.",
+    )
+    click_tracking_enabled = NullableOmittableBooleanField(
+        required=False,
+        help_text="Whether links in emails sent from this template are rewritten to count clicks. Null uses the "
+        "default: off when `sensitive` is true, on when `sensitive` is false. Set true to opt a sensitive template "
+        "into click tracking, or false to turn click tracking off. Changing `sensitive` resets this to null unless "
+        "`click_tracking_enabled` is sent in the same request.",
     )
     transactional_hog_flow_id = serializers.UUIDField(
         read_only=True,
@@ -535,6 +545,25 @@ class MessageTemplateListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="With true, leave out `content` and `draft_content` from each template, for lists that show "
         "names and metadata only. `has_draft` still says whether a draft exists.",
+    )
+    search = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=400,
+        help_text="List only templates whose name, description or a tag contains this text, ignoring case.",
+    )
+    created_by = serializers.IntegerField(
+        required=False,
+        default=None,
+        help_text="List only templates created by the user with this ID.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        max_length=500,
+        help_text="List only templates that carry at least one of these tags. Repeat the parameter for each tag.",
     )
 
 
@@ -806,9 +835,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False,
         help_text="What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures "
         "engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object "
-        "sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks "
-        "opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` "
-        "keeps its own address, so an app link still opens the app. Click tracking needs open "
+        "sets each kind on its own, and a kind it leaves out keeps its default. Without `clicks`, PostHog follows "
+        "the matched template's `click_tracking_enabled` setting (unless the send marks `sensitive: true` on a "
+        "non-sensitive template), and otherwise tracks clicks only when the email is not sensitive. Pass "
+        "`tracking: true` or `tracking: { clicks: true }` to opt a sensitive email into click tracking, or "
+        "`tracking: { clicks: false }` to keep links direct even if its matched template opted in. A link with "
+        "`data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open "
         "tracking. A project whose admin turned engagement capture off captures nothing, whatever the send "
         "says. The object form needs a JSON body.",
     )
@@ -825,9 +857,11 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     sensitive = OmittableBooleanField(
         required=False,
         help_text="Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails "
-        "leave the subject off engagement events, record only the site address of a clicked link, and keep the "
-        "content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. "
-        "It can't be false when the matched template is sensitive.",
+        "leave the subject off engagement events, turn click tracking off by default (unless the matched sensitive "
+        "template opted in or `tracking` enables clicks), record only the site address of a clicked link when click "
+        "tracking is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct "
+        "even on a sensitive template that opted in. Defaults to the matched template's setting, or true when no "
+        "template matches. It can't be false when the matched template is sensitive.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -1515,11 +1549,15 @@ class MessageTemplatesViewSet(
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = cast(ValidatedRequest, request).validated_query_data
-        basic, transactional = query["basic"], query["transactional"]
+        basic = query["basic"]
+        filters = MessageTemplateListFilter(
+            transactional=query["transactional"],
+            search=query["search"],
+            created_by_id=query["created_by"],
+            tags=tuple(query["tags"]),
+        )
         templates: Sequence[MessageTemplateRow] | Sequence[MessageTemplateBasicRow] = (
-            list_basic_templates(self.team_id, transactional=transactional)
-            if basic
-            else list_templates(self.team_id, transactional=transactional)
+            list_basic_templates(self.team_id, filters) if basic else list_templates(self.team_id, filters)
         )
         serializer_class = MessageTemplateBasicSerializer if basic else MessageTemplateSerializer
         context = self.get_serializer_context()

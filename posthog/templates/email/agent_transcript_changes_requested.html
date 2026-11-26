@@ -1,0 +1,20 @@
+{% extends "email/base.html" %}
+{% block heading %}Your transcript needs changes{% endblock %}
+{% block section %}
+    <p>We reviewed the transcript you uploaded for {{ organization_name }} and need some changes before we can accept it.</p>
+    {% if review_message %}
+        <p><strong>Note from the PostHog team:</strong> {{ review_message }}</p>
+    {% endif %}
+    <p>Upload a new transcript in PostHog. It replaces the one you uploaded before.</p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ submission_url }}">Upload a new transcript</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ submission_url }}">{{ submission_url }}</a>
+        </p>
+    </div>
+    <p>We delete each file you upload {{ retention_days }} days after upload.</p>
+{% endblock %}

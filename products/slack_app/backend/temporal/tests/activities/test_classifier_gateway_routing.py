@@ -25,19 +25,11 @@ from products.slack_app.backend.temporal.activities.classifiers import (
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
 AI_GATEWAY_KEY = "phs_go"
-LLM_GATEWAY_URL = "http://llm-gateway:8080"
-LLM_GATEWAY_KEY = "phx_legacy"
 TRACE_ID = "1b9d6bcd-bbfd-5b1d-9c2f-9f0a4b4a1b2c"
 TEAM_ID = 41
 
-# Both modes set every setting the builders read, so the wrong route cannot pass by accident.
-GO_GATEWAY = {
-    "AI_GATEWAY_URL": AI_GATEWAY_URL,
-    "AI_GATEWAY_API_KEY": AI_GATEWAY_KEY,
-    "LLM_GATEWAY_URL": LLM_GATEWAY_URL,
-    "LLM_GATEWAY_API_KEY": LLM_GATEWAY_KEY,
-}
-PYTHON_GATEWAY = {**GO_GATEWAY, "AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}
+GO_GATEWAY = {"AI_GATEWAY_URL": AI_GATEWAY_URL, "AI_GATEWAY_API_KEY": AI_GATEWAY_KEY}
+NO_GATEWAY = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}
 
 CHOICES = (ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high")),)
 NEEDS_REPO_TEXT = "ambiguous ask the heuristic does not catch"
@@ -121,9 +113,9 @@ class TestClassifierGatewayRouting:
 
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
-    def test_needs_repo_never_reaches_the_python_route(self, mock_anthropic, _mock_httpx):
+    def test_needs_repo_makes_no_call_without_the_go_gateway(self, mock_anthropic, _mock_httpx):
         _messages_reply(mock_anthropic, '{"needs_repo": true}')
-        with override_settings(**PYTHON_GATEWAY):
+        with override_settings(**NO_GATEWAY):
             assert _classify_needs_repo() is False
 
         mock_anthropic.assert_not_called()
@@ -144,9 +136,11 @@ class TestClassifierGatewayRouting:
     @parameterized.expand(OPENAI_CLASSIFIERS)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.OpenAI")
-    def test_openai_classifier_never_reaches_the_python_route(self, _name, classify, reply, mock_openai, _mock_httpx):
+    def test_openai_classifier_makes_no_call_without_the_go_gateway(
+        self, _name, classify, reply, mock_openai, _mock_httpx
+    ):
         _chat_reply(mock_openai, reply)
-        with override_settings(**PYTHON_GATEWAY), suppress(GatewayNotConfiguredError):
+        with override_settings(**NO_GATEWAY), suppress(GatewayNotConfiguredError):
             classify()
 
         mock_openai.assert_not_called()
@@ -154,7 +148,7 @@ class TestClassifierGatewayRouting:
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.OpenAI")
     def test_project_route_raises_without_the_go_gateway(self, mock_openai, _mock_httpx):
-        with override_settings(**PYTHON_GATEWAY), pytest.raises(GatewayNotConfiguredError):
+        with override_settings(**NO_GATEWAY), pytest.raises(GatewayNotConfiguredError):
             _classify_project_route()
 
         mock_openai.assert_not_called()
