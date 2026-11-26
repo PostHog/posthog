@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.db.models.signals import pre_delete
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -81,6 +83,12 @@ class TestAdventCalendarAPI(APIBaseTest):
         self._answer_as(self.user, self.team, 18, "yes")
         leaver.organization_memberships.all().delete()
         self.client.force_login(leaver)
+
+        def vote_lands_during_the_deletion(sender: type, instance: User, **kwargs: Any) -> None:
+            AdventCalendarAnswer.objects.create(user_id=instance.id, day=21, option="tea")
+
+        pre_delete.connect(vote_lands_during_the_deletion, sender=User, dispatch_uid="advent_test_vote_during_deletion")
+        self.addCleanup(pre_delete.disconnect, sender=User, dispatch_uid="advent_test_vote_during_deletion")
 
         deletion = self.client.delete("/api/users/@me/")
 
