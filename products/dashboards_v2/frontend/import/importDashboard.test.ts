@@ -41,6 +41,19 @@ describe('importDashboard', () => {
     test.each([
         ['not JSON', 'dashboard', "This isn't JSON"],
         ['JSON of another tool', '{"widgets": []}', "doesn't look like"],
+        [
+            'a legend the query endpoint rejects',
+            JSON.stringify({
+                panels: [
+                    {
+                        type: 'timeseries',
+                        title: 'Up',
+                        targets: [{ refId: 'A', expr: 'up', legendFormat: 'x'.repeat(1001) }],
+                    },
+                ],
+            }),
+            "can't be opened",
+        ],
     ])('explains input it can not read: %s', (_name, text, error) => {
         expect(importDashboard(text)).toEqual({ error: expect.stringContaining(error) })
     })

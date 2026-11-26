@@ -27,25 +27,30 @@ export function ImportDashboardDialog({
 }): JSX.Element {
     const [text, setText] = useState('')
     const [readError, setReadError] = useState<string | null>(null)
+    const [reading, setReading] = useState(false)
     const fileInput = useRef<HTMLInputElement>(null)
     // Bumped by every edit and close, so a file read that finishes later can't overwrite newer input.
     const inputVersion = useRef(0)
     const replaceText = (next: string): void => {
         inputVersion.current += 1
+        setReading(false)
         setReadError(null)
         setText(next)
     }
     const readFile = (file: File): void => {
         const version = ++inputVersion.current
+        setReading(true)
         file.text().then(
             (contents) => {
                 if (version === inputVersion.current) {
+                    setReading(false)
                     setReadError(null)
                     setText(contents)
                 }
             },
             () => {
                 if (version === inputVersion.current) {
+                    setReading(false)
                     setText('')
                     setReadError(`Couldn't read ${file.name}. Try uploading it again.`)
                 }
@@ -116,10 +121,14 @@ export function ImportDashboardDialog({
                     <Button
                         variant="primary"
                         disabledReason={
-                            result && 'dashboard' in result ? undefined : 'Paste or upload a dashboard first'
+                            reading
+                                ? 'Reading the file'
+                                : result && 'dashboard' in result
+                                  ? undefined
+                                  : 'Paste or upload a dashboard first'
                         }
                         onClick={() => {
-                            if (result && 'dashboard' in result) {
+                            if (!reading && result && 'dashboard' in result) {
                                 onOpenBoard(result.dashboard)
                                 close()
                             }
