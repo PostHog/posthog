@@ -515,6 +515,31 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
 
+    def test_quota_exceeded_is_classified_as_retryable(self, source):
+        # A per-user ClickHouse quota (e.g. execution_time) names its own reset time and clears
+        # on its own on a timer. Classifying it as non-retryable instead would disable the
+        # schema once the in-run retry budget fails inside that same still-active interval, even
+        # though the next scheduled run — likely well past the reset — would succeed on its own.
+        error_msg = (
+            "DatabaseError: Received ClickHouse exception, code: 201, server response: Code: 201. "
+            "DB::Exception: Quota for user `default` for 3600s has been exceeded: "
+            "execution_time = 601.3/600. Interval will end at 2026-11-26 04:30:52. "
+            "Name of quota template: `default`. (QUOTA_EXCEEDED) (for url https://example.com:443)"
+        )
+        non_retryable = source.get_non_retryable_errors()
+        assert not any(key in error_msg for key in non_retryable), "Quota errors must not disable the sync"
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable)
+
+    def test_quota_exceeded_has_a_retry_exhausted_message(self, source):
+        # Without a matching entry, a sync that outlasts its whole retry budget stores the raw
+        # ClickHouse quota text — including the server's own per-attempt execution_time reading
+        # — as `latest_error` instead of guidance the customer can act on.
+        error_msg = "DB::Exception: Quota for user `default` for 3600s has been exceeded: ... (QUOTA_EXCEEDED)"
+        exhausted_errors = source.get_retry_exhausted_errors()
+        matching = [key for key in exhausted_errors if key in error_msg]
+        assert matching, "Quota exceeded should have a retry-exhausted message"
+
 
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
@@ -728,21 +753,6 @@ class TestClickHouseSourceNonRetryableErrors:
         matching = [key for key in non_retryable_errors if key in observed_error]
         assert matching, "Error should be recognised as non-retryable"
         assert all(non_retryable_errors[key] == expected_message for key in matching)
-
-    def test_quota_exceeded_is_non_retryable(self, source):
-        # A per-user ClickHouse quota (e.g. execution_time) stays exceeded until its own
-        # interval resets, so without this entry `_handle_import_error` would retry the
-        # activity to its maximum, replaying the identical quota failure every time instead of
-        # stopping after a few attempts (see `get_non_retryable_errors`'s matching entry).
-        observed_error = (
-            "DatabaseError: Received ClickHouse exception, code: 201, server response: Code: 201. "
-            "DB::Exception: Quota for user `default` for 3600s has been exceeded: "
-            "execution_time = 601.3/600. Interval will end at 2026-11-26 04:30:52. "
-            "Name of quota template: `default`. (QUOTA_EXCEEDED) (for url https://example.com:443)"
-        )
-        non_retryable_errors = source.get_non_retryable_errors()
-        matching = [key for key in non_retryable_errors if key in observed_error]
-        assert matching, "Error should be recognised as non-retryable"
 
 
 class TestGetSchemas:
