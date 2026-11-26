@@ -11,7 +11,7 @@ use tracing::{error, warn};
 
 use crate::config::{CaptureMode, Config};
 use crate::outputs::Target;
-use crate::producers::ProducerName;
+use crate::producers::{ProducerConfig, ProducerName};
 use crate::sinks::producer::KafkaProducer;
 use crate::sinks::registry::{OutputTable, OutputTarget};
 
@@ -30,10 +30,6 @@ pub struct FallbackSettings {
 }
 
 impl FallbackSettings {
-    pub fn fallback_gates_liveness(&self) -> bool {
-        self.check == CheckMode::Strict
-    }
-
     pub fn from_config(config: &Config) -> anyhow::Result<Option<Self>> {
         let check = config.kafka_emergency_fallback_check.as_deref();
         if config.capture_mode != CaptureMode::Events {
@@ -101,6 +97,29 @@ pub fn secondary_table(
         },
         custom_producer,
     ))
+}
+
+/// A topic check that names a missing topic makes the broker create it when
+/// the producer allows auto-creation, and then the check passes.
+pub fn ensure_checks_cannot_create_topics(
+    secondary: &OutputTable,
+    producer_configs: &HashMap<ProducerName, ProducerConfig>,
+) -> anyhow::Result<()> {
+    for target in secondary.analytics_family_targets() {
+        let producer = target.producer;
+        anyhow::ensure!(
+            producer_configs
+                .get(&producer)
+                .is_some_and(|config| !config.allow_auto_create_topics),
+            "CAPTURE_OUTPUT_{}_SECONDARY_PRODUCER={} allows topic auto-creation, so the \
+             fallback topic check could create the topic it checks; set \
+             KAFKA_{}_PRODUCER_ALLOW_AUTO_CREATE_TOPICS=false",
+            target.name,
+            producer.as_str(),
+            producer.as_str(),
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,6 +308,30 @@ mod tests {
             err.contains("CAPTURE_OUTPUT_AI_OVERFLOW_SECONDARY_PRODUCER"),
             "{err}"
         );
+    }
+
+    #[rstest]
+    #[case::fallback_default(&[], true)]
+    #[case::secondary_on_ingestion(&[("CAPTURE_OUTPUT_DLQ_SECONDARY_PRODUCER", "INGESTION")], false)]
+    #[case::fallback_allows_it(&[("KAFKA_FALLBACK_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", "true")], false)]
+    fn fallback_checks_refuse_a_producer_that_can_create_topics(
+        #[case] pairs: &[(&str, &str)],
+        #[case] boots: bool,
+    ) {
+        let mut env = env(pairs);
+        env.insert(FALLBACK_BROKERS_VAR.to_string(), "ws:9092".to_string());
+        let configs = crate::producers::load_all(&env).unwrap();
+        let secondary = secondary_table(&test_outputs(), &env).unwrap();
+
+        let result = ensure_checks_cannot_create_topics(&secondary, &configs);
+
+        assert_eq!(result.is_ok(), boots, "{result:?}");
+        if let Err(err) = result {
+            assert!(
+                err.to_string().contains("ALLOW_AUTO_CREATE_TOPICS=false"),
+                "{err}"
+            );
+        }
     }
 
     #[rstest]

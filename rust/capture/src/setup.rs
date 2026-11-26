@@ -44,7 +44,6 @@ pub struct LifecycleHandles {
     pub server: lifecycle::Handle,
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
-    pub fallback_producer: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
     pub ingestion_warnings: Option<lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
@@ -71,15 +70,6 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             Some(manager.register("kafka-sink", sink_opts.clone())),
             None,
         )
-    };
-
-    let fallback_producer = if config.print_sink || config.noop_sink {
-        None
-    } else {
-        FallbackSettings::from_config(config)
-            .unwrap_or_else(|e| panic!("fatal: invalid configuration: {e:#}"))
-            .filter(FallbackSettings::fallback_gates_liveness)
-            .map(|_| manager.register("kafka-fallback-producer", sink_opts.clone()))
     };
 
     let event_restrictions =
@@ -111,7 +101,6 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         server,
         sink,
         advisory,
-        fallback_producer,
         event_restrictions,
         ingestion_warnings,
         readiness,
@@ -137,7 +126,6 @@ pub async fn build_components(
         server,
         sink: sink_handle,
         advisory: advisory_handle,
-        fallback_producer: fallback_producer_handle,
         event_restrictions: event_restrictions_handle,
         ingestion_warnings: ingestion_warnings_handle,
         readiness,
@@ -292,11 +280,8 @@ pub async fn build_components(
         &config,
         &env,
         &producer_configs,
-        KafkaHandles {
-            sink: sink_handle,
-            advisory: advisory_handle,
-            fallback_producer: fallback_producer_handle,
-        },
+        sink_handle,
+        advisory_handle,
     )
     .await
     .unwrap_or_else(|e| panic!("fatal: failed to create the output registry: {e:#}"));
@@ -546,20 +531,15 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config, max_event_bytes: u64)
     }
 }
 
-#[derive(Default)]
-struct KafkaHandles {
-    sink: Option<lifecycle::Handle>,
-    advisory: Option<lifecycle::Handle>,
-    fallback_producer: Option<lifecycle::Handle>,
-}
-
 async fn create_output_registry(
     config: &Config,
     env: &HashMap<String, String>,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
-    handles: KafkaHandles,
+    sink_handle: Option<lifecycle::Handle>,
+    advisory_handle: Option<lifecycle::Handle>,
 ) -> anyhow::Result<(OutputRegistry, Option<ProducerRegistry>)> {
-    let (output, producers) = create_output(config, env, producer_configs, handles).await?;
+    let (output, producers) =
+        create_output(config, env, producer_configs, sink_handle, advisory_handle).await?;
     Ok((OutputRegistry::new(output), producers))
 }
 
@@ -567,13 +547,9 @@ async fn create_output(
     config: &Config,
     env: &HashMap<String, String>,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
-    handles: KafkaHandles,
+    sink_handle: Option<lifecycle::Handle>,
+    advisory_handle: Option<lifecycle::Handle>,
 ) -> anyhow::Result<(Output, Option<ProducerRegistry>)> {
-    let KafkaHandles {
-        sink: sink_handle,
-        advisory: advisory_handle,
-        fallback_producer: fallback_producer_handle,
-    } = handles;
     if config.print_sink {
         return Ok((Output::single(PrintSink {}), None));
     }
@@ -636,23 +612,19 @@ async fn create_output(
         sink_handle.clone()
     };
     let live_producers = outputs.producers();
-    let liveness = producer_configs
-        .keys()
-        .filter_map(|&name| {
-            let handle = if live_producers.contains(&name) {
-                kafka_handle.clone()
-            } else if name == ProducerName::Fallback {
-                fallback_producer_handle.clone()
-            } else {
-                None
-            };
-            handle.map(|handle| (name, handle))
+    let liveness = kafka_handle
+        .iter()
+        .flat_map(|handle| {
+            live_producers
+                .iter()
+                .map(move |&name| (name, handle.clone()))
         })
         .collect();
     let producers = ProducerRegistry::build(&producer_configs, liveness)
         .context("failed to start Kafka producers")?;
 
     if let Some((settings, secondary)) = &fallback {
+        fallback::ensure_checks_cannot_create_topics(secondary, &producer_configs)?;
         let secondary = secondary.map_producers(|name| producers.get(*name));
         fallback::run_boot_checks(&secondary, *settings).await?;
     }
@@ -1324,15 +1296,10 @@ mod tests {
         config.outputs.dlq_topic = String::new();
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
-        let err = create_output_registry(
-            &config,
-            &HashMap::new(),
-            &default_producers,
-            KafkaHandles::default(),
-        )
-        .await
-        .err()
-        .expect("boot must be refused when an output topic is empty");
+        let err = create_output_registry(&config, &HashMap::new(), &default_producers, None, None)
+            .await
+            .err()
+            .expect("boot must be refused when an output topic is empty");
         let msg = format!("{err:#}");
         assert!(
             msg.contains("dlq"),
@@ -1342,14 +1309,9 @@ mod tests {
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
         config.outputs_completeness_check_enabled = false;
-        create_output_registry(
-            &config,
-            &HashMap::new(),
-            &default_producers,
-            KafkaHandles::default(),
-        )
-        .await
-        .expect("boot must proceed when the completeness check is disabled");
+        create_output_registry(&config, &HashMap::new(), &default_producers, None, None)
+            .await
+            .expect("boot must proceed when the completeness check is disabled");
     }
 
     fn fallback_config(mode: CaptureMode, check: &str) -> Config {
@@ -1369,15 +1331,10 @@ mod tests {
         let config = fallback_config(CaptureMode::Events, "strict");
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
-        let err = create_output_registry(
-            &config,
-            &HashMap::new(),
-            &default_producers,
-            KafkaHandles::default(),
-        )
-        .await
-        .err()
-        .expect("boot must be refused");
+        let err = create_output_registry(&config, &HashMap::new(), &default_producers, None, None)
+            .await
+            .err()
+            .expect("boot must be refused");
 
         assert!(
             format!("{err:#}").contains(fallback::FALLBACK_BROKERS_VAR),
@@ -1398,10 +1355,9 @@ mod tests {
             .collect();
         let configs = producers::load_all(&env).expect("producer configs");
 
-        let (_, producers) =
-            create_output_registry(&config, &env, &configs, KafkaHandles::default())
-                .await
-                .expect("other modes must boot whatever the fallback settings say");
+        let (_, producers) = create_output_registry(&config, &env, &configs, None, None)
+            .await
+            .expect("other modes must boot whatever the fallback settings say");
 
         let producers = producers.expect("kafka producers");
         assert!(producers.contains(ProducerName::Ingestion));
