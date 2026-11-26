@@ -951,6 +951,37 @@ describe('valves', () => {
             }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
         })
 
+        it('kills after one seeded SES acceptance and records the selected unit', async () => {
+            const run = async (arriving: number[], seed?: number) => {
+                const { card } = load(path.join(__dirname, '../cards/email-worker-killed-after-accept.yaml'), { seed })
+                const runId = randomUUID()
+                const valves = createValves({ pollMs: 5 })
+                const stack = withWorker(true)
+                await valves.start([{ ...card.valves[0], at: '0ms' }], { ...stack.context, seed: card.seed })
+                await stack.held
+                const aborted: number[] = []
+                for (const ordinal of arriving) {
+                    const outcome = await send(
+                        stack.worker.aborted ? undefined : stack.worker,
+                        `${runId}-${ordinal}@www.example.com`
+                    )
+                    if (outcome === 'AbortError') {
+                        aborted.push(ordinal)
+                    }
+                }
+                await valves.releaseAll()
+                return {
+                    aborted,
+                    hit: valves.fired()[0]?.unitIds?.map((id) => Number(id.slice(runId.length + 1))),
+                    kills: stack.sentWhenKilled.length,
+                }
+            }
+
+            expect(await run([3, 1, 4, 5, 2])).toEqual({ aborted: [1], hit: [1], kills: 1 })
+            expect(await run([4, 3, 1, 5, 2], 8)).toEqual({ aborted: [1], hit: [1], kills: 1 })
+            expect(await run([3, 1, 4, 5, 2], 13)).toEqual({ aborted: [2], hit: [2], kills: 1 })
+        })
+
         it('holds no send and kills nothing before its arming delay passes', async () => {
             const valves = createValves({ pollMs: 5 })
             const stack = withWorker(true)

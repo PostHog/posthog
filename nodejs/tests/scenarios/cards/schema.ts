@@ -37,7 +37,10 @@ export const RunningOnQueue = z
     .strict()
 
 export const EdgeAccepted = z
-    .object({ name: z.literal('edge_accepted'), params: z.object({ channel: z.literal('ses') }).strict() })
+    .object({
+        name: z.literal('edge_accepted'),
+        params: z.object({ channel: z.literal('ses'), share: z.number().gt(0).max(1).optional() }).strict(),
+    })
     .strict()
 
 const When = z.discriminatedUnion('name', [RunningOnQueue, EdgeAccepted], {

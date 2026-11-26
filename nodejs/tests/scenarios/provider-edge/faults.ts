@@ -137,10 +137,10 @@ export function ruleOf(fault: CardFault): FaultRule {
     }
 }
 
-export const heldAnswerRule = (): FaultRule => ({
+export const heldAnswerRule = (share?: number): FaultRule => ({
     name: 'edge.accepted',
     answer: { kind: 'hold-answer' },
-    dose: { count: 1 },
+    dose: share === undefined ? { count: 1 } : { share },
 })
 
 type ActiveFault = {
@@ -198,7 +198,7 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
 
 function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): boolean {
     const {
-        rule: { dose, pick },
+        rule: { answer, dose, pick },
         matched,
         applied,
     } = fault
@@ -208,6 +208,9 @@ function doseTakes(fault: ActiveFault, now: number, { unitId, pickKey }: Hit): b
     }
     if ('count' in dose) {
         return applied < dose.count
+    }
+    if (answer.kind === 'hold-answer' && (applied > 0 || unitId === undefined)) {
+        return false
     }
     if (pick !== undefined) {
         const attempt = fault.attempts.get(unitId ?? pickKey) ?? 0

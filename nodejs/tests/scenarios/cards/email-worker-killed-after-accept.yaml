@@ -1,5 +1,5 @@
 id: email-worker-killed-after-accept
-version: 3
+version: 4
 clock: real
 profile: synthetic
 seed: 8
@@ -21,6 +21,7 @@ valves:
           name: edge_accepted
           params:
               channel: ses
+              share: 0.5
       for: 1s
 convergeWithin: 4m
 invariants:

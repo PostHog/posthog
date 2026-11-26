@@ -276,7 +276,8 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 }
             }
             if (entry.when!.name === 'edge_accepted') {
-                boundary = await context.environment.actuate({ kind: 'edge.fault', rule: heldAnswerRule() })
+                const rule = picking(heldAnswerRule(entry.when!.params.share), context)
+                boundary = await context.environment.actuate({ kind: 'edge.fault', rule })
                 if (boundary.accepted === undefined) {
                     throw new Error('the edge cannot say when it accepted a request')
                 }
@@ -352,6 +353,8 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         } catch (error) {
             record.error = (error as Error).message
         } finally {
+            const hitSource =
+                entry.when?.name === 'edge_accepted' && entry.when.params.share !== undefined ? boundary : actuation
             await releaseBoundary()
             if (actuation) {
                 try {
@@ -362,7 +365,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
                 }
                 try {
-                    const hits = await actuation.hits?.()
+                    const hits = await hitSource?.hits?.()
                     if (hits) {
                         unitIds.set(record, hits)
                     }
