@@ -1037,6 +1037,12 @@ def scopes_missing_after_legacy_fallback(
     return missing_scopes
 
 
+ID_JAG_CANNOT_WRITE_TASKS = (
+    "ID-JAG tokens can't start or change tasks, because a task run gets wider access than the token and outlives it. "
+    "Sign in to PostHog with OAuth to work with tasks."
+)
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -1106,6 +1112,16 @@ class APIScopePermission(ScopeBasePermission):
         if isinstance(authenticator, OAuthAccessTokenAuthentication) and not self._sandbox_tool_policy_allows(
             request, view, authenticator.access_token, required_scopes
         ):
+            return False
+
+        # A task run gets its own credential, with wider scopes and a longer life than the token that started it.
+        # An ID-JAG token lives only as long as the identity provider allows, so it must not start or drive a run.
+        if (
+            isinstance(authenticator, IDJagAccessTokenAuthentication)
+            and "task:write" in required_scopes
+            and not getattr(view, "id_jag_may_write_tasks", False)
+        ):
+            self.message = ID_JAG_CANNOT_WRITE_TASKS
             return False
 
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets

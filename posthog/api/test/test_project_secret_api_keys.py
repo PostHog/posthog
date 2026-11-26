@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM, DenyIDJagProjectSecretAPIKeyWrites
+from posthog.api.project_secret_api_key import ID_JAG_CANNOT_ISSUE_KEYS, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -148,11 +148,11 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    def test_id_jag_token_can_list_keys_but_not_create_one(self):
+    def test_id_jag_token_can_list_keys_but_not_create_or_roll_one(self):
         key = ProjectSecretAPIKey.objects.create(
             team=self.team, label="existing", secure_value="sha256$existing", scopes=["endpoint:read"]
         )
-        token = id_jag_access_token(self.user, self.organization, "project:read project:write")
+        token = id_jag_access_token(self.user, self.organization, "project:read project:write endpoint:read")
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -161,12 +161,16 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/project_secret_api_keys",
             {"label": "from id-jag", "scopes": ["endpoint:read"]},
         )
+        rolled = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
 
         assert listed.status_code == 200, listed.content
         assert [row["id"] for row in listed.json()["results"]] == [key.id]
-        assert created.status_code == 403, created.content
-        assert created.json()["detail"] == DenyIDJagProjectSecretAPIKeyWrites.message
-        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+        for refused in (created, rolled):
+            assert refused.status_code == 403, refused.content
+            assert refused.json()["detail"] == ID_JAG_CANNOT_ISSUE_KEYS
+        assert list(ProjectSecretAPIKey.objects.filter(team=self.team).values_list("secure_value", flat=True)) == [
+            "sha256$existing"
+        ]
 
     @parameterized.expand([("endpoint:read",), ("person:write",)])
     def test_create_project_secret_api_key(self, scope: str):

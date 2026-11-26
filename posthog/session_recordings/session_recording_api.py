@@ -64,7 +64,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
-    IDJagAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -954,10 +953,7 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
 
 
 class _SnapshotUserRateThrottle(SimpleRateThrottle):
-    """Per-user cap on blob fetches from a browser session, an OAuth token or an ID-JAG token.
-
-    An ID-JAG token gets its own bucket per organization, so an agent does not use up its user's quota in the
-    browser, or the quota of the same person's agent in another organization.
+    """Per-user cap on blob fetches from a browser session or an OAuth token.
 
     The view checks it only for blob fetches, not through throttle_classes, so listing sources never uses quota.
     It does not reuse the shared user-bucket throttle, because that one counts every refusal in the global
@@ -975,11 +971,7 @@ class _SnapshotUserRateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view) -> str | None:
         if not request.user or not request.user.is_authenticated:
             return None
-        ident = str(request.user.pk)
-        authenticator = request.successful_authenticator
-        if isinstance(authenticator, IDJagAccessTokenAuthentication):
-            ident = f"id_jag_{authenticator.organization_id}_{request.user.pk}"
-        return self.cache_format % {"scope": self.scope, "ident": ident}
+        return self.cache_format % {"scope": self.scope, "ident": request.user.pk}
 
     def allow_request(self, request, view) -> bool:
         try:
@@ -1699,12 +1691,9 @@ class SessionRecordingViewSet(
         try:
             response: Response | HttpResponse
             if source == "blob_v2" and "min_blob_key" in validated_data:
-                # The tier limits cover only personal API keys, so cap browser sessions and agents here. An export also
-                # resolves to a real user, but it must not share that user's quota.
-                if isinstance(
-                    request.successful_authenticator,
-                    SessionAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
-                ):
+                # The tier limits cover only personal API keys, so cap browser sessions and OAuth agents here. Exports and
+                # ID-JAG tokens also resolve to a real user, but they must not share that user's quota.
+                if isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication):
                     for throttle in (SnapshotsUserBurstRateThrottle(), SnapshotsUserSustainedRateThrottle()):
                         if not throttle.allow_request(request, self):
                             raise Throttled(wait=throttle.wait())

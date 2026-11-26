@@ -310,10 +310,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
         request_data: Optional[dict[str, Any]] = None,
         extra_data: Optional[dict[str, Any]] = None,
     ) -> Optional[tuple[str, str]]:
-        """Try to find personal API key in request and return it along with where it was found.
-
-        An OAuth or ID-JAG access token in the header is never a personal API key, so this returns None for it and
-        leaves it to its own authenticator. The rate limiter and the CSRF middleware read the same answer."""
+        """Try to find personal API key in request and return it along with where it was found."""
         if "authorization" in request.headers:
             authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
@@ -322,8 +319,6 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 if token.startswith(
                     OAUTH_ACCESS_TOKEN_PREFIX
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
-                    return None
-                if IDJagAccessTokenAuthentication.is_id_jag_token(token):
                     return None
                 return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
@@ -404,6 +399,10 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 return None
 
             key_value, source = personal_api_key_with_source
+            # An ID-JAG access token is not a personal API key, so leave it to IDJagAccessTokenAuthentication.
+            # `find_key_with_source` still returns it, so the rate limiter gives each ID-JAG token its own bucket.
+            if source == self.SOURCE_HEADER and IDJagAccessTokenAuthentication.is_id_jag_token(key_value):
+                return None
             span.set_attribute("auth.source", source)
 
             personal_api_key_object = self.validate_key(personal_api_key_with_source)

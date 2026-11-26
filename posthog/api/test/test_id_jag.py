@@ -52,6 +52,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.user import User as UserModel
+from posthog.models.utils import hash_key_value
 from posthog.permissions import get_authenticator_client
 from posthog.rate_limit import hashed_personal_api_key_for_throttling
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -1161,12 +1162,11 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
         self.assertIsNone(authenticator_class().authenticate(request))
 
-    def test_rate_limiter_does_not_count_the_token_as_a_personal_api_key(self) -> None:
-        request = Request(
-            RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {self._mint_access_token(scope='user:read')}")
-        )
+    def test_rate_limiter_gives_the_token_its_own_bucket(self) -> None:
+        token = self._mint_access_token(scope="user:read")
+        request = Request(RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}"))
 
-        self.assertIsNone(hashed_personal_api_key_for_throttling(request))
+        self.assertEqual(hashed_personal_api_key_for_throttling(request), hash_key_value(token))
 
     @covers_authentication(IDJagAccessTokenAuthentication)
     def test_valid_token_authenticates_user(self) -> None:

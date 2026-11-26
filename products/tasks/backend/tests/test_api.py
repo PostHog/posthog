@@ -44,6 +44,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.permissions import ID_JAG_CANNOT_WRITE_TASKS
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
@@ -1813,6 +1814,21 @@ class TestTaskAPI(BaseTaskAPITest):
         task_titles = [t["title"] for t in data["results"]]
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
+
+    def test_id_jag_token_can_read_tasks_but_not_run_one(self):
+        task = self.create_task("Task 1")
+        client = APIClient()
+        token = id_jag_access_token(self.user, self.organization, "task:read task:write")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        listed = client.get(f"/api/projects/{self.team.id}/tasks/")
+        run = client.post(f"/api/projects/{self.team.id}/tasks/{task.id}/run/", {}, format="json")
+
+        self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.content)
+        self.assertEqual([row["id"] for row in listed.json()["results"]], [str(task.id)])
+        self.assertEqual(run.status_code, status.HTTP_403_FORBIDDEN, run.content)
+        self.assertEqual(run.json()["detail"], ID_JAG_CANNOT_WRITE_TASKS)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
     @parameterized.expand(
         [
@@ -10678,20 +10694,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand(
-        [
-            ("open_base_version", False, True),
-            ("restricted_base_version", False, False),
-            ("id_jag_writer", True, False),
-        ]
-    )
+    @parameterized.expand([("open_base_version", True), ("restricted_base_version", False)])
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_open_and_edit(self, name, id_jag_writer, base_open, mock_integration_for_mapping):
-        client = self.client
-        if id_jag_writer:
-            client = APIClient()
-            token = id_jag_access_token(self.user, self.organization, "task:read task:write")
-            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    def test_living_artifact_create_open_and_edit(self, _name, base_open, mock_integration_for_mapping):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(
@@ -10718,7 +10723,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         slack_integration.missing_scopes.return_value = set()
         mock_integration_for_mapping.return_value = slack_integration
 
-        create_response = client.post(
+        create_response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
             {
                 "name": "user_activity_report.md",
@@ -10737,17 +10742,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["current_version"], 1)
         self.assertEqual(artifact["versions"][0]["adapter"], TaskArtifact.Adapter.SLACK_CANVAS)
 
-        open_response = client.get(
+        open_response = self.client.get(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/"
         )
         self.assertEqual(open_response.status_code, status.HTTP_200_OK)
         self.assertEqual(open_response.json()["content"], "# Living report")
-        if name == "restricted_base_version":
+        if not base_open:
             created = TaskArtifact.objects.for_team(self.team.id).get(id=artifact["id"])
             created.versions = [{**created.versions[0], "written_with_open_network": False}]
             created.save(update_fields=["versions"])
 
-        edit_response = client.post(
+        edit_response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/edit/",
             {"content": "# Updated report"},
             format="json",

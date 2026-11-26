@@ -9,7 +9,6 @@ import structlog
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
@@ -107,7 +106,17 @@ def _mirrors_legacy_team_token(key: ProjectSecretAPIKey) -> bool:
     return any(token and key.secure_value == hash_key_value(token) for token in tokens)
 
 
+ID_JAG_CANNOT_ISSUE_KEYS = (
+    "ID-JAG tokens can't create or roll project secret API keys, because a key outlives the token. "
+    "Sign in to PostHog with OAuth to manage keys."
+)
+
+
 def _enforce_caller_may_grant_scopes(request: Request, view: "ProjectSecretAPIKeyViewSet", scopes: list[str]) -> None:
+    # A key has no expiry and no owner, so it keeps working after the identity provider revokes the agent or
+    # deprovisions the person. Every route that creates, rolls or widens a key calls this function.
+    if isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+        raise PermissionDenied(ID_JAG_CANNOT_ISSUE_KEYS)
     _enforce_caller_holds_scopes(request, scopes)
     _enforce_caller_may_grant_billing_read(request, view.team.organization, scopes)
     _enforce_caller_may_grant_business_knowledge_read(request, view.team, scopes)
@@ -349,33 +358,13 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
     return False
 
 
-class DenyIDJagProjectSecretAPIKeyWrites(BasePermission):
-    """A project secret API key has no expiry and no owner, so it keeps working after the identity provider revokes
-    the agent or deprovisions the person. An ID-JAG token exists only under that provider's control, so it must not
-    create or change a key."""
-
-    message = (
-        "ID-JAG tokens can't create or change project secret API keys, because a key outlives the token. "
-        "Sign in to PostHog with OAuth to manage keys."
-    )
-
-    def has_permission(self, request, view) -> bool:
-        return request.method in SAFE_METHODS or not isinstance(
-            request.successful_authenticator, IDJagAccessTokenAuthentication
-        )
-
-
 @extend_schema(extensions={"x-product": "core"})
 class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "roll"]
     lookup_field = "id"
     serializer_class = ProjectSecretAPIKeySerializer
-    permission_classes = [
-        TimeSensitiveActionPermission,
-        TeamMemberStrictManagementPermission,
-        DenyIDJagProjectSecretAPIKeyWrites,
-    ]
+    permission_classes = [TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]
     authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
 
     queryset = ProjectSecretAPIKey.objects.all()
