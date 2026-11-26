@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { Suspense, useLayoutEffect, useRef } from 'react'
 
 import { Button, Text } from '@posthog/quill'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -28,6 +29,12 @@ import { TodaySampleBanner } from './TodaySampleBanner'
 // Its pickers bring in the PostHog AI 1.0 context and mode logic, so only people on 1.0 load them.
 const TodayHomeClassicComposer = lazyWithRetry(() =>
     import('./TodayHomeClassicComposer').then((m) => ({ default: m.TodayHomeClassicComposer }))
+)
+
+const TodaySeasonalChecklistEntry = lazyWithRetry(() =>
+    import('products/today/frontend/seasonal/TodaySeasonalChecklistEntry').then((m) => ({
+        default: m.TodaySeasonalChecklistEntry,
+    }))
 )
 
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
@@ -71,6 +78,7 @@ export function TodayHomePage(): JSX.Element {
     const rootRef = useRef<HTMLDivElement>(null)
     const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
+    const seasonalChecklist = useFeatureFlag('TODAY_SEASONAL_CHECKLIST')
     // The Home pane lists recents and pins for the whole project, so the page drops its own recents.
     const recentsInSidebar = useTodayHomePaneEnabled()
     const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
@@ -123,6 +131,13 @@ export function TodayHomePage(): JSX.Element {
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
             <TodayPromoBanner />
+            {seasonalChecklist && !useSampleData ? (
+                <PostHogErrorBoundary fallback={<></>}>
+                    <Suspense fallback={null}>
+                        <TodaySeasonalChecklistEntry />
+                    </Suspense>
+                </PostHogErrorBoundary>
+            ) : null}
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
