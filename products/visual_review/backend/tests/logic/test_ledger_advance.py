@@ -881,6 +881,29 @@ class TestReconcileOpenApprovals:
         assert _state(parent)[0] == parent_state
         assert publish.call_args_list == [mocker.call(repo.team_id, str(repo.id), "head-2", RunType.STORYBOOK)]
 
+    def test_a_closed_approval_publishes_again_for_an_older_stack_two_layers_up(
+        self, repo, github, mocker, django_capture_on_commit_callbacks
+    ) -> None:
+        set_baseline_mode(repo, BaselineMode.LEDGER)
+        github.push("s1", "chore: no pull request named")
+        ledger_advance.advance(repo)
+        approve(repo, 1, "Button", "b1", commit_sha="old-1")
+        # Rows written before the base_approval column name no lower layer, only the picture they were made over.
+        approve(repo, 2, "Button", "b2", effective_base_hash="b1")
+        approve(repo, 3, "Button", "b3", effective_base_hash="b2")
+        _pull_request_run(repo, 3, "head-3", metadata={METADATA_KEY: make_record().to_json()})
+        github.pull_requests[1] = github_api.PullRequestState(
+            state="closed", merged=False, merge_commit_sha=None, base_ref="master", head_sha="head-1"
+        )
+        github.open_pull_request(2)
+        github.open_pull_request(3)
+        publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.reconcile_open_approvals(repo)
+
+        assert publish.call_args_list == [mocker.call(repo.team_id, str(repo.id), "head-3", RunType.STORYBOOK)]
+
     def test_late_landings_apply_in_ledger_position_order(self, repo, github) -> None:
         github.push("s1", "chore: no pull request named")
         github.push("s2", "chore: no pull request named")

@@ -489,21 +489,20 @@ def _same_picture_predecessors(closed: list[BaselineApproval]) -> set[UUID]:
     return {row.id for row in rows if SuccessorKey.of(row) in keys}
 
 
-def _open_approvals_made_over_by_hash(closed: list[BaselineApproval]) -> list[BaselineApproval]:
-    """Open approvals written before `base_approval` existed whose effective base is a closed approval's picture."""
-    pictures = {(approval.run_type, approval.identifier, approval.content_hash) for approval in closed}
+def _made_over_by_hash(lower: list[BaselineApproval]) -> list[BaselineApproval]:
+    """Open approvals written before `base_approval` existed whose effective base is one of these approvals' pictures."""
+    pictures = {(approval.run_type, approval.identifier, approval.content_hash) for approval in lower}
     rows = (
         BaselineApproval.objects.using(WRITER_DB)
         .filter(
-            team_id=closed[0].team_id,
-            repo_id=closed[0].repo_id,
+            team_id=lower[0].team_id,
+            repo_id=lower[0].repo_id,
             state=BaselineApprovalState.OPEN,
             base_approval__isnull=True,
             identifier__in={identifier for _run_type, identifier, _hash in pictures},
             effective_base_hash__in={content_hash for _run_type, _identifier, content_hash in pictures},
         )
         .exclude(effective_base_hash=F("ledger_base_hash"))
-        .only("id", "pr_number", "run_type", "state", "identifier", "effective_base_hash")
     )
     return [row for row in rows if (row.run_type, row.identifier, row.effective_base_hash) in pictures]
 
@@ -512,24 +511,22 @@ def open_approvals_made_over(closed: list[BaselineApproval]) -> list[BaselineApp
     """The open approvals whose chain of base approvals reaches one of the closed approvals.
 
     A closed row in the chain is followed too, because a later approval of the same pull request
-    names the row it replaced.
+    names the row it replaced. A row written before `base_approval` existed is matched by the
+    picture it was made over, at every step of the chain.
     """
     if not closed:
         return []
     seen = {approval.id for approval in closed} | _same_picture_predecessors(closed)
-    made_over = _open_approvals_made_over_by_hash(closed)
-    frontier = set(seen) | {approval.id for approval in made_over}
-    seen |= frontier
-    while frontier:
-        rows = list(
-            BaselineApproval.objects.using(WRITER_DB)
-            .filter(team_id=closed[0].team_id, repo_id=closed[0].repo_id, base_approval_id__in=frontier)
-            .exclude(id__in=seen)
-            .only("id", "pr_number", "run_type", "state")
+    lower, lower_ids = closed, set(seen)
+    made_over: list[BaselineApproval] = []
+    while lower_ids:
+        linked = BaselineApproval.objects.using(WRITER_DB).filter(
+            team_id=closed[0].team_id, repo_id=closed[0].repo_id, base_approval_id__in=lower_ids
         )
-        frontier = {row.id for row in rows}
-        seen |= frontier
-        made_over += [row for row in rows if row.state == BaselineApprovalState.OPEN]
+        rows = {row.id: row for row in [*linked, *_made_over_by_hash(lower)] if row.id not in seen}
+        seen |= set(rows)
+        made_over += [row for row in rows.values() if row.state == BaselineApprovalState.OPEN]
+        lower, lower_ids = list(rows.values()), set(rows)
     return made_over
 
 
