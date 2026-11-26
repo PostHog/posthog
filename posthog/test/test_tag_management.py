@@ -216,6 +216,18 @@ class TestTagManagement(BaseTest):
             with self.subTest(target_id=target_id), self.assertRaises((Tag.DoesNotExist, ValidationError)):
                 merge_tags(self.team.id, self.source.id, target_id, self.user)
 
+    def test_assignment_lock_accepts_bigint_parent_team_column(self) -> None:
+        # Production created parent_team_id as bigint, while the test schema builds it as integer.
+        with connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute("ALTER TABLE posthog_team ALTER COLUMN parent_team_id TYPE bigint")
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+
+        tag, created = Tag.objects.get_or_create(team_id=child.id, name="from child")
+
+        self.assertTrue(created)
+        self.assertEqual(tag.team_id, self.team.id)
+
 
 class TestTagManagementTransactions(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
