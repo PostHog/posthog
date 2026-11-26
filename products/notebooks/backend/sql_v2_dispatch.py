@@ -15,6 +15,7 @@ from django.utils.timezone import now
 
 import structlog
 
+from posthog.hogql.database.database import current_credential_denied_scopes
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -468,6 +469,7 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
             connection_id=request.connection_id,
             send_raw_query=request.send_raw_query,
             status=NotebookNodeRun.Status.RUNNING,
+            credential_denied_scopes=sorted(current_credential_denied_scopes()) or None,
         )
     except Exception:
         # No row means no release site will ever learn this run id, so hand the slots back

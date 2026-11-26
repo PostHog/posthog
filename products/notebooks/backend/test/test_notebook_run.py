@@ -23,6 +23,7 @@ from products.notebooks.backend.temporal.notebook_run import (
     read_notebook_run_status_activity,
 )
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput, dispatch_sql_v2_run_activity
+from products.notebooks.backend.test.test_sql_v2 import _set_tracing_access
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -367,6 +368,25 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert withheld["cells"][0]["status"] == "failed"
         assert withheld["cells"][0]["error"] is None
         assert allowed["cells"][0]["error"] == 'relation "secret_table" does not exist'
+
+    @parameterized.expand([("none", None), ("viewer", "KeyError: 'GET /api'")])
+    def test_a_cell_error_from_a_gated_read_follows_the_readers_access(self, _start, access_level, expected) -> None:
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        _set_tracing_access(self, access_level)
+        with team_scope(self.team.id):
+            NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                notebook_run=NotebookRun.objects.get(id=run_id),
+                node_id="s1",
+                code="x = spans['GET /api']",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                envelope={"status": "error", "read_scopes": ["tracing"]},
+                status=NotebookNodeRun.Status.FAILED,
+                error="KeyError: 'GET /api'",
+            )
+
+        assert self.client.get(f"{self.runs_url}{run_id}/").json()["cells"][0]["error"] == expected
 
     @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     def test_a_retried_dispatch_reuses_the_cell_it_already_started(self, mock_enqueue, _start) -> None:

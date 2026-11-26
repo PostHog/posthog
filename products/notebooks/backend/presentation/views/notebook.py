@@ -30,6 +30,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import BaseThrottle
 
+from posthog.hogql.database.database import credential_denied_scopes
 from posthog.hogql.direct_connection import (
     get_direct_connection_source,
     raw_query_uses_organization_grant,
@@ -53,7 +54,7 @@ from posthog.models.activity_logging.activity_log import Change, changes_between
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
 from posthog.permissions import request_subject
-from posthog.query_status_access import assert_read_scopes_readable
+from posthog.query_status_access import assert_read_scopes_readable, credential_lacking_scopes, read_scopes_readable
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -2158,6 +2159,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         self._require_query_access()
 
         cells = build_notebook_cell_state(self.team_id, notebook)
+        for cell in cells:
+            if cell.last_run and not read_scopes_readable(
+                cell.last_run.get("read_scopes") or [], self.team, user, self.request
+            ):
+                cell.last_run.update(row_count=None, columns=None, error=None)
         runtime = (
             KernelRuntime.objects.filter(
                 team_id=self.team_id,
@@ -2237,12 +2243,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             reuse_results=serializer.validated_data["reuse_results"],
         )
         try:
-            dispatch = dispatch_cell_run(
-                team_id=self.team_id,
-                notebook_short_id=notebook.short_id,
-                user_id=user.id if isinstance(user, User) else None,
-                request=run_request,
-            )
+            with credential_denied_scopes(credential_lacking_scopes(request)):
+                dispatch = dispatch_cell_run(
+                    team_id=self.team_id,
+                    notebook_short_id=notebook.short_id,
+                    user_id=user.id if isinstance(user, User) else None,
+                    request=run_request,
+                )
         except NodeRunInvalid as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunBusy as e:
@@ -2300,14 +2307,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     variables_update.is_valid(raise_exception=True)
                     notebook = variables_update.save()
 
-                start = start_notebook_run(
-                    team_id=self.team_id,
-                    notebook_short_id=notebook.short_id,
-                    user_id=user.id if isinstance(user, User) else None,
-                    # A session cookie is the editor; anything else is a programmatic client.
-                    trigger=classify_request_source(request)[0],
-                    include_prepared_insights=include_prepared_insights,
-                )
+                with credential_denied_scopes(credential_lacking_scopes(request)):
+                    start = start_notebook_run(
+                        team_id=self.team_id,
+                        notebook_short_id=notebook.short_id,
+                        user_id=user.id if isinstance(user, User) else None,
+                        # A session cookie is the editor; anything else is a programmatic client.
+                        trigger=classify_request_source(request)[0],
+                        include_prepared_insights=include_prepared_insights,
+                    )
         except (NotebookRunNothingToRun, NotebookCellLimitExceeded, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:
@@ -2382,7 +2390,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response(NotebookRunStatusResponseSerializer(status).data)
 
     def _redact_inaccessible_cell_errors(self, cells: list[dict[str, Any]], user: User | None) -> None:
-        """Blank the error of any cell that ran on a data source this caller cannot reach.
+        """Blank the error of any cell that ran on a data source, or read a gated resource, this caller cannot reach.
 
         The cell-result endpoint gates the whole read on `_require_run_connection_access`,
         because notebook plus query access does not imply source access. This endpoint serves
@@ -2390,8 +2398,26 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         carry the engine's own message — rather than refusing the run. Sources are resolved
         once each, not once per cell.
         """
+        # Only failed cells need their scopes, and only those envelopes are read: this endpoint is
+        # polled and the envelopes run to megabytes.
+        errored_run_ids = [cell["run_id"] for cell in cells if cell.get("error") and cell.get("run_id")]
+        read_scopes_by_run = (
+            {
+                str(run.id): stored_run_read_scopes(run, self.team)
+                for run in NotebookNodeRun.objects.for_team(self.team_id)
+                .filter(id__in=errored_run_ids)
+                .only("id", "node_type", "envelope", "code")
+            }
+            if errored_run_ids
+            else {}
+        )
         access_by_source: dict[tuple[str, bool], bool] = {}
         for cell in cells:
+            if cell.get("error") and not read_scopes_readable(
+                read_scopes_by_run.get(cell.get("run_id") or "", []), self.team, user, self.request
+            ):
+                cell["error"] = None
+                continue
             connection_id = cell.get("connection_id")
             if not connection_id or not cell.get("error"):
                 continue

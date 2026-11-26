@@ -215,6 +215,10 @@ class KernelRuntime(UUIDTModel):
     # arrive out of order, so a slow older callback must not overwrite a newer snapshot. Runs
     # are created before dispatch, so created_at orders them the same way the kernel ran them.
     frames_run_created_at = models.DateTimeField(null=True, blank=True)
+    # Resources gating every `posthog.*` table the data plane served this kernel, recorded by the
+    # server. Any later output of the kernel may carry those rows, through a cached input or a
+    # DuckDB frame built from one, so each run's callback stamps the whole set on its envelope.
+    read_scopes: JSONField = JSONField(default=None, null=True, blank=True)
     # The shape this sandbox was actually provisioned with. The notebook holds the configured
     # shape, which a live kernel does not adopt until it restarts, so pricing the running sandbox
     # needs the size recorded here rather than derived from the notebook. Null on rows created
@@ -272,6 +276,9 @@ class NotebookRun(TeamScopedRootMixin, UUIDModel):
     # The cells to run, as [{node_id, cell_type, dataframe_name}] in document order, frozen at
     # start. An edit during the run does not add or remove cells from it.
     cell_plan: JSONField = JSONField(default=list, blank=True)
+    # Resources whose `posthog.*` tables the credential that started this may not read, though its user
+    # may (a scoped key). Every query the run makes later, without that request, is denied them too.
+    credential_denied_scopes: JSONField = JSONField(default=None, null=True, blank=True)
     # How far through `cell_plan` the orchestrator is; the status endpoint reads it.
     current_index = models.IntegerField(default=0, db_default=0)
     failed_node_id = models.CharField(max_length=128, null=True, blank=True)
@@ -373,6 +380,9 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # are transient (starting/stopped/discarded/error) and run history must not be coupled
     # to their churn.
     kernel_runtime_id = models.UUIDField(null=True, blank=True)
+    # Resources whose `posthog.*` tables the credential that started this may not read, though its user
+    # may (a scoped key). Every query the run makes later, without that request, is denied them too.
+    credential_denied_scopes: JSONField = JSONField(default=None, null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
