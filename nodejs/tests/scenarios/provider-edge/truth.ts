@@ -15,6 +15,7 @@ export type TruthRecord = {
     unitId?: string
     actionId?: string
     flowId?: string
+    invocationId?: string
     status: number
     fault?: string
     detail: {

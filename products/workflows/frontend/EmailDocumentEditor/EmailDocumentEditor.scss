@@ -12,7 +12,8 @@
         outline: none;
 
         > * + *,
-        .email-canvas-column > * + * {
+        .email-canvas-column > * + *,
+        .email-canvas-section > * + * {
             margin-top: 0;
         }
 
@@ -179,6 +180,11 @@
         @container email-canvas (max-width: 380px) {
             flex-direction: column;
         }
+    }
+
+    .email-canvas-section:hover {
+        outline: 1px dashed rgb(128 128 128 / 50%);
+        outline-offset: -1px;
     }
 
     // An overlay rather than an outline, because a positioned image or the next section would paint over an outline.

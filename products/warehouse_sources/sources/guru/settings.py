@@ -173,6 +173,29 @@ GURU_ENDPOINTS: dict[str, GuruEndpointConfig] = {
             parent_params=KNOWLEDGE_ALERT_PARAMS,
         ),
     ),
+    "card_templates": GuruEndpointConfig(
+        name="card_templates",
+        path="/templates/cards",
+        partition_key="dateCreated",
+    ),
+    "collection_group_access": GuruEndpointConfig(
+        name="collection_group_access",
+        path="/collections/{collectionId}/groups",
+        # A group can have access to several collections, so the group id is only unique per collection.
+        primary_key=["collection_id", "groupId"],
+        fanout=DependentEndpointConfig(
+            parent_name="collections",
+            resolve_param="collectionId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "collection_id"},
+        ),
+    ),
+    "knowledge_agents": GuruEndpointConfig(
+        name="knowledge_agents",
+        path="/knowledgeagents",
+        partition_key="dateCreated",
+    ),
 }
 
 ENDPOINTS = tuple(GURU_ENDPOINTS.keys())

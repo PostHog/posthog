@@ -15,6 +15,10 @@ def set_home_tab_dashboard(*, team_id: int, dashboard_id: int | None) -> None:
     config.save(update_fields=["dashboard"])
 
 
+def clear_home_tab_dashboard(*, team_id: int, dashboard_id: int) -> None:
+    TeamHomeTabDashboardConfig.objects.for_team(team_id).filter(dashboard_id=dashboard_id).update(dashboard=None)
+
+
 def remove_quick_filter_from_dashboards(*, team_id: int, quick_filter_id: str) -> int:
     with connection.cursor() as cursor:
         # Rebuilds each matching dashboard's JSONB array without the id. jsonb_agg returns NULL when

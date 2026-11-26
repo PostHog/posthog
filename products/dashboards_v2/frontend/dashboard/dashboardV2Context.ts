@@ -1,6 +1,8 @@
 import { createContext, useContext } from 'react'
 
 import type { DashboardV2Action } from '../access/dashboardV2Access'
+import type { FiltersController } from '../filters/useFiltersController'
+import type { TimeRangeController } from '../time/useTimeRangeController'
 import type { WidgetDefinition } from '../widgets/widgetDefinition'
 import type { AutoRefreshProps } from './AutoRefreshButton'
 import type { DashboardEdit, View } from './dashboardEdits'
@@ -38,6 +40,18 @@ export interface DashboardV2Controller {
      * every chart's query again, and calls `onRefresh` for anything else the host reloads.
      */
     refresh?: RefreshController
+    /**
+     * Left out, the dashboard has no filters. With it, an editor can allow filters on the dashboard, and then add any of
+     * `types`. A host adds its own kinds of filter to `types`. Each viewer's picked values live with the host, such as in
+     * the URL, and are never saved with the dashboard.
+     * `useFiltersController` keeps them in component state.
+     */
+    filters?: FiltersController
+    /**
+     * Left out, the dashboard shows its saved range with no picker. With it, a viewer picks a range that overrides the
+     * saved one and is never saved. `useTimeRangeController` keeps it in component state.
+     */
+    timeRange?: TimeRangeController
     /** Left out, the dashboard shows no undo or redo. */
     history?: { canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void }
 }

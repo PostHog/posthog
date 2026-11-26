@@ -1,20 +1,16 @@
-import {
-    IconApps,
-    IconChat,
-    IconDecisionTree,
-    IconDatabase,
-    IconFlag,
-    IconGear,
-    IconHome,
-    IconPeople,
-    IconPulse,
-    IconSidebarClose,
-    IconSidebarOpen,
-} from '@posthog/icons'
+import { IconGear, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
-import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
 
+import { IconTodayAnalytics } from './rail-icons/IconTodayAnalytics'
+import { IconTodayAutomate } from './rail-icons/IconTodayAutomate'
+import { IconTodayChats } from './rail-icons/IconTodayChats'
+import { IconTodayData } from './rail-icons/IconTodayData'
+import { IconTodayHome } from './rail-icons/IconTodayHome'
+import { IconTodayMonitor } from './rail-icons/IconTodayMonitor'
+import { IconTodayPeople } from './rail-icons/IconTodayPeople'
+import { IconTodayProducts } from './rail-icons/IconTodayProducts'
+import { IconTodayRelease } from './rail-icons/IconTodayRelease'
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
 import { TodayNewPeopleButton } from './TodayNewPeopleButton'
@@ -29,20 +25,25 @@ export interface TodayPane {
 }
 
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
-    home: { label: 'Home', title: 'Today', icon: <IconHome /> },
+    home: { label: 'Home', title: 'Home', icon: <IconTodayHome /> },
     spaces: {
         label: 'Chats',
         title: 'Chats',
-        icon: <IconChat />,
+        icon: <IconTodayChats />,
         action: TodayNewChatButton,
     },
-    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
-    monitor: { label: 'Monitor', title: 'Monitor', icon: <IconPulse /> },
-    people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
-    release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
-    automate: { label: 'Automate', title: 'Automate', icon: <IconDecisionTree /> },
-    data: { label: 'Data', title: 'Data', icon: <IconDatabase /> },
-    products: { label: 'Products', title: 'Products', icon: <IconApps /> },
+    analytics: {
+        label: 'Analytics',
+        title: 'Analytics',
+        icon: <IconTodayAnalytics />,
+        action: TodayNewAnalyticsButton,
+    },
+    monitor: { label: 'Monitor', title: 'Monitor', icon: <IconTodayMonitor /> },
+    people: { label: 'People', title: 'People', icon: <IconTodayPeople />, action: TodayNewPeopleButton },
+    release: { label: 'Release', title: 'Release', icon: <IconTodayRelease /> },
+    automate: { label: 'Automate', title: 'Automate', icon: <IconTodayAutomate /> },
+    data: { label: 'Data', title: 'Data', icon: <IconTodayData /> },
+    products: { label: 'Products', title: 'Products', icon: <IconTodayProducts /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
 

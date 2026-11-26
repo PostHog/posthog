@@ -270,7 +270,7 @@ class TestConversionRecommendations(APIBaseTest):
                 )
             ]
         )
-        with patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client):
+        with patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client):
             ConversionRecommendationService(child, self.user).execute(run_id)
         run = ConversionRecommendationRun.objects.for_team(child.pk).get(pk=run_id)
         self.assertEqual(run.status, ConversionRecommendationRun.Status.COMPLETED, run.error)
@@ -330,7 +330,7 @@ class TestConversionRecommendations(APIBaseTest):
             patch(
                 "posthog.hogql.query.execute_hogql_query", side_effect=AssertionError("No event scan allowed")
             ) as query,
-            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
+            patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client),
         ):
             ConversionRecommendationService(self.team, self.user).execute(str(run.id))
         run.refresh_from_db()
@@ -402,7 +402,7 @@ class TestConversionRecommendations(APIBaseTest):
         )
         EventDefinition.objects.create(team=self.team, name="order_settled")
         EventDefinition.objects.create(team=self.team, name="trial_started")
-        with patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client):
+        with patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client):
             ConversionRecommendationService(self.team, self.user).execute(str(run.id))
         payload = json.loads(client.messages.create.call_args.kwargs["messages"][0]["content"])
         self.assertEqual(
@@ -492,7 +492,7 @@ class TestConversionRecommendations(APIBaseTest):
             ),
         ]
         with (
-            patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client", return_value=client),
+            patch("posthog.llm.gateway_client.build_anthropic_client", return_value=client),
             patch(
                 "products.marketing_analytics.backend.services.conversion_recommendations.MAX_CATALOG_CHARACTERS", 1600
             ),

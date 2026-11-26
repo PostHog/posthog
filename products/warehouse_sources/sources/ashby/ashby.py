@@ -185,6 +185,7 @@ def _listed_pages(
                 resumable_source_manager.save_state(AshbyResumeConfig(cursor=cursor, variant_index=at))
 
         body: dict[str, Any] = {} if config.page_size is None else {"limit": config.page_size}
+        body.update(config.extra_body)
         if config.variant_param and variant is not None:
             body[config.variant_param] = variant
 
