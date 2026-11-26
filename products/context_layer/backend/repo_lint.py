@@ -37,6 +37,8 @@ SLACK_CHANNELS_DIRECTORY = "slack-channels"
 # Slack workspace and channel ids are uppercase alphanumerics (T…, C…, G…). The
 # channel id is also the page's file name, so nothing else may reach the path.
 SLACK_ID_RE = re.compile(r"[A-Z0-9]{2,32}")
+# Pages under projects/<team_id>/<kind>/ that belong to that project and must say so in `team_id`.
+PROJECT_PAGE_KIND_LABELS = {"spaces": "Space", SLACK_CHANNELS_DIRECTORY: "Slack channel"}
 REQUIRED_AGENTS_FRAGMENTS = (
     "## Admission test",
     "A fact enters the wiki only if it changes a durable fact, decision, priority, ownership, reusable definition, constraint, or an evidenced recurring pattern.",
@@ -133,23 +135,17 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
         if directory == "decisions" and not DECISION_FILE_RE.fullmatch(path.name):
             errors.append(f"{relative}: decision pages must be named <YYYY-MM-DD>-<slug>.md")
         fields = _frontmatter(path)
-        is_space_page = (
-            directory == "projects"
-            and len(relative.parts) == 4
-            and relative.parts[2] == "spaces"
-            and path.name != "index.md"
+        page_kind = (
+            relative.parts[2]
+            if directory == "projects" and len(relative.parts) == 4 and path.name != "index.md"
+            else None
         )
-        if is_space_page and not fields.get("channel_id"):
+        if page_kind == "spaces" and not fields.get("channel_id"):
             errors.append(f"{relative}: Space pages need a non-empty `channel_id` in their frontmatter")
-        if is_space_page and fields.get("team_id") != relative.parts[1]:
-            errors.append(f"{relative}: Space pages need `team_id: {relative.parts[1]}` in their frontmatter")
-        is_slack_channel_page = (
-            directory == "projects"
-            and len(relative.parts) == 4
-            and relative.parts[2] == SLACK_CHANNELS_DIRECTORY
-            and path.name != "index.md"
-        )
-        if is_slack_channel_page:
+        if page_kind in PROJECT_PAGE_KIND_LABELS and fields.get("team_id") != relative.parts[1]:
+            label = PROJECT_PAGE_KIND_LABELS[page_kind]
+            errors.append(f"{relative}: {label} pages need `team_id: {relative.parts[1]}` in their frontmatter")
+        if page_kind == SLACK_CHANNELS_DIRECTORY:
             errors.extend(f"{relative}: {problem}" for problem in _slack_channel_page_problems(relative, fields))
         if path.name == "index.md":
             continue
@@ -185,8 +181,6 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
 
 def _slack_channel_page_problems(relative: Path, fields: dict[str, str]) -> list[str]:
     problems: list[str] = []
-    if fields.get("team_id") != relative.parts[1]:
-        problems.append(f"Slack channel pages need `team_id: {relative.parts[1]}` in their frontmatter")
     if not SLACK_ID_RE.fullmatch(relative.stem):
         problems.append("Slack channel pages must be named <slack-channel-id>.md")
     elif fields.get("slack_channel_id") != relative.stem:

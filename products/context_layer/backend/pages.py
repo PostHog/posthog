@@ -218,11 +218,6 @@ def slack_channel_page_path(team_id: int, slack_channel_id: str) -> str:
     return f"projects/{team_id}/{repo_lint.SLACK_CHANNELS_DIRECTORY}/{slack_channel_id}.md"
 
 
-def resolve_slack_channel_page(organization_id: uuid.UUID | str, *, team_id: int, slack_channel_id: str) -> str | None:
-    path = slack_channel_page_path(team_id, slack_channel_id)
-    return path if path in get_tree(organization_id).paths else None
-
-
 def _channel_details(organization_id: uuid.UUID | str, channel_id: uuid.UUID | str) -> tuple[int, str] | None:
     """The project id and name of an organization's public channel, or None.
 
