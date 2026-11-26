@@ -58,6 +58,7 @@ _VIEWS = "products.stamphog.backend.presentation.views"
 _GITHUB_FACADE = "products.stamphog.backend.facade.github"
 _CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
 _SWITCH_ON = {"review_on_clean_external_review": True}
+_HUMAN_REQUESTS_ON = {"human_request_enabled": True, "human_request_slack_channel_id": "C0123456789"}
 
 
 def _install_state(team_id: int, user_id: int) -> str:
@@ -105,6 +106,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
             ("routing_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
             ("review_on_clean_external_review", {"review_on_clean_external_review": True}),
+            ("human_request_channel", _HUMAN_REQUESTS_ON),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -184,6 +186,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
             ("sets_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
             ("turns_clean_review_trigger_on", {"review_on_clean_external_review": True}),
+            ("turns_human_requests_on", _HUMAN_REQUESTS_ON),
         ]
     )
     def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -663,6 +666,40 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["digest_enabled"] is False
+
+    @parameterized.expand(
+        [
+            ("create_without_channel", None, {"repository": "PostHog/posthog", "human_request_enabled": True}, False),
+            ("create_with_channel", None, {"repository": "PostHog/posthog", **_HUMAN_REQUESTS_ON}, True),
+            ("switch_on_without_stored_channel", (False, ""), {"human_request_enabled": True}, False),
+            ("switch_on_with_stored_channel", (False, "C0123456789"), {"human_request_enabled": True}, True),
+            ("clear_channel_while_on", (True, "C0123456789"), {"human_request_slack_channel_id": " "}, False),
+            (
+                "clear_channel_and_switch_off",
+                (True, "C0123456789"),
+                {"human_request_enabled": False, "human_request_slack_channel_id": ""},
+                True,
+            ),
+        ]
+    )
+    def test_human_requests_need_a_channel(
+        self, _name: str, stored: tuple[bool, str] | None, data: dict, expected_valid: bool
+    ) -> None:
+        # A request with no channel would be accepted and then never reach anybody.
+        current = None
+        if stored is not None:
+            current = dataclasses.replace(
+                _repo_config_dto(enabled=True, digest_enabled=False),
+                human_request_enabled=stored[0],
+                human_request_slack_channel_id=stored[1],
+            )
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
+            data=data, partial=current is not None, partial_update=current is not None, current=current
+        )
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "human_request_slack_channel_id" in serializer.errors
 
     @parameterized.expand(
         [
@@ -1336,6 +1373,9 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             routing_mode=RoutingMode.ALWAYS,
             routing_fork_labels={"team-alpha": "area: alpha"},
             review_on_clean_external_review=True,
+            human_request_enabled=True,
+            human_request_slack_channel_id="C0123456789",
+            human_request_slack_channel_name="reviews",
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1354,6 +1394,11 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.routing_mode == RoutingMode.OFF
         assert manual.routing_fork_labels == {}
         assert manual.review_on_clean_external_review is False
+        assert (
+            manual.human_request_enabled,
+            manual.human_request_slack_channel_id,
+            manual.human_request_slack_channel_name,
+        ) == (False, "", "")
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)

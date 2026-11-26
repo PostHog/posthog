@@ -121,6 +121,9 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         routing_mode=obj.routing_mode,
         routing_fork_labels=fork_labels(obj),
         review_on_clean_external_review=obj.review_on_clean_external_review,
+        human_request_enabled=obj.human_request_enabled,
+        human_request_slack_channel_id=obj.human_request_slack_channel_id,
+        human_request_slack_channel_name=obj.human_request_slack_channel_name,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -509,6 +512,9 @@ def create_repo_config(
     routing_mode: str | None = None,
     routing_fork_labels: dict[str, str] | None = None,
     review_on_clean_external_review: bool | None = None,
+    human_request_enabled: bool | None = None,
+    human_request_slack_channel_id: str | None = None,
+    human_request_slack_channel_name: str | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -529,6 +535,12 @@ def create_repo_config(
         fields["routing_fork_labels"] = routing_fork_labels
     if review_on_clean_external_review is not None:
         fields["review_on_clean_external_review"] = review_on_clean_external_review
+    if human_request_enabled is not None:
+        fields["human_request_enabled"] = human_request_enabled
+    if human_request_slack_channel_id is not None:
+        fields["human_request_slack_channel_id"] = human_request_slack_channel_id
+    if human_request_slack_channel_name is not None:
+        fields["human_request_slack_channel_name"] = human_request_slack_channel_name
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:

@@ -17,9 +17,13 @@ from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
 from .facade.enums import (
+    ACTIVE_HUMAN_REQUEST_STATUSES,
     AudienceReason,
     ChannelResolutionSource,
     DigestRunStatus,
+    HumanRequestDeliveryKind,
+    HumanRequestSource,
+    HumanRequestStatus,
     LlmSkipReason,
     OwnerKind,
     ReviewMode,
@@ -74,6 +78,11 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     routing_fork_labels = models.JSONField(default=dict, db_default={})
     # Off by default: a clean external review starts a review outside review_mode, which widens when stamphog runs.
     review_on_clean_external_review = models.BooleanField(default=False, db_default=False)
+    # Off by default: when on, `stamp --human` posts a pull request that stamphog did not approve to
+    # this Slack channel, so a person reviews it. db_default on all three for the same deploy reason.
+    human_request_enabled = models.BooleanField(default=False, db_default=False)
+    human_request_slack_channel_id = models.CharField(max_length=64, blank=True, default="", db_default="")
+    human_request_slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -451,3 +460,105 @@ class RoutingRunOwner(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.owner} {self.outcome} ({self.reason})"
+
+
+class HumanRequest(ProductTeamModel):
+    """A request for a person to review one pull request when stamphog does not approve it.
+
+    It follows the pull request across heads until a person or stamphog approves, or the pull
+    request merges or closes. A pull request has at most one active request, so asking again
+    returns the existing one rather than posting a second message.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="human_requests")
+    status = models.CharField(
+        max_length=32, choices=HumanRequestStatus.choices, default=HumanRequestStatus.PENDING.value
+    )
+    # The head the request follows now. A push moves it, and the status is decided for this head.
+    head_sha = models.CharField(max_length=64)
+    # The PostHog user who asked (plain id, no FK: multi-DB product). Null when a Slack user who
+    # asked has no PostHog account.
+    requested_by_user_id = models.BigIntegerField(null=True, blank=True)
+    requested_via = models.CharField(max_length=16, choices=HumanRequestSource.choices)
+    # Blank unless the request came from Slack.
+    requester_slack_user_id = models.CharField(max_length=64, blank=True, default="")
+    # Only a Slack request carries a note. Pull request comments are public, so the note never goes to GitHub.
+    note = models.CharField(max_length=200, blank=True, default="")
+    # The GitHub login of the person whose approval of head_sha set APPROVED.
+    approved_by_login = models.CharField(max_length=255, blank=True, default="")
+    # The head that already sent its one thread reply to the people looking, so a retry does not reply twice.
+    pinged_head_sha = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            # Backs the idempotent create: two requests that race for one pull request cannot both be active.
+            models.UniqueConstraint(
+                fields=["pull_request"],
+                # Sorted, because set order changes between processes and would make makemigrations see a change.
+                condition=Q(status__in=sorted(status.value for status in ACTIVE_HUMAN_REQUEST_STATUSES)),
+                name="unique_stamphog_active_human_request",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"human request {self.status} at {self.head_sha[:10]}"
+
+
+class HumanRequestDelivery(ProductTeamModel):
+    """Where one human request was posted, so that it can be edited in place."""
+
+    class State(models.TextChoices):
+        # The row exists before the first post, so a retry locks it and does not post a second time.
+        PENDING = "pending", "Pending"
+        POSTED = "posted", "Posted"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    # The unique constraint below leads with the request, so it serves the lookups a plain FK index would.
+    human_request = models.ForeignKey(HumanRequest, on_delete=models.CASCADE, related_name="deliveries", db_index=False)
+    kind = models.CharField(max_length=32, choices=HumanRequestDeliveryKind.choices)
+    # The integration that posted the message. An edit must use the same bot token, because a
+    # message can only be edited by the app that posted it.
+    integration_id = models.BigIntegerField(null=True, blank=True)
+    channel_id = models.CharField(max_length=64, blank=True, default="")
+    message_ts = models.CharField(max_length=32, blank=True, default="")
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["human_request", "kind"], name="unique_stamphog_human_request_delivery"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.state}"
+
+
+class HumanRequestParticipant(ProductTeamModel):
+    """A Slack user who said they will look at a human request."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    # The unique constraint below leads with the request, so it serves the lookups a plain FK index would.
+    human_request = models.ForeignKey(
+        HumanRequest, on_delete=models.CASCADE, related_name="participants", db_index=False
+    )
+    slack_user_id = models.CharField(max_length=64)
+    display_name = models.CharField(max_length=255, blank=True, default="")
+    # False after they stop looking. The row stays, so a second click turns it back on rather than adding a row.
+    looking = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["human_request", "slack_user_id"], name="unique_stamphog_human_request_participant"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.display_name or self.slack_user_id} ({'looking' if self.looking else 'stopped'})"

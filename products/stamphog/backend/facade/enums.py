@@ -183,6 +183,40 @@ class ReviewRequestRefusal(StrEnum):
     GITHUB_UNAVAILABLE = "github_unavailable"
 
 
+class HumanRequestStatus(LabeledStrEnum):
+    """Where a request for a person to review one pull request stands."""
+
+    # Stamphog has not decided the head yet, so nothing is posted.
+    PENDING = "pending", "Waiting for Stamphog"
+    # Stamphog did not approve, so the request is posted and waits for a person.
+    OPEN = "open", "Waiting for a person"
+    # A person approved the current head. A push that makes the approval stale sets OPEN again.
+    APPROVED = "approved", "Approved by a person"
+    STAMPHOG_APPROVED = "stamphog_approved", "Approved by Stamphog"
+    MERGED = "merged", "Merged"
+    CLOSED = "closed", "Closed"
+
+
+# A pull request has at most one request in these states. The other states are final.
+ACTIVE_HUMAN_REQUEST_STATUSES = frozenset(
+    {HumanRequestStatus.PENDING, HumanRequestStatus.OPEN, HumanRequestStatus.APPROVED}
+)
+
+
+class HumanRequestSource(LabeledStrEnum):
+    """Where somebody asked for a person to review a pull request."""
+
+    GITHUB = "github", "Pull request comment"
+    SLACK = "slack", "Slack"
+    API = "api", "API"
+
+
+class HumanRequestDeliveryKind(LabeledStrEnum):
+    """Where a request for a person was posted."""
+
+    SLACK_MESSAGE = "slack_message", "Slack message"
+
+
 class ReviewVerdict(StrEnum):
     NONE = "none"
     APPROVED = "approved"

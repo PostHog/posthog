@@ -81,6 +81,22 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
     )
 
 
+HUMAN_REQUEST_ENABLED_HELP = (
+    "Whether `stamp --human` and review requests with human set to true may ask people to review. When "
+    "auto-approval does not approve the pull request, it posts the pull request to "
+    "human_request_slack_channel_id. Turning it on needs a channel. Defaults to false."
+)
+HUMAN_REQUEST_CHANNEL_ID_HELP = (
+    "Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to "
+    "review. It uses the project's Slack integration, which must be able to post in the channel. Blank when "
+    "no channel is set."
+)
+HUMAN_REQUEST_CHANNEL_NAME_HELP = (
+    "Display name of the Slack channel in human_request_slack_channel_id, without the '#'. Shown in replies "
+    "only, so a stale name does not change where requests go."
+)
+
+
 @extend_schema_serializer(component_name="CodeReviewApprovalRepository")
 class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
     user_access_level = serializers.SerializerMethodField(
@@ -88,7 +104,8 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the code review auto-approval resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review."
+            "review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, "
+            "human_request_enabled, human_request_slack_channel_id or human_request_slack_channel_name."
         ),
     )
 
@@ -156,6 +173,9 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
             "routing_mode",
             "routing_fork_labels",
             "review_on_clean_external_review",
+            "human_request_enabled",
+            "human_request_slack_channel_id",
+            "human_request_slack_channel_name",
             "user_access_level",
             "created_at",
             "updated_at",
@@ -202,6 +222,18 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
                     "review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent "
                     "review before routing. Defaults to false."
                 ),
+            },
+            "human_request_enabled": {
+                "read_only": True,
+                "help_text": HUMAN_REQUEST_ENABLED_HELP,
+            },
+            "human_request_slack_channel_id": {
+                "read_only": True,
+                "help_text": HUMAN_REQUEST_CHANNEL_ID_HELP,
+            },
+            "human_request_slack_channel_name": {
+                "read_only": True,
+                "help_text": HUMAN_REQUEST_CHANNEL_NAME_HELP,
             },
         }
 
@@ -934,6 +966,14 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
         ),
     )
 
+    human_request_enabled = serializers.BooleanField(required=False, help_text=HUMAN_REQUEST_ENABLED_HELP)
+    human_request_slack_channel_id = serializers.CharField(
+        required=False, allow_blank=True, max_length=64, help_text=HUMAN_REQUEST_CHANNEL_ID_HELP
+    )
+    human_request_slack_channel_name = serializers.CharField(
+        required=False, allow_blank=True, max_length=255, help_text=HUMAN_REQUEST_CHANNEL_NAME_HELP
+    )
+
     def __init__(
         self,
         *args,
@@ -990,9 +1030,31 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
         if "review_mode" in attrs:
             attrs["review_on_clean_external_review"] = False
 
+    def validate_human_request_slack_channel_id(self, value: str) -> str:
+        return value.strip()
+
+    def validate_human_request_slack_channel_name(self, value: str) -> str:
+        return value.strip().lstrip("#")
+
+    def _validate_human_request_channel(self, attrs: dict[str, Any]) -> None:
+        # Judge the stored row on a PATCH, so clearing the channel of a switched-on repo fails too.
+        enabled = attrs.get("human_request_enabled", self.current.human_request_enabled if self.current else False)
+        channel_id = attrs.get(
+            "human_request_slack_channel_id", self.current.human_request_slack_channel_id if self.current else ""
+        )
+        if enabled and not channel_id:
+            raise serializers.ValidationError(
+                {
+                    "human_request_slack_channel_id": (
+                        "Set a Slack channel before you turn this on. Requests for people to review are posted there."
+                    )
+                }
+            )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
         self._validate_clean_review_switch(attrs)
+        self._validate_human_request_channel(attrs)
         # The digest reports what stamphog approved, so it has nothing to report without the review
         # path running.
         enabled = attrs.get("enabled", self.current.enabled if self.current else True)

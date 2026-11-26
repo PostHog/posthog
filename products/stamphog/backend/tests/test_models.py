@@ -8,11 +8,20 @@ from posthog.test.base import APIBaseTest
 from django.apps import apps
 from django.db import IntegrityError, router
 
+from parameterized import parameterized
+
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
+from products.stamphog.backend.facade.enums import ACTIVE_HUMAN_REQUEST_STATUSES, HumanRequestSource, HumanRequestStatus
+from products.stamphog.backend.models import (
+    HumanRequest,
+    PullRequest,
+    ReviewRun,
+    StamphogInstallation,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 
@@ -118,6 +127,32 @@ class TestReviewRunModel(StamphogTeamScopedTestMixin, APIBaseTest):
 
         results = list(ReviewRun.objects.for_team(self.team.id))
         assert results == [mine]
+
+
+class TestHumanRequestModel(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def _make_request(self, pull_request: PullRequest, status: HumanRequestStatus) -> HumanRequest:
+        return HumanRequest.objects.unscoped().create(
+            team_id=self.team.id,
+            pull_request=pull_request,
+            status=status,
+            head_sha="abc123",
+            requested_via=HumanRequestSource.API,
+        )
+
+    @parameterized.expand([(status.value, status) for status in HumanRequestStatus])
+    def test_a_pull_request_has_one_active_request(self, _name: str, existing: HumanRequestStatus) -> None:
+        # The constraint backs "asking again returns the existing request": two racing requests must not
+        # both be active, or each posts its own message. A finished request must not block a new one.
+        pull_request = _make_pull_request(self.team, _make_repo_config(self.team))
+        self._make_request(pull_request, existing)
+
+        if existing in ACTIVE_HUMAN_REQUEST_STATUSES:
+            with pytest.raises(IntegrityError):
+                self._make_request(pull_request, HumanRequestStatus.PENDING)
+        else:
+            self._make_request(pull_request, HumanRequestStatus.PENDING)
 
 
 class TestInstallationMigrations(StamphogTeamScopedTestMixin, APIBaseTest):
