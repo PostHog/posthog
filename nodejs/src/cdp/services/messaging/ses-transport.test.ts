@@ -72,6 +72,16 @@ const notFound: LookupAnswer = (_options, callback) =>
         })
     )
 
+const networkUnreachable: LookupAnswer = (_options, callback) =>
+    callback(
+        Object.assign(new Error('connect ENETUNREACH 192.0.2.1:443'), {
+            code: 'ENETUNREACH',
+            syscall: 'connect',
+            address: '192.0.2.1',
+            port: 443,
+        })
+    )
+
 type RetryToken = { getRetryCount: () => number; getRetryDelay: () => number }
 
 const retriesTwice = {
@@ -239,6 +249,14 @@ describe('SesTransport', () => {
                 return 'http://ses.invalid'
             },
             'ENOTFOUND',
+        ],
+        [
+            'the network to the SES host is unreachable',
+            (): string => {
+                lookupAnswers('ses.unreachable.test', networkUnreachable)
+                return 'https://ses.unreachable.test'
+            },
+            'ENETUNREACH',
         ],
     ])(
         'when %s, counts a send with files as before_connect with the reason, because it never reached SES',
