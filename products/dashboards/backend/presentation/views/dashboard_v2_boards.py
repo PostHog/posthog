@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.permissions import dashboard_v2_enabled, is_service_auth
@@ -23,6 +24,7 @@ from products.dashboards.backend.facade.contracts import (
     BoardSpecInvalid,
     BoardSummary,
     BoardVersionConflict,
+    BoardVersionNotFound,
 )
 from products.dashboards.backend.facade.enums import BoardManagedBy
 
@@ -84,7 +86,26 @@ class BoardCreateSerializer(serializers.Serializer):
     )
 
 
+class BoardVersionSerializer(serializers.Serializer):
+    version = serializers.IntegerField(help_text="The board's `version` after this save.")
+    message = serializers.CharField(allow_blank=True, help_text="A note on what the save changed. Often empty.")
+    created_at = serializers.DateTimeField(help_text="When this version was saved.")
+    created_by_id = serializers.IntegerField(allow_null=True, help_text="ID of the user who saved this version.")
+
+
+class BoardRestoreSerializer(serializers.Serializer):
+    version = serializers.IntegerField(min_value=1, help_text="The saved version whose document to restore.")
+    base_version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="The `version` this restore is based on. A board at another version answers 409.",
+    )
+
+
 class BoardUpdateSerializer(BoardCreateSerializer):
+    message = serializers.CharField(
+        required=False, allow_blank=True, max_length=1000, help_text="A note on what changed, kept in the history."
+    )
     base_version = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -100,12 +121,22 @@ _INVALID = OpenApiResponse(description="The document's schema version is unknown
 _READ_ONLY = OpenApiResponse(description="The board is built in or managed from code, so it cannot change here.")
 
 
+def _conflict(error: BoardVersionConflict) -> Conflict:
+    return Conflict(
+        f"The board is at version {error.current_version}, and this save is based on version "
+        f"{error.base_version}. Load the board again and redo the change.",
+        code="version_conflict",
+    )
+
+
 class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Saved `dashboard-v2` boards. Each board is one JSON document."""
 
     # Boards share the `dashboard` resource: resource-level access to dashboards covers boards too, and an object
     # rule names a board by its row UUID, which never equals a classic dashboard's integer id.
     scope_object = "dashboard"
+    scope_object_read_actions = ["list", "retrieve", "versions"]
+    scope_object_write_actions = ["create", "partial_update", "destroy", "restore"]
     pagination_class = FacadeLimitOffsetPagination
     serializer_class = BoardDetailSerializer
     lookup_field = "uid"
@@ -189,6 +220,7 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 cast(User, request.user).id,
                 request.validated_data["spec"],
                 request.validated_data.get("base_version"),
+                request.validated_data.get("message", ""),
             )
         except BoardSpecInvalid as error:
             raise exceptions.ValidationError({"spec": str(error)}, code="invalid_spec")
@@ -197,11 +229,47 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except BoardReadOnly:
             raise exceptions.PermissionDenied("This board is read-only.")
         except BoardVersionConflict as error:
-            raise Conflict(
-                f"The board is at version {error.current_version}, and this save is based on version "
-                f"{error.base_version}. Load the board again and redo the change.",
-                code="version_conflict",
+            raise _conflict(error)
+        return Response(BoardDetailSerializer(board).data)
+
+    @extend_schema(responses={200: BoardVersionSerializer(many=True), 404: _NOT_FOUND})
+    @action(methods=["GET"], detail=True)
+    def versions(self, request: Request, uid: str, **kwargs: Any) -> Response:
+        """List a board's saved versions, newest first. Every save adds one, so any change can be restored."""
+        self.get_object()
+        return facade_page_response(
+            self,
+            lambda page: api.list_board_versions(self.team_id, uid, page),
+            serializer_class=BoardVersionSerializer,
+        )
+
+    @validated_request(
+        request_serializer=BoardRestoreSerializer,
+        responses={
+            200: OpenApiResponse(response=BoardDetailSerializer),
+            403: _READ_ONLY,
+            404: _NOT_FOUND,
+            409: OpenApiResponse(description="The board is not at `base_version`. Nothing was saved."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def restore(self, request: ValidatedRequest, uid: str, **kwargs: Any) -> Response:
+        """Save an earlier version's document as the board's next version. History is never rewritten."""
+        self.get_object()
+        try:
+            board = api.restore_board(
+                self.team_id,
+                uid,
+                cast(User, request.user).id,
+                request.validated_data["version"],
+                request.validated_data.get("base_version"),
             )
+        except (BoardNotFound, BoardVersionNotFound):
+            raise exceptions.NotFound()
+        except BoardReadOnly:
+            raise exceptions.PermissionDenied("This board is read-only.")
+        except BoardVersionConflict as error:
+            raise _conflict(error)
         return Response(BoardDetailSerializer(board).data)
 
     @extend_schema(responses={204: None, 403: _READ_ONLY, 404: _NOT_FOUND})

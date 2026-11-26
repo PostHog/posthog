@@ -106,6 +106,23 @@ class TestDashboardV2Boards(APIBaseTest):
         assert self.client.delete(self._url(uid)).status_code == 403
         assert self.client.get(self._url(uid)).json()["title"] == "Kitchen sink"
 
+    def test_every_save_is_kept_and_an_old_version_can_be_restored(self) -> None:
+        uid = self._create(_board("First")).json()["uid"]
+        self.client.patch(self._url(uid), {"spec": _board("Second"), "message": "rename"}, format="json")
+
+        restored = self.client.post(f"{self._url(uid)}restore/", {"version": 1, "base_version": 2}, format="json")
+
+        assert restored.status_code == status.HTTP_200_OK, restored.json()
+        assert (restored.json()["version"], restored.json()["spec"]["title"]) == (3, "First")
+        history = self.client.get(f"{self._url(uid)}versions/").json()["results"]
+        assert [(row["version"], row["message"]) for row in history] == [
+            (3, "Restored version 1"),
+            (2, "rename"),
+            (1, ""),
+        ]
+        missing = self.client.post(f"{self._url(uid)}restore/", {"version": 9}, format="json")
+        assert missing.status_code == status.HTTP_404_NOT_FOUND
+
     def test_update_based_on_an_old_version_is_refused(self) -> None:
         uid = self._create(_board()).json()["uid"]
         self.client.patch(self._url(uid), {"spec": _board("First"), "base_version": 1}, format="json")

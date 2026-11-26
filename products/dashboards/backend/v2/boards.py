@@ -21,9 +21,11 @@ from products.dashboards.backend.facade.contracts import (
     BoardSpecInvalid,
     BoardSummary,
     BoardVersionConflict,
+    BoardVersionNotFound,
+    BoardVersionSummary,
 )
 from products.dashboards.backend.facade.enums import BoardManagedBy
-from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board
+from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board, DashboardV2BoardVersion
 from products.dashboards.backend.v2.board_schema import check_size, folder_of, tags_of, title_of, upgrade
 
 
@@ -97,47 +99,93 @@ def get_board(team_id: int, uid: str) -> BoardDetail:
     return _detail(board)
 
 
+def _record_version(board: DashboardV2Board, user_id: int, message: str) -> None:
+    DashboardV2BoardVersion.objects.for_team(board.team_id).create(
+        team_id=board.team_id,
+        board=board,
+        version=board.version,
+        spec=board.spec,
+        message=message,
+        created_by_id=user_id,
+    )
+
+
 def create_board(team_id: int, user_id: int, spec: dict[str, Any]) -> BoardDetail:
     spec = _prepare(spec)
-    board = DashboardV2Board.objects.for_team(team_id).create(
-        team_id=team_id,
-        spec=spec,
-        title=title_of(spec),
-        tags=tags_of(spec),
-        folder=folder_of(spec),
-        created_by_id=user_id,
-        last_modified_by_id=user_id,
-    )
+    with transaction.atomic():
+        board = DashboardV2Board.objects.for_team(team_id).create(
+            team_id=team_id,
+            spec=spec,
+            title=title_of(spec),
+            tags=tags_of(spec),
+            folder=folder_of(spec),
+            created_by_id=user_id,
+            last_modified_by_id=user_id,
+        )
+        _record_version(board, user_id, "")
     return _detail(board)
 
 
-def update_board(team_id: int, uid: str, user_id: int, spec: dict[str, Any], base_version: int | None) -> BoardDetail:
+def update_board(
+    team_id: int, uid: str, user_id: int, spec: dict[str, Any], base_version: int | None, message: str = ""
+) -> BoardDetail:
     spec = _prepare(spec)
     with transaction.atomic():
-        board = _live(team_id).select_for_update().filter(uid=uid).first()
-        if board is None:
-            raise BoardNotFound(uid)
-        if board.managed_by != BoardManagedBy.NATIVE:
-            raise BoardReadOnly(uid)
-        if base_version is not None and board.version != base_version:
-            raise BoardVersionConflict(current_version=board.version, base_version=base_version)
-        board.spec = spec
-        board.title = title_of(spec)
-        board.tags = tags_of(spec)
-        board.folder = folder_of(spec)
-        # The row is locked, so no other save can move the version between this read and the write.
-        board.version += 1
-        board.last_modified_by_id = user_id
-        board.save(update_fields=["spec", "title", "tags", "folder", "version", "last_modified_by", "last_modified_at"])
+        board = _locked_native(team_id, uid)
+        _save(board, user_id, spec, base_version, message)
     return _detail(board)
+
+
+def restore_board(team_id: int, uid: str, user_id: int, version: int, base_version: int | None) -> BoardDetail:
+    with transaction.atomic():
+        board = _locked_native(team_id, uid)
+        old = DashboardV2BoardVersion.objects.for_team(team_id).filter(board=board, version=version).first()
+        if old is None:
+            raise BoardVersionNotFound(version)
+        _save(board, user_id, _prepare(old.spec), base_version, f"Restored version {version}")
+    return _detail(board)
+
+
+def list_versions(team_id: int, uid: str, page: PageRequest) -> Page[BoardVersionSummary]:
+    board = _live(team_id).filter(uid=uid).only("id").first()
+    if board is None:
+        raise BoardNotFound(uid)
+    rows = DashboardV2BoardVersion.objects.for_team(team_id).filter(board=board).defer("spec").order_by("-version")
+    count = rows.count()
+    results = [
+        BoardVersionSummary(
+            version=row.version, message=row.message, created_at=row.created_at, created_by_id=row.created_by_id
+        )
+        for row in rows[page.offset : page.offset + page.limit]
+    ]
+    return Page(results=results, count=count)
+
+
+def _locked_native(team_id: int, uid: str) -> DashboardV2Board:
+    board = _live(team_id).select_for_update().filter(uid=uid).first()
+    if board is None:
+        raise BoardNotFound(uid)
+    if board.managed_by != BoardManagedBy.NATIVE:
+        raise BoardReadOnly(uid)
+    return board
+
+
+def _save(board: DashboardV2Board, user_id: int, spec: dict[str, Any], base_version: int | None, message: str) -> None:
+    if base_version is not None and board.version != base_version:
+        raise BoardVersionConflict(current_version=board.version, base_version=base_version)
+    board.spec = spec
+    board.title = title_of(spec)
+    board.tags = tags_of(spec)
+    board.folder = folder_of(spec)
+    # The row is locked, so no other save can move the version between this read and the write.
+    board.version += 1
+    board.last_modified_by_id = user_id
+    board.save(update_fields=["spec", "title", "tags", "folder", "version", "last_modified_by", "last_modified_at"])
+    _record_version(board, user_id, message)
 
 
 def delete_board(team_id: int, uid: str) -> None:
     with transaction.atomic():
-        board = _live(team_id).select_for_update().filter(uid=uid).first()
-        if board is None:
-            raise BoardNotFound(uid)
-        if board.managed_by != BoardManagedBy.NATIVE:
-            raise BoardReadOnly(uid)
+        board = _locked_native(team_id, uid)
         board.deleted = True
         board.save(update_fields=["deleted", "last_modified_at"])

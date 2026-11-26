@@ -389,6 +389,7 @@ export const DashboardV2BoardsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Replace a board's document and add 1 to its version.
  */
+export const dashboardV2BoardsPartialUpdateBodyMessageMax = 1000
 
 export const DashboardV2BoardsPartialUpdateBody = /* @__PURE__ */ zod.object({
     spec: zod
@@ -397,6 +398,11 @@ export const DashboardV2BoardsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.'
         ),
+    message: zod
+        .string()
+        .max(dashboardV2BoardsPartialUpdateBodyMessageMax)
+        .optional()
+        .describe('A note on what changed, kept in the history.'),
     base_version: zod
         .number()
         .min(1)
@@ -404,6 +410,19 @@ export const DashboardV2BoardsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.'
         ),
+})
+
+/**
+ * Save an earlier version's document as the board's next version. History is never rewritten.
+ */
+
+export const DashboardV2BoardsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    version: zod.number().min(1).describe('The saved version whose document to restore.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('The `version` this restore is based on. A board at another version answers 409.'),
 })
 
 /**

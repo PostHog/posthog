@@ -503,6 +503,20 @@ class BoardVersionConflict(Exception):
         self.base_version = base_version
 
 
+class BoardVersionNotFound(Exception):
+    """The board has no saved version with this number."""
+
+
+@dataclass(frozen=True)
+class BoardVersionSummary:
+    """One saved document in a board's history, without the document."""
+
+    version: int
+    message: str
+    created_at: datetime
+    created_by_id: int | None
+
+
 @dataclass(frozen=True)
 class BoardListAccess:
     """Which boards a list may show the viewer, read from access control under the `dashboard` resource.

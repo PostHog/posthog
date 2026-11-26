@@ -14,6 +14,7 @@ import type {
     AddInsightToDashboardRequestApi,
     BoardCreateApi,
     BoardDetailApi,
+    BoardRestoreApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CachedTilesResponseApi,
@@ -32,6 +33,7 @@ import type {
     DashboardTileApi,
     DashboardTileBasicApi,
     DashboardV2BoardsListParams,
+    DashboardV2BoardsVersionsListParams,
     DashboardsActivitySummaryRetrieveParams,
     DashboardsAddInsightCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
@@ -64,6 +66,7 @@ import type {
     DeleteTileRequestApi,
     MoveTileRequestApi,
     PaginatedBoardSummaryListApi,
+    PaginatedBoardVersionListApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PatchedBoardUpdateApi,
@@ -347,6 +350,62 @@ export const dashboardV2BoardsDestroy = async (
     return apiMutator<void>(getDashboardV2BoardsDestroyUrl(projectId, uid), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDashboardV2BoardsRestoreCreateUrl = (projectId: string, uid: string) => {
+    return `/api/projects/${projectId}/dashboard_v2/boards/${uid}/restore/`
+}
+
+/**
+ * Save an earlier version's document as the board's next version. History is never rewritten.
+ */
+export const dashboardV2BoardsRestoreCreate = async (
+    projectId: string,
+    uid: string,
+    boardRestoreApi: BoardRestoreApi,
+    options?: RequestInit
+): Promise<BoardDetailApi> => {
+    return apiMutator<BoardDetailApi>(getDashboardV2BoardsRestoreCreateUrl(projectId, uid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(boardRestoreApi),
+    })
+}
+
+export const getDashboardV2BoardsVersionsListUrl = (
+    projectId: string,
+    uid: string,
+    params?: DashboardV2BoardsVersionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboard_v2/boards/${uid}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboard_v2/boards/${uid}/versions/`
+}
+
+/**
+ * List a board's saved versions, newest first. Every save adds one, so any change can be restored.
+ */
+export const dashboardV2BoardsVersionsList = async (
+    projectId: string,
+    uid: string,
+    params?: DashboardV2BoardsVersionsListParams,
+    options?: RequestInit
+): Promise<PaginatedBoardVersionListApi> => {
+    return apiMutator<PaginatedBoardVersionListApi>(getDashboardV2BoardsVersionsListUrl(projectId, uid, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
