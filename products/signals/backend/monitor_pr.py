@@ -594,11 +594,9 @@ def _restart_failed_report(
 ) -> SignalReport:
     _bind_pr_monitoring_pass(team=team, report_id=report.id, run_started_at=run_started_at, admission=admission)
     report.status = SignalReport.Status.IN_PROGRESS
-    report.title = f"Monitor {pr.title}"
-    report.summary = f"Post-merge impact check for {pr.repository}#{pr.number}."
     report.error = None
     report.last_run_at = run_started_at
-    report.save(update_fields=["status", "title", "summary", "error", "last_run_at", "updated_at"])
+    report.save(update_fields=["status", "error", "last_run_at", "updated_at"])
     report.refresh_from_db(fields=["self_driving_funding"])
     active_claim = get_active_claim(team_id=team.id, report_id=str(report.id))
     link_pull_request(
@@ -952,11 +950,6 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.PENDING_INPUT,
-                    title=f"Monitor {pr.title}",
-                    summary=(
-                        f"Post-merge impact check for {pr.repository}#{pr.number}. "
-                        "Monitoring research needs guidance on what to measure."
-                    ),
                     error="PR monitoring research needs guidance on what to measure.",
                 )
             )

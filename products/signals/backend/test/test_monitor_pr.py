@@ -845,10 +845,15 @@ class TestMonitorPR(APIBaseTest):
             if json_row["type"] == "note"
         )
 
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/",
+            {"title": "Custom checkout monitor", "summary": "Custom team context."},
+        )
+        assert patch_res.status_code == 200
         restarted, retry_inputs = self.request_report(expected_status=202, note="Monitor order_submitted")
         assert restarted.id == report.id
         assert retry_inputs.note == "Monitor order_submitted"
-        assert "needs guidance" not in (restarted.summary or "")
+        assert restarted.title == "Custom checkout monitor" and restarted.summary == "Custom team context."
         SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.POTENTIAL)
         restored, restored_inputs = self.request_report(expected_status=202)
         assert restored.id == report.id and restored_inputs.attempt_key != retry_inputs.attempt_key
