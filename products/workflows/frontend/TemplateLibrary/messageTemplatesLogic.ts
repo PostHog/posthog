@@ -317,12 +317,16 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 loadTemplates: async (_: void, breakpoint) => {
                     const { listParams } = values
                     let page
+                    // Counted here because another loader's success clears the shared loading flag mid-request.
+                    cache.firstPagesInFlight = (cache.firstPagesInFlight ?? 0) + 1
                     try {
                         page = await api.messaging.getTemplates(listParams)
                     } catch (error) {
                         // A failure for outdated filters must not offer a retry over the current list.
                         breakpoint()
                         throw error
+                    } finally {
+                        cache.firstPagesInFlight -= 1
                     }
                     breakpoint()
                     actions.templatesPageLoaded(listParams, !!page.next, page.count)
@@ -453,7 +457,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         templateTagsSaved: () => {
             // A tag edit can move a template out of a tag or search filter, and only the server knows.
             // A first page already in flight was read before the edit and would show the old tags.
-            if (values.hasActiveFilters || values.templatesLoading) {
+            if (values.hasActiveFilters || cache.firstPagesInFlight > 0) {
                 actions.listInvalidated()
             }
         },

@@ -344,20 +344,43 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values.canLoadMoreTemplates).toBe(true)
     })
 
-    it('keeps tags saved while an unfiltered first page is in flight', async () => {
+    it('keeps tags saved while the reload after a duplicate is in flight', async () => {
         await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        const copy = template('d', 'Welcome (copy)', [])
+        const saveTags = async ({
+            request,
+            params,
+        }: {
+            request: Request
+            params: Record<string, any>
+        }): Promise<[number, MessageTemplate | undefined]> => {
+            const { tags } = (await request.json()) as { tags: string[] }
+            stored = stored.map((t) => (t.id === params.id ? { ...t, tags } : t))
+            return [200, stored.find((t) => t.id === params.id)]
+        }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/messaging_templates/': () => {
+                    stored = [copy, ...stored]
+                    return [201, copy]
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id': saveTags,
+                '/api/environments/:team_id/messaging_templates/:id/': saveTags,
+            },
+        })
         holdFirstPages = true
-        logic.actions.loadTemplates()
-        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
 
-        const saved = template('a', 'Welcome', ['vip'])
-        stored = [saved, ...stored.slice(1)]
+        logic.actions.duplicateTemplate(stored[0])
+        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
+        await expectLogic(logic).toDispatchActions(['duplicateTemplateSuccess'])
         holdFirstPages = false
-        logic.actions.templateTagsSaved(saved)
+        await saveTemplateTags(stored.find((t) => t.id === 'c')!, ['vip'])
         heldFirstPages[0](200)
         await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
 
-        expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['vip'])
+        expect(logic.values.templates.find((t) => t.id === 'c')?.tags).toEqual(['vip'])
     })
 
     it('offers no retry when a first page for outdated filters fails after the current one loaded', async () => {
