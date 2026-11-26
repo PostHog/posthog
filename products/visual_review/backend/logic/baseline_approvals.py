@@ -483,14 +483,102 @@ def is_stale(approval: BaselineApproval, current_hash: str) -> bool:
     return current_hash != approval.content_hash and not base_still_holds(approval, current_hash)
 
 
+def _closed_without_entry(approval: BaselineApproval) -> bool:
+    return approval.state not in (BaselineApprovalState.OPEN, BaselineApprovalState.PROMOTED)
+
+
+def _identifiers_the_run_approved(run: Run) -> set[str]:
+    """The identifiers whose approval this run's own finalize wrote or sent back to the baseline."""
+    if not run.approved:
+        return set()
+    return set(
+        run.snapshots.using(WRITER_DB)
+        .filter(
+            review_state=ReviewState.APPROVED,
+            result__in=(SnapshotResult.NEW, SnapshotResult.CHANGED, SnapshotResult.REMOVED),
+        )
+        .values_list("identifier", flat=True)
+    )
+
+
+def _replaced_by_the_run(run: Run, approval: BaselineApproval, approved_identifiers: set[str]) -> bool:
+    """Whether this run's own finalize superseded the approval, so the run rests on its own decision instead."""
+    return (
+        approval.state == BaselineApprovalState.SUPERSEDED
+        and approval.pr_number == run.pr_number
+        and approval.identifier in approved_identifiers
+    )
+
+
+def _closed_stack_bases(approvals: list[BaselineApproval]) -> list[BaselineApproval]:
+    """The approvals of lower stack layers that the given approvals were made over, and that closed without an entry.
+
+    An approval made over the picture of a lower layer takes the ledger hash under that picture as its
+    ledger base. So it counts by itself while the ledger holds that hash, also after the lower layer's
+    approval closed. The overlay entry of the run that made the approval names the lower layer's approval.
+    An earlier approval of the same pull request is followed down too, because its successor replaced it.
+    A promoted approval ends the walk, because the ledger holds its picture.
+    """
+    closed: list[BaselineApproval] = []
+    seen = {approval.id for approval in approvals}
+    pending = [approval for approval in approvals if approval.effective_base_hash != approval.ledger_base_hash]
+    while pending:
+        source_runs = Run.objects.using(WRITER_DB).filter(
+            id__in={approval.source_run_id for approval in pending if approval.source_run_id is not None}
+        )
+        records = {source_run.id: baseline_record.record_for_run(source_run) for source_run in source_runs}
+        base_ids: dict[UUID, BaselineApproval] = {}
+        for approval in pending:
+            record = records.get(approval.source_run_id) if approval.source_run_id is not None else None
+            entry = None if record is None else record.overlay.get(approval.identifier)
+            if entry is None or entry.content_hash != approval.effective_base_hash or entry.approval_id in seen:
+                continue
+            base_ids[entry.approval_id] = approval
+        seen.update(base_ids)
+        bases = list(BaselineApproval.objects.using(WRITER_DB).filter(id__in=list(base_ids)))
+        pending = []
+        for base in bases:
+            if base.state == BaselineApprovalState.PROMOTED:
+                continue
+            if base.pr_number != base_ids[base.id].pr_number and _closed_without_entry(base):
+                closed.append(base)
+                continue
+            if base.effective_base_hash != base.ledger_base_hash:
+                pending.append(base)
+    return closed
+
+
+def _closed_approvals_the_run_rests_on(run: Run, rests_on: list[BaselineApproval]) -> list[BaselineApproval]:
+    """The approvals the run's verdict rests on, directly or as a lower stack layer, that closed without an entry.
+
+    Such an approval puts nothing on the ledger, so the picture the run compared against has no
+    approval behind it any more.
+    """
+    approved_identifiers = (
+        _identifiers_the_run_approved(run) if any(_closed_without_entry(approval) for approval in rests_on) else set()
+    )
+    closed = [
+        approval
+        for approval in rests_on
+        if _closed_without_entry(approval) and not _replaced_by_the_run(run, approval, approved_identifiers)
+    ]
+    closed_ids = {approval.id for approval in closed}
+    open_approvals = [approval for approval in rests_on if approval.state == BaselineApprovalState.OPEN]
+    closed += [base for base in _closed_stack_bases(open_approvals) if base.id not in closed_ids]
+    return closed
+
+
 def stale_approvals(run: Run) -> list[BaselineApproval]:
-    """The open approvals that the run's passing verdict rests on, whose base the ledger no longer holds.
+    """The approvals the run's passing verdict rests on that cannot land the picture the run compared against.
 
     These are the approvals made on the run and the approvals its frozen record applied as overlay.
-    The ledger is read at the cursor and not at the run's merge-base, because a merge after the run
-    makes the approval conflict when its pull request lands. Nothing is stored, so a revert that
-    moves the ledger back makes the approval fresh again. An approval chained on an open lower stack
-    layer among the record's candidates stays fresh while that layer's approval counts.
+    An open one is stale when its base is not on the ledger. The ledger is read at the cursor and not
+    at the run's merge-base, because a merge after the run makes the approval conflict when its pull
+    request lands. Nothing is stored, so a revert that moves the ledger back makes the approval fresh
+    again. An approval chained on an open lower stack layer among the record's candidates stays fresh
+    while that layer's approval counts. An approval that closed without a ledger entry is stale,
+    and so is a lower stack layer's approval that one of them was made over, unless this run's own
+    finalize replaced it.
     """
     record = baseline_record.record_for_run(run)
     if record is None:
@@ -499,29 +587,38 @@ def stale_approvals(run: Run) -> list[BaselineApproval]:
     # Only finalize writes approvals with this run as their source, and finalize marks the run approved.
     if not run.approved and not overlay_approval_ids:
         return []
-    in_tree = list(
+    related = list(
         BaselineApproval.objects.using(WRITER_DB).filter(
             Q(source_run_id=run.id) | Q(id__in=overlay_approval_ids) | Q(id__in=record.candidate_approval_ids),
             repo_id=run.repo_id,
             run_type=run.run_type,
-            state=BaselineApprovalState.OPEN,
         )
     )
-    approvals = [
-        approval for approval in in_tree if approval.source_run_id == run.id or approval.id in overlay_approval_ids
+    rests_on = [
+        approval for approval in related if approval.source_run_id == run.id or approval.id in overlay_approval_ids
     ]
-    if not approvals:
+    if not rests_on:
         return []
+    stale: list[BaselineApproval] = []
+    approvals = [approval for approval in rests_on if approval.state == BaselineApprovalState.OPEN]
     head = ledger.cursor(run.repo_id)
-    if head is None:
-        return []
-    current = ledger.hashes_at(run.repo_id, run.run_type, {approval.identifier for approval in in_tree}, head.position)
-    counted = {approval.id for approval in approvals_that_count(in_tree, current)}
-    stale = [
-        approval
-        for approval in approvals
-        if approval.id not in counted and is_stale(approval, current.get(approval.identifier, ""))
-    ]
+    if approvals and head is not None:
+        in_tree = [approval for approval in related if approval.state == BaselineApprovalState.OPEN]
+        current = ledger.hashes_at(
+            run.repo_id, run.run_type, {approval.identifier for approval in in_tree}, head.position
+        )
+        counted = {approval.id for approval in approvals_that_count(in_tree, current)}
+        stale = [
+            approval
+            for approval in approvals
+            if approval.id not in counted and is_stale(approval, current.get(approval.identifier, ""))
+        ]
+    # One snapshot counts once, also when it rests on a stale approval and a closed one.
+    stale_identifiers = {approval.identifier for approval in stale}
+    for approval in _closed_approvals_the_run_rests_on(run, rests_on):
+        if approval.identifier not in stale_identifiers:
+            stale.append(approval)
+            stale_identifiers.add(approval.identifier)
     if not stale:
         return []
     # A quarantined snapshot does not gate the run, so a stale approval of it must not gate it either.
