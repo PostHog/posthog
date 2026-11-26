@@ -53,7 +53,7 @@ impl Desktop {
             )
             .child(
                 ui::icon_button("hide-overview", Glyph::PanelRight, "Hide overview")
-                    .tooltip("Hide · ⌘\\")
+                    .tooltip(super::shortcuts::OVERVIEW.hint("Hide"))
                     .on_click(cx.listener(move |s, _, _, cx| {
                         if s.overview_overlay {
                             s.overview_overlay = false;

@@ -130,7 +130,8 @@ fn icon_tile(icon: &TopicIcon, size: f32, art_size: f32, sprite: Option<&Arc<Ima
     div()
         .flex_none()
         .size(px(size))
-        .rounded(px(size * 0.27))
+        .relative()
+        .rounded_full()
         .bg(rgb(background))
         .overflow_hidden()
         .flex()
@@ -141,6 +142,14 @@ fn icon_tile(icon: &TopicIcon, size: f32, art_size: f32, sprite: Option<&Arc<Ima
                 .flex_none()
                 .size(px(art_size))
                 .object_fit(ObjectFit::Contain),
+        )
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .rounded_full()
+                .border(px(1.))
+                .border_color(meep_shell::icons::tile_edge()),
         )
 }
 

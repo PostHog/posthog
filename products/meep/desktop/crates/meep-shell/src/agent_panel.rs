@@ -813,7 +813,7 @@ pub trait PanelHost: TranscriptHost {
                                         Glyph::MousePointer2,
                                         "Select element",
                                     )
-                                    .tooltip("Select element · ⇧⌘A")
+                                    .tooltip("Select element")
                                     .on_click(cx.listener(
                                         |this, _, window, cx| this.toggle_annotation(window, cx),
                                     )),
@@ -841,7 +841,10 @@ pub trait PanelHost: TranscriptHost {
                                         ui::button("steer-view-session", "Steer")
                                             .ghost()
                                             .h(px(ui::CONTROL))
-                                            .tooltip("Stop this turn and send now · ⌘↵")
+                                            .tooltip(
+                                                crate::shortcuts::SEND_LATER
+                                                    .hint("Stop this turn and send now"),
+                                            )
                                             .accessibility_label("Steer the agent now")
                                             .unavailable(sending)
                                             .on_click(cx.listener(|this, _, _, cx| {

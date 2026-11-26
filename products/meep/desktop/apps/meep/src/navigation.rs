@@ -1,54 +1,128 @@
 use super::*;
 use meep_ui::gpui_kit::component::input::Enter;
-use meep_ui::gpui_kit::component::{
-    Disableable, Icon, Sizable,
-    input::Textarea,
-    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
-};
+use meep_ui::gpui_kit::component::{Disableable, Icon, Sizable, input::Textarea};
 
 pub(super) const TOPIC_SIDEBAR_WIDTH: f32 = 276.;
 const TOPIC_ROW_HEIGHT: f32 = 52.;
 const TOPIC_ROW_RADIUS: f32 = 10.;
 const TOPIC_ROW_TRAILING: f32 = 8.;
+const TOPIC_TILE: f32 = 34.;
+const SEARCH_ICON: f32 = 20.;
 const TOPIC_ROW_GAP: f32 = 4.;
 
+fn tall_row(key: &str) -> bool {
+    key.starts_with("topic:") || key.starts_with("view:")
+}
+
 fn row_gap(key: &str) -> f32 {
-    if key.starts_with("topic:") {
+    if tall_row(key) {
         TOPIC_ROW_GAP
     } else {
         ui::nav::GAP
     }
 }
 
-fn topic_row_text(state: &TopicState, group: &SharedString) -> Div {
-    let messages = state
-        .threads
-        .iter()
-        .filter(|thread| !thread.source_material && !state.archived_threads.contains(&thread.id))
-        .flat_map(|thread| {
-            thread
-                .messages
-                .iter()
-                .map(|message| (message.at, message.text.as_str()))
-        });
-    let results = state
-        .tasks
-        .iter()
-        .filter_map(|task| task.result.as_deref().map(|text| (task.updated_at, text)));
-    let latest = messages
-        .chain(results)
-        .filter(|(_, text)| !text.trim().is_empty())
-        .max_by_key(|(at, _)| *at);
-    let (at, preview) = latest.unwrap_or((state.topic.created_at, ""));
+pub(super) struct TopicPreview {
+    at: chrono::DateTime<chrono::Utc>,
+    text: SharedString,
+}
+
+impl TopicPreview {
+    pub(super) fn new(state: &TopicState) -> Self {
+        let messages = state
+            .threads
+            .iter()
+            .filter(|thread| {
+                !thread.source_material && !state.archived_threads.contains(&thread.id)
+            })
+            .flat_map(|thread| {
+                thread
+                    .messages
+                    .iter()
+                    .map(|message| (message.at, message.text.as_str()))
+            });
+        let results = state
+            .tasks
+            .iter()
+            .filter_map(|task| task.result.as_deref().map(|text| (task.updated_at, text)));
+        let latest = messages
+            .chain(results)
+            .filter(|(_, text)| !text.trim().is_empty())
+            .max_by_key(|(at, _)| *at);
+        let (at, preview) = latest.unwrap_or((state.topic.created_at, ""));
+        Self {
+            at,
+            text: super::pages::plain_line(preview).into(),
+        }
+    }
+}
+
+fn row_date(at: chrono::DateTime<chrono::Utc>) -> String {
     let at = at.with_timezone(&chrono::Local);
-    let days_ago = (chrono::Local::now().date_naive() - at.date_naive()).num_days();
-    let date = match days_ago {
+    match (chrono::Local::now().date_naive() - at.date_naive()).num_days() {
         0 => at.format("%H:%M").to_string(),
         1 => "Yesterday".to_owned(),
         2..=6 => at.format("%a").to_string(),
         _ => at.format("%b %-d").to_string(),
-    };
-    let preview = super::pages::plain_line(preview);
+    }
+}
+
+fn view_tile(v: &meep_wire::views::View) -> Div {
+    div()
+        .flex_none()
+        .size(px(TOPIC_TILE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(meep_shell::icons::window(&v.icon, &v.color, TOPIC_TILE))
+}
+
+fn view_row_text(v: &meep_wire::views::View, group: &SharedString) -> Div {
+    let latest = v.turns.last();
+    let line = latest.map(|t| match t.stage.finished() {
+        true => super::pages::plain_line(&t.prompt),
+        false => super::views::progress(&t.stage),
+    });
+    let at = latest
+        .map(|t| t.at)
+        .into_iter()
+        .chain(v.revisions.last().map(|r| r.at))
+        .max();
+    ui::column()
+        .flex_1()
+        .gap(px(1.))
+        .child(
+            ui::row()
+                .gap(px(6.))
+                .child(
+                    ui::nav::title(v.title.clone())
+                        .text_size(px(15.))
+                        .line_height(px(20.)),
+                )
+                .children(at.map(|at| {
+                    ui::caption(row_date(at))
+                        .flex_none()
+                        .relative()
+                        .top(px(1.))
+                        .text_size(px(12.))
+                        .line_height(px(20.))
+                        .group_hover(group.clone(), |style| style.opacity(0.))
+                })),
+        )
+        .children(line.map(|text| {
+            ui::row().gap(px(5.)).min_w_0().child(
+                ui::caption(text)
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(13.))
+                    .line_height(px(18.)),
+            )
+        }))
+}
+
+fn topic_row_text(state: &TopicState, preview: &TopicPreview, group: &SharedString) -> Div {
+    let date = row_date(preview.at);
 
     ui::column()
         .flex_1()
@@ -71,14 +145,54 @@ fn topic_row_text(state: &TopicState, group: &SharedString) -> Div {
                         .group_hover(group.clone(), |style| style.opacity(0.)),
                 ),
         )
-        .when(!preview.is_empty(), |column| {
+        .when(!preview.text.is_empty(), |column| {
             column.child(
-                ui::caption(preview)
+                ui::caption(preview.text.clone())
                     .truncate()
                     .text_size(px(13.))
                     .line_height(px(18.)),
             )
         })
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::TopicPreview;
+    use crate::{Message, MessageId, Producer, ThreadId, Topic, TopicId, TopicState};
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    #[test]
+    fn preview_follows_the_latest_visible_message() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-01-05T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut state = TopicState::new(Topic::new(TopicId(Uuid::from_u128(1)), "Topic", now));
+        let first = ThreadId(Uuid::from_u128(2));
+        let second = ThreadId(Uuid::from_u128(3));
+        for (i, text, thread) in [(0, "First", first), (1, "**Second**", second)] {
+            let at = now + chrono::Duration::minutes(i);
+            state
+                .receive(
+                    Message {
+                        id: MessageId(Uuid::from_u128(10 + i as u128)),
+                        producer: Producer::User,
+                        origin: None,
+                        author: "Person".into(),
+                        at,
+                        text: text.into(),
+                        external_id: None,
+                    },
+                    format!("thread-{i}"),
+                    thread,
+                    at,
+                )
+                .unwrap();
+        }
+        assert_eq!(TopicPreview::new(&state).text, "Second");
+        state.archived_threads.insert(second);
+        assert_eq!(TopicPreview::new(&state).text, "First");
+    }
 }
 
 impl Desktop {
@@ -360,6 +474,13 @@ impl Desktop {
         })
     }
     fn key(&mut self, e: &KeyDownEvent, w: &mut Window, cx: &mut Context<Self>) {
+        if self.renaming_section.is_some() {
+            if e.keystroke.key == "escape" {
+                self.finish_section_rename(false, w, cx);
+                cx.stop_propagation();
+            }
+            return;
+        }
         let k = &e.keystroke;
         let key = k.key.as_str();
         let cmd = k.modifiers.platform;
@@ -383,34 +504,39 @@ impl Desktop {
             || self.draft.focus_handle(cx).contains_focused(w, cx)
             || self.composer.focus_handle(cx).contains_focused(w, cx);
         match (cmd, key) {
-            (true, "k") if self.identity.is_some() => self.open_sheet(Sheet::Search, w, cx),
-            (true, "enter") if self.adding && self.sheet.is_none() => {
+            _ if shortcuts::SEARCH.matches(k) && self.identity.is_some() => {
+                self.open_sheet(Sheet::Search, w, cx)
+            }
+            _ if shortcuts::SEND_LATER.matches(k) && self.adding && self.sheet.is_none() => {
                 self.task_for_agent = true;
                 self.submit(w, cx)
             }
-            (true, "b") => {
+            _ if shortcuts::TASK_BOARD.matches(k) => {
                 if let Page::Topic(id, Tab::Tasks, _) = self.page {
                     self.toggle_task_board(id, cx)
                 }
             }
-            (false, "c")
-                if !typing
-                    && self.sheet.is_none()
-                    && !self.adding
-                    && matches!(self.page, Page::Topic(_, Tab::Tasks, _)) =>
+            _ if shortcuts::NEW_TASK.matches(k)
+                && !typing
+                && self.sheet.is_none()
+                && !self.adding
+                && matches!(self.page, Page::Topic(_, Tab::Tasks, _)) =>
             {
                 if let Page::Topic(id, ..) = self.page {
                     self.begin_task(id, w, cx)
                 }
             }
-            (true, "n") => self.open_sheet(Sheet::New, w, cx),
-            (true, ",") => self.go(Page::Settings, w, cx),
-            (true, "\\") => {
+            _ if shortcuts::NEW_TOPIC.matches(k) => self.open_sheet(Sheet::New, w, cx),
+            _ if shortcuts::SETTINGS.matches(k) => self.go(Page::Settings, w, cx),
+            _ if shortcuts::OVERVIEW.matches(k) => {
                 if let Page::Topic(id, ..) = self.page {
                     self.toggle_overview(id, w)
                 }
             }
-            (true, "[") => {
+            _ if shortcuts::TOGGLE_SIDEBAR.matches(k) && self.page != Page::Settings => {
+                self.sidebar_hidden = !self.sidebar_hidden;
+            }
+            _ if shortcuts::GO_BACK.matches(k) => {
                 if let Some(p) = self.back.pop() {
                     self.navigate(p, w, cx)
                 }
@@ -603,7 +729,6 @@ impl Desktop {
     }
     /// A topic's sidebar row: open it, drag it, or act on it from its menu.
     fn topic_row(&self, s: &TopicState, cx: &mut Context<Self>) -> AnyElement {
-        let owner = cx.entity().downgrade();
         let tid = s.topic.id;
         let name = s.topic.name.clone();
         let needs = s.needs_you();
@@ -614,9 +739,7 @@ impl Desktop {
             .any(|n| matches!(n, NeedsYouItem::Problem {topics,..} if topics.contains(&tid)));
         let gname: SharedString = format!("row-topic-{tid}").into();
         let key = super::sidebar::topic_key(tid);
-        let menu = move |m: PopupMenu, w: &mut Window, cx: &mut Context<PopupMenu>| {
-            topic_menu(m, owner.clone(), tid, w, cx)
-        };
+        let row = super::sidebar::MenuRow::Topic(tid);
         let lifted = cx.has_active_drag() && self.drag_source.as_deref() == Some(key.as_str());
         let (hover_key, title) = (key.clone(), name.clone());
         let selected = self.topic_id() == Some(tid) && self.sheet != Some(Sheet::New);
@@ -662,19 +785,20 @@ impl Desktop {
                         },
                     ),
             )
-            .child(topic_row_text(s, &gname))
+            .child(topic_row_text(s, &self.topic_previews[&tid], &gname))
             .child(
-                // The popover lays its trigger out in its own slot, so the slot is
-                // positioned, not the button: an absolute button inside it would
-                // leave the slot empty and miss clicks.
                 div()
                     .id(SharedString::from(format!("topic-slot-{tid}")))
                     .absolute()
                     .top(px(6.5))
                     .right(px(TOPIC_ROW_TRAILING))
                     .child(
-                        row_actions(format!("topic-actions-{tid}"), &name, gname.clone())
-                            .dropdown_menu_with_anchor(gpui::Anchor::LeftCenter, menu.clone()),
+                        row_actions(format!("topic-actions-{tid}"), &name, gname.clone()).on_click(
+                            cx.listener(move |s, e: &ClickEvent, w, cx| {
+                                cx.stop_propagation();
+                                s.show_row_menu(row, e.position(), w, cx);
+                            }),
+                        ),
                     ),
             )
             .on_drag(Drag::Item(key.clone()), move |_, _, _, cx| {
@@ -697,55 +821,67 @@ impl Desktop {
                 s.dismiss_topic_card(cx);
                 s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
             }))
-            .context_menu(menu)
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |s, e: &MouseDownEvent, w, cx| {
+                    cx.stop_propagation();
+                    s.show_row_menu(row, e.position, w, cx);
+                }),
+            )
             .into_any_element()
     }
     /// A view's sidebar row.
     fn view_row(&self, v: &meep_wire::views::View, cx: &mut Context<Self>) -> AnyElement {
-        let owner = cx.entity().downgrade();
         let vid = v.id;
         let title = v.title.clone();
         let gname: SharedString = format!("row-view-{vid}").into();
         let key = super::sidebar::view_key(vid);
-        let menu = move |m: PopupMenu, w: &mut Window, cx: &mut Context<PopupMenu>| {
-            view_menu(m, owner.clone(), vid, w, cx)
-        };
+        let row = super::sidebar::MenuRow::View(vid);
+        let working = super::desktop::view_working(v);
         let lifted = cx.has_active_drag() && self.drag_source.as_deref() == Some(key.as_str());
         let (hover_key, label) = (key.clone(), title.clone());
         nav_line(format!("view-{vid}"), self.page == Page::View(vid))
+            .h(px(TOPIC_ROW_HEIGHT))
             .relative()
             .group(gname.clone())
             .when(lifted, |r| r.opacity(0.35))
+            .pr(px(TOPIC_ROW_TRAILING))
+            .rounded(px(TOPIC_ROW_RADIUS))
             .child(
-                // The tile sits in the same slot as every row glyph, so icons
-                // share one axis and titles one edge.
                 div()
+                    .relative()
                     .flex_none()
-                    .size(px(ui::nav::ICON_BOX))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(meep_shell::icons::icon(&v.icon, &v.color, ui::nav::ICON)),
+                    .child(view_tile(v))
+                    .when(working, |tile| {
+                        tile.child(
+                            div()
+                                .absolute()
+                                .top(px(-1.))
+                                .right(px(-1.))
+                                .size(px(14.))
+                                .rounded_full()
+                                .bg(rgb(ui::theme::get(6)))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(self.sidebar_activity.clone()),
+                        )
+                    }),
             )
-            .child(ui::nav::title(title.clone()))
-            .when(super::desktop::view_working(v), |el| {
-                el.child(
-                    ui::nav::activity(self.sidebar_activity.clone().into_any_element())
-                        .group_hover(gname.clone(), |s| s.opacity(0.)),
-                )
-            })
+            .child(view_row_text(v, &gname))
             .child(
                 div()
                     .id(SharedString::from(format!("view-slot-{vid}")))
                     .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .right(px(ui::nav::TRAIL))
-                    .flex()
-                    .items_center()
+                    .right(px(TOPIC_ROW_TRAILING))
+                    .top(px(6.5))
                     .child(
-                        row_actions(format!("view-actions-{vid}"), &title, gname)
-                            .dropdown_menu_with_anchor(gpui::Anchor::LeftCenter, menu.clone()),
+                        row_actions(format!("view-actions-{vid}"), &title, gname).on_click(
+                            cx.listener(move |s, e: &ClickEvent, w, cx| {
+                                cx.stop_propagation();
+                                s.show_row_menu(row, e.position(), w, cx);
+                            }),
+                        ),
                     ),
             )
             .on_drag(Drag::Item(key.clone()), move |_, _, _, cx| {
@@ -761,13 +897,20 @@ impl Desktop {
                 }
             }))
             .on_click(cx.listener(move |s, _, w, cx| s.go(Page::View(vid), w, cx)))
-            .context_menu(menu)
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |s, e: &MouseDownEvent, w, cx| {
+                    cx.stop_propagation();
+                    s.show_row_menu(row, e.position, w, cx);
+                }),
+            )
             .into_any_element()
     }
     fn sidebar_row(&self, key: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
         if let Some(rest) = key.strip_prefix("topic:") {
             let id = TopicId(Uuid::parse_str(rest).ok()?);
-            let state = self.states.iter().find(|s| s.topic.id == id)?;
+            let index = self.states.binary_search_by_key(&id, |s| s.topic.id).ok()?;
+            let state = &self.states[index];
             return Some(self.topic_row(state, cx));
         }
         let id = Uuid::parse_str(key.strip_prefix("view:")?).ok()?;
@@ -779,7 +922,7 @@ impl Desktop {
         use meep_ui::gpui_kit::component::ActiveTheme;
         const PITCH: f32 = ui::nav::PITCH;
         let item_pitch = |key: &str| {
-            if key.starts_with("topic:") {
+            if tall_row(key) {
                 TOPIC_ROW_HEIGHT + TOPIC_ROW_GAP
             } else {
                 PITCH
@@ -830,7 +973,7 @@ impl Desktop {
                 div()
                     .pt(px(space))
                     .pb(px(ui::nav::GAP))
-                    .child(self.section_header(section, lit == Some(section.id), w, cx)),
+                    .child(self.section_header(section, lit == Some(section.id), cx)),
             );
             y += space + PITCH;
             let mut open = 0.;
@@ -933,25 +1076,34 @@ impl Desktop {
             Drag::Task(..) => {}
         }))
     }
-    fn section_header(
-        &self,
-        section: &Section,
-        lit: bool,
-        w: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        use meep_ui::gpui_kit::component::ActiveTheme;
+    fn section_header(&self, section: &Section, lit: bool, cx: &mut Context<Self>) -> AnyElement {
+        fn name_style<E: Styled>(element: E) -> E {
+            element
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+        }
+        let folder = if section.collapsed {
+            Glyph::Folder
+        } else {
+            Glyph::FolderOpen
+        };
         let id = section.id;
         if self.renaming_section == Some(id) {
             return ui::row()
                 .h(px(ui::nav::ROW))
                 .pl(px(ui::nav::PAD))
-                .pr(px(ui::nav::TRAIL))
+                .pr(px(ui::nav::TRAIL + ui::nav::ACCESSORY))
                 .gap(px(8.))
-                .child(ui::nav::glyph(Glyph::Folder, true))
+                .child(ui::nav::glyph(folder, false))
                 .child(
-                    Input::new(&self.section_name)
+                    name_style(Input::new(&self.section_name))
+                        .appearance(false)
                         .small()
+                        .px_0()
+                        .py_0()
+                        .min_w_0()
                         .aria_label("Section name")
                         .flex_1(),
                 )
@@ -960,13 +1112,6 @@ impl Desktop {
         let group: SharedString = format!("section-group-{id}").into();
         let lifted =
             cx.has_active_drag() && self.drag_source.as_deref() == Some(id.to_string().as_str());
-        let turn = meep_ui::gpui_kit::base::spring(
-            ElementId::from(SharedString::from(format!("section-turn-{id}"))),
-            if section.collapsed { 0. } else { 1. },
-            cx.theme().motion_tokens().spring_control,
-            w,
-            cx,
-        );
         // A folded section still says when something in it needs you.
         let waiting = section.collapsed
             && section.items.iter().any(|k| {
@@ -978,10 +1123,7 @@ impl Desktop {
                         n.threads.len() + n.tasks.len() > 0
                     })
             });
-        let owner = cx.entity().downgrade();
-        let menu = move |m: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
-            super::sidebar::section_menu(m, owner.clone(), id)
-        };
+        let row = super::sidebar::MenuRow::Section(id);
         let (title, count) = (section.name.clone(), section.items.len());
         div()
             .id(SharedString::from(format!("section-{id}")))
@@ -1037,30 +1179,12 @@ impl Desktop {
                     .cursor_pointer()
                     .hover(|s| s.bg(ui::ink(ui::nav::HOVER & 0xff)))
                     .active(|s| s.bg(ui::ink(ui::nav::PRESSED & 0xff)))
+                    .child(ui::nav::glyph(folder, false))
                     .child(
-                        div()
-                            .flex_none()
-                            .size(px(ui::nav::ICON_BOX))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                Icon::new(Glyph::ChevronRight)
-                                    .size(px(12.))
-                                    .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                                    .rotate(meep_ui::gpui_kit::radians(
-                                        std::f32::consts::FRAC_PI_2 * turn,
-                                    )),
-                            ),
-                    )
-                    .child(
-                        div()
+                        name_style(div())
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
                             .child(section.name.clone()),
                     )
                     // Only a toggle: renaming is in the section's menu.
@@ -1087,10 +1211,19 @@ impl Desktop {
                     .child(
                         row_actions(format!("section-actions-{id}"), &section.name, group)
                             .tooltip("Section actions")
-                            .dropdown_menu_with_anchor(gpui::Anchor::LeftCenter, menu.clone()),
+                            .on_click(cx.listener(move |s, e: &ClickEvent, w, cx| {
+                                cx.stop_propagation();
+                                s.show_row_menu(row, e.position(), w, cx);
+                            })),
                     ),
             )
-            .context_menu(menu)
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |s, e: &MouseDownEvent, w, cx| {
+                    cx.stop_propagation();
+                    s.show_row_menu(row, e.position, w, cx);
+                }),
+            )
             .into_any_element()
     }
     fn sidebar(&self, w: &mut Window, cx: &mut Context<Self>) -> Div {
@@ -1122,11 +1255,10 @@ impl Desktop {
                         div()
                             .text_size(px(11.))
                             .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                            .child("⌘K"),
+                            .child(shortcuts::SEARCH.label()),
                     )
                     .on_click(cx.listener(|s, _, w, cx| s.open_sheet(Sheet::Search, w, cx))),
             );
-        let owner = cx.entity().downgrade();
         let mut tree = ui::column().gap_0().child(self.sidebar_list(w, cx));
         // Archived topics leave their sections; they stay reachable here.
         let archived: Vec<_> = self.states.iter().filter(|s| s.archived).collect();
@@ -1218,12 +1350,7 @@ impl Desktop {
                 let tid = s.topic.id;
                 let name = s.topic.name.clone();
                 let gname: SharedString = format!("row-archived-{tid}").into();
-                let menu = {
-                    let owner = owner.clone();
-                    move |m: PopupMenu, w: &mut Window, cx: &mut Context<PopupMenu>| {
-                        topic_menu(m, owner.clone(), tid, w, cx)
-                    }
-                };
+                let row = super::sidebar::MenuRow::Topic(tid);
                 let row = nav_line(format!("archived-{tid}"), self.topic_id() == Some(tid))
                     .h(px(TOPIC_ROW_HEIGHT))
                     .mt(px(TOPIC_ROW_GAP - ui::nav::GAP))
@@ -1232,7 +1359,7 @@ impl Desktop {
                     .relative()
                     .group(gname.clone())
                     .child(super::topic_icon::sidebar_tile(&s.topic.display_icon()).opacity(0.7))
-                    .child(topic_row_text(s, &gname).opacity(0.7))
+                    .child(topic_row_text(s, &self.topic_previews[&tid], &gname).opacity(0.7))
                     .child(
                         div()
                             .id(SharedString::from(format!("archived-topic-slot-{tid}")))
@@ -1240,17 +1367,24 @@ impl Desktop {
                             .top(px(6.5))
                             .right(px(TOPIC_ROW_TRAILING))
                             .child(
-                                row_actions(format!("topic-actions-{tid}"), &name, gname)
-                                    .dropdown_menu_with_anchor(
-                                        gpui::Anchor::LeftCenter,
-                                        menu.clone(),
-                                    ),
+                                row_actions(format!("topic-actions-{tid}"), &name, gname).on_click(
+                                    cx.listener(move |s, e: &ClickEvent, w, cx| {
+                                        cx.stop_propagation();
+                                        s.show_row_menu(row, e.position(), w, cx);
+                                    }),
+                                ),
                             ),
                     )
                     .on_click(cx.listener(move |s, _, w, cx| {
                         s.go(Page::Topic(tid, Tab::Chat, None), w, cx)
                     }))
-                    .context_menu(menu);
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |s, e: &MouseDownEvent, w, cx| {
+                            cx.stop_propagation();
+                            s.show_row_menu(row, e.position, w, cx);
+                        }),
+                    );
                 group = if current == Some(tid) {
                     group.child(row)
                 } else {
@@ -1325,7 +1459,7 @@ impl Desktop {
                     meep_shell::TRAFFIC_LIGHT_CENTER - meep_shell::titlebar::BUTTON / 2.
                 ))
                 .right(px(ui::nav::INSET + 2.))
-                .tooltip("New topic · ⌘N")
+                .tooltip(shortcuts::NEW_TOPIC.hint("New topic"))
                 .on_click(cx.listener(|s, _, _, cx| {
                     s.menu = !s.menu;
                     cx.notify()
@@ -1350,7 +1484,7 @@ impl Desktop {
                         nav_line("new-topic", false)
                             .child(ui::nav::glyph(Glyph::AtSign, false))
                             .child(ui::nav::title("New topic"))
-                            .child(ui::caption("⌘N").pr(px(6.)))
+                            .child(ui::caption(shortcuts::NEW_TOPIC.label()).pr(px(6.)))
                             .on_click(cx.listener(|s, _, w, cx| {
                                 s.menu = false;
                                 s.open_sheet(Sheet::New, w, cx)
@@ -1635,12 +1769,36 @@ impl Desktop {
                 }
                 let mut previous = String::new();
                 for (i, (label, group, page)) in hits.into_iter().enumerate() {
-                    let (icon, _) = match &page {
-                        Page::Topic(_, _, None) => (Glyph::AtSign, "Topic"),
-                        Page::Topic(_, Tab::Tasks, _) => (Glyph::Circle, "Task"),
-                        Page::Topic(_, Tab::Inbox, _) => (Glyph::MessageSquare, "Message"),
-                        _ => (Glyph::FileText, "Fact"),
-                    };
+                    let icon = div()
+                        .flex_none()
+                        .w(px(SEARCH_ICON))
+                        .flex()
+                        .justify_center()
+                        .child(match &page {
+                            Page::Topic(id, _, None) => self
+                                .states
+                                .iter()
+                                .find(|s| s.topic.id == *id)
+                                .map(|s| {
+                                    super::topic_icon::small_sidebar_tile(
+                                        &s.topic.display_icon(),
+                                        SEARCH_ICON,
+                                    )
+                                })
+                                .unwrap_or_else(|| ui::nav::glyph(Glyph::AtSign, false)),
+                            Page::View(id) => self
+                                .views
+                                .rows
+                                .iter()
+                                .find(|v| v.id == *id)
+                                .map(|v| meep_shell::icons::window(&v.icon, &v.color, SEARCH_ICON))
+                                .unwrap_or_else(|| ui::nav::glyph(Glyph::LayoutDashboard, false)),
+                            Page::Topic(_, Tab::Tasks, _) => ui::nav::glyph(Glyph::Circle, false),
+                            Page::Topic(_, Tab::Inbox, _) => {
+                                ui::nav::glyph(Glyph::MessageSquare, false)
+                            }
+                            _ => ui::nav::glyph(Glyph::FileText, false),
+                        });
                     let context = match &page {
                         Page::Topic(id, _, Some(_)) => self
                             .states
@@ -1667,7 +1825,7 @@ impl Desktop {
                             .child(
                                 line(format!("hit-{i}"), i == self.search_index)
                                     .gap(px(8.))
-                                    .child(ui::nav::glyph(icon, false))
+                                    .child(icon)
                                     .child(ui::nav::title(label))
                                     .child(ui::caption(context).max_w(relative(0.45)).truncate())
                                     .on_click(
@@ -1927,7 +2085,12 @@ impl Desktop {
                         .text_color(muted)
                         .child("What do you want to get done?"),
                 )
-                .child(div().text_size(px(12.)).text_color(muted).child("⌘N"));
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(muted)
+                        .child(shortcuts::NEW_TOPIC.label()),
+                );
             const IDEAS: [(Glyph, &str, &str); 3] = [
                 (
                     Glyph::Rocket,
@@ -2298,6 +2461,37 @@ impl Render for Desktop {
                 w.refresh();
             });
         }
+        let settings_open = self.page == Page::Settings;
+        let live = self.identity.is_some() && !(self.sidebar_hidden && !settings_open);
+        let can_toggle = self.identity.is_some() && !settings_open;
+        let sidebar_visible = !self.sidebar_hidden;
+        // View's choreography: the sidebar slides in and out with its own
+        // spring, and settings arrive with a short travel once opened.
+        let rail_wanted = settings_open || live;
+        let rail_motion = ui::motion::pane("host-sidebar", rail_wanted, w, cx);
+        let rail = rail_motion.progress.clamp(0., 1.);
+        let arrival = ui::motion::presence("host-settings", settings_open, w, cx)
+            .progress
+            .clamp(0., 1.);
+        // The Overview: its own pane beside the topic, sliding in with View's presence spring.
+        let overview_topic = match &self.page {
+            Page::Topic(id, ..) if self.sheet != Some(Sheet::New) && self.overview_docked(w) => {
+                self.states
+                    .iter()
+                    .find(|s| s.topic.id == *id)
+                    .map(|s| s.topic.id)
+            }
+            _ => None,
+        };
+        let overview_presence =
+            ui::motion::pane("topic-overview-pane", overview_topic.is_some(), w, cx);
+        if overview_topic.is_some() {
+            self.overview_leaving = overview_topic;
+        } else if !overview_presence.should_render() {
+            self.overview_leaving = None;
+        }
+        self.pane_motion
+            .set((rail, overview_presence.progress.clamp(0., 1.)));
         // The layout row stretches the pane; a full height plus its gutters
         // would push its bottom edge past the window.
         let mut main = ui::column()
@@ -2461,10 +2655,6 @@ impl Render for Desktop {
                             })),
                     )
             });
-        let settings_open = self.page == Page::Settings;
-        let live = self.identity.is_some() && !(self.sidebar_hidden && !settings_open);
-        let can_toggle = self.identity.is_some() && !settings_open;
-        let sidebar_visible = !self.sidebar_hidden;
         // A view's composer offers the models a view can be built with.
         if self.identity.is_some() && matches!(self.page, Page::View(_) | Page::NewView) {
             self.ensure_view_models(w, cx);
@@ -2479,14 +2669,6 @@ impl Render for Desktop {
                     .child(side_overlay(width, progress, content));
             }
         }
-        // View's choreography: the sidebar slides in and out with its own
-        // spring, and settings arrive with a short travel once opened.
-        let rail_wanted = settings_open || live;
-        let rail_motion = ui::motion::presence("host-sidebar", rail_wanted, w, cx);
-        let rail = rail_motion.progress.clamp(0., 1.);
-        let arrival = ui::motion::presence("host-settings", settings_open, w, cx)
-            .progress
-            .clamp(0., 1.);
         let rail_list = (rail > 0.).then(|| {
             if settings_open {
                 self.settings_rail(cx)
@@ -2497,23 +2679,6 @@ impl Render for Desktop {
                 self.sidebar(w, cx).opacity(rail)
             }
         });
-        // The Overview: its own pane beside the topic, sliding in with View's presence spring.
-        let overview_topic = match &self.page {
-            Page::Topic(id, ..) if self.sheet != Some(Sheet::New) && self.overview_docked(w) => {
-                self.states
-                    .iter()
-                    .find(|s| s.topic.id == *id)
-                    .map(|s| s.topic.id)
-            }
-            _ => None,
-        };
-        let overview_presence =
-            ui::motion::pane("topic-overview-pane", overview_topic.is_some(), w, cx);
-        if overview_topic.is_some() {
-            self.overview_leaving = overview_topic;
-        } else if !overview_presence.should_render() {
-            self.overview_leaving = None;
-        }
         let overview_state = overview_presence
             .should_render()
             .then(|| overview_topic.or(self.overview_leaving))
@@ -2544,6 +2709,7 @@ impl Render for Desktop {
         #[cfg(feature = "demo-driver")]
         let root = root.children(super::demo_driver::cursor());
         root.track_focus(&self.focus)
+            .on_action(cx.listener(Desktop::run_row_action))
             .capture_key_down(cx.listener(|s, e, w, cx| s.key(e, w, cx)))
             .on_action(
                 cx.listener(|s, _: &meep_shell::workspace::OpenSettings, w, cx| {
@@ -2627,115 +2793,4 @@ fn row_actions(id: String, title: &str, group: SharedString) -> Button {
     )
     .size(px(ui::nav::ACCESSORY))
     .rounded(px(5.))
-}
-fn menu_item(glyph: Glyph, label: impl Into<SharedString>) -> PopupMenuItem {
-    PopupMenuItem::new(label).icon(Icon::new(glyph))
-}
-fn topic_menu(
-    m: PopupMenu,
-    owner: WeakEntity<Desktop>,
-    tid: TopicId,
-    w: &mut Window,
-    cx: &mut Context<PopupMenu>,
-) -> PopupMenu {
-    let chat = owner.clone();
-    let rename = owner.clone();
-    let archive = owner.clone();
-    let delete = owner.clone();
-    let archived = owner
-        .upgrade()
-        .and_then(|e| {
-            e.read(cx)
-                .states
-                .iter()
-                .find(|s| s.topic.id == tid)
-                .map(|s| s.archived)
-        })
-        .unwrap_or(false);
-    let m = m
-        .min_w(px(168.))
-        .item(
-            menu_item(Glyph::MessageCircle, "Chat with topic").on_click(move |_, w, cx| {
-                let _ = chat.update(cx, |s, cx| {
-                    s.go(Page::Topic(tid, Tab::Chat, None), w, cx);
-                    s.composer.focus_handle(cx).focus(w, cx);
-                });
-            }),
-        )
-        .separator()
-        .item(
-            menu_item(Glyph::Pencil, "Rename…").on_click(move |_, w, cx| {
-                let _ = rename.update(cx, |s, cx| s.open_sheet(Sheet::RenameTopic(tid), w, cx));
-            }),
-        )
-        .item(
-            menu_item(
-                Glyph::Archive,
-                if archived {
-                    "Restore from archive"
-                } else {
-                    "Archive"
-                },
-            )
-            .on_click(move |_, _, cx| {
-                let _ = archive.update(cx, |s, cx| {
-                    s.issue(
-                        tid,
-                        if archived {
-                            Command::UnarchiveTopic
-                        } else {
-                            Command::ArchiveTopic
-                        },
-                    );
-                    cx.notify()
-                });
-            }),
-        );
-    let m = if archived {
-        m
-    } else {
-        super::sidebar::section_menu_items(m, owner.clone(), super::sidebar::topic_key(tid), w, cx)
-    };
-    m.separator().item(
-        menu_item(Glyph::Trash, "Delete…").on_click(move |_, w, cx| {
-            let _ = delete.update(cx, |s, cx| s.open_sheet(Sheet::DeleteTopic(tid), w, cx));
-        }),
-    )
-}
-fn view_menu(
-    m: PopupMenu,
-    owner: WeakEntity<Desktop>,
-    vid: Uuid,
-    w: &mut Window,
-    cx: &mut Context<PopupMenu>,
-) -> PopupMenu {
-    let open = owner.clone();
-    let settings = owner.clone();
-    let delete = owner.clone();
-    let mut m = m
-        .min_w(px(168.))
-        .item(
-            menu_item(Glyph::ArrowUpRight, "Open").on_click(move |_, w, cx| {
-                let _ = open.update(cx, |s, cx| s.go(Page::View(vid), w, cx));
-            }),
-        )
-        .item(
-            menu_item(Glyph::Pencil, "Rename and icon…").on_click(move |_, w, cx| {
-                let _ = settings.update(cx, |s, cx| {
-                    s.go(Page::View(vid), w, cx);
-                    s.open_view_settings(vid, w, cx);
-                });
-            }),
-        );
-    m = m.separator();
-    m = super::sidebar::section_menu_items(m, owner.clone(), super::sidebar::view_key(vid), w, cx);
-    m.separator().item(
-        menu_item(Glyph::Trash, "Delete view…").on_click(move |_, w, cx| {
-            let _ = delete.update(cx, |s, cx| {
-                s.go(Page::View(vid), w, cx);
-                s.open_view_settings(vid, w, cx);
-                s.views.confirm_delete = true;
-            });
-        }),
-    )
 }

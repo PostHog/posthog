@@ -987,10 +987,16 @@ impl Desktop {
                         .tooltip("Add to To do without starting"),
                     )
                     .child(
-                        control("save-task", "Start  ⌘↵", true, cx, |s, w, cx| {
-                            s.task_for_agent = true;
-                            s.submit(w, cx)
-                        })
+                        control(
+                            "save-task",
+                            format!("Start  {}", super::shortcuts::SEND_LATER.label()),
+                            true,
+                            cx,
+                            |s, w, cx| {
+                                s.task_for_agent = true;
+                                s.submit(w, cx)
+                            },
+                        )
                         .disabled(empty || self.chat_uploading > 0),
                     ),
             );

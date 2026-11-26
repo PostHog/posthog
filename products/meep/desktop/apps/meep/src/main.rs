@@ -11,6 +11,8 @@ mod navigation;
 mod overview;
 mod pages;
 mod preferences;
+mod scroll_motion;
+mod shortcuts;
 mod sidebar;
 mod tables;
 mod tasks_view;
@@ -71,6 +73,7 @@ fn main() -> Result<()> {
             let opened = meep_shell::workspace::open_window(options_window, cx, |w, cx| {
                 cx.new(|cx| {
                     let host = Host {
+                        motion: Default::default(),
                         options,
                         runtime,
                         view: None,
@@ -105,6 +108,7 @@ fn main() -> Result<()> {
 }
 
 struct Host {
+    motion: std::rc::Rc<scroll_motion::ScrollMotion>,
     options: Options,
     runtime: Arc<Runtime>,
     view: Option<Entity<Desktop>>,
@@ -132,7 +136,12 @@ impl Host {
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(view) = &self.view {
-            return view.clone().into_any_element();
+            return div()
+                .relative()
+                .size_full()
+                .child(self.motion.listener())
+                .child(view.clone())
+                .into_any_element();
         }
         let reduced = cx.reduce_motion();
         let (slug, title, line) = match &self.error {

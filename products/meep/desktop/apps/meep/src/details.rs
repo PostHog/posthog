@@ -8,6 +8,44 @@ use meep_ui::gpui_kit::component::{
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
 };
 
+pub(super) struct TopicChatContent {
+    topic: TopicId,
+    session: std::sync::Arc<AgentSession>,
+    linked: std::sync::Arc<Vec<Vec<ChatTask>>>,
+    receipts: std::sync::Arc<Vec<Vec<Receipt>>>,
+    answering: Option<TaskId>,
+}
+
+#[derive(Default)]
+pub(super) struct TopicChatCache(Option<std::rc::Rc<TopicChatContent>>);
+
+impl TopicChatCache {
+    fn get(&mut self, state: &TopicState) -> std::rc::Rc<TopicChatContent> {
+        if self
+            .0
+            .as_ref()
+            .is_none_or(|content| content.topic != state.topic.id)
+        {
+            self.0 = Some(std::rc::Rc::new(Desktop::prepare_topic_chat(state)));
+        }
+        self.0.as_ref().unwrap().clone()
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.0 = None;
+    }
+
+    pub(super) fn invalidate(&mut self, topic: TopicId) {
+        if self
+            .0
+            .as_ref()
+            .is_some_and(|content| content.topic == topic)
+        {
+            self.clear();
+        }
+    }
+}
+
 /// Every topic screen's edge: content and composer start this far from the pane's side.
 pub(super) const PAGE_X: f32 = 24.;
 /// Space between the crumb bar and a screen's first line.
@@ -2665,7 +2703,7 @@ impl Desktop {
         }
         vec![
             ui::icon_button("show-overview", Glyph::PanelRight, "Show overview")
-                .tooltip("Overview · ⌘\\")
+                .tooltip(super::shortcuts::OVERVIEW.hint("Overview"))
                 .on_click(cx.listener(|s, _, w, cx| {
                     if let Page::Topic(id, ..) = s.page {
                         s.toggle_overview(id, w)
@@ -2883,18 +2921,8 @@ impl Desktop {
                     ),
             )
     }
-    pub(super) fn chat_view(
-        &self,
-        state: &TopicState,
-        w: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    fn prepare_topic_chat(state: &TopicState) -> TopicChatContent {
         let id = state.topic.id;
-        if let Some((_, task)) = self.chat_task()
-            && let Some(t) = state.tasks.iter().find(|t| t.id == task)
-        {
-            return self.task_panel(state, t, w, cx);
-        }
         let mut messages = vec![];
         let mut thread_rows = BTreeMap::new();
         for t in &state.threads {
@@ -3067,13 +3095,8 @@ impl Desktop {
         }
         messages.sort_by_key(|m| m.created_at);
         let linked = chat_linked_tasks(state, &thread_rows, messages.len());
-        self.tick_running_chat_tasks(&linked, cx);
         let receipts = std::sync::Arc::new(chat_receipts(state, &messages));
         let answering = Self::chat_answer_in_progress(state).map(|t| t.id);
-        let reduced = cx.reduce_motion();
-        self.activity
-            .update(cx, |a, cx| a.set_active(answering.is_some(), reduced, cx));
-        self.ensure_chat_models(id, w, cx);
         let session = AgentSession {
             id: id.to_string(),
             topic: Some(id.to_string()),
@@ -3094,6 +3117,36 @@ impl Desktop {
             effort: None,
             approvals: vec![],
         };
+        TopicChatContent {
+            topic: id,
+            session: std::sync::Arc::new(session),
+            linked: std::sync::Arc::new(linked),
+            receipts,
+            answering,
+        }
+    }
+    pub(super) fn chat_view(
+        &self,
+        state: &TopicState,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let id = state.topic.id;
+        if let Some((_, task)) = self.chat_task()
+            && let Some(t) = state.tasks.iter().find(|t| t.id == task)
+        {
+            return self.task_panel(state, t, w, cx);
+        }
+        let content = self.chat_content.borrow_mut().get(state);
+        let session = content.session.clone();
+        let linked = content.linked.clone();
+        let receipts = content.receipts.clone();
+        let answering = content.answering;
+        self.tick_running_chat_tasks(&linked, cx);
+        let reduced = cx.reduce_motion();
+        self.activity
+            .update(cx, |a, cx| a.set_active(answering.is_some(), reduced, cx));
+        self.ensure_chat_models(id, w, cx);
         let mut stream = scroll("chat-stream").gap(px(12.));
         let virtual_chat =
             !session.messages.is_empty() && !w.is_a11y_active() && !cx.has_active_drag();
@@ -3225,15 +3278,16 @@ impl Desktop {
                 ))
             }
         }
-        pane.children(self.briefing(state, w, cx))
+        pane.children(self.briefing(state, cx))
             .children(self.session_prompt(state, cx))
             .children(self.session_bar(state))
             .child(self.topic_composer(state, answering, w, cx))
     }
     /// What needs the person, waiting in the conversation when they arrive.
-    fn briefing(&self, state: &TopicState, w: &Window, cx: &Context<Self>) -> Option<Div> {
+    fn briefing(&self, state: &TopicState, cx: &Context<Self>) -> Option<AnyElement> {
         let id = state.topic.id;
-        if self.briefing_dismissed.contains(&id) || self.overview_docked(w) {
+        let shown = 1. - self.pane_motion.get().1;
+        if self.briefing_dismissed.contains(&id) || shown <= 0. {
             return None;
         }
         let groups: Vec<_> = super::pages::attention_groups(&self.needs, state)
@@ -3243,58 +3297,66 @@ impl Desktop {
         if groups.is_empty() {
             return None;
         }
-        Some(
-            ui::row()
-                .flex_none()
-                .h(px(40.))
-                .pl(px(14.))
-                .pr(px(6.))
-                .gap(px(10.))
-                .rounded(px(10.))
-                .border_1()
-                .border_color(ui::ink(0x12))
-                .child(
-                    Icon::new(Glyph::Bell)
-                        .size(px(14.))
-                        .text_color(rgb(ui::theme::color(ui::SECONDARY))),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .text_size(px(13.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child("Needs you"),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(13.))
-                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                        .child(super::pages::attention_tally(&groups)),
-                )
-                .child(
-                    control("briefing-review", "Review", false, cx, move |s, w, cx| {
-                        s.go(Page::Topic(id, Tab::Needs, None), w, cx)
-                    })
-                    .self_center(),
-                )
-                .child(
-                    ui::icon_button("dismiss-briefing", Glyph::X, "Not now")
-                        .size(px(24.))
-                        .on_click(cx.listener(move |s, _, _, cx| {
-                            s.briefing_dismissed.insert(id);
-                            cx.notify()
-                        })),
-                ),
-        )
+        let bar = ui::row()
+            .flex_none()
+            .h(px(40.))
+            .pl(px(14.))
+            .pr(px(6.))
+            .gap(px(10.))
+            .rounded(px(10.))
+            .border_1()
+            .border_color(ui::ink(0x12))
+            .child(
+                Icon::new(Glyph::Bell)
+                    .size(px(14.))
+                    .text_color(rgb(ui::theme::color(ui::SECONDARY))),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child("Needs you"),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(13.))
+                    .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                    .child(super::pages::attention_tally(&groups)),
+            )
+            .child(
+                control("briefing-review", "Review", false, cx, move |s, w, cx| {
+                    s.go(Page::Topic(id, Tab::Needs, None), w, cx)
+                })
+                .self_center(),
+            )
+            .child(
+                ui::icon_button("dismiss-briefing", Glyph::X, "Not now")
+                    .size(px(24.))
+                    .on_click(cx.listener(move |s, _, _, cx| {
+                        s.briefing_dismissed.insert(id);
+                        cx.notify()
+                    })),
+            );
+        Some(if shown >= 1. {
+            bar.into_any_element()
+        } else {
+            meep_ui::gpui_kit::base::MotionReveal::new(
+                ElementId::Name(SharedString::from(format!("briefing-{id}"))),
+                shown,
+                div().w_full().child(bar).into_any_element(),
+            )
+            .into_any_element()
+        })
     }
     fn virtual_topic_chat(
         &self,
         state: &TopicState,
-        session: AgentSession,
-        linked: Vec<Vec<ChatTask>>,
+        session: std::sync::Arc<AgentSession>,
+        linked: std::sync::Arc<Vec<Vec<ChatTask>>>,
         receipts: std::sync::Arc<Vec<Vec<Receipt>>>,
         w: &mut Window,
         cx: &mut Context<Self>,
@@ -3315,12 +3377,15 @@ impl Desktop {
                     list.set_follow_mode(FollowMode::Tail);
                     list
                 },
-                messages: session.messages.clone(),
+                session: session.clone(),
                 linked: linked.clone(),
                 running,
                 full_selection: selecting,
+
                 selection_rows: Vec::new(),
             });
+            let linked_changed =
+                !std::sync::Arc::ptr_eq(&cache.linked, &linked) && cache.linked != linked;
             let mut anchor = None;
             if cache.topic != topic {
                 cache.topic = topic;
@@ -3371,24 +3436,30 @@ impl Desktop {
                     cache.list.set_offset_from_scrollbar(offset);
                 }
             } else if selecting {
-                if cache.messages != session.messages
-                    || cache.linked != linked
+                if (!std::sync::Arc::ptr_eq(&cache.session, &session)
+                    && cache.session.messages != session.messages)
+                    || linked_changed
                     || cache.running != running
                 {
                     cache.list.remeasure_items(0..1);
                 }
             } else {
-                let prefix = cache
-                    .messages
-                    .iter()
-                    .zip(&session.messages)
-                    .take_while(|(a, b)| a == b)
-                    .count();
-                if prefix != cache.messages.len()
+                let prefix = if std::sync::Arc::ptr_eq(&cache.session, &session) {
+                    session.messages.len()
+                } else {
+                    cache
+                        .session
+                        .messages
+                        .iter()
+                        .zip(&session.messages)
+                        .take_while(|(a, b)| a == b)
+                        .count()
+                };
+                if prefix != cache.session.messages.len()
                     || prefix != session.messages.len()
-                    || cache.linked != linked
+                    || linked_changed
                 {
-                    let changed = if cache.linked != linked { 0 } else { prefix };
+                    let changed = if linked_changed { 0 } else { prefix };
                     cache
                         .list
                         .splice(changed..cache.list.item_count(), count - changed);
@@ -3397,7 +3468,7 @@ impl Desktop {
                     cache.list.remeasure_items(last..last + 1);
                 }
             }
-            cache.messages = session.messages.clone();
+            cache.session = session.clone();
             cache.linked = linked.clone();
             cache.running = running;
             cache.full_selection = selecting;
@@ -3443,8 +3514,8 @@ impl Desktop {
                 }
             });
         }
+
         let owner = cx.weak_entity();
-        let session = std::sync::Arc::new(session);
         ui::column().flex_1().min_h_0().w_full().child(
             list(list_state, move |index, w, cx| {
                 owner
@@ -3611,7 +3682,10 @@ impl Desktop {
             })
             .child(
                 meep_ui::composer::submit("send-chat-message", "Send message")
-                    .tooltip("Send · ↵   After current work · ⌘↵")
+                    .tooltip(format!(
+                        "Send · ↵   {}",
+                        super::shortcuts::SEND_LATER.hint("After current work")
+                    ))
                     .disabled(!can_send)
                     .on_click(cx.listener(move |s, _, w, cx| s.send_chat(w, cx))),
             );
@@ -4506,6 +4580,31 @@ mod tests {
         task.created_at = at;
         task.updated_at = at;
         shape(task);
+    }
+
+    #[test]
+    fn prepared_chat_tracks_new_messages_in_time_order() {
+        let at = chrono::DateTime::parse_from_rfc3339("2026-01-05T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut state = TopicState::new(Topic::new(TopicId(Uuid::new_v4()), "Topic", at));
+        request(&mut state, "Later", at + chrono::Duration::minutes(1));
+        let mut cache = TopicChatCache::default();
+        let first = cache.get(&state);
+        assert_eq!(first.session.messages[0].text, "Later");
+        let other = TopicState::new(Topic::new(TopicId(Uuid::new_v4()), "Other", at));
+        assert!(cache.get(&other).session.messages.is_empty());
+        assert_eq!(cache.get(&state).session.messages[0].text, "Later");
+        request(&mut state, "Earlier", at);
+        cache.invalidate(state.topic.id);
+        let updated = cache.get(&state);
+        let texts: Vec<_> = updated
+            .session
+            .messages
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect();
+        assert_eq!(texts, ["Earlier", "Later"]);
     }
 
     #[test]

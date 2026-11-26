@@ -166,7 +166,7 @@ impl ViewWorkspace {
     }
 }
 
-fn progress(stage: &Stage) -> String {
+pub(super) fn progress(stage: &Stage) -> String {
     match stage {
         Stage::Queued => "Waiting to start".into(),
         Stage::Starting => "Starting the agent".into(),
@@ -561,7 +561,7 @@ impl Desktop {
             .gap(px(8.))
             .border_b_1()
             .border_color(rgb(ui::theme::color(ui::RULE)))
-            .child(meep_shell::icons::icon(&v.icon, &v.color, 22.))
+            .child(meep_shell::icons::window(&v.icon, &v.color, 24.))
             .child(
                 div()
                     .flex_1()
@@ -1046,7 +1046,7 @@ impl Desktop {
                     .child(
                         ui::row()
                             .gap(px(10.))
-                            .child(meep_shell::icons::icon(emoji, color, 40.))
+                            .child(meep_shell::icons::window(emoji, color, 44.))
                             .child(
                                 div().flex_1().child(
                                     Input::new(&self.views.emoji_query).prefix(

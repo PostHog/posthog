@@ -4,10 +4,7 @@
 //! and a line shows where it will land. A section is removed by ungrouping:
 //! its items stay, loose, where it was.
 use super::*;
-use meep_ui::gpui_kit::component::{
-    Icon,
-    menu::{PopupMenu, PopupMenuItem},
-};
+use meep_ui::gpui_kit::component::native_menu::NativeMenu;
 use std::collections::HashSet;
 
 /// The top of a section header that still drops an item above the section
@@ -158,123 +155,144 @@ impl Arrangement {
     }
 }
 
-/// What an item's menu offers for its section.
-#[derive(Clone)]
-pub(super) enum SectionChoice {
-    MoveTo { id: Uuid, name: String },
-    Leave { name: String },
-    New,
+#[derive(Clone, Copy)]
+pub(super) enum MenuRow {
+    Section(Uuid),
+    Topic(TopicId),
+    View(Uuid),
 }
 
-pub(super) fn section_choices(arrangement: &Arrangement, key: &str) -> Vec<SectionChoice> {
-    let current = arrangement.locate(key).and_then(|(section, _)| section);
-    let mut choices: Vec<SectionChoice> = arrangement
-        .sections
-        .iter()
-        .filter(|s| Some(s.id) != current)
-        .map(|s| SectionChoice::MoveTo {
-            id: s.id,
-            name: s.name.clone(),
-        })
-        .collect();
-    if let Some(section) = current.and_then(|id| arrangement.sections.iter().find(|s| s.id == id)) {
-        choices.push(SectionChoice::Leave {
-            name: section.name.clone(),
-        });
-    }
-    choices.push(SectionChoice::New);
-    choices
-}
-
-/// The "Section" part of an item's menu: one plain item when there is
-/// nothing to move to, otherwise a submenu.
-pub(super) fn section_menu_items(
-    m: PopupMenu,
-    owner: WeakEntity<Desktop>,
-    key: String,
-    w: &mut Window,
-    cx: &mut Context<PopupMenu>,
-) -> PopupMenu {
-    let Some(arrangement) = owner.upgrade().map(|e| e.read(cx).arrangement()) else {
-        return m;
-    };
-    let choices = section_choices(&arrangement, &key);
-    if let [SectionChoice::New] = choices.as_slice() {
-        return m.item(section_item(&choices[0], &owner, &key));
-    }
-    let moves = choices
-        .iter()
-        .filter(|c| matches!(c, SectionChoice::MoveTo { .. }))
-        .count();
-    m.submenu_with_icon(
-        Some(Icon::new(Glyph::Folder)),
-        "Section",
-        w,
-        cx,
-        move |mut sub, _, _| {
-            sub = sub.min_w(px(168.));
-            for (i, choice) in choices.iter().enumerate() {
-                if i == moves && moves > 0 {
-                    sub = sub.separator();
-                }
-                sub = sub.item(section_item(choice, &owner, &key));
-            }
-            sub
-        },
-    )
-}
-
-/// One of an item's section choices, as a menu row.
-fn section_item(choice: &SectionChoice, owner: &WeakEntity<Desktop>, key: &str) -> PopupMenuItem {
-    let owner = owner.clone();
-    let key = key.to_owned();
-    match choice {
-        SectionChoice::MoveTo { id, name } => {
-            let id = *id;
-            PopupMenuItem::new(name.clone())
-                .icon(Icon::new(Glyph::Folder))
-                .on_click(move |_, _, cx| {
-                    let _ = owner.update(cx, |s, cx| s.move_to_section(&key, Some(id), cx));
-                })
-        }
-        SectionChoice::Leave { name } => PopupMenuItem::new(format!("Take out of {name}"))
-            .icon(Icon::new(Glyph::FolderOpen))
-            .on_click(move |_, _, cx| {
-                let _ = owner.update(cx, |s, cx| s.move_to_section(&key, None, cx));
-            }),
-        SectionChoice::New => PopupMenuItem::new("New section…")
-            .icon(Icon::new(Glyph::FolderPlus))
-            .on_click(move |_, w, cx| {
-                let _ = owner.update(cx, |s, cx| s.new_section_with(Some(&key), w, cx));
-            }),
-    }
-}
-
-/// A section header's menu: name it, or let its items go.
-pub(super) fn section_menu(m: PopupMenu, owner: WeakEntity<Desktop>, id: Uuid) -> PopupMenu {
-    let rename = owner.clone();
-    m.min_w(px(168.))
-        .item(
-            PopupMenuItem::new("Rename section…")
-                .icon(Icon::new(Glyph::Pencil))
-                .on_click(move |_, w, cx| {
-                    let _ = rename.update(cx, |s, cx| s.start_section_rename(id, w, cx));
-                }),
-        )
-        .separator()
-        .item(
-            PopupMenuItem::new("Remove section")
-                .icon(Icon::new(Glyph::FolderOpen))
-                .on_click(move |_, w, cx| {
-                    let _ = owner.update(cx, |s, cx| {
-                        s.ungroup_section(id, cx);
-                        s.focus.focus(w, cx);
-                    });
-                }),
-        )
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(namespace = meep_sidebar, no_json)]
+pub(super) enum RowAction {
+    Chat(TopicId),
+    RenameTopic(TopicId),
+    Archive(TopicId, bool),
+    DeleteTopic(TopicId),
+    OpenView(Uuid),
+    ViewSettings(Uuid),
+    DeleteView(Uuid),
+    Move(String, Option<Uuid>),
+    NewSection(String),
+    RenameSection(Uuid),
+    RemoveSection(Uuid),
 }
 
 impl Desktop {
+    pub(super) fn show_row_menu(
+        &self,
+        row: MenuRow,
+        at: Point<Pixels>,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use RowAction::*;
+        let menu = NativeMenu::new();
+        let menu = match row {
+            MenuRow::Section(id) => menu
+                .menu("Rename section…", Box::new(RenameSection(id)))
+                .separator()
+                .menu("Remove section", Box::new(RemoveSection(id))),
+            MenuRow::Topic(id) => {
+                let Some(topic) = self.states.iter().find(|s| s.topic.id == id) else {
+                    return;
+                };
+                let menu = menu
+                    .menu("Chat with topic", Box::new(Chat(id)))
+                    .separator()
+                    .menu("Rename…", Box::new(RenameTopic(id)))
+                    .menu(
+                        if topic.archived {
+                            "Restore from archive"
+                        } else {
+                            "Archive"
+                        },
+                        Box::new(Archive(id, !topic.archived)),
+                    );
+                let menu = if topic.archived {
+                    menu
+                } else {
+                    self.section_items(menu, topic_key(id))
+                };
+                menu.separator().menu("Delete…", Box::new(DeleteTopic(id)))
+            }
+            MenuRow::View(id) => {
+                let menu = menu
+                    .menu("Open", Box::new(OpenView(id)))
+                    .menu("Rename and icon…", Box::new(ViewSettings(id)))
+                    .separator();
+                self.section_items(menu, view_key(id))
+                    .separator()
+                    .menu("Delete view…", Box::new(DeleteView(id)))
+            }
+        };
+        self.focus.focus(w, cx);
+        menu.show(at, w, cx);
+    }
+
+    fn section_items(&self, menu: NativeMenu, key: String) -> NativeMenu {
+        let new = Box::new(RowAction::NewSection(key.clone()));
+        if self.layout.sections.is_empty() {
+            return menu.menu("New section…", new);
+        }
+        let current = self.layout.home(&key);
+        let mut sub = NativeMenu::new();
+        for section in &self.layout.sections {
+            if Some(section.id) != current {
+                sub = sub.menu(
+                    section.name.clone(),
+                    Box::new(RowAction::Move(key.clone(), Some(section.id))),
+                );
+            }
+        }
+        if !sub.is_empty() {
+            sub = sub.separator();
+        }
+        if let Some(section) = self.layout.sections.iter().find(|s| Some(s.id) == current) {
+            sub = sub.menu(
+                format!("Take out of {}", section.name),
+                Box::new(RowAction::Move(key, None)),
+            );
+        }
+        menu.submenu("Section", sub.menu("New section…", new))
+    }
+
+    pub(super) fn run_row_action(
+        &mut self,
+        action: &RowAction,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            RowAction::Chat(id) => {
+                self.go(Page::Topic(*id, Tab::Chat, None), w, cx);
+                self.composer.focus_handle(cx).focus(w, cx);
+            }
+            RowAction::RenameTopic(id) => self.open_sheet(Sheet::RenameTopic(*id), w, cx),
+            RowAction::DeleteTopic(id) => self.open_sheet(Sheet::DeleteTopic(*id), w, cx),
+            RowAction::Archive(id, archive) => {
+                self.issue(
+                    *id,
+                    if *archive {
+                        Command::ArchiveTopic
+                    } else {
+                        Command::UnarchiveTopic
+                    },
+                );
+                cx.notify();
+            }
+            RowAction::OpenView(id) => self.go(Page::View(*id), w, cx),
+            RowAction::ViewSettings(id) | RowAction::DeleteView(id) => {
+                self.go(Page::View(*id), w, cx);
+                self.open_view_settings(*id, w, cx);
+                self.views.confirm_delete = matches!(action, RowAction::DeleteView(_));
+            }
+            RowAction::Move(key, id) => self.move_to_section(key, *id, cx),
+            RowAction::NewSection(key) => self.new_section_with(Some(key), w, cx),
+            RowAction::RenameSection(id) => self.start_section_rename(*id, w, cx),
+            RowAction::RemoveSection(id) => self.ungroup_section(*id, cx),
+        }
+    }
     /// Every sidebar entry that is drawn, in its default order.
     fn present(&self) -> Vec<String> {
         self.states

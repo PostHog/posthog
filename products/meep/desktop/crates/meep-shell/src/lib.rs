@@ -20,6 +20,7 @@ pub use meep_ui::{controls, settings};
 pub mod icons;
 pub mod material;
 pub mod model_picker;
+pub mod shortcuts;
 pub mod wallpaper;
 pub mod workspace;
 use gpui_kit::assets::IconName as Glyph;
@@ -220,7 +221,7 @@ pub fn sidebar(
 pub fn settings_button(cx: &App) -> Button {
     ui::nav::button("settings", false, cx)
         .accessibility_label("Settings")
-        .tooltip("Settings · ⌘,")
+        .tooltip(shortcuts::SETTINGS.hint("Settings"))
         .child(
             row()
                 .w_full()
@@ -244,9 +245,9 @@ pub fn sidebar_toggle(visible: bool) -> Button {
     .top(px(TRAFFIC_LIGHT_CENTER - titlebar::BUTTON / 2.))
     .left(px(titlebar::TOGGLE_LEFT))
     .tooltip(if visible {
-        "Hide sidebar · ⌃⌘S"
+        shortcuts::TOGGLE_SIDEBAR.hint("Hide sidebar")
     } else {
-        "Show sidebar · ⌃⌘S"
+        shortcuts::TOGGLE_SIDEBAR.hint("Show sidebar")
     })
 }
 

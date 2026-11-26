@@ -69,8 +69,8 @@ pub(super) enum Detail {
 pub(super) struct TopicChatList {
     pub topic: TopicId,
     pub list: ListState,
-    pub messages: Vec<meep_protocol::sessions::AgentMessage>,
-    pub linked: Vec<Vec<crate::details::ChatTask>>,
+    pub session: Arc<meep_protocol::sessions::AgentSession>,
+    pub linked: Arc<Vec<Vec<crate::details::ChatTask>>>,
     pub running: bool,
     /// Keep selected text mounted until the selection is cleared.
     pub full_selection: bool,
@@ -177,6 +177,7 @@ pub(super) struct Desktop {
     pub scheme: Option<String>,
     pub login_busy: bool,
     pub states: Vec<TopicState>,
+    pub topic_previews: std::collections::HashMap<TopicId, super::navigation::TopicPreview>,
     pub needs: Vec<NeedsYouItem>,
     /// Service names from the replica, keyed by connection ID.
     pub services: BTreeMap<String, String>,
@@ -203,6 +204,7 @@ pub(super) struct Desktop {
     pub overview_leaving: Option<TopicId>,
     pub sheet_leaving: Option<Sheet>,
     pub folds: super::folds::Folds,
+    pub pane_motion: std::cell::Cell<(f32, f32)>,
     /// In a narrow window, whether the Overview is shown over the page.
     pub overview_overlay: bool,
     pub overview_open: BTreeSet<(TopicId, Tab)>,
@@ -275,6 +277,7 @@ pub(super) struct Desktop {
     pub sending_runs: HashSet<TaskId>,
     pub run_scroll: ScrollHandle,
     pub chat_list: std::cell::RefCell<Option<TopicChatList>>,
+    pub chat_content: std::cell::RefCell<super::details::TopicChatCache>,
     pub chat_tick: std::cell::Cell<bool>,
     pub pending_turns: std::collections::HashMap<TaskId, Vec<PendingTurn>>,
     pub run_models: Entity<meep_shell::model_picker::ModelPicker>,
@@ -535,6 +538,7 @@ impl Desktop {
             login_busy: false,
             views: super::views::ViewWorkspace::new(w, cx),
             states: vec![],
+            topic_previews: Default::default(),
             needs: vec![],
             services: BTreeMap::new(),
             layout: Layout::default(),
@@ -560,6 +564,7 @@ impl Desktop {
             overview_leaving: None,
             sheet_leaving: None,
             folds: Default::default(),
+            pane_motion: std::cell::Cell::new((1., 0.)),
             overview_overlay: false,
             overview_open: BTreeSet::new(),
             briefing_dismissed: BTreeSet::new(),
@@ -616,6 +621,7 @@ impl Desktop {
             sending_runs: Default::default(),
             run_scroll: ScrollHandle::new(),
             chat_list: std::cell::RefCell::new(None),
+            chat_content: Default::default(),
             chat_tick: Default::default(),
             pending_turns: Default::default(),
             run_models,
@@ -692,7 +698,14 @@ impl Desktop {
             v.sort_by_key(|s| s.topic.id);
             Ok(v)
         }) {
-            Ok(states) => self.states = states,
+            Ok(states) => {
+                self.chat_content.get_mut().clear();
+                self.topic_previews = states
+                    .iter()
+                    .map(|state| (state.topic.id, super::navigation::TopicPreview::new(state)))
+                    .collect();
+                self.states = states;
+            }
             Err(e) => self.fail(e),
         }
         self.reload_views();
@@ -702,7 +715,14 @@ impl Desktop {
     fn reload_topic(&mut self, id: TopicId) {
         match self.client().topic(id) {
             Ok(topic) => {
+                self.chat_content.get_mut().invalidate(id);
                 let topic = topic.filter(|t| !t.deleted);
+                if let Some(state) = &topic {
+                    self.topic_previews
+                        .insert(id, super::navigation::TopicPreview::new(state));
+                } else {
+                    self.topic_previews.remove(&id);
+                }
                 match (self.states.binary_search_by_key(&id, |s| s.topic.id), topic) {
                     (Ok(i), Some(t)) => self.states[i] = t,
                     (Err(i), Some(t)) => self.states.insert(i, t),
@@ -1574,6 +1594,13 @@ impl Desktop {
                     )
                 })
                 .collect();
+            hits.extend(
+                self.views
+                    .rows
+                    .iter()
+                    .take(3)
+                    .map(|v| (v.title.clone(), "Views".into(), Page::View(v.id))),
+            );
             let mut tasks: Vec<_> = self
                 .states
                 .iter()
@@ -1607,8 +1634,15 @@ impl Desktop {
             }));
             return hits;
         }
+        let needle = q.to_lowercase();
+        let views = self
+            .views
+            .rows
+            .iter()
+            .filter(|v| v.title.to_lowercase().contains(&needle))
+            .map(|v| (v.title.clone(), "Views".to_owned(), Page::View(v.id)));
         let Ok(res) = self.client().search(q, 50) else {
-            return vec![];
+            return views.collect();
         };
         let mut hits: Vec<_> = res
             .hits
@@ -1654,11 +1688,13 @@ impl Desktop {
                 Some((label, group.to_owned(), Page::Topic(h.topic, tab, detail)))
             })
             .collect();
+        hits.extend(views);
         hits.sort_by_key(|(_, _, p)| match p {
             Page::Topic(_, _, None) => 0,
-            Page::Topic(_, Tab::Tasks, _) => 1,
-            Page::Topic(_, Tab::Inbox, _) => 2,
-            _ => 3,
+            Page::View(_) => 1,
+            Page::Topic(_, Tab::Tasks, _) => 2,
+            Page::Topic(_, Tab::Inbox, _) => 3,
+            _ => 4,
         });
         hits
     }

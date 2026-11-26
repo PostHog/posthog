@@ -10,6 +10,7 @@ struct Fold {
     open: bool,
     from: f32,
     at: Cell<Option<Instant>>,
+    toggled: Instant,
 }
 
 impl Folds {
@@ -22,6 +23,7 @@ impl Folds {
                 open,
                 from,
                 at: Cell::new(None),
+                toggled: Instant::now(),
             },
         );
     }
@@ -32,11 +34,7 @@ impl Folds {
             return to;
         };
         let tokens = cx.theme().motion_tokens();
-        let (duration, easing) = if open {
-            (tokens.duration_normal, &tokens.easing_enter)
-        } else {
-            (tokens.duration_fast, &tokens.easing_exit)
-        };
+        let (duration, easing) = (tokens.duration_normal, &tokens.easing_move);
         let Some(at) = fold.at.get() else {
             fold.at.set(Some(Instant::now()));
             return if duration.is_zero() { to } else { fold.from };
@@ -77,7 +75,7 @@ impl Folds {
             MotionReveal::new(
                 ElementId::Name(SharedString::from(format!("fold:{part}"))),
                 progress,
-                content,
+                div().w_full().child(content).into_any_element(),
             )
             .into_any_element()
         })
@@ -85,9 +83,12 @@ impl Folds {
 
     pub fn moving(&mut self, cx: &App) -> bool {
         let tokens = cx.theme().motion_tokens();
-        let longest = tokens.duration_normal.max(tokens.duration_fast);
-        self.0
-            .retain(|_, f| f.at.get().is_none_or(|at| at.elapsed() < longest));
+        let longest = tokens.duration_normal;
+        self.0.retain(|_, f| {
+            f.at.get().map_or(f.toggled.elapsed() < longest * 2, |at| {
+                at.elapsed() < longest
+            })
+        });
         !self.0.is_empty()
     }
 }

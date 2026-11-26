@@ -14,6 +14,57 @@ pub fn inks(color: &str) -> (u32, u32) {
     }
 }
 
+pub fn tile_edge() -> Rgba {
+    match meep_ui::theme::is_dark() {
+        true => rgba(0xffffff29),
+        false => rgba(0x00000040),
+    }
+}
+
+const TRAFFIC_LIGHTS: [u32; 3] = [0xff5f57, 0xfebc2e, 0x28c840];
+
+pub fn window(emoji: &str, color: &str, width: f32) -> Div {
+    let (_, tint) = inks(color);
+    let k = width / 34.;
+    let (edge, radius, bar, dot) = (1., 6. * k, 7. * k, 3. * k);
+    let titlebar = div()
+        .flex()
+        .items_center()
+        .flex_none()
+        .h(px(bar - edge))
+        .pl(px(4.5 * k - edge))
+        .gap(px(1.8 * k))
+        .children(TRAFFIC_LIGHTS.map(|c| div().size(px(dot)).rounded_full().bg(rgb(c))));
+    let body = div()
+        .flex_1()
+        .rounded_b(px(radius - edge))
+        .bg(rgb(tint))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .child(SharedString::from(emoji.to_owned()))
+                .text_size(px(13. * k))
+                .line_height(px(13. * k)),
+        );
+    div()
+        .flex_none()
+        .w(px(width))
+        .h(px(30. * k))
+        .rounded(px(radius))
+        .border(px(edge))
+        .border_color(tile_edge())
+        .bg(rgb(match meep_ui::theme::is_dark() {
+            true => 0x3a3a3c,
+            false => 0xfafafa,
+        }))
+        .flex()
+        .flex_col()
+        .child(titlebar)
+        .child(body)
+}
+
 /// Render an emoji on a rounded tile of the given size.
 pub fn icon(emoji: &str, color: &str, size: f32) -> Div {
     let (_, light) = inks(color);

@@ -1447,18 +1447,10 @@ impl Desktop {
     }
     /// The width the topic's own pane gets beside the sidebar and the Overview.
     pub(super) fn topic_pane_width(&self, w: &Window) -> Pixels {
-        let viewport = w.viewport_size().width;
-        viewport
-            - if self.sidebar_hidden {
-                px(0.)
-            } else {
-                px(super::navigation::TOPIC_SIDEBAR_WIDTH)
-            }
-            - if self.overview_docked(w) {
-                px(super::overview::WIDTH + meep_shell::GUTTER)
-            } else {
-                px(0.)
-            }
+        let (rail, overview) = self.pane_motion.get();
+        w.viewport_size().width
+            - px(super::navigation::TOPIC_SIDEBAR_WIDTH * rail)
+            - px((super::overview::WIDTH + meep_shell::GUTTER) * overview)
     }
     /// The topic's own Needs you: its decisions, approvals and problems.
     fn topic_needs(&self, state: &TopicState, cx: &Context<Self>) -> Div {

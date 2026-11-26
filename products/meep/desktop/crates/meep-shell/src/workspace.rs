@@ -22,16 +22,18 @@ actions!(
 
 /// Install application, editing and window menus for a native host.
 pub fn install_menus(name: &'static str, cx: &mut App) {
+    use crate::shortcuts::*;
+    let bind = |shortcut: Shortcut| -> &'static str { shortcut.binding().leak() };
     cx.bind_keys([
-        KeyBinding::new("cmd-,", OpenSettings, Some("MeepWorkspace")),
-        KeyBinding::new("escape", Back, Some("MeepWorkspace")),
-        KeyBinding::new("ctrl-cmd-s", ToggleSidebar, Some("MeepWorkspace")),
-        KeyBinding::new("cmd-w", CloseWindow, None),
-        KeyBinding::new("cmd-q", QuitApp, None),
-        KeyBinding::new("cmd-h", HideApp, None),
-        KeyBinding::new("alt-cmd-h", HideOthers, None),
-        KeyBinding::new("cmd-m", Minimize, None),
-        KeyBinding::new("ctrl-cmd-f", FullScreen, None),
+        KeyBinding::new(bind(SETTINGS), OpenSettings, Some("MeepWorkspace")),
+        KeyBinding::new(bind(BACK), Back, Some("MeepWorkspace")),
+        KeyBinding::new(bind(TOGGLE_SIDEBAR), ToggleSidebar, Some("MeepWorkspace")),
+        KeyBinding::new(bind(CLOSE_WINDOW), CloseWindow, None),
+        KeyBinding::new(bind(QUIT), QuitApp, None),
+        KeyBinding::new(bind(HIDE), HideApp, None),
+        KeyBinding::new(bind(HIDE_OTHERS), HideOthers, None),
+        KeyBinding::new(bind(MINIMIZE), Minimize, None),
+        KeyBinding::new(bind(FULL_SCREEN), FullScreen, None),
     ]);
     cx.set_menus([
         Menu::new(name).items([

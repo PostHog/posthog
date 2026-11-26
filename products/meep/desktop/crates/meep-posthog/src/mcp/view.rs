@@ -11,10 +11,24 @@ const NATIVE: &[&str] = &[
     "feature-flag-get-definition",
     "event-definitions-list",
     "query-run",
+    "execute-sql",
 ];
 /// Whether a native PostHog tool is available to rendered views.
 pub fn native_allowed(name: &str) -> bool {
     NATIVE.contains(&name.replace('_', "-").as_str())
+}
+
+/// Whether a call goes through the single `exec` tool to a read-only native tool,
+/// as in `call --json execute-sql {...}`.
+fn exec_allowed(tool: &str, args: &Value) -> bool {
+    let Some(command) = args["command"].as_str().filter(|_| tool == "exec") else {
+        return false;
+    };
+    let mut words = command.split_whitespace();
+    words.next() == Some("call")
+        && words
+            .find(|w| !w.starts_with("--"))
+            .is_some_and(native_allowed)
 }
 
 /// Execute a native or approved installation read under the signed-in account.
@@ -27,8 +41,11 @@ pub async fn read_source(
     tool: &str,
     args: &Value,
 ) -> Result<Value> {
-    let result = if source == "posthog" {
-        ensure!(native_allowed(tool), "Unsupported PostHog read operation");
+    let result = if source.eq_ignore_ascii_case("posthog") {
+        ensure!(
+            native_allowed(tool) || exec_allowed(tool, args),
+            "Unsupported PostHog read operation"
+        );
         client
             .initialize(token)
             .await?

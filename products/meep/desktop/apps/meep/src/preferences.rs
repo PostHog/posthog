@@ -185,11 +185,12 @@ impl Desktop {
             ))
     }
     pub(super) fn shortcuts_page(&self) -> Div {
-        let rows = |pairs: &[(&'static str, &'static str)]| {
+        use super::shortcuts::*;
+        let rows = |pairs: &[(&'static str, String)]| {
             group(
                 pairs
                     .iter()
-                    .map(|(name, key)| item(*name, "", value_text(*key)).into_any_element()),
+                    .map(|(name, key)| item(*name, "", value_text(key.clone())).into_any_element()),
             )
         };
         ui::column()
@@ -197,23 +198,25 @@ impl Desktop {
             .child(header("Shortcuts", "Keyboard controls for Meep.", None))
             .child(section("Workspace", "", None, true))
             .child(rows(&[
-                ("Search topics", "⌘ K"),
-                ("New topic", "⌘ N"),
-                ("Open settings", "⌘ ,"),
-                ("Go back", "⌘ ["),
+                ("Search topics", SEARCH.label()),
+                ("New topic", NEW_TOPIC.label()),
+                ("Show or hide the sidebar", TOGGLE_SIDEBAR.label()),
+                ("Show or hide the overview", OVERVIEW.label()),
+                ("Open settings", SETTINGS.label()),
+                ("Go back", GO_BACK.label()),
             ]))
             .child(section("Navigation", "", None, false))
             .child(rows(&[
-                ("Previous or next item", "K / J  or  ↑ / ↓"),
-                ("Select a search result", "Return"),
-                ("Close a sheet or detail", "Esc"),
+                ("Previous or next item", "K / J  or  ↑ / ↓".to_owned()),
+                ("Select a search result", "Return".to_owned()),
+                ("Close a sheet or detail", BACK.label()),
             ]))
             .child(section("Window", "", None, false))
             .child(rows(&[
-                ("Close window", "⌘ W"),
-                ("Hide Meep", "⌘ H"),
-                ("Hide other apps", "⌥ ⌘ H"),
-                ("Quit Meep", "⌘ Q"),
+                ("Close window", CLOSE_WINDOW.label()),
+                ("Hide Meep", HIDE.label()),
+                ("Hide other apps", HIDE_OTHERS.label()),
+                ("Quit Meep", QUIT.label()),
             ]))
     }
     pub(super) fn permissions_page(&self, cx: &Context<Self>) -> Div {
