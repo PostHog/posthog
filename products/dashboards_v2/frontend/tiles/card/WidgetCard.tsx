@@ -75,7 +75,8 @@ export function WidgetCard({
     const look = cardLook(widget, definition?.allowedCustomizations ?? [])
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
-    const menu = useMemo(() => [...actions, ...placementActions], [actions, placementActions])
+    // Placement goes first so the slideshow stays above the image download in the shared view group.
+    const menu = useMemo(() => [...placementActions, ...actions], [actions, placementActions])
     const hasMenu = hasTileMenu(menu)
 
     return (
