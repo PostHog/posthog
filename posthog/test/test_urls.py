@@ -137,6 +137,24 @@ class TestUrls(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("app_route_redirect", "/project/1/settings", status.HTTP_302_FOUND, "noindex"),
+            ("admin_redirect", "/admin/", status.HTTP_302_FOUND, "noindex"),
+            ("invite_signup", f"/signup/{uuid.uuid4()}", status.HTTP_200_OK, "noindex"),
+            ("login", "/login?next=/project/1/settings", status.HTTP_200_OK, None),
+            ("signup", "/signup/", status.HTTP_200_OK, None),
+        ]
+    )
+    @override_settings(ADMIN_PORTAL_ENABLED=True)
+    def test_only_login_and_signup_are_indexable(self, _name, request_path, expected_status, expected_robots_tag):
+        self.client.logout()
+
+        response = self.client.get(request_path, follow=False)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.headers.get("X-Robots-Tag"), expected_robots_tag)
+
+    @parameterized.expand(
+        [
             ("no_slash_no_qs", "/sign-up", "/signup"),
             ("trailing_slash_no_qs", "/sign-up/", "/signup"),
             ("no_slash_with_qs", "/sign-up?email=foo%40bar.com", "/signup?email=foo%40bar.com"),
