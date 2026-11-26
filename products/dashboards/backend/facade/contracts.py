@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.dashboards.backend.facade.enums import (
+    CachedTileStatus,
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
@@ -224,10 +225,10 @@ class AppliedDashboard(Protocol):
     def id(self) -> int: ...
 
     @property
-    def filters(self) -> dict[str, Any]: ...
+    def filters(self) -> dict[str, JsonValue]: ...
 
     @property
-    def variables(self) -> dict[str, Any] | None: ...
+    def variables(self) -> dict[str, JsonValue] | None: ...
 
 
 @dataclass(frozen=True)
@@ -486,6 +487,58 @@ class InsightTilePlacement:
 
     team_id: int
     dashboards: tuple[DashboardRef, ...]
+
+
+@dataclass(frozen=True)
+class InsightTileOnDashboard:
+    """The tile that places one insight on one dashboard, with the dashboard it sits on."""
+
+    id: int
+    dashboard: DashboardSummary
+    color: str | None
+    # A tile can still hold its layouts as stringified JSON from an old migration. The facade parses it,
+    # so this is the parsed value.
+    layouts: JsonValue
+
+
+@dataclass(frozen=True)
+class InsightRenderTile:
+    """The tile an insight renders as on a dashboard, as far as running the insight reads it."""
+
+    id: int
+    filters_overrides: dict[str, JsonValue] | None
+
+
+@frozen
+class CachedTileResult:
+    """One entry of the batched cached-tiles read, which returns one per requested tile ID in request order.
+
+    `insight` holds the tile's cached result on a hit and is None otherwise. Its `result` can be cached JSON that
+    is still encoded (`orjson.Fragment`), so this contract is a plain frozen dataclass that never validates or
+    copies the payload."""
+
+    id: int
+    status: CachedTileStatus
+    insight: dict[str, JsonValue] | None = None
+
+
+@frozen
+class DashboardQuerySharingTileEvent:
+    """One tile that a job of the dashboard query stream computed, as the dashboard tile serializer renders it.
+    The stream sends it as a `tile` event, with the job's diagnostics when the request asks for them."""
+
+    tile: dict[str, JsonValue]
+
+
+@frozen
+class DashboardQuerySharingCachedEvent:
+    """The first event of a `dashboard-v2` board stream.
+
+    `tiles` holds every requested tile's cached result in request order, with stale hits marked. `pending` holds
+    the tiles that the stream computes next, in compute order."""
+
+    tiles: list[dict[str, JsonValue]]
+    pending: list[int]
 
 
 class DashboardCustomizationRejected(ValueError):

@@ -411,14 +411,6 @@ export-shape	products.customer_analytics.backend.models.account.Account	products
 export-shape	products.customer_analytics.backend.models.team_customer_analytics_config.TeamCustomerAnalyticsConfig	products.customer_analytics.backend.facade.team_extension	export-denied(model)	1
 export-shape	products.customer_analytics.backend.temporal.WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.customer_analytics.backend.temporal.account_property_sync.ACCOUNT_PROPERTY_SYNC_WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
-export-shape	products.dashboards.backend.query_sharing_debug.DashboardSharingOutcome	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.api	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCompleteEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingErrorEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingStream	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingTileEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
-export-shape	products.dashboards.backend.v2.cached_tiles.CachedTileStatus	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.logic.metrics._Unset	products.data_catalog.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.api	export-denied(model)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.models	export-denied(model)	1
@@ -1238,16 +1230,6 @@ facade-signature	products.customer_analytics.backend.facade.contracts	FeatureReq
 facade-signature	products.customer_analytics.backend.facade.contracts	FeatureRequestHistoryChange	attr:before	builtins.object	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UpdateAccountInput.__init__	field:properties	builtins.dict	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UserBasicInfo.__init__	field:hedgehog_config	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	read_cached_tiles	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	search_dashboards	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	tile_filters_overrides	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_insight_on_dashboard	return	products.dashboards.backend.models.dashboard_tile.DashboardTile	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_render	param:dashboard	products.dashboards.backend.models.dashboard.Dashboard	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_render	param:insight	products.product_analytics.backend.models.insight.Insight	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_render	return	products.dashboards.backend.models.dashboard_tile.DashboardTile	1
-facade-signature	products.dashboards.backend.facade.contracts	AppliedDashboard.filters	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.contracts	AppliedDashboard.variables	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.dashboard_creation	read_dashboard_metric_variables	return	typing.Any	1
 facade-signature	products.data_catalog.backend.facade.api	MetricSearchHit.__init__	field:metric	products.data_catalog.backend.models.metric.Metric	1
 facade-signature	products.data_catalog.backend.facade.api	accept_proposal	param:proposal	products.data_catalog.backend.models.relationship_proposal.RelationshipProposal	1
 facade-signature	products.data_catalog.backend.facade.api	accept_proposal	return	products.data_catalog.backend.models.relationship_proposal.RelationshipProposal	1
