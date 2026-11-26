@@ -346,7 +346,7 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
 
 def precomputed_series_values(
     runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
-) -> ClosedSeriesValues | SeriesValuesUnavailable:
+) -> PrecomputedSeriesValues | SeriesValuesUnavailable:
     # One deadline for the build and the read, so the call cannot outlast the caller's budget.
     deadline = None if wait_timeout_seconds is None else time.monotonic() + wait_timeout_seconds
     series = _counted_series(runner)

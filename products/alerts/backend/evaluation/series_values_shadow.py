@@ -21,8 +21,8 @@ from posthog.models.user import User
 
 from products.alerts.backend.evaluation.attempt_budget import attempt_outlasts
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner, closed_series_values
+from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues, SeriesValuesUnavailable
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner, precomputed_series_values
 
 logger = structlog.get_logger(__name__)
 
@@ -83,24 +83,26 @@ def effective_trends_runner(
     return runner
 
 
-def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, live: list[Any]) -> ShadowComparison:
-    if isinstance(closed, SeriesValuesUnavailable):
-        return ShadowComparison(outcome="unavailable", reason=closed.reason.value)
-    features = tuple(sorted(feature.value for feature in closed.features))
+def compare_precomputed_values(
+    precomputed: PrecomputedSeriesValues | SeriesValuesUnavailable, live: list[Any]
+) -> ShadowComparison:
+    if isinstance(precomputed, SeriesValuesUnavailable):
+        return ShadowComparison(outcome="unavailable", reason=precomputed.reason.value)
+    features = tuple(sorted(feature.value for feature in precomputed.features))
     series = live[0]
     live_by_bucket = {datetime.fromisoformat(day): value for day, value in zip(series["days"], series["data"])}
     differences = [
         abs(float(live_by_bucket[bucket]) - stored)
-        for bucket, stored in closed.values.items()
+        for bucket, stored in precomputed.values.items()
         if bucket in live_by_bucket
     ]
-    missing = len(closed.values) - len(differences)
+    missing = len(precomputed.values) - len(differences)
     if not differences:
         return ShadowComparison(
             outcome="unavailable",
             reason="no_overlapping_buckets",
             buckets_missing=missing,
-            freshly_built=closed.freshly_built,
+            freshly_built=precomputed.freshly_built,
             features=features,
         )
     largest = max(differences)
@@ -116,7 +118,7 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
         buckets_compared=len(differences),
         buckets_missing=missing,
         max_abs_difference=largest,
-        freshly_built=closed.freshly_built,
+        freshly_built=precomputed.freshly_built,
         features=features,
     )
 
@@ -142,8 +144,10 @@ def compare_series_values_shadow(
             comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
         else:
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
-            closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
-            comparison = compare_closed_values(closed, live)
+            precomputed = precomputed_series_values(
+                runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS
+            )
+            comparison = compare_precomputed_values(precomputed, live)
     except _CANCELLATION:
         raise
     except Exception as err:
