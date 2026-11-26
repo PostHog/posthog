@@ -229,6 +229,7 @@ describe('LogsIngestionConsumer', () => {
                 | 'logsTransformer'
                 | 'patternMessageKeysCache'
                 | 'internalSourcePolicies'
+                | 'secretKeyTeams'
             >
         > = {}
     ) => {
@@ -483,10 +484,19 @@ describe('LogsIngestionConsumer', () => {
         })
 
         it.each([
-            ['records the digest of a secret key with no team', 'sha256$belongs_to_no_team', 1],
-            ['never records or looks up a secret key that arrived unhashed', 'phs_unhashed_key', 0],
-            ['never records a secret key behind a leading space', ' phs_unhashed_key', 0],
-        ])('%s', async (_, token, recorded) => {
+            ['records the digest of a secret key with no row', 'sha256$belongs_to_no_team', false, 1],
+            ['never records the digest of a key without the logs:write scope', 'sha256$no_logs_write', true, 0],
+            ['never records or looks up a secret key that arrived unhashed', 'phs_unhashed_key', false, 0],
+            ['never records a secret key behind a leading space', ' phs_unhashed_key', false, 0],
+        ])('%s', async (_, token, exists, recorded) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(
+                hub,
+                {},
+                {
+                    secretKeyTeams: { getTeam: () => Promise.resolve(null), exists: () => Promise.resolve(exists) },
+                }
+            )
             const record = jest.spyOn((consumer as any).unknownTokens, 'record')
             const lookup = jest.spyOn(hub.teamManager, 'getTeamByToken')
             const messages = await createKafkaMessages([createLogMessage()], { token })
@@ -496,6 +506,16 @@ describe('LogsIngestionConsumer', () => {
             expect(getProducedKafkaMessages()).toHaveLength(0)
             expect(record).toHaveBeenCalledTimes(recorded)
             expect(lookup).not.toHaveBeenCalled()
+        })
+
+        it('never records a digest on a consumer with no secret key lookup', async () => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+            const messages = await createKafkaMessages([createLogMessage()], { token: 'sha256$belongs_to_no_team' })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages()).toHaveLength(0)
+            expect(record).not.toHaveBeenCalled()
         })
 
         it('should drop messages when team lookup fails and record unknown team_id', async () => {

@@ -77,6 +77,7 @@ import {
     SecretKeyTeams,
     isSecretKey,
     isSecretKeyDigest,
+    isUnknownToken,
     loggableToken,
 } from './secret-key-teams'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
@@ -85,7 +86,7 @@ import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
-    secretKeyTeams?: Pick<SecretKeyTeams, 'getTeam'>
+    secretKeyTeams?: Pick<SecretKeyTeams, 'getTeam' | 'exists'>
     quotaLimiting: QuotaLimiting
     /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
     samplingRulesCache?: SamplingRulesCache
@@ -1570,7 +1571,7 @@ export class LogsIngestionConsumer {
                         logger.warn('team_not_found', {
                             token_with_no_team: loggableToken(token),
                         })
-                        if (!sentUnhashedKey) {
+                        if (await isUnknownToken(token, this.deps.secretKeyTeams)) {
                             this.unknownTokens.record(token)
                         }
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })

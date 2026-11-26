@@ -346,6 +346,7 @@ export function buildParityConsumer(
                           Promise.resolve(
                               (teamsById.get(scenario.secret_key_teams?.[digest] ?? NaN) ?? null) as Team | null
                           ),
+                      exists: (digest: string) => Promise.resolve(scenario.secret_key_teams?.[digest] !== undefined),
                   },
         quotaLimiting: {
             isTeamTokenQuotaLimited: (token: string, resource: string) => {
