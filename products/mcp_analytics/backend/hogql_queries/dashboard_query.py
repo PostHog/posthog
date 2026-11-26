@@ -50,6 +50,7 @@ from posthog.models.instance_setting import get_instance_setting
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
+    CONVERSATION_ID_SQL,
     EFFECTIVE_TOOL_SQL,
     HarnessLabelQueryRunner,
     validate_mcp_analytics_access,
@@ -63,6 +64,7 @@ from products.mcp_analytics.backend.hogql_queries.model_breakdown import MCPMode
 from products.mcp_analytics.backend.hogql_queries.protocol_version_breakdown import (
     MCPProtocolVersionBreakdownQueryRunner,
 )
+from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -134,8 +136,8 @@ LIMIT 500
 MIN_CALLS_TO_RANK_TOOLS = 20
 TOOLS_PER_RANKING = 8
 
-# Each card reads its own top tools: by calls, by error rate, and by p95. Ranking all three from one
-# aggregate reads the events once. A cap by call volume before ranking would drop a slow or flaky tool
+# Each card reads its own top tools: by calls, by error rate, by error count, and by p95. Ranking them all
+# from one aggregate reads the events once. A cap by call volume before ranking would drop a slow or flaky tool
 # that is not among the busiest. The ranking goes last so the first five columns keep their meaning for
 # cached rows from before it and for browsers still running the previous parser.
 TOOL_ROWS_SQL = f"""
@@ -154,14 +156,16 @@ FROM (
         AND {{filters}}
     GROUP BY tool
 )
-ARRAY JOIN ['calls', 'error_rate', 'p95'] AS ranking
+ARRAY JOIN ['calls', 'error_rate', 'errors', 'p95'] AS ranking
 WHERE ranking = 'calls'
-    OR (total_calls >= {MIN_CALLS_TO_RANK_TOOLS} AND (ranking = 'error_rate' OR p95_duration_ms > 0))
+    OR (ranking = 'errors' AND errors > 0)
+    OR (total_calls >= {MIN_CALLS_TO_RANK_TOOLS} AND (ranking = 'error_rate' OR (ranking = 'p95' AND p95_duration_ms > 0)))
 ORDER BY
     ranking,
     multiIf(
         ranking = 'calls', toFloat(total_calls),
         ranking = 'error_rate', toFloat(error_rate_pct),
+        ranking = 'errors', toFloat(errors),
         toFloat(p95_duration_ms)
     ) DESC,
     tool
@@ -177,6 +181,7 @@ BUCKETED_FACET_SQL = f"""
 SELECT {{bucket}} AS bucket, {{label}} AS label, count() AS calls
 FROM events
 WHERE {TOOL_CALL_WHERE}
+    AND {{error_filter}}
 GROUP BY bucket, label
 ORDER BY bucket
 LIMIT 10000
@@ -194,6 +199,27 @@ WHERE {TOOL_CALL_WHERE}
 GROUP BY label
 ORDER BY calls DESC
 LIMIT 1000
+"""
+
+# Top users keep their label; the rest fold into "Other" to stay under the LIMIT.
+USERS_WITH_OWN_LABEL = 50
+USER_FACET_SQL = f"""
+SELECT bucket, if(user_rank <= {USERS_WITH_OWN_LABEL}, label, 'Other') AS label, sum(calls) AS calls
+FROM (
+    SELECT bucket, label, calls, dense_rank() OVER (ORDER BY label_total DESC, label) AS user_rank
+    FROM (
+        SELECT bucket, label, calls, sum(calls) OVER (PARTITION BY label) AS label_total
+        FROM (
+            SELECT {{bucket}} AS bucket, {{label}} AS label, count() AS calls
+            FROM events
+            WHERE {TOOL_CALL_WHERE}
+            GROUP BY bucket, label
+        )
+    )
+)
+GROUP BY bucket, label
+ORDER BY bucket
+LIMIT 10000
 """
 
 LAB_USERS_SQL = f"""
@@ -238,7 +264,15 @@ MODEL_LABEL_SQL = label_of("toString(properties.$mcp_llm_model)")
 # MCPProtocolVersionBreakdownQueryRunner does.
 PROTOCOL_VERSION_LABEL_SQL = label_of("JSONExtractString(properties, '$mcp_protocol_version')")
 TOOL_LABEL_SQL = label_of(EFFECTIVE_TOOL_SQL)
+# The virtual field applies the team's custom harness rules, so the labels match the harness breakdown.
+# Calls with no client identity read as Unknown here, apart from Other, so the dashboard can ask for client info.
+HARNESS_LABEL_SQL = label_of(f"if({HARNESS_TOKEN_SQL} = '', '', toString(properties.$virt_mcp_harness))")
 ERROR_TYPE_LABEL_SQL = label_of("toString(properties.$mcp_error_type)")
+# Email, else distinct ID. Without identify it's the session ID or "anonymous", so Unknown.
+USER_LABEL_SQL = label_of(
+    f"if(distinct_id = {CONVERSATION_ID_SQL} OR distinct_id = 'anonymous', '',"
+    " coalesce(nullIf(toString(person.properties.email), ''), distinct_id))"
+)
 
 
 def lab_expr() -> ast.Expr:
@@ -262,8 +296,11 @@ class HogQLSection:
     spans_comparison_window: bool = False
 
 
-def _bucketed_facet(label_sql: str) -> HogQLSection:
-    return HogQLSection(BUCKETED_FACET_SQL, {"label": partial(parse_expr, label_sql)})
+def _bucketed_facet(label_sql: str, error_filter_sql: str = "true") -> HogQLSection:
+    return HogQLSection(
+        BUCKETED_FACET_SQL,
+        {"label": partial(parse_expr, label_sql), "error_filter": partial(parse_expr, error_filter_sql)},
+    )
 
 
 def _window_facet(label_sql: str, error_filter_sql: str = "true") -> HogQLSection:
@@ -282,6 +319,11 @@ HOGQL_SECTIONS: dict[MCPDashboardSection, HogQLSection] = {
     MCPDashboardSection.PROTOCOL_VERSION: _bucketed_facet(PROTOCOL_VERSION_LABEL_SQL),
     MCPDashboardSection.TOOL: _window_facet(TOOL_LABEL_SQL),
     MCPDashboardSection.ERROR_TYPE: _window_facet(ERROR_TYPE_LABEL_SQL, "toBool(properties.$mcp_is_error)"),
+    # Bucketed so each share card can switch to an over-time view; the bars sum the buckets.
+    MCPDashboardSection.TOOL_SHARE: _bucketed_facet(TOOL_LABEL_SQL),
+    MCPDashboardSection.HARNESS: _bucketed_facet(HARNESS_LABEL_SQL),
+    MCPDashboardSection.ERROR_TYPE_SHARE: _bucketed_facet(ERROR_TYPE_LABEL_SQL, "toBool(properties.$mcp_is_error)"),
+    MCPDashboardSection.USER: HogQLSection(USER_FACET_SQL, {"label": partial(parse_expr, USER_LABEL_SQL)}),
     MCPDashboardSection.LAB_USERS: HogQLSection(LAB_USERS_SQL, {"lab": lab_expr}),
     MCPDashboardSection.NAMED_MODEL_USERS: HogQLSection(
         NAMED_MODEL_USERS_SQL, {"model": partial(parse_expr, MODEL_LABEL_SQL)}

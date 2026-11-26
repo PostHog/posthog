@@ -92,7 +92,7 @@ class TestExperimentsConsole(BaseTest):
             ("retry_latest_failures", "retry-failures", ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE),
         ]
     )
-    @patch("products.experiments.backend.staff_operations.start_metrics_recalculation_workflow")
+    @patch("products.experiments.backend.recalculation.admission.start_metrics_recalculation_workflow")
     def test_starting_a_recalculation_dispatches_the_workflow_and_opens_the_run(
         self, _name: str, operation_key: str, trigger: str, start_workflow: MagicMock
     ) -> None:

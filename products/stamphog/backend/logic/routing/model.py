@@ -21,7 +21,6 @@ from products.stamphog.backend.logic.gateway_tokens import (
     STAMPHOG_AI_PRODUCT,
     active_user,
     gateway_root,
-    is_legacy_stamphog_route,
     mint_scoped_token,
     revoke_scoped_token,
 )
@@ -102,7 +101,7 @@ class GatewayCutModel:
         self, system_prompt: str, user_prompt: str, schema: Mapping[str, object]
     ) -> Mapping[str, object] | None:
         gateway = resolve_ai_gateway_config()
-        if gateway is None or is_legacy_stamphog_route(gateway.url):
+        if gateway is None:
             logger.info("stamphog_reviewer_routing_no_gateway", team_id=self._team_id)
             return None
         user = active_user(self._connected_by_user_id)

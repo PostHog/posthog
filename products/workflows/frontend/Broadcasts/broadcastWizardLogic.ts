@@ -188,6 +188,8 @@ export interface BroadcastEmailSettings {
     messageCategoryId: string | null
     messageCategoryType: string | null
     trackingEnabled: boolean
+    /** Connects tracked clicks to the sessions they start, unless the project turned that off. */
+    runLinkTagEnabled: boolean
     utmTagsEnabled: boolean
     /** Sends a marketing email past the team's frequency cap, for time-sensitive email. */
     skipFrequencyCap: boolean
@@ -200,6 +202,7 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     messageCategoryId: null,
     messageCategoryType: null,
     trackingEnabled: true,
+    runLinkTagEnabled: true,
     utmTagsEnabled: false,
     skipFrequencyCap: false,
     utmParams: {},
@@ -325,6 +328,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryId: config.message_category_id ?? null,
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
+        runLinkTagEnabled: config.run_link_tag_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
         skipFrequencyCap: config.skip_frequency_cap === true,
         utmParams: config.utm_params ?? {},
@@ -340,6 +344,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         message_category_id: settings.messageCategoryId ?? undefined,
         message_category_type: settings.messageCategoryType ?? undefined,
         tracking_enabled: settings.trackingEnabled,
+        run_link_tag_enabled: settings.runLinkTagEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
         skip_frequency_cap: settings.skipFrequencyCap,
         utm_params: settings.utmParams,
@@ -444,6 +449,7 @@ export interface broadcastWizardLogicValues {
     emailBrandLoading: boolean
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings: BroadcastEmailSettings
+    emailStepSensitive: boolean
     entrySource: string | null
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
@@ -824,6 +830,7 @@ export interface broadcastWizardLogicActions {
 export interface broadcastWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        emailStepSensitive: (broadcast: HogFlowApi | null) => boolean
         channelReach: (
             channelReachCounts: BroadcastChannelReachCounts | null,
             blastRadius: BlastRadiusApi | null
@@ -1504,6 +1511,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     selectors({
+        // Read from the saved email step: the API sets it, and those sends never connect clicks to sessions.
+        emailStepSensitive: [
+            (s) => [s.broadcast],
+            (broadcast: HogFlowApi | null): boolean =>
+                !!broadcast && findAction(broadcast, 'function_email')?.config?.sensitive === true,
+        ],
         channelReach: [
             (s) => [s.channelReachCounts, s.blastRadius],
             (

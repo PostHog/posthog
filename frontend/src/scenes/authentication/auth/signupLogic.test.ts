@@ -3,6 +3,7 @@ import { setPendingOAuthConnectionCookie } from 'scenes/authentication/shared/pe
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog, { PostHog } from 'posthog-js'
 
 import { startRadarSignals } from 'scenes/authentication/shared/radarSignals'
 
@@ -10,6 +11,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { signupLogic } from './signupLogic'
+
+const AI_REFERRING_DOMAIN = 'chatgpt.com'
+const AI_UTM_SOURCE = 'claude'
 
 jest.mock('scenes/authentication/shared/radarSignals', () => ({
     startRadarSignals: jest.fn(),
@@ -282,6 +286,7 @@ describe('signupLogic — name handling', () => {
 
     afterEach(() => {
         logic.unmount()
+        posthog.persistence = undefined
     })
 
     it('trims and splits the name before building the signup payload', async () => {
@@ -317,6 +322,35 @@ describe('signupLogic — name handling', () => {
         expect(signupRequestBody?.referral_source).toBe('A YouTube video')
         expect(signupRequestBody?.referral_source_ai_prompt).toBe('')
         expect(signupRequestBody?.referral_source_influencer).toBe('The Hedgehog Dev channel')
+    })
+
+    it.each([
+        [
+            'sends the first-visit referrer posthog-js stored',
+            { $initial_referring_domain: AI_REFERRING_DOMAIN, $initial_utm_source: AI_UTM_SOURCE },
+            { initial_referring_domain: AI_REFERRING_DOMAIN, initial_utm_source: AI_UTM_SOURCE },
+        ],
+        ['leaves out a referrer posthog-js has no value for', { $initial_referring_domain: null }, {}],
+    ])('%s', async (_name, initialProps, expectedFields) => {
+        posthog.persistence = { get_initial_props: () => initialProps } as unknown as PostHog['persistence']
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            role_at_organization: 'engineer',
+        })
+
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const sentFields = {
+            initial_referring_domain: signupRequestBody?.initial_referring_domain,
+            initial_utm_source: signupRequestBody?.initial_utm_source,
+        }
+        expect(sentFields).toEqual({
+            initial_referring_domain: undefined,
+            initial_utm_source: undefined,
+            ...expectedFields,
+        })
     })
 
     it('omits a whitespace-only organization name so the backend applies its default', async () => {
