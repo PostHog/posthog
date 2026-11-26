@@ -24,7 +24,13 @@ describe('anomalySeriesLabel', () => {
             'Pageview - Chrome::None (i.e. no value)',
         ],
         ['an empty series label', '', '$$_posthog_breakdown_null_$$', 'None (i.e. no value)'],
-        ['a label that does not end with the breakdown value', 'Renamed series', 'Chrome', 'Renamed series'],
+        ['a formula label', 'Formula (A / B)', 'Chrome', 'Formula (A / B) - Chrome'],
+        [
+            'a formula label with a null breakdown value',
+            'Formula (A / B)',
+            '$$_posthog_breakdown_null_$$',
+            'Formula (A / B) - None (i.e. no value)',
+        ],
     ])('formats %s', (_, seriesLabel, breakdownValue, expected) => {
         expect(anomalySeriesLabel({ series_label: seriesLabel, breakdown_value: breakdownValue })).toEqual(expected)
     })

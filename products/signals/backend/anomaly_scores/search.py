@@ -261,8 +261,11 @@ def insight_url(
     flagged: Sequence[datetime.datetime],
     interval: IntervalType | None,
     query: Mapping[str, Any] | None,
+    now: datetime.datetime,
 ) -> str:
     """A link to the insight. With flagged buckets, its date range covers them and the buckets around them.
+
+    The range ends at ``now`` at the latest, so the insight shows no empty future buckets after a recent flag.
 
     The range goes in a copy of the saved query in the link, as in a shared insight link, so the link needs that
     query. A `filters_override` would open the insight as if a dashboard's filters were applied.
@@ -274,7 +277,7 @@ def insight_url(
     period = interval_spec(interval).period
     date_range = {
         "date_from": (min(flagged) - period * URL_BUCKETS_BEFORE).isoformat(),
-        "date_to": (bucket_end(max(flagged), interval) + period * URL_BUCKETS_AFTER).isoformat(),
+        "date_to": min(bucket_end(max(flagged), interval) + period * URL_BUCKETS_AFTER, now).isoformat(),
     }
     linked = {**query, "source": {**source, "dateRange": date_range}}
     return f"{url}#q={quote(json.dumps(linked, separators=(',', ':')))}"
@@ -500,6 +503,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
                     _flagged_starts([summary]),
                     summary.interval,
                     queries.get(insights[summary.insight_id].short_id),
+                    now,
                 ),
                 expected_buckets=_expected_buckets(
                     summary, range_from.get(summary.interval, filters.date_from), filters.date_to, now
@@ -531,6 +535,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
                     _flagged_starts(series),
                     series[0].interval,
                     queries.get(insights[insight_id].short_id),
+                    now,
                 ),
                 rollup=rollup(series),
                 top_series=[summary for summary in series if summary.flagged_buckets][:TOP_SERIES],
@@ -673,6 +678,7 @@ def insight_history(
             _flagged_starts(ranked),
             newest.interval if newest else None,
             _saved_queries(team, user, [insight]).get(insight.short_id),
+            now,
         ),
         interval=newest.interval if newest else None,
         profile=newest.profile if newest else None,

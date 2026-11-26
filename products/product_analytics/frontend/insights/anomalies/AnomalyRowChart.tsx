@@ -7,7 +7,7 @@ import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyNumber, significantDecimalPlaces } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
@@ -24,6 +24,8 @@ import {
 import { AnomalyRangeStartLine } from './AnomalyRangeStartLine'
 
 const handleChartError = makeChartErrorHandler('anomalies-tab-row-chart')
+
+const formatAnomalyValue = (value: number): string => humanFriendlyNumber(value, significantDecimalPlaces(value))
 
 export interface AnomalyRowChartProps {
     series: AnomalySeriesApi
@@ -104,9 +106,9 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                     xAxis: { timezone, interval: series.interval, tickFormatter },
                     xScale: 'time',
                     xDomain: data.xDomain,
-                    yAxis: { tickFormatter: (value) => humanFriendlyNumber(value) },
+                    yAxis: { tickFormatter: formatAnomalyValue },
                     showGrid: true,
-                    tooltip: { valueFormatter: (value) => humanFriendlyNumber(value) },
+                    tooltip: { valueFormatter: formatAnomalyValue },
                 }}
                 onError={handleChartError}
             >
