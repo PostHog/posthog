@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import (
@@ -155,6 +156,12 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert capture.call_args.kwargs["properties"]["experiment_id"] == skipped.id
         assert capture.call_args.kwargs["properties"]["reason"] == reason
         assert capture.call_args.kwargs["properties"]["hour"] == 12
+
+    def test_discovery_returns_no_candidates_while_recalculation_is_paused(self):
+        with override_instance_config("EXPERIMENTS_RECALCULATION_ENABLED", False):
+            discovery = _discover()
+        assert discovery.hour == 12
+        assert discovery.candidates == []
 
     def test_discovery_query_count_does_not_grow_with_skips(self):
         # Covers the skipped events too: each one reads the team, organization and creator.

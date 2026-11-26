@@ -27,6 +27,7 @@ from products.experiments.backend.recalculation.admission import (
     RecalculationWorkflowNotStarted,
     start_metrics_recalculation,
 )
+from products.experiments.backend.recalculation.kill_switch import recalculation_enabled
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.recalculation.dispatch import metrics_recalculation_workflow_id
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
@@ -86,6 +87,9 @@ def capture_started(experiment: Experiment, hour: int, recalculation_id: str) ->
 @database_sync_to_async_pool
 def _discover_scheduled_recalculation_candidates_sync() -> ScheduledRecalculationDiscovery:
     close_old_connections()
+    if not recalculation_enabled():
+        logger.info("scheduled_recalculation_paused")
+        return ScheduledRecalculationDiscovery(hour=timezone.now().hour, candidates=[])
     selection = find_scheduled_recalculation_candidates()
     hour = selection.discovery.hour
     for skip in selection.skips:

@@ -50,6 +50,7 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation.kill_switch import recalculation_enabled
 from products.experiments.backend.recalculation.payloads import RUN_ENTRY_CALCULATION_KEY
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
@@ -78,6 +79,8 @@ from products.experiments.backend.temporal.recalculation.routing import (
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
+
+RECALCULATION_PAUSED_ERROR_TYPE = "recalculation_paused"
 
 # Cap stored/returned error messages so a pathological traceback can't bloat the Temporal payload (~2 MiB cap).
 _MAX_ERROR_MESSAGE_LENGTH = 2000
@@ -229,6 +232,25 @@ def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
     return experiment_window_end(experiment, latest_query_to)
 
 
+def _fail_pending_run_when_paused(recalculation_id: str) -> None:
+    # Only a run that never started fails. A retried start of a run that already started keeps going, so the
+    # calcs in flight finish. completed_at stays empty, so this run does not replace the latest results.
+    failed = (
+        ExperimentMetricsRecalculation.objects.filter(
+            id=recalculation_id,
+            status=ExperimentMetricsRecalculation.Status.PENDING,
+            query_to__isnull=True,
+        ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
+        == 1
+    )
+    if failed:
+        raise NonReportableApplicationError(
+            f"recalc {recalculation_id} not started: experiment recalculations are paused",
+            type=RECALCULATION_PAUSED_ERROR_TYPE,
+            non_retryable=True,
+        )
+
+
 @database_sync_to_async_pool
 def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> str | None:
     close_old_connections()
@@ -248,6 +270,8 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
+            if not recalculation_enabled():
+                _fail_pending_run_when_paused(update.recalculation_id)
             experiment = Experiment.objects.get(id=state.experiment_id)
             proposed_query_to = _resolve_query_to(experiment, state.trigger)
 
