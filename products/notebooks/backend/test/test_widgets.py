@@ -1052,11 +1052,12 @@ class TestWidgetData(APIBaseTest):
                 assert frame["sourceNodeId"] == "capacity" and frame["name"] == self.INPUT_NAME
                 assert frame["rows"] == [[5]] and frame["columns"] == [{"name": "shifts", "type": "int64"}]
                 assert frame["runId"] and not frame["truncated"]
-            for invalid in [
+            invalid_requests: list[dict[str, object]] = [
                 {"widget_input": {**target, "slot": "unrelated"}},
                 {"widget_input": {**target, "version_id": str(uuid4())}},
                 {"node_id": "capacity"},
-            ]:
+            ]
+            for invalid in invalid_requests:
                 assert self.client.post(base + "app_compute/", {**payload, **invalid}, format="json").status_code == 400
             version.input_contract[0]["columns"][0]["name"] = "unrelated"
             version.save(update_fields=["input_contract"])
