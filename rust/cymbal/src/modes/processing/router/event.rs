@@ -166,7 +166,14 @@ pub async fn process_events(
         total: request_items,
     } = RawEvents::deserializer(limit)
         .deserialize(&mut serde_json::Deserializer::from_str(body.get()))
-        .map_err(|err| ProcessEventsError::NotEvents(err.to_string()))?;
+        .map_err(|err| {
+            // The serde message quotes the value it rejected, which can be the whole body.
+            ProcessEventsError::NotEvents(format!(
+                "expected an array of events at line {} column {}",
+                err.line(),
+                err.column()
+            ))
+        })?;
     if request_items > limit {
         metrics::counter!(ERRORS, "cause" => "process_too_many_events").increment(1);
         return Err(ProcessEventsError::TooManyEvents {

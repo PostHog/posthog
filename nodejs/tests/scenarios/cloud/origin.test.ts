@@ -28,6 +28,8 @@ const gitIn = (cwd: string, ...args: string[]): string =>
     execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
 const commitIn = (repo: string, message: string, atS: number): void => {
+    writeFileSync(path.join(repo, 'story.txt'), `${message}\n`)
+    gitIn(repo, 'add', '-f', '--', 'story.txt')
     execFileSync(
         'git',
         [
@@ -39,7 +41,6 @@ const commitIn = (repo: string, message: string, atS: number): void => {
             'commit.gpgsign=false',
             'commit',
             '-q',
-            '--allow-empty',
             '-m',
             message,
         ],
@@ -123,6 +124,7 @@ describe('githubOrigin', () => {
         mkdirSync(remote)
         mkdirSync(checkout)
         gitIn(remote, 'init', '-q', '-b', 'master')
+        gitIn(remote, 'config', 'uploadpack.allowFilter', 'true')
         commitIn(remote, 'root', NOW_S - 20 * 24 * 3600)
         commitIn(remote, 'merged', NOW_S - 7200)
         gitIn(remote, 'branch', 'pinned')

@@ -408,6 +408,24 @@ export const MODELS: readonly CatalogModel[] = [
     supports1MContext: true,
   },
   {
+    id: "claude-haiku-5-5",
+    runtimeAdapter: "claude",
+    reasoningEfforts: ["low", "medium", "high"],
+    label: "Claude Haiku 5.5",
+    cost: {
+      inputPerMtok: 0.1,
+      outputPerMtok: 0.5,
+      longContext: {
+        aboveInputTokens: 100000,
+        inputPerMtok: 0.5,
+        outputPerMtok: 2.5,
+      },
+    },
+    costMultiplier: "0.05× base",
+    costSummary:
+      "Per 1M tokens: $0.10 input/$0.50 output to 100K; $0.50 input/$2.50 output above",
+  },
+  {
     id: "claude-sonnet-4-6",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high"],

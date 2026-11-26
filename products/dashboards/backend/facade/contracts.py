@@ -494,3 +494,15 @@ class InsightRenderTile:
 
     id: int
     filters_overrides: dict[str, JsonValue] | None
+
+
+class DashboardCustomizationRejected(ValueError):
+    """A dashboard's group key or group settings break a group rule.
+
+    The API answers 400 with `message`, on `field` when it names one.
+    """
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field
