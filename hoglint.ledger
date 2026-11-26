@@ -2268,6 +2268,7 @@ level:isolated	demo	1
 level:isolated	endpoints	1
 level:isolated	engineering_analytics	1
 level:isolated	error_tracking	1
+level:isolated	event_definitions	1
 level:isolated	groups	1
 level:isolated	knowledge_writer	1
 level:isolated	legal_documents	1
@@ -2818,9 +2819,6 @@ presentation-uses-facade	products.cdp.backend.routes	products.cdp.backend.api.pl
 presentation-uses-facade	products.cohorts.backend.routes	products.cohorts.backend.api.staff_tools	1
 presentation-uses-facade	products.conversations.backend.routes	products.conversations.backend.api	1
 presentation-uses-facade	products.customer_analytics.backend.presentation.views.views	products.cdp.backend.presentation.icons	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.alerts.backend.models.alert	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.customization	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.models	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.models.dashboard	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.models.dashboard_tile	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.models.dashboard_widget	1
@@ -2982,7 +2980,6 @@ prod-imports-test	posthog.migrations.0114_fix_team_event_names	?	1
 prod-imports-test	posthog.models.person.util	posthog.test.persons	1
 prod-imports-test	products.cdp.backend.templates.helpers	posthog.test.base	1
 prod-imports-test	products.cohorts.backend.models.cohort	posthog.test.base	1
-prod-imports-test	products.dashboards.backend.benchmarks.scorecard_scenarios	products.dashboards.backend.test.benchmark_fixtures	1
 prod-imports-test	products.demo.backend.logic.legacy.data_generator	posthog.session_recordings.queries.test.session_replay_sql	1
 prod-imports-test	products.experiments.backend.management.commands.generate_experiment_data	posthog.session_recordings.queries.test.session_replay_sql	1
 prod-imports-test	products.marketing_analytics.backend.demo.warehouse	products.warehouse_sources.backend.test.utils	1

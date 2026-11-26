@@ -511,6 +511,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .nullish()
                             .describe('Group type index for this condition set. None means person-level aggregation.'),
+                        description: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Display-only name for this release condition group. It does not affect evaluation.'
+                            ),
                     })
                 )
                 .optional()
@@ -987,6 +993,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .nullish()
                             .describe('Group type index for this condition set. None means person-level aggregation.'),
+                        description: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Display-only name for this release condition group. It does not affect evaluation.'
+                            ),
                     })
                 )
                 .optional()
