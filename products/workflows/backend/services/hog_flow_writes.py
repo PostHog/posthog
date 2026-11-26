@@ -12,6 +12,7 @@ from posthog.models.tag import tagify
 
 from products.messaging.backend.facade.templates import get_transactional_template_tracking
 from products.workflows.backend.facade.contracts import (
+    BroadcastLocked,
     TeamUtmDefaults,
     UtmDefaultsWriteResult,
     WorkflowEditState,
@@ -31,7 +32,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES
 from products.workflows.backend.services.action_redirects import compute_action_redirects
-from products.workflows.backend.services.batch_jobs import rate_limit_change_unpaces_batch
+from products.workflows.backend.services.batch_jobs import broadcast_is_locked, rate_limit_change_unpaces_batch
 from products.workflows.backend.services.conversion_goals import record_conversion_goals
 from products.workflows.backend.services.email_utm_defaults import (
     flow_has_active_schedule,
@@ -341,13 +342,9 @@ def _refresh_action_redirects(target: HogFlow, old: HogFlow, new_actions: Option
     )
 
 
-def _stage_revision_bump(
-    instance: HogFlow, before: HogFlow, validated_data: dict, template_cache: Optional[TemplateCache] = None
-) -> bool:
-    # Revision history: only live-content changes get a version. Compared pre-save so the bumped
-    # version lands in the same UPDATE (and worker reload) as the content it describes. The
-    # serializer injects derived fields (trigger, billable_action_types) into every validated
-    # payload, so a status/metadata-only write compares equal here and stays unversioned.
+def _changes_content(before: HogFlow, validated_data: dict, template_cache: Optional[TemplateCache] = None) -> bool:
+    # The serializer injects derived fields (trigger, billable_action_types) into every validated
+    # payload, so a status/metadata-only write compares equal here.
     raw_old = snapshot_flow_content(before)
     raw_new = {
         **raw_old,
@@ -360,10 +357,24 @@ def _stage_revision_bump(
         template_cache = {}
     old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
     new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
-    if new_content == old_content:
+    return new_content != old_content
+
+
+def _stage_revision_bump(
+    instance: HogFlow, before: HogFlow, validated_data: dict, template_cache: Optional[TemplateCache] = None
+) -> bool:
+    # Revision history: only live-content changes get a version. Compared pre-save so the bumped
+    # version lands in the same UPDATE (and worker reload) as the content it describes.
+    if not _changes_content(before, validated_data, template_cache):
         return False
     instance.version = (before.version or 0) + 1
     return True
+
+
+def _refuse_change_to_sent_broadcast(locked: HogFlow, validated_data: dict) -> None:
+    # Name, tags and status still change, so a sent broadcast can be renamed, stopped, archived and restored.
+    if broadcast_is_locked(locked) and _changes_content(locked, validated_data):
+        raise BroadcastLocked()
 
 
 def _append_revisions(
@@ -577,6 +588,7 @@ def update_workflow(
             before_write()
 
         if route_to_draft:
+            _refuse_change_to_sent_broadcast(before_update, validated_data)
             _write_draft(instance, before_update, validated_data)
             # Metadata in the same payload still applies live. Content (and the fields validate()
             # derives from it - trigger, billable_action_types) must not leak onto the live row:
@@ -601,6 +613,7 @@ def update_workflow(
             if keeps_live_sensitivity:
                 validated_data = _keep_live_sensitivity(before_update, validated_data)
             validated_data = _track_disabled_from_active(before_update, validated_data)
+            _refuse_change_to_sent_broadcast(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
             bump = _stage_revision_bump(instance, before_update, validated_data)
             if clears_staged_draft:
@@ -666,6 +679,7 @@ def edit_workflow_content(
 
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
         validated_data = _keep_live_sensitivity(before_update, validated_data)
+        _refuse_change_to_sent_broadcast(locked, validated_data)
         if route_to_draft:
             _write_draft(locked, locked, validated_data)
         else:
@@ -761,6 +775,7 @@ def publish_draft(
         # The draft goes back through the normal serializer so publish revalidates strictly and
         # recompiles bytecode - a stored blob is never trusted to be execution-ready.
         validated_data = _keep_live_sensitivity(before_update, validate(to_edit_state(locked), dict(locked.draft)))
+        _refuse_change_to_sent_broadcast(locked, validated_data)
         _refresh_action_redirects(locked, before_update, validated_data.get("actions"))
         bump = _stage_revision_bump(locked, before_update, validated_data)
         # Validation recovered the draft's secrets (from the merged live+draft encrypted maps), and

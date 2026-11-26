@@ -207,6 +207,7 @@ from products.workflows.backend.facade.broadcast_conversion import (
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
     EMAIL_FROM_CODE_FLAG,
+    BroadcastLocked,
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
     StaffPausedError,
@@ -5788,6 +5789,13 @@ class _DeletedWorkflow:
     name: str | None
 
 
+class SentBroadcastLockedError(exceptions.ValidationError):
+    default_detail = (
+        "This broadcast already sent, so it can't be edited or sent again. Send it again as a new broadcast instead."
+    )
+    default_code = "broadcast_locked"
+
+
 class StaleWorkflowUpdateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -6597,6 +6605,8 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked:
+            raise SentBroadcastLockedError()
         serializer.instance = self._written_workflow(result)
         self._report_schedules_paused(result, serializer.instance)
         self._log_activity(
@@ -6809,6 +6819,8 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked:
+            raise SentBroadcastLockedError()
         instance = self._written_workflow(result)
 
         self._report_schedules_paused(result, instance)
@@ -6908,6 +6920,8 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked:
+            raise SentBroadcastLockedError()
         instance = self._written_workflow(result)
 
         self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
@@ -7093,6 +7107,8 @@ class HogFlowViewSet(
             )
         except (WorkflowHasNoDraft, WorkflowStale):
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked:
+            raise SentBroadcastLockedError()
         locked = self._written_workflow(result)
 
         self._report_schedules_paused(result, locked)
@@ -8602,6 +8618,8 @@ class HogFlowViewSet(
                     # caller-supplied filters are never what actually runs.
                     filters=hog_flow.trigger_filters,
                 )
+            except BroadcastLocked:
+                raise SentBroadcastLockedError()
             except Exception as error:
                 # Saving dispatches the run, and a dispatch that times out after the plugin server queued it
                 # raises here while the run still sends.
