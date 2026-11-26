@@ -5,6 +5,7 @@ import net from 'net'
 import { tmpdir } from 'os'
 import path from 'path'
 import { createInterface } from 'readline'
+import { setTimeout as sleep } from 'timers/promises'
 import { pathToFileURL } from 'url'
 
 import { internalFetch } from '~/common/utils/request'
@@ -101,10 +102,9 @@ describe('provider edge process', () => {
     ])('answers a send it holds once %s', async (_path, remove) => {
         const held = await edge.hold(heldAnswerRule())
         const accepting = held.accepted!(AbortSignal.timeout(10_000))
-        let answered = false
-        const answer = send().finally(() => (answered = true))
+        const answer = send()
         const accepted = await accepting
-        const answeredBeforeRemoval = answered
+        const answeredBeforeRemoval = await Promise.race([answer.then(() => true), sleep(200).then(() => false)])
 
         await remove(held)
 
