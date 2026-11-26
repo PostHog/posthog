@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookAppComputeRequestApi,
+    NotebookAppComputeResultApi,
+    NotebookAppDraftComputeRequestApi,
     NotebookAppDraftQueryRequestApi,
     NotebookAppLayoutApi,
     NotebookAppReleaseApi,
@@ -469,6 +472,48 @@ export const notebooksActivityRetrieve = async (
     return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksAppComputeCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_compute/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppComputeCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppComputeRequestApi: NotebookAppComputeRequestApi,
+    options?: RequestInit
+): Promise<NotebookAppComputeResultApi> => {
+    return apiMutator<NotebookAppComputeResultApi>(getNotebooksAppComputeCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppComputeRequestApi),
+    })
+}
+
+export const getNotebooksAppDraftComputeCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_draft_compute/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppDraftComputeCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppDraftComputeRequestApi: NotebookAppDraftComputeRequestApi,
+    options?: RequestInit
+): Promise<NotebookAppComputeResultApi> => {
+    return apiMutator<NotebookAppComputeResultApi>(getNotebooksAppDraftComputeCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppDraftComputeRequestApi),
     })
 }
 

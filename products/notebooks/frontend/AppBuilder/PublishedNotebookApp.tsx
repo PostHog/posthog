@@ -18,6 +18,7 @@ import { appSourceCells } from './notebookAppLayout'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
+import { ViewerComputeCell } from './ViewerComputeCell'
 import { viewerWidgetSession } from './viewerWidgetFrames'
 
 export default function PublishedNotebookApp({
@@ -84,8 +85,8 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                         )
                 ) && (
                     <p className="text-secondary">
-                        Filters update native SQL and widgets connected to it. Other components use their published
-                        results.
+                        Filters update native SQL and its connected widgets. Run Python and connected queries to apply
+                        your current inputs.
                     </p>
                 )}
             {error && (
@@ -112,8 +113,12 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                     selectedId={null}
                     canInteract
                     onInput={changeInput}
-                    renderOutput={(cell) =>
-                        cell.type === 'component' && cell.tagName === 'SQLV2' ? (
+                    renderOutput={(cell, saved) => {
+                        if (cell.type !== 'component') {
+                            return
+                        }
+                        const sql = cell.tagName === 'SQLV2'
+                        const savedOutput = sql ? (
                             <PublishedNotebookQuery
                                 cell={cell}
                                 sessionId={sessionId}
@@ -122,8 +127,23 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                                 pinned={publishedResults[cell.id]}
                                 chartInputFilters={chartInputFilters}
                             />
-                        ) : undefined
-                    }
+                        ) : (
+                            saved
+                        )
+                        if (cell.tagName === 'PythonV2' || (sql && cell.props.connectionId)) {
+                            return (
+                                <ViewerComputeCell
+                                    key={cell.id}
+                                    viewer={viewer}
+                                    revision={release.revision}
+                                    cell={cell}
+                                    variables={variables}
+                                    saved={savedOutput}
+                                />
+                            )
+                        }
+                        return sql ? savedOutput : undefined
+                    }}
                     onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
                 />
             </WidgetFrameSessionContext.Provider>

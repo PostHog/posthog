@@ -28,6 +28,21 @@ def sandbox() -> DockerSandbox:
     return DockerSandbox(container_id="c" * 64, config=config, host_port=8000)
 
 
+def test_offline_sandbox_runs_without_host_network_or_mounts() -> None:
+    config = SandboxConfig(name="offline-notebook", block_network=True)
+    with (
+        patch.object(DockerSandbox, "_verify_image_available"),
+        patch.object(DockerSandbox, "_find_available_port") as host_port,
+        patch.object(DockerSandbox, "_run", return_value=subprocess.CompletedProcess([], 0, stdout="a" * 64)) as run,
+    ):
+        result = DockerSandbox.create(config)
+    args = run.call_args.args[0]
+    assert args[args.index("--network") + 1] == "none"
+    assert not {"--add-host", "-v", "-p", "--cap-add"}.intersection(args)
+    assert result.sandbox_url is None
+    host_port.assert_not_called()
+
+
 def _log_result() -> ExecutionResult:
     return ExecutionResult(stdout="agent-server log", stderr="", exit_code=0)
 

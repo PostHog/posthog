@@ -78170,6 +78170,29 @@ export namespace Schemas {
       upstream: string[];
     }
 
+    export interface NotebookAppComputeRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
+      /** @maxLength 200 */
+      node_id: string;
+    }
+
+    export interface NotebookAppComputeResult {
+      text?: string;
+      columns?: string[];
+      rows?: unknown[][];
+    }
+
+    export interface NotebookAppDraftComputeRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
+      /** @maxLength 200 */
+      node_id: string;
+      layout: NotebookAppLayout;
+    }
+
     export interface NotebookAppDraftQueryRequest {
       /** @minimum 0 */
       revision: number;
