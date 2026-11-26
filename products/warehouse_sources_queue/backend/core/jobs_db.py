@@ -715,6 +715,21 @@ def _orphaned_candidate_runs_sql() -> str:
     """
 
 
+def _executing_groups_sql() -> str:
+    """The (team_id, schema_id) groups that hold an executing batch, for the gauges.
+
+    The gauges read this set once and join groups to it. A per-group EXISTS
+    probe can plan on the full ``sb_team_schema_idx`` instead of
+    ``sb_schema_busy_idx``, and then reads every batch of each group.
+    """
+    return f"""
+            SELECT DISTINCT b_busy.team_id, b_busy.schema_id
+            FROM {BATCH_TABLE} b_busy
+            WHERE b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND b_busy.latest_state = 'executing'
+    """
+
+
 def _queue_freshness_sql() -> str:
     """Two ages, blocked count, and backlogged groups of the pending set, in one scan.
 
@@ -723,15 +738,14 @@ def _queue_freshness_sql() -> str:
     aggregated into runs before the failed-run probe, so the probe costs one
     ``sb_run_gate_idx`` descent per run, not one per batch. The result is the
     same, because a run is blocked or not as a whole. The runs are then
-    aggregated into groups before the executing probe, so that probe costs one
-    ``sb_schema_busy_idx`` descent per group, the same as in
-    :func:`_queue_depth_sql`. A group with an executing batch is serialized: the
-    claim query holds all its other batches until that batch finishes.
+    aggregated into groups and joined to :func:`_executing_groups_sql`, the same
+    as in :func:`_queue_depth_sql`. A group with an executing batch is
+    serialized: the claim query holds all its other batches until that batch
+    finishes.
 
-    ``gated_runs`` and ``gated_groups`` are MATERIALIZED on purpose. The SELECT
-    after each one reads ``blocked`` or ``executing`` in more than one FILTER
-    clause. An inlined CTE copies the EXISTS sub-plan into each of them, which
-    runs the probe once per FILTER for each row.
+    ``gated_runs`` is MATERIALIZED on purpose. The SELECT after it reads
+    ``blocked`` in more than one FILTER clause. An inlined CTE copies the EXISTS
+    sub-plan into each of them, which runs the probe once per FILTER for each row.
 
     Split out from its caller so the plan-shape test can EXPLAIN exactly what runs.
     """
@@ -772,19 +786,14 @@ def _queue_freshness_sql() -> str:
             FROM gated_runs g
             GROUP BY g.team_id, g.schema_id
         ),
-        gated_groups AS MATERIALIZED (
+        executing_groups AS MATERIALIZED ({_executing_groups_sql()}),
+        gated_groups AS (
             SELECT
                 p.oldest_created_at,
                 p.blocked_batches,
-                EXISTS (
-                    SELECT 1
-                    FROM {BATCH_TABLE} b_busy
-                    WHERE b_busy.team_id = p.team_id
-                      AND b_busy.schema_id = p.schema_id
-                      AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                      AND b_busy.latest_state = 'executing'
-                ) AS executing
+                (e.team_id IS NOT NULL) AS executing
             FROM pending_groups p
+            LEFT JOIN executing_groups e ON e.team_id = p.team_id AND e.schema_id = p.schema_id
         )
         SELECT
             EXTRACT(EPOCH FROM (now() - min(oldest_created_at) FILTER (WHERE NOT executing))),
@@ -820,10 +829,10 @@ def _queue_depth_sql() -> str:
     'waiting_retry' inside ``CLAIM_ELIGIBILITY_INTERVAL``. The per-run and
     per-group gates below are not filters on that scan. The scan is aggregated
     into runs first, so the failed-run probe costs one ``sb_run_gate_idx``
-    descent per run, and then into groups, so the executing probe costs one
-    ``sb_schema_busy_idx`` descent per group. Both probes keep
-    ``PARTITION_PRUNING_INTERVAL`` because they must see every row that still
-    exists, the same as the claim query's gates.
+    descent per run, and then into groups, which are joined to
+    :func:`_executing_groups_sql`. Both gates keep ``PARTITION_PRUNING_INTERVAL``
+    because they must see every row that still exists, the same as the claim
+    query's gates.
 
     ``live_batches`` drops the runs that hold a failed batch: the claim query
     refuses those, so they are neither waiting for a slot nor waiting behind
@@ -864,19 +873,14 @@ def _queue_depth_sql() -> str:
             FROM gated_runs g
             GROUP BY g.team_id, g.schema_id
         ),
+        executing_groups AS MATERIALIZED ({_executing_groups_sql()}),
         ranked AS (
             SELECT
                 g.live_batches,
-                EXISTS (
-                    SELECT 1
-                    FROM {BATCH_TABLE} b_busy
-                    WHERE b_busy.team_id = g.team_id
-                      AND b_busy.schema_id = g.schema_id
-                      AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                      AND b_busy.latest_state = 'executing'
-                ) AS executing,
+                (e.team_id IS NOT NULL) AS executing,
                 row_number() OVER (ORDER BY g.live_batches DESC) AS depth_rank
             FROM groups g
+            LEFT JOIN executing_groups e ON e.team_id = g.team_id AND e.schema_id = g.schema_id
         )
         SELECT
             count(*) FILTER (WHERE live_batches > 0) AS claimable_groups,
