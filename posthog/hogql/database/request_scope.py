@@ -29,6 +29,7 @@ class SharedDatabaseKey:
     user_id: Optional[int]
     has_user_access_control: bool
     access_decision: Optional[str]
+    warehouse_access_control_enforced: bool
     modifiers_fingerprint: str
     connection_id: Optional[str]
     bypass_warehouse_access_control: bool
@@ -130,6 +131,7 @@ def shared_database_key(
     team: Optional["Team"],
     user: Any,
     user_access_control: Optional["UserAccessControl"],
+    warehouse_access_control_enforced: bool,
     modifiers: Optional["HogQLQueryModifiers"],
     connection_id: Optional[str],
     bypass_warehouse_access_control: bool,
@@ -159,6 +161,7 @@ def shared_database_key(
         user_id=user.pk if user is not None else None,
         has_user_access_control=user_access_control is not None,
         access_decision=user_access_control.read_access_fingerprint if user_access_control is not None else None,
+        warehouse_access_control_enforced=warehouse_access_control_enforced,
         modifiers_fingerprint=modifiers_fingerprint(create_default_modifiers_for_team(team, modifiers)),
         connection_id=connection_id,
         bypass_warehouse_access_control=bypass_warehouse_access_control,

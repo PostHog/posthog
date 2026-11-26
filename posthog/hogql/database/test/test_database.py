@@ -5221,6 +5221,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert after is not before
 
+    def test_a_sharing_scope_rebuilds_a_database_when_warehouse_access_control_turns_on(self) -> None:
+        flag = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
+
+        with sharing_databases(SharedDatabases()):
+            with patch(flag, return_value=False):
+                unenforced = Database.create_for(team=self.team, user=self.user)
+            with patch(flag, return_value=True):
+                enforced = Database.create_for(team=self.team, user=self.user)
+
+        assert enforced is not unenforced
+
     def test_a_sharing_scope_rebuilds_a_database_past_its_age_so_revoked_access_applies(self) -> None:
         with sharing_databases(SharedDatabases(max_age_seconds=30)):
             with patch("posthog.hogql.database.request_scope.monotonic", side_effect=[0, 10, 40, 40, 40]):

@@ -1995,6 +1995,8 @@ class Database(BaseModel):
             team=team,
             user=user,
             user_access_control=user_access_control,
+            # Read per call, as a fresh build does, so a catalog built before enforcement turned on is not reused.
+            warehouse_access_control_enforced=team is not None and _evaluate_warehouse_access_control_flag(team),
             modifiers=modifiers,
             connection_id=connection_id,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
