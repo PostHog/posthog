@@ -152,13 +152,13 @@ from products.dashboards.backend.facade.api import (
     widget_product_access_error,
 )
 from products.dashboards.backend.facade.contracts import (
+    DashboardCustomizationRejected,
     NewWidgetTile,
     WidgetPatch,
     WidgetRun,
     WidgetRunRefusal,
     WidgetRunResult,
 )
-from products.dashboards.backend.facade.contracts import DashboardCustomizationRejected
 from products.dashboards.backend.facade.customization import (
     clear_home_tab_dashboard,
     normalize_dashboard_customization,
