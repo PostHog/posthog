@@ -703,11 +703,23 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     payment_actions = {"activate", "authorize", "authorize_status"}
 
+    @classmethod
+    def as_view(cls, actions=None, **initkwargs):
+        # Billing limits are also updated with a PATCH to the list route. Binding it here keeps every other route
+        # answering PATCH with a 405.
+        if actions and actions.get("get") == "list":
+            actions = {**actions, "patch": "update_limits"}
+        return super().as_view(actions, **initkwargs)
+
     @property
     def _organization_in_path(self) -> bool:
         return f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id" in self.kwargs
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        if self.action == "update_limits":
+            # The router passes an action's permission_classes only to that action's own route, so the list route
+            # takes them here.
+            self.permission_classes = self.update_limits.kwargs["permission_classes"]
         if self._organization_in_path:
             # /api/billing/:organization_id/ names the organization, so no action follows the user's current project.
             self.param_derived_from_user_current_team = None
@@ -796,7 +808,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         url_path="/",
         permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
-    def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def update_limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
         license = get_cached_instance_license()
         if not license:
