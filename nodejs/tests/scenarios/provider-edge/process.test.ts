@@ -101,12 +101,18 @@ describe('provider edge process', () => {
     ])('answers a send it holds once %s', async (_path, remove) => {
         const held = await edge.hold(heldAnswerRule())
         const accepting = held.accepted!(AbortSignal.timeout(10_000))
-        const answer = send()
+        let answered = false
+        const answer = send().finally(() => (answered = true))
         const accepted = await accepting
+        const answeredBeforeRemoval = answered
 
         await remove(held)
 
-        expect({ accepted, answer: await answer }).toEqual({ accepted: true, answer: 'sent' })
+        expect({ accepted, answeredBeforeRemoval, answer: await answer }).toEqual({
+            accepted: true,
+            answeredBeforeRemoval: false,
+            answer: 'sent',
+        })
     })
 
     it('rejects a pending call when the edge process dies', async () => {
