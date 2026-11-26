@@ -89,6 +89,7 @@ from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    REALTIME_COHORT_NOT_READY_ERROR_CODE,
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
 )
@@ -4234,19 +4235,22 @@ def create_flag_with_survey_errors():
         matching_errors = [
             detail
             for detail in filters
-            if isinstance(detail, dict) and detail.get("code") == BEHAVIOURAL_COHORT_FOUND_ERROR_CODE
+            if isinstance(detail, dict)
+            and detail.get("code") in (BEHAVIOURAL_COHORT_FOUND_ERROR_CODE, REALTIME_COHORT_NOT_READY_ERROR_CODE)
         ]
-        if matching_errors:
-            original_detail = str(matching_errors[0].get("message"))
-            raise serializers.ValidationError(
-                detail=(
-                    f"{original_detail.replace('feature flags', 'surveys')} To show the survey after someone does an "
-                    "event, add an event trigger to the survey's display conditions. To keep this audience, duplicate "
-                    "the cohort as a static cohort and target that."
-                ),
-                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
-            )
-        raise
+        if not matching_errors:
+            raise
+        survey_detail = str(matching_errors[0].get("message")).replace("feature flags", "surveys")
+        if matching_errors[0].get("code") == REALTIME_COHORT_NOT_READY_ERROR_CODE:
+            raise serializers.ValidationError(detail=survey_detail, code=REALTIME_COHORT_NOT_READY_ERROR_CODE)
+        raise serializers.ValidationError(
+            detail=(
+                f"{survey_detail} To show the survey after someone does an event, add an event trigger to the "
+                "survey's display conditions. To keep this audience, duplicate the cohort as a static cohort and "
+                "target that."
+            ),
+            code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+        )
 
 
 def nh3_clean_with_allow_list(to_clean: str):

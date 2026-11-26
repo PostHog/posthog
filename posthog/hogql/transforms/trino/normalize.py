@@ -608,6 +608,14 @@ class _RepeatedInlineAliasHider(TraversingVisitor):
         super().visit_alias(node)
 
 
+def _named_projections(projections: list[ast.Expr]) -> dict[str, ast.Alias]:
+    named: dict[str, ast.Alias] = {}
+    for projection in reversed(projections):
+        if isinstance(projection, ast.Alias) and (projection.alias not in named or not projection.hidden):
+            named[projection.alias] = projection
+    return named
+
+
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
@@ -615,8 +623,11 @@ class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         lowered = super().visit_select_query(node)
+        named_projections = _named_projections(lowered.select)
         for projection in lowered.select:
             if not isinstance(projection, ast.Alias) or not projection.hidden:
+                continue
+            if named_projections[projection.alias] is not projection:
                 continue
             expression = projection.expr
             while isinstance(expression, ast.Alias) and expression.hidden:

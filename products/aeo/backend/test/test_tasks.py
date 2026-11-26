@@ -1,4 +1,5 @@
 import threading
+from contextlib import nullcontext
 
 import pytest
 from unittest.mock import Mock, patch
@@ -16,7 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
-from products.aeo.backend import keyword_suggestions
+from products.aeo.backend import credits, keyword_suggestions
 from products.aeo.backend.facade.api import get_prompt_set_overview
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.tasks import tasks
@@ -25,7 +26,7 @@ from products.aeo.backend.tasks.tasks import (
     run_aeo_citation_checks_for_team_task,
     suggest_aeo_keywords_task,
 )
-from products.aeo.backend.test.factories import create_citation_check, create_own_brand
+from products.aeo.backend.test.factories import ai_credits_used_up, create_citation_check, create_own_brand
 
 
 @pytest.fixture
@@ -49,6 +50,8 @@ def _add_prompt(team: Team, *, active: bool) -> None:
         ("kill_switch_off", False, False, False),
         ("ai_not_approved", True, False, False),
         ("org_deactivated", True, False, False),
+        ("out_of_credits_while_free", True, True, True),
+        ("out_of_credits_once_billed", True, False, False),
     ],
 )
 def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
@@ -60,7 +63,10 @@ def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
     elif state == "org_deactivated":
         Organization.objects.filter(id=team.organization_id).update(is_active=False)
 
+    billable = frozenset({"ai_visibility"}) if state == "out_of_credits_once_billed" else frozenset()
     with (
+        ai_credits_used_up(team) if state.startswith("out_of_credits") else nullcontext(),
+        patch.object(credits, "BILLABLE_AI_PRODUCTS", billable),
         patch.object(tasks, "feature_enabled_or_false", return_value=kill_switch_on),
         patch.object(tasks.run_aeo_citation_checks_for_team_task, "delay") as dispatch,
         patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id=None), [])) as run,
