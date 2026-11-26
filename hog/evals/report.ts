@@ -68,12 +68,19 @@ if (values.session) {
 
 const sessions = (await get<Session[]>('/api/sessions')).filter((session) => session.eval.title.startsWith('hog '))
 
-// The latest session for each eval and model, so a rerun of one model keeps the others in the table.
+// The latest judged session for each eval and model, so a rerun of one model keeps the others in the table,
+// and a rerun the provider refused at once doesn't hide the last real result.
+function isNewer(session: Session, seen: Session): boolean {
+    const judged = decisionsOf(session).length > 0
+    const seenJudged = decisionsOf(seen).length > 0
+    return judged === seenJudged ? seen.createdAt < session.createdAt : judged
+}
+
 const latestByModel = new Map<string, Session>()
 for (const session of sessions) {
     const key = `${session.evalId} ${session.harness}:${session.model}`
     const seen = latestByModel.get(key)
-    if (!seen || seen.createdAt < session.createdAt) {
+    if (!seen || isNewer(session, seen)) {
         latestByModel.set(key, session)
     }
 }

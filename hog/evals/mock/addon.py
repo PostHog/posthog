@@ -273,6 +273,11 @@ def api(flow, scenario):
                 project[field] = True
             log("product_enabled", flow, scenario, project=pid, results=results)
             return respond(flow, 200, {"results": results})
+        if rest.startswith("releases/flag_suggestions"):
+            # `create-feature-flag` reads this right after it creates the flag, and reports the whole call
+            # as failed when the answer has no `current` list.
+            log("api_generic", flow, scenario, project=pid, body=None)
+            return respond(flow, 200, {"current": [], "suggestions": [], "auto_release": False})
         if rest.startswith("query"):
             query = ((body or {}).get("query") or {}).get("query", "")
             count = scenario["events"] if "count()" in query and "from events" in query else 0
