@@ -104,7 +104,7 @@ export interface InstructionsContext {
     inboxFirstEnabled?: boolean | undefined
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
-    /** Set only when the nudge flag is on, `inbox-reports-list` is advertised, and the run is not a task or sandbox run. Independent of `inboxFirstEnabled`. */
+    /** Set only when the nudge flag is on, `inbox-reports-list` is advertised, and a person works with the agent directly. Independent of `inboxFirstEnabled`. */
     inboxNudgeEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
     learnToolEnabled?: boolean | undefined

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { EVENT_SOURCE, isCustomerFacingSurface, resolveEventSource } from '@/lib/event-source'
 
 // Every surface this server is allowed to stamp. `test_mcp_server_only_emits_sources_this_enum_knows`
 // in `posthog/test/test_event_usage.py` holds the same list against Django's EventSource, so adding
@@ -87,5 +87,41 @@ describe('resolveEventSource', () => {
         // A source the API's EventSource does not carry drops out of every breakdown that joins
         // the MCP events with the product events they cause.
         expect(Object.values(EVENT_SOURCE).sort()).toEqual([...SURFACES_THE_API_KNOWS].sort())
+    })
+})
+
+describe('isCustomerFacingSurface', () => {
+    it.each([
+        ["a person's own agent", { mcpConsumer: 'cursor' }, true],
+        ['a server-minted token that declares no consumer', { apiKeyScopes: SANDBOX_SCOPES }, false],
+        ['the Slack app', { mcpConsumer: 'slack', apiKeyScopes: SANDBOX_SCOPES, taskOriginProduct: 'slack' }, true],
+        [
+            'the local agent inside PostHog Desktop, which sends no task origin',
+            { mcpConsumer: 'posthog-code', apiKeyScopes: CONSENTED_SCOPES, oauthClientId: ARRAY_CLIENT_ID },
+            true,
+        ],
+        [
+            'a PostHog Code task that a person started',
+            { mcpConsumer: 'posthog-code', apiKeyScopes: SANDBOX_SCOPES, taskOriginProduct: 'user_created' },
+            true,
+        ],
+        [
+            'a run that PostHog started under the posthog-code consumer',
+            { mcpConsumer: 'posthog-code', apiKeyScopes: SANDBOX_SCOPES, taskOriginProduct: 'signal_report' },
+            false,
+        ],
+        [
+            'a scout',
+            {
+                mcpConsumer: 'posthog-code',
+                apiKeyScopes: SANDBOX_SCOPES,
+                oauthClientId: SIGNALS_CLIENT_ID,
+                taskOriginProduct: 'signals_scout',
+            },
+            false,
+        ],
+        ['PostHog AI', { mcpConsumer: 'posthog_ai', apiKeyScopes: SANDBOX_SCOPES }, false],
+    ])('%s', (_name, input, expected) => {
+        expect(isCustomerFacingSurface(input)).toBe(expected)
     })
 })

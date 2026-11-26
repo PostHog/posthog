@@ -61,6 +61,8 @@ const SNAPSHOT_DIR = path.resolve(__dirname, '__snapshots__', 'instructions')
 // to opt out of the repo-wide `*.md` lint-staged formatter (see top-level
 // package.json). Otherwise the markdown formatter would reflow the snapshot on
 // commit and drift from what `formatPrompt` produces, breaking the test.
+const SIGNALS_OAUTH_CLIENT_ID = 'xMT3Nejjbi4lUdhJLkzmCVJKFsx0JsHXdU0pIjl8'
+
 describe('InstructionsFormatter prompt snapshots', () => {
     it('matches the tools-mode prompt', async () => {
         const formatter = new InstructionsFormatter()
@@ -216,29 +218,51 @@ describe('InstructionsFormatter prompt snapshots', () => {
             expected: { inboxFirstEnabled: false, inboxNudgeEnabled: false },
         },
         {
-            name: 'both flags on in a task run',
+            name: 'both flags on for a scout',
             first: true,
             nudge: true,
             tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
-            run: { isTaskBound: true },
+            caller: {
+                clientProfile: new MCPClientProfile({ consumer: 'posthog-code' }),
+                apiKeyScopes: ['internal_run:read'],
+                oauthClientId: SIGNALS_OAUTH_CLIENT_ID,
+            },
             expected: { inboxFirstEnabled: true, inboxNudgeEnabled: false },
         },
         {
-            name: 'both flags on in a sandbox run',
+            name: 'both flags on for a PostHog Code task that a person started',
             first: true,
             nudge: true,
             tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
-            run: { sandboxTaskId: 'task-1' },
+            caller: {
+                clientProfile: new MCPClientProfile({ consumer: 'posthog-code' }),
+                apiKeyScopes: ['internal_run:read'],
+                taskOriginProduct: 'user_created',
+            },
+            expected: { inboxFirstEnabled: true, inboxNudgeEnabled: true },
+        },
+        {
+            name: 'both flags on for a PostHog Code run that PostHog started',
+            first: true,
+            nudge: true,
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            caller: {
+                clientProfile: new MCPClientProfile({ consumer: 'posthog-code' }),
+                apiKeyScopes: ['internal_run:read'],
+                taskOriginProduct: 'signal_report',
+            },
             expected: { inboxFirstEnabled: true, inboxNudgeEnabled: false },
         },
     ])(
-        'derives the inbox sections from their flags, the advertised tools and the kind of run: $name',
-        ({ first, nudge, tools, run, expected }) => {
+        'derives the inbox sections from their flags, the advertised tools and the calling surface: $name',
+        ({ first, nudge, tools, caller, expected }) => {
             const state = {
                 allTools: tools.map((name) => ({ name })),
                 clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+                requestContext: {},
+                apiKeyScopes: [],
                 toolFeatureFlags: { [MCP_INBOX_FIRST_FLAG]: first, [MCP_SELF_DRIVING_NUDGE_FLAG]: nudge },
-                ...run,
+                ...caller,
             } as unknown as ResolvedState
 
             expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state)).toMatchObject(expected)

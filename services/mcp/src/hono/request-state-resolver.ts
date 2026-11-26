@@ -95,6 +95,7 @@ export interface ResolvedState {
     /** The client-carried handle before the SDK can mint one for this call. */
     carriedContextSessionKey?: string | undefined
     isTaskBound?: boolean | undefined
+    taskOriginProduct?: string | undefined
     /** The organization's AI data processing consent; undefined when the org could not be read. */
     aiConsentGiven?: boolean | undefined
     /** Read only when a business knowledge search tool is advertised; undefined when unread. */
@@ -483,6 +484,7 @@ export class RequestStateResolver {
             sandboxTaskId: _apiKey?.sandbox_task_id,
             supportsStepUp: _apiKey?.supports_step_up === true,
             isTaskBound: Boolean(props.taskId || props.taskOriginProduct),
+            taskOriginProduct: props.taskOriginProduct,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&

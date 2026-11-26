@@ -3,6 +3,7 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { isCustomerFacingSurface } from '@/lib/event-source'
 import { nameExecRead, type QueryToolInfo } from '@/lib/instructions'
 import {
     HOGQL_GUIDE_ID,
@@ -50,8 +51,9 @@ export type ExecToolState = Pick<
     | 'requestContext'
     | 'sessionContext'
     | 'toolFeatureFlags'
-    | 'isTaskBound'
-    | 'sandboxTaskId'
+    | 'apiKeyScopes'
+    | 'oauthClientId'
+    | 'taskOriginProduct'
 > & { allTools: readonly { name: string }[] }
 
 /** Tool availability accounts for the client's scopes and selected features. */
@@ -135,12 +137,16 @@ export class InstructionsBuilder {
                 state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG] === true &&
                 INBOX_FIRST_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name)),
             inboxClaimEnabled: state.allTools.some((tool) => tool.name === INBOX_CLAIM_TOOL),
-            // A task or sandbox run is PostHog's own agent, such as a scout. Its job is to query the data itself.
             inboxNudgeEnabled:
                 state.toolFeatureFlags?.[MCP_SELF_DRIVING_NUDGE_FLAG] === true &&
-                !state.isTaskBound &&
-                !state.sandboxTaskId &&
-                state.allTools.some((tool) => tool.name === INBOX_LIST_TOOL),
+                state.allTools.some((tool) => tool.name === INBOX_LIST_TOOL) &&
+                isCustomerFacingSurface({
+                    mcpConsumer: state.clientProfile.consumer,
+                    clientUserAgent: state.requestContext.clientUserAgent,
+                    apiKeyScopes: state.apiKeyScopes,
+                    oauthClientId: state.oauthClientId,
+                    taskOriginProduct: state.taskOriginProduct,
+                }),
             metricCatalog: state.metricCatalog,
         }
     }
