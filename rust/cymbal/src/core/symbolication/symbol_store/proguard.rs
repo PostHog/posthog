@@ -31,7 +31,7 @@ const SOURCE_ENTRY_OVERHEAD_BYTES: usize = 128;
 
 impl Countable for FetchedMapping {
     fn byte_count(&self) -> usize {
-        let cache = self.cache_bytes.as_ref().map_or(0, Vec::capacity);
+        let cache = self.cache_bytes.as_ref().map_or(0, Vec::len);
         let sources: usize = self
             .sources
             .iter()
