@@ -5736,7 +5736,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
                 values.autoSaveBlockedByValidation ||
-                (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
+                values.isSyncingExternalEdit ||
+                // The banner asks first, and a save could overwrite the newer copy without it.
+                (!values.keepsLocalEditsOnExternalEdit && values.externallyEdited)
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

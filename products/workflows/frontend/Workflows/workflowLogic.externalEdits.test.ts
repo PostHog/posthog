@@ -385,20 +385,37 @@ describe('workflowLogic external edits', () => {
 
     it('asks about an edit typed while the reload is in flight when the reload would not keep it', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false })
+        let releaseReload: () => void = () => {}
+        const reloadReleased = new Promise<void>((resolve) => {
+            releaseReload = resolve
+        })
         useWorkflowMock(makeWorkflow({ updated_at: NEWER }))
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': async () => {
+                    await reloadReleased
+                    return [200, makeWorkflow({ updated_at: NEWER })]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        logic.actions.setWorkflowValue('name', 'Typed during the reload')
 
-        await expectLogic(logic, () => {
-            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
-            logic.actions.setWorkflowValue('name', 'Typed during the reload')
-        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+        // Auto-save waits while the reload runs, and again once the banner asks.
+        await jest.advanceTimersByTimeAsync(3500)
+        releaseReload()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        await jest.advanceTimersByTimeAsync(3500)
 
+        expect(savedBodies).toHaveLength(0)
         expect(logic.values.workflow.name).toBe('Typed during the reload')
         expect(logic.values.externallyEdited).toBe(true)
-        // A save before Keep mine must not overwrite the newer copy with the form's older one.
+        // A manual save is still fenced by the copy the form holds.
         await expectLogic(logic, () => logic.actions.saveWorkflow(logic.values.workflow)).toDispatchActions([
             'saveWorkflowSuccess',
         ])
-        expect(savedBodies[0].base_updated_at).not.toBe(NEWER)
+        expect(savedBodies[0].base_updated_at).toBe(LOADED_AT)
     })
 
     it('holds auto-save until the reload lands, so a stale save cannot start a second reload', async () => {
