@@ -55,6 +55,41 @@ class MeepRoutineBindSerializer(serializers.Serializer):
     )
 
 
+class MeepContextAddSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=["goal", "fact", "rule"], help_text="What to add: a goal, a fact, or a rule about what you may do."
+    )
+    text = serializers.CharField(max_length=500, help_text="The goal, fact or rule, as one clear sentence.")
+    current = serializers.FloatField(required=False, help_text="Goal only: the latest measured value.")
+    target = serializers.FloatField(required=False, help_text="Goal only: the value to reach or stay under.")
+    unit = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=40,
+        help_text="Goal only: the unit, such as 'per week'.",
+    )
+    effect = serializers.ChoiceField(
+        choices=["ask", "allow", "deny"],
+        required=False,
+        default="ask",
+        help_text="Rule only: ask first, allow, or deny.",
+    )
+    action = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=80,
+        help_text="Rule only: the kind of action, such as 'feature-flag-change'.",
+    )
+
+
+class MeepContextSerializer(serializers.Serializer):
+    kind = serializers.CharField()
+    id = serializers.UUIDField()
+    text = serializers.CharField()
+
+
 class MeepRoutineSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="The topic-local routine key.")
     name = serializers.CharField()
@@ -301,3 +336,29 @@ class TopicViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             trigger=payload.validated_data["trigger"],
         )
         return Response(MeepRoutineSerializer(routine).data)
+
+    @extend_schema(
+        operation_id="meep_topics_add_context", request=MeepContextAddSerializer, responses=MeepContextSerializer
+    )
+    @action(methods=["post"], detail=True, url_path="context", required_scopes=["meep_scout:write"])
+    def add_context(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        task_id = self._conversation(request)
+        if task_id is None:
+            raise PermissionDenied("Add this from its Meep topic.")
+        payload = MeepContextAddSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        result = api.add_topic_context(
+            team=self.team,
+            user=request.user,
+            task_id=task_id,
+            topic_id=pk,
+            kind=data["kind"],
+            text=data["text"],
+            current=data.get("current"),
+            target=data.get("target"),
+            unit=data["unit"],
+            effect=data["effect"],
+            action=data["action"],
+        )
+        return Response(MeepContextSerializer(result).data)

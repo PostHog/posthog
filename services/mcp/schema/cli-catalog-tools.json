@@ -38594,6 +38594,67 @@
             "validators": []
         }
     },
+    "meep-topic-add-context": {
+        "name": "meep-topic-add-context",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/meep/topics/{id}/context/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "kind",
+                    "key": "kind"
+                },
+                {
+                    "param": "text",
+                    "key": "text"
+                },
+                {
+                    "param": "current",
+                    "key": "current"
+                },
+                {
+                    "param": "target",
+                    "key": "target"
+                },
+                {
+                    "param": "unit",
+                    "key": "unit"
+                },
+                {
+                    "param": "effect",
+                    "key": "effect"
+                },
+                {
+                    "param": "action",
+                    "key": "action"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "meep-topic-get": {
         "name": "meep-topic-get",
         "kind": "http",

@@ -24,6 +24,7 @@ from products.workflows.backend.facade.contracts import (
     TwilioAccount,
     TwilioPhoneNumber,
     WorkflowAccessDenied,
+    WorkflowAction,
     WorkflowActivitySummary,
     WorkflowArchived,
     WorkflowListQuery,
@@ -316,6 +317,22 @@ def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
     if row is None:
         raise WorkflowNotFound()
     return WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+
+
+def get_workflow_actions(*, team_id: int, workflow_id: str) -> list[WorkflowAction]:
+    row = HogFlow.objects.filter(team_id=team_id, id=workflow_id).values("actions").first()
+    if row is None:
+        raise WorkflowNotFound()
+    return [
+        WorkflowAction(
+            id=str(a.get("id", "")),
+            kind=str(a.get("type", "")),
+            name=str(a.get("name") or a.get("type") or ""),
+            description=str(a["description"]) if a.get("description") else None,
+        )
+        for a in (row["actions"] or [])
+        if isinstance(a, dict)
+    ]
 
 
 def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list[WorkflowSummary]:

@@ -13,10 +13,12 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.meep.backend.models import BoardRun, ChatTurn, Topic
+from products.meep.backend.scouts import _open_reports
 from products.meep.backend.task_profiles import MEEP, MEEP_MCP_SCOPES
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.tasks.backend.facade import api
 from products.tasks.backend.models import TaskRun
+from products.workflows.backend.facade.contracts import WorkflowAction
 
 
 class TestTopicScouts(APIBaseTest):
@@ -132,6 +134,97 @@ class TestTopicScouts(APIBaseTest):
         assert [(b["backend"], b["external_id"], b["name"]) for b in bindings] == [
             ("posthog", str(workflow_id), "Daily report")
         ]
+        with (
+            patch(
+                "products.meep.backend.routines.workflows.get_workflow_summary",
+                return_value=type("S", (), {"status": "draft", "name": "Daily report"})(),
+            ),
+            patch(
+                "products.meep.backend.routines.workflows.get_workflow_actions",
+                return_value=[WorkflowAction(id="trigger", kind="trigger", name="Trigger", description=None)],
+            ),
+        ):
+            shown = self.client.get(
+                f"/api/projects/{self.team.pk}/meep/v1/routines/{self.topic.pk}/{bindings[0]['id']}/"
+            )
+        assert shown.status_code == 200, shown.content
+        assert (shown.json()["enabled"], shown.json()["name"]) == (False, "Daily report")
+        assert [g["name"] for g in shown.json()["graph"]] == ["Trigger"]
+
+    def test_scout_finding_opens_one_inbox_report_however_often_it_is_delivered(self):
+        rows = [
+            {
+                "reports": [
+                    {
+                        "id": uuid4(),
+                        "title": "No data",
+                        "summary": "Events stopped.",
+                        "filed_at": "2026-11-26T09:00:00Z",
+                    }
+                ]
+            }
+        ]
+        for _ in range(2):
+            _open_reports(self.topic, rows)
+        self.topic.refresh_from_db()
+        reports = [t for t in self.topic.state["threads"] if t.get("report_sources")]
+        assert [(t["subject"], t["report_sources"]["external"]["provider"]) for t in reports] == [
+            ("No data", "posthog-scout")
+        ]
+
+    def test_agent_saves_a_goal_a_fact_and_a_rule_once_each(self):
+        bodies = [
+            {"kind": "goal", "text": "Weekly rage clicks under 200", "current": 270, "target": 200, "unit": "per week"},
+            {"kind": "fact", "text": "Events stopped on Nov 6"},
+            {"kind": "rule", "text": "Ask before changing a flag", "effect": "ask", "action": "feature-flag-change"},
+        ]
+        for body in bodies:
+            for _ in range(2):
+                response = self.agent.post(self.url + "context/", body, format="json")
+                assert response.status_code == 200, response.content
+        self.topic.refresh_from_db()
+        topic = self.topic.state["topic"]
+        assert [g["text"] for g in topic["goals"]] == ["Weekly rage clicks under 200"]
+        assert [f["text"] for f in topic["facts"]] == ["Events stopped on Nov 6"]
+        assert [r["text"] for r in topic["rules"]] == ["Ask before changing a flag"]
+
+    def test_topic_lists_and_reads_files_its_board_tasks_saved(self):
+        item_id, run_id = uuid4(), uuid4()
+        task_id = uuid4()
+        BoardRun.objects.create(topic=self.topic, item_id=item_id, task_id=task_id, run_id=run_id, finished=True)
+        entry = {
+            "id": "ab12",
+            "name": "rows.csv",
+            "type": "output",
+            "size": 7,
+            "content_type": "text/csv",
+            "storage_path": "x/y",
+        }
+        run = type("R", (), {"artifacts": [entry], "created_by_id": self.user.pk})()
+        raw = type("Raw", (), {"read": lambda self, n, decode_content=True: b"a,b\n1,2\n"})()
+        stored = type(
+            "Resp",
+            (),
+            {
+                "headers": {"content-type": "text/csv", "content-length": "8"},
+                "raw": raw,
+                "raise_for_status": lambda self: None,
+            },
+        )()
+        base = f"/api/projects/{self.team.pk}/meep/v1/topics/{self.topic.pk}/artifacts/"
+        with (
+            patch("products.meep.backend.board.api.get_task_run", return_value=run),
+            patch(
+                "products.meep.backend.board.api.presign_task_run_artifact_download",
+                return_value=("http://storage/x", None),
+            ),
+            patch("products.meep.backend.board.requests.get", return_value=stored),
+        ):
+            listed = self.client.get(base)
+            fetched = self.client.get(f"{base}{item_id}/{run_id}/ab12")
+        assert listed.status_code == 200, listed.content
+        assert [(a["name"], a["task"], a["run"]) for a in listed.json()] == [("rows.csv", str(item_id), str(run_id))]
+        assert (fetched.status_code, fetched.content) == (200, b"a,b\n1,2\n")
 
     def test_native_scout_retries_pause_resume_and_report_delivery(self):
         created = self.agent.post(self.url + "scouts/", self.create_body, format="json")

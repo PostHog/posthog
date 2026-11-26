@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -244,3 +245,49 @@ class ReplicaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         topic_id = serializers.UUIDField().run_validation(args.get("topic"))
         tool = serializers.CharField().run_validation(request.data.get("tool"))
         return Response(api.view_source(self.team_id, request.user.pk, view_id, topic_id, tool, args.get("path")))
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"routines/(?P<topic_id>[0-9a-fA-F-]{36})/(?P<routine>[^/]+)",
+        required_scopes=["meep:read"],
+    )
+    def routine_details(self, request: Request, topic_id: UUID, routine: str, **kwargs: Any) -> Response:
+        details = api.routine_details(
+            team_id=self.team_id, owner_id=request.user.pk, topic_id=topic_id, routine=routine
+        )
+        return Response({**dataclasses.asdict(details), "runs": []})
+
+    @routine_details.mapping.put
+    def routine_enable(self, request: Request, topic_id: UUID, routine: str, **kwargs: Any) -> Response:
+        raise serializers.ValidationError(
+            "Ask the topic chat to turn this routine on. It checks the delivery setup first."
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"topics/(?P<topic_id>[0-9a-fA-F-]{36})/artifacts",
+        required_scopes=["meep:read"],
+    )
+    def topic_artifacts(self, request: Request, topic_id: UUID, **kwargs: Any) -> Response:
+        return Response(api.topic_artifacts(self.team_id, request.user.pk, topic_id))
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=(
+            r"topics/(?P<topic_id>[0-9a-fA-F-]{36})/artifacts/(?P<item_id>[0-9a-fA-F-]{36})"
+            r"/(?P<run_id>[0-9a-fA-F-]{36})/(?P<artifact_id>[0-9a-fA-F]+)"
+        ),
+        required_scopes=["meep:read"],
+    )
+    def topic_artifact(
+        self, request: Request, topic_id: UUID, item_id: UUID, run_id: UUID, artifact_id: str, **kwargs: Any
+    ) -> HttpResponse:
+        limit = 5 * 1024 * 1024
+        found = api.read_topic_artifact(self.team_id, request.user.pk, topic_id, item_id, run_id, artifact_id, limit)
+        if found is None:
+            return HttpResponse(status=413)
+        data, content_type = found
+        return HttpResponse(data, content_type=content_type)

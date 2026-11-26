@@ -55,6 +55,14 @@ class WorkflowSummary:
 
 
 @frozen
+class WorkflowAction:
+    id: str
+    kind: str
+    name: str
+    description: str | None
+
+
+@frozen
 class CohortDependentWorkflow:
     id: str
     name: str

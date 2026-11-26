@@ -39,6 +39,72 @@ export interface MeepTopicDetailsApi {
     readonly context: MeepTopicDetailsApiContext
 }
 
+/**
+ * * `goal` - goal
+ * * `fact` - fact
+ * * `rule` - rule
+ */
+export type MeepContextAddKindEnumApi = (typeof MeepContextAddKindEnumApi)[keyof typeof MeepContextAddKindEnumApi]
+
+export const MeepContextAddKindEnumApi = {
+    Goal: 'goal',
+    Fact: 'fact',
+    Rule: 'rule',
+} as const
+
+/**
+ * * `ask` - ask
+ * * `allow` - allow
+ * * `deny` - deny
+ */
+export type MeepContextAddEffectEnumApi = (typeof MeepContextAddEffectEnumApi)[keyof typeof MeepContextAddEffectEnumApi]
+
+export const MeepContextAddEffectEnumApi = {
+    Ask: 'ask',
+    Allow: 'allow',
+    Deny: 'deny',
+} as const
+
+export interface MeepContextAddApi {
+    /** What to add: a goal, a fact, or a rule about what you may do.
+     *
+     * * `goal` - goal
+     * * `fact` - fact
+     * * `rule` - rule */
+    kind: MeepContextAddKindEnumApi
+    /**
+     * The goal, fact or rule, as one clear sentence.
+     * @maxLength 500
+     */
+    text: string
+    /** Goal only: the latest measured value. */
+    current?: number
+    /** Goal only: the value to reach or stay under. */
+    target?: number
+    /**
+     * Goal only: the unit, such as 'per week'.
+     * @maxLength 40
+     */
+    unit?: string
+    /** Rule only: ask first, allow, or deny.
+     *
+     * * `ask` - ask
+     * * `allow` - allow
+     * * `deny` - deny */
+    effect?: MeepContextAddEffectEnumApi
+    /**
+     * Rule only: the kind of action, such as 'feature-flag-change'.
+     * @maxLength 80
+     */
+    action?: string
+}
+
+export interface MeepContextApi {
+    kind: string
+    id: string
+    text: string
+}
+
 export interface MeepConversationBindingApi {
     task_id: string
 }

@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
@@ -71,7 +72,33 @@ def reconcile_scouts(team_id: int, owner_id: int) -> None:
     # receipt while consuming a newer one from another topic.
     User.objects.select_for_update().only("pk").get(pk=owner_id)
     for topic in topics.select_for_update(of=("self",)).select_related("team").order_by("pk"):
-        _announce(topic, linked_scouts(topic))
+        rows = linked_scouts(topic)
+        _announce(topic, rows)
+        _open_reports(topic, rows)
+
+
+def _open_reports(topic: Topic, rows: list[dict[str, Any]]) -> None:
+    from products.meep.backend.replication import apply_command  # noqa: PLC0415
+
+    for row in rows:
+        for report in row["reports"]:
+            # The same finding always gets the same command ID, so a repeat is a replay and opens nothing.
+            apply_command(
+                topic.team_id,
+                topic.owner,
+                uuid5(topic.pk, f"report-command:{report['id']}"),
+                topic.pk,
+                {
+                    "kind": "ReceiveReport",
+                    "thread": str(uuid5(topic.pk, f"report-thread:{report['id']}")),
+                    "message": str(uuid5(topic.pk, f"report-message:{report['id']}")),
+                    "report_id": str(report["id"]),
+                    "title": report["title"],
+                    "summary": report["summary"] or report["title"],
+                    "url": f"{settings.SITE_URL}/project/{topic.team_id}/inbox/{report['id']}",
+                    "at": report["filed_at"],
+                },
+            )
 
 
 def pause_scouts(topic: Topic) -> None:

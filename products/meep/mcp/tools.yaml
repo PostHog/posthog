@@ -85,3 +85,14 @@ tools:
             idempotent: true
         title: Show a workflow as a topic routine
         description: Link a PostHog workflow you created for this topic so it appears under the topic's Routines. Call it once, after the workflow exists. It does not enable or run the workflow.
+    meep-topic-add-context:
+        operation: meep_topics_add_context
+        enabled: true
+        scopes:
+            - meep_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add a goal, fact or rule to this topic
+        description: Save something the person asked you to keep on this topic. A goal is a target to track (give current and target when it is measured). A fact is something true that you should remember. A rule says whether you may act alone, must ask first, or must never do a kind of action. Adding the same thing twice changes nothing.

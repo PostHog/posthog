@@ -18,3 +18,22 @@ class FileData:
     contents: bytes
     revision: int
     competing_with: int | None
+
+
+@frozen
+class RoutineStep:
+    id: str
+    kind: str
+    name: str
+    detail: str | None
+    depth: int = 0
+    branch: str | None = None
+
+
+@frozen
+class RoutineDetails:
+    enabled: bool
+    name: str
+    trigger: str
+    steps: list[str]
+    graph: list[RoutineStep]

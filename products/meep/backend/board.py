@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
+import requests
 from pydantic import JsonValue
 from rest_framework.exceptions import NotFound, ValidationError
 
@@ -231,3 +232,50 @@ def finish_board(run_id: UUID, team_id: int) -> None:
         from products.meep.backend.tasks import reconcile_topic_tasks  # noqa: PLC0415
 
         transaction.on_commit(lambda: reconcile_topic_tasks.delay(team_id, str(topic.pk)), robust=True)
+
+
+def topic_artifacts(team_id: int, owner_id: int, topic_id: UUID) -> list[dict[str, JsonValue]]:
+    topic = get_object_or_404(Topic.objects.for_team(team_id), pk=topic_id, owner_id=owner_id, deleted=False)
+    rows: list[dict[str, JsonValue]] = []
+    for job in topic.board_runs.order_by("id"):
+        run = api.get_task_run(job.run_id, team_id)
+        if run is None or run.created_by_id != owner_id:
+            continue
+        for artifact in run.artifacts or []:
+            if not isinstance(artifact, dict) or not artifact.get("storage_path"):
+                continue
+            rows.append(
+                {
+                    "task": str(job.item_id),
+                    "run": str(job.run_id),
+                    "id": str(artifact["id"]),
+                    "name": str(artifact.get("name") or "file"),
+                    "kind": str(artifact.get("type") or "output"),
+                    "version": 0,
+                    "size": artifact.get("size") if isinstance(artifact.get("size"), int) else None,
+                    "content_type": artifact.get("content_type"),
+                    "updated_at": artifact.get("uploaded_at"),
+                }
+            )
+    return rows
+
+
+def read_topic_artifact(
+    team_id: int, owner_id: int, topic_id: UUID, item_id: UUID, run_id: UUID, artifact_id: str, max_bytes: int
+) -> tuple[bytes, str] | None:
+    topic = get_object_or_404(Topic.objects.for_team(team_id), pk=topic_id, owner_id=owner_id, deleted=False)
+    job = topic.board_runs.filter(item_id=item_id, run_id=run_id).first()
+    if job is None:
+        raise NotFound()
+    url, error = api.presign_task_run_artifact_download(run_id, job.task_id, team_id, artifact_id=artifact_id)
+    if url is None:
+        raise NotFound()
+    response = requests.get(url, timeout=20, stream=True)
+    response.raise_for_status()
+    declared = response.headers.get("content-length")
+    if declared and int(declared) > max_bytes:
+        return None
+    data = response.raw.read(max_bytes + 1, decode_content=True)
+    if len(data) > max_bytes:
+        return None
+    return data, response.headers.get("content-type") or "application/octet-stream"

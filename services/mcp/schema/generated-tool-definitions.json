@@ -12747,6 +12747,21 @@
             "readOnlyHint": false
         }
     },
+    "meep-topic-add-context": {
+        "description": "Save something the person asked you to keep on this topic. A goal is a target to track (give current and target when it is measured). A fact is something true that you should remember. A rule says whether you may act alone, must ask first, or must never do a kind of action. Adding the same thing twice changes nothing.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Add a goal, fact or rule to this topic",
+        "title": "Add a goal, fact or rule to this topic",
+        "required_scopes": ["meep_scout:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/context/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "meep-topic-get": {
         "description": "Read the mission and linked PostHog task for one topic.",
         "category": "Meep",

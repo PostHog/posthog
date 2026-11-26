@@ -296,9 +296,9 @@ export const AppliesToEnumApi = {
  * * `needs_approval` - Require approval
  * * `do_not_use` - Block
  */
-export type EffectEnumApi = (typeof EffectEnumApi)[keyof typeof EffectEnumApi]
+export type MCPOrgRuleEffectEnumApi = (typeof MCPOrgRuleEffectEnumApi)[keyof typeof MCPOrgRuleEffectEnumApi]
 
-export const EffectEnumApi = {
+export const MCPOrgRuleEffectEnumApi = {
     NeedsApproval: 'needs_approval',
     DoNotUse: 'do_not_use',
 } as const
@@ -322,7 +322,7 @@ export interface MCPOrgRuleApi {
      *
      * * `needs_approval` - Require approval
      * * `do_not_use` - Block */
-    effect?: EffectEnumApi
+    effect?: MCPOrgRuleEffectEnumApi
     /**
      * fnmatch pattern against tool names. Blank matches destructive tools heuristically.
      * @maxLength 400
@@ -362,7 +362,7 @@ export interface PatchedMCPOrgRuleApi {
      *
      * * `needs_approval` - Require approval
      * * `do_not_use` - Block */
-    effect?: EffectEnumApi
+    effect?: MCPOrgRuleEffectEnumApi
     /**
      * fnmatch pattern against tool names. Blank matches destructive tools heuristically.
      * @maxLength 400

@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MeepContextAddApi,
+    MeepContextApi,
     MeepConversationBindingApi,
     MeepRoutineApi,
     MeepRoutineBindApi,
@@ -99,6 +101,24 @@ export const meepTopicsRetrieve = async (
     return apiMutator<MeepTopicDetailsApi>(getMeepTopicsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMeepTopicsAddContextUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/meep/topics/${id}/context/`
+}
+
+export const meepTopicsAddContext = async (
+    projectId: string,
+    id: string,
+    meepContextAddApi: MeepContextAddApi,
+    options?: RequestInit
+): Promise<MeepContextApi> => {
+    return apiMutator<MeepContextApi>(getMeepTopicsAddContextUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(meepContextAddApi),
     })
 }
 

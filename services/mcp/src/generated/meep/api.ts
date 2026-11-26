@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -28,6 +28,51 @@ export const MeepTopicsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const MeepTopicsAddContextParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const meepTopicsAddContextBodyTextMax = 500
+
+export const meepTopicsAddContextBodyUnitDefault = ``
+export const meepTopicsAddContextBodyUnitMax = 40
+
+export const meepTopicsAddContextBodyEffectDefault = `ask`
+export const meepTopicsAddContextBodyActionDefault = ``
+export const meepTopicsAddContextBodyActionMax = 80
+
+export const MeepTopicsAddContextBody = () => zod.object({
+    kind: zod
+        .enum(['goal', 'fact', 'rule'])
+        .describe('\* `goal` - goal\n\* `fact` - fact\n\* `rule` - rule')
+        .describe(
+            'What to add: a goal, a fact, or a rule about what you may do.\n\n\* `goal` - goal\n\* `fact` - fact\n\* `rule` - rule'
+        ),
+    text: zod.string().max(meepTopicsAddContextBodyTextMax).describe('The goal, fact or rule, as one clear sentence.'),
+    current: zod.number().optional().describe('Goal only: the latest measured value.'),
+    target: zod.number().optional().describe('Goal only: the value to reach or stay under.'),
+    unit: zod
+        .string()
+        .max(meepTopicsAddContextBodyUnitMax)
+        .default(meepTopicsAddContextBodyUnitDefault)
+        .describe("Goal only: the unit, such as 'per week'."),
+    effect: zod
+        .enum(['ask', 'allow', 'deny'])
+        .describe('\* `ask` - ask\n\* `allow` - allow\n\* `deny` - deny')
+        .default(meepTopicsAddContextBodyEffectDefault)
+        .describe('Rule only: ask first, allow, or deny.\n\n\* `ask` - ask\n\* `allow` - allow\n\* `deny` - deny'),
+    action: zod
+        .string()
+        .max(meepTopicsAddContextBodyActionMax)
+        .default(meepTopicsAddContextBodyActionDefault)
+        .describe("Rule only: the kind of action, such as 'feature-flag-change'."),
 })
 
 export const MeepTopicsBindRoutineParams = () => zod.object({

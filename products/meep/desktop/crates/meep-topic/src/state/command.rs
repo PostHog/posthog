@@ -288,6 +288,23 @@ pub enum Command {
         /// Replacement subscriptions.
         watches: Vec<Watch>,
     },
+    /// Open an inbox report for a finding that another system produced for this topic.
+    ReceiveReport {
+        /// Thread that will hold the report.
+        thread: ThreadId,
+        /// Message that carries the report text.
+        message: MessageId,
+        /// The report's identity in the producing system.
+        report_id: String,
+        /// Headline shown in the inbox.
+        title: String,
+        /// The report body.
+        summary: String,
+        /// Where to open the report in the producing system.
+        url: String,
+        /// When the producing system received the report.
+        at: DateTime<Utc>,
+    },
     /// Mark an inbox conversation as read.
     MarkSeen {
         /// Thread to mark.
@@ -842,6 +859,15 @@ impl TopicState {
                 self.set_routine_watches(&routine, watches, now)
             }
             Command::SetWatch { watches } => self.set_watch(watches, now),
+            Command::ReceiveReport {
+                thread,
+                message,
+                report_id,
+                title,
+                summary,
+                url,
+                at,
+            } => self.receive_report(thread, message, report_id, title, summary, url, at, now),
             Command::MarkSeen { thread } => self.mark_seen(thread, now),
             Command::AddFact { fact } => self.add_fact(fact, now),
             Command::SupersedeFact { old, new } => self.supersede_fact(old, new, now),

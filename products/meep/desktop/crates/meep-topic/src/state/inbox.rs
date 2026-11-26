@@ -90,6 +90,60 @@ impl TopicState {
         ))
     }
 
+    /// Open an inbox report for a finding another system produced. The same report
+    /// ID never opens a second thread.
+    #[allow(clippy::too_many_arguments)]
+    pub fn receive_report(
+        &mut self,
+        thread: ThreadId,
+        message: MessageId,
+        report_id: String,
+        title: String,
+        summary: String,
+        url: String,
+        at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Transition {
+        if self.threads.iter().any(|t| {
+            t.report_sources
+                .as_ref()
+                .and_then(|r| r.external.as_ref())
+                .is_some_and(|e| e.id == report_id)
+        }) {
+            return Err(TopicError::DuplicateId(report_id));
+        }
+        let text = summary.clone();
+        let changes = self.receive(
+            Message {
+                id: message,
+                producer: Producer::System,
+                origin: None,
+                author: "PostHog".into(),
+                at,
+                text,
+                external_id: Some(report_id.clone()),
+            },
+            format!("report:{report_id}"),
+            thread,
+            now,
+        )?;
+        if let Some(opened) = self.threads.iter_mut().find(|t| t.id == thread) {
+            opened.subject = title;
+            opened.summary = summary;
+            opened.state = ThreadState::Handled;
+            opened.report_sources = Some(ReportSources {
+                external: Some(ExternalReport {
+                    provider: "posthog-scout".into(),
+                    id: report_id,
+                    url,
+                    synced: None,
+                }),
+                ..Default::default()
+            });
+        }
+        Ok(changes)
+    }
+
     /// Move a provisional intake conversation into the open thread selected for it.
     pub fn join_thread(
         &mut self,

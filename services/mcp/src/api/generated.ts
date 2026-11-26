@@ -43238,18 +43238,6 @@ export namespace Schemas {
       delete_files?: string[];
     }
 
-    /**
-     * * `needs_approval` - Require approval
-     * * `do_not_use` - Block
-     */
-    export type EffectEnum = typeof EffectEnum[keyof typeof EffectEnum];
-
-
-    export const EffectEnum = {
-      NeedsApproval: 'needs_approval',
-      DoNotUse: 'do_not_use',
-    } as const;
-
     export interface Element {
       /**
          * @maxLength 10000
@@ -74750,6 +74738,18 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
+    /**
+     * * `needs_approval` - Require approval
+     * * `do_not_use` - Block
+     */
+    export type MCPOrgRuleEffectEnum = typeof MCPOrgRuleEffectEnum[keyof typeof MCPOrgRuleEffectEnum];
+
+
+    export const MCPOrgRuleEffectEnum = {
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
     export interface MCPOrgRule {
       readonly id: string;
       /**
@@ -74769,7 +74769,7 @@ export namespace Schemas {
        *
        * * `needs_approval` - Require approval
        * * `do_not_use` - Block */
-      effect?: EffectEnum;
+      effect?: MCPOrgRuleEffectEnum;
       /**
          * fnmatch pattern against tool names. Blank matches destructive tools heuristically.
          * @maxLength 400
@@ -76229,6 +76229,74 @@ export namespace Schemas {
       ErrorRate: 'error_rate',
       Latency: 'latency',
     } as const;
+
+    export interface MeepContext {
+      kind: string;
+      id: string;
+      text: string;
+    }
+
+    /**
+     * * `goal` - goal
+     * * `fact` - fact
+     * * `rule` - rule
+     */
+    export type MeepContextAddKindEnum = typeof MeepContextAddKindEnum[keyof typeof MeepContextAddKindEnum];
+
+
+    export const MeepContextAddKindEnum = {
+      Goal: 'goal',
+      Fact: 'fact',
+      Rule: 'rule',
+    } as const;
+
+    /**
+     * * `ask` - ask
+     * * `allow` - allow
+     * * `deny` - deny
+     */
+    export type MeepContextAddEffectEnum = typeof MeepContextAddEffectEnum[keyof typeof MeepContextAddEffectEnum];
+
+
+    export const MeepContextAddEffectEnum = {
+      Ask: 'ask',
+      Allow: 'allow',
+      Deny: 'deny',
+    } as const;
+
+    export interface MeepContextAdd {
+      /** What to add: a goal, a fact, or a rule about what you may do.
+       *
+       * * `goal` - goal
+       * * `fact` - fact
+       * * `rule` - rule */
+      kind: MeepContextAddKindEnum;
+      /**
+         * The goal, fact or rule, as one clear sentence.
+         * @maxLength 500
+         */
+      text: string;
+      /** Goal only: the latest measured value. */
+      current?: number;
+      /** Goal only: the value to reach or stay under. */
+      target?: number;
+      /**
+         * Goal only: the unit, such as 'per week'.
+         * @maxLength 40
+         */
+      unit?: string;
+      /** Rule only: ask first, allow, or deny.
+       *
+       * * `ask` - ask
+       * * `allow` - allow
+       * * `deny` - deny */
+      effect?: MeepContextAddEffectEnum;
+      /**
+         * Rule only: the kind of action, such as 'feature-flag-change'.
+         * @maxLength 80
+         */
+      action?: string;
+    }
 
     export interface MeepConversationBinding {
       task_id: string;
@@ -97178,7 +97246,7 @@ export namespace Schemas {
        *
        * * `needs_approval` - Require approval
        * * `do_not_use` - Block */
-      effect?: EffectEnum;
+      effect?: MCPOrgRuleEffectEnum;
       /**
          * fnmatch pattern against tool names. Blank matches destructive tools heuristically.
          * @maxLength 400

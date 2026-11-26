@@ -222,6 +222,48 @@ const meepRoutineBind = (): ToolBase<ReturnType<typeof MeepRoutineBindSchema>, S
     },
 })
 
+const MeepTopicAddContextSchema = () => {
+    const MeepTopicsAddContextBody = orvalSchemas.MeepTopicsAddContextBody()
+    const MeepTopicsAddContextParams = orvalSchemas.MeepTopicsAddContextParams()
+    return MeepTopicsAddContextParams.omit({ project_id: true }).extend(MeepTopicsAddContextBody.shape)
+}
+
+const meepTopicAddContext = (): ToolBase<ReturnType<typeof MeepTopicAddContextSchema>, Schemas.MeepContext> => ({
+    name: 'meep-topic-add-context',
+    schema: MeepTopicAddContextSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MeepTopicAddContextSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.current !== undefined) {
+            body['current'] = params.current
+        }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.unit !== undefined) {
+            body['unit'] = params.unit
+        }
+        if (params.effect !== undefined) {
+            body['effect'] = params.effect
+        }
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        const result = await context.api.request<Schemas.MeepContext>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/meep/topics/${encodeURIComponent(String(params.id))}/context/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'meep-task-start': meepTaskStart,
     'meep-task-wait': meepTaskWait,
@@ -231,4 +273,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'meep-scout-create': meepScoutCreate,
     'meep-scout-set-enabled': meepScoutSetEnabled,
     'meep-routine-bind': meepRoutineBind,
+    'meep-topic-add-context': meepTopicAddContext,
 }

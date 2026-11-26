@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action": {
+            "default": "",
+            "description": "Rule only: the kind of action, such as 'feature-flag-change'.",
+            "maxLength": 80,
+            "type": "string"
+        },
+        "current": {
+            "description": "Goal only: the latest measured value.",
+            "type": "number"
+        },
+        "effect": {
+            "default": "ask",
+            "description": "Rule only: ask first, allow, or deny.\n\n* `ask` - ask\n* `allow` - allow\n* `deny` - deny",
+            "enum": ["ask", "allow", "deny"],
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "kind": {
+            "description": "What to add: a goal, a fact, or a rule about what you may do.\n\n* `goal` - goal\n* `fact` - fact\n* `rule` - rule",
+            "enum": ["goal", "fact", "rule"],
+            "type": "string"
+        },
+        "target": {
+            "description": "Goal only: the value to reach or stay under.",
+            "type": "number"
+        },
+        "text": {
+            "description": "The goal, fact or rule, as one clear sentence.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "unit": {
+            "default": "",
+            "description": "Goal only: the unit, such as 'per week'.",
+            "maxLength": 40,
+            "type": "string"
+        }
+    },
+    "required": ["id", "kind", "text"],
+    "type": "object"
+}
