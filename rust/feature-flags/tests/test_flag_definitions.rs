@@ -3951,15 +3951,22 @@ async fn test_other_v_values_keep_the_legacy_response(#[case] query: &str) {
 }
 
 #[rstest::rstest]
-#[case::v2_entry(true, V2_ETAG)]
-#[case::legacy_entry(false, LEGACY_ETAG)]
+#[case::v2_entry(true, V2_ETAG, false)]
+#[case::legacy_entry(false, LEGACY_ETAG, false)]
+#[case::skip_writes(true, V2_ETAG, true)]
 #[tokio::test]
-async fn test_v2_request_is_billed_once(#[case] with_v2_entry: bool, #[case] served_etag: &str) {
+async fn test_v2_request_is_billed_once(
+    #[case] with_v2_entry: bool,
+    #[case] served_etag: &str,
+    #[case] skip_writes: bool,
+) {
+    use feature_flags::config::FlexBool;
     use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
     use feature_flags::utils::test_utils::setup_redis_client;
 
-    let config = feature_flags::config::Config::default_test_config();
+    let mut config = feature_flags::config::Config::default_test_config();
+    config.skip_writes = FlexBool(skip_writes);
     let (_context, team, secret_token) = team_with_definitions(&config, with_v2_entry).await;
     let redis = setup_redis_client(Some(config.redis_url.clone())).await;
     let full_key = get_team_request_key(team.id, FlagRequestType::FlagDefinitions);
@@ -3979,6 +3986,19 @@ async fn test_v2_request_is_billed_once(#[case] with_v2_entry: bool, #[case] ser
     assert_eq!(not_modified.status, 304);
     let bucket_after = current_bucket();
 
+    if skip_writes {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        for key in [&full_key, &not_modified_key] {
+            for bucket in bucket_before..=bucket_after {
+                let counter = redis.hget(key.clone(), bucket.to_string()).await;
+                assert!(
+                    counter.is_err(),
+                    "{key} should hold no record, got {counter:?}"
+                );
+            }
+        }
+        return;
+    }
     for key in [&full_key, &not_modified_key] {
         let counter = common::poll_for_billing_counter_across_buckets(
             &redis,
@@ -3989,6 +4009,57 @@ async fn test_v2_request_is_billed_once(#[case] with_v2_entry: bool, #[case] ser
         .await;
         assert_eq!(counter, "1", "{key} should hold one record");
     }
+}
+
+#[tokio::test]
+async fn test_v2_304_with_a_cold_memo_is_billed_from_the_v2_entry() {
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+
+    let config = feature_flags::config::Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context
+        .populate_cache_for_team_with_flags_and_etag(
+            team.id,
+            serde_json::json!({
+                "flags": [{"key": "survey-targeting-only", "active": true}],
+                "group_type_mapping": {},
+                "cohorts": {},
+            }),
+            LEGACY_ETAG,
+        )
+        .await
+        .unwrap();
+    context
+        .populate_definitions_v2_entry(team.id, &v2_definitions(), V2_ETAG)
+        .await
+        .unwrap();
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let not_modified_key =
+        get_team_request_key(team.id, FlagRequestType::FlagDefinitionsNotModified);
+    redis.del(not_modified_key.clone()).await.unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+    let versioned = format!("/flags/definitions?token={}&v=2", team.api_token);
+
+    let bucket_before = current_bucket();
+    let not_modified =
+        definitions_reply(&server, &versioned, &secret_token, Some(&weak(V2_ETAG))).await;
+    assert_eq!(not_modified.status, 304);
+    let bucket_after = current_bucket();
+
+    let counter = common::poll_for_billing_counter_across_buckets(
+        &redis,
+        &not_modified_key,
+        bucket_before,
+        bucket_after,
+    )
+    .await;
+    assert_eq!(counter, "1");
 }
 
 #[rstest::rstest]
@@ -4053,10 +4124,26 @@ async fn test_v2_stale_etag_200_spends_both_budgets() {
     assert_eq!(full.status, 429);
 }
 
+#[tokio::test]
+async fn test_v2_stale_etag_is_refused_once_the_full_budget_is_spent() {
+    let mut config = feature_flags::config::Config::default_test_config();
+    let (_context, team, secret_token) = team_with_definitions(&config, true).await;
+    config.flag_definitions_rate_limits =
+        format!(r#"{{"{}": "1/minute"}}"#, team.id).parse().unwrap();
+    let server = common::ServerHandle::for_config(config).await;
+    let versioned = format!("/flags/definitions?token={}&v=2", team.api_token);
+
+    let full = definitions_reply(&server, &versioned, &secret_token, None).await;
+    assert_eq!(full.status, 200);
+    let stale = definitions_reply(&server, &versioned, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(stale.status, 429);
+}
+
 #[rstest::rstest]
 #[case::etag_without_payload(None, Some(V2_ETAG))]
 #[case::payload_without_etag(Some(v2_definitions().to_string()), None)]
 #[case::missing_marker(Some("__missing__".to_string()), Some(V2_ETAG))]
+#[case::undecodable_payload(Some("not json".to_string()), Some(V2_ETAG))]
 #[tokio::test]
 async fn test_incomplete_v2_entry_is_answered_from_the_legacy_entry(
     #[case] payload: Option<String>,
@@ -4099,8 +4186,8 @@ async fn test_v2_etag_without_its_payload_keeps_its_304_and_spends_the_full_budg
         .populate_definitions_v2_entry_on(redis, team.id, payload, Some(V2_ETAG))
         .await
         .unwrap();
-    let one_per_minute = format!(r#"{{"{}": "1/minute"}}"#, team.id);
-    config.flag_definitions_rate_limits = one_per_minute.parse().unwrap();
+    config.flag_definitions_rate_limits =
+        format!(r#"{{"{}": "2/minute"}}"#, team.id).parse().unwrap();
     let server = common::ServerHandle::for_config(config).await;
     let versioned = format!("/flags/definitions?token={}&v=2", team.api_token);
 
@@ -4117,14 +4204,14 @@ async fn test_v2_etag_without_its_payload_keeps_its_304_and_spends_the_full_budg
     let stale = definitions_reply(&server, &versioned, &secret_token, Some("W/\"stale\"")).await;
     assert_eq!(
         stale.status, 200,
-        "no 304 should have spent the full-response budget"
+        "the legacy path should not spend the full-response budget again"
     );
     assert_eq!(stale.etag, Some(weak(LEGACY_ETAG)));
 
     let full = definitions_reply(&server, &versioned, &secret_token, None).await;
     assert_eq!(
         full.status, 429,
-        "the fallback should have spent the full-response budget once"
+        "each request with another ETag should have spent the full-response budget once"
     );
 }
 

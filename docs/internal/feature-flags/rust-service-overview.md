@@ -151,9 +151,12 @@ Every other value, a repeated `v`, and no `v` select the legacy feed.
 A `v=2` request reads the team's `flags_with_cohorts_v2.json` entry and its ETag from Redis only.
 A team that holds no config version 2 flag has no such entry, and the legacy entry then answers exactly as it does for an unversioned request: same body, same ETag, same 304 handling.
 A missing v2 entry requests no rebuild.
-An ETag without its payload, or a payload that cannot be read, also falls back to the legacy entry.
-The exception is a request that carries that ETag: it gets a 304, because a client holds the v2 ETag only together with the v2 body, which is still current.
-A fallback spends the full-response budget only when the legacy path sends a full response.
+A v2 ETag that cannot be read, an ETag without its payload, and a payload that cannot be read also fall back to the legacy entry.
+A failed read cannot tell whether the team has a v2 entry, and an error would take the legacy entry and its S3 copy from every team that has none.
+The ETag check runs before the payload read, so a request that carries the v2 ETag gets a 304 whatever the payload state: a client holds that ETag only together with the v2 body, which is still current.
+A request with any other ETag spends the full-response budget before the payload read, as on the legacy path, so a refused request costs no payload read.
+After a fallback the legacy path does not spend it again, even when the legacy ETag then matches and the answer is a 304.
+The v2 ETag read increments neither `redis_missing` nor `redis_error`: a missing v2 ETag is a team without a v2 entry, and a failed read logs a warning.
 
 Authentication, both rate-limit budgets, the quota check and billing are the same for both feeds.
 `flags_flag_definitions_feed_total` counts requests by the feed they asked for (`requested`), the path that took them (`served`) and the SDK name (`library`).
