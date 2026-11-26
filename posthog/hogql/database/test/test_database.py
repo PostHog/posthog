@@ -5197,6 +5197,30 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with pytest.raises(ValueError):
                 Database.create_for(team_id=other_team.pk, team=self.team, user=self.user)
 
+    def test_a_sharing_scope_rebuilds_a_database_when_the_users_access_changes(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with sharing_databases(SharedDatabases()):
+            before = Database.create_for(
+                team=self.team, user=self.user, user_access_control=UserAccessControl(user=self.user, team=self.team)
+            )
+            AccessControl.objects.create(
+                team=self.team,
+                resource="insight",
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+            after = Database.create_for(
+                team=self.team, user=self.user, user_access_control=UserAccessControl(user=self.user, team=self.team)
+            )
+
+        assert after is not before
+
     def test_a_sharing_scope_rebuilds_a_database_past_its_age_so_revoked_access_applies(self) -> None:
         with sharing_databases(SharedDatabases(max_age_seconds=30)):
             with patch("posthog.hogql.database.request_scope.monotonic", side_effect=[0, 10, 40, 40, 40]):
