@@ -440,7 +440,19 @@ export const createPreToolUseHook =
             permissionDecisionReason: `Denied by settings rule: ${permissionCheck.rule}`,
           },
         };
-      default:
+      case "ask":
+        // The SDK matches rules by exact tool name, so it never applies an
+        // `exec` ask rule to `exec-read` or `exec-write` on its own.
+        if (permissionCheck.rule && isPostHogExecTool(toolName)) {
+          return {
+            continue: true,
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse" as const,
+              permissionDecision: "ask" as const,
+              permissionDecisionReason: `Ask required by settings rule: ${permissionCheck.rule}`,
+            },
+          };
+        }
         return { continue: true };
     }
   };

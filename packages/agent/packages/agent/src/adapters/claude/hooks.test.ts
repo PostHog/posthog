@@ -501,6 +501,30 @@ describe("createPreToolUseHook", () => {
     });
   });
 
+  test("asks for exec-write through an exec ask rule", async () => {
+    const settingsManager = buildSettingsManagerStub({
+      decision: "ask",
+      rule: "mcp__posthog__exec",
+      source: "ask",
+    });
+    const hook = createPreToolUseHook(
+      settingsManager,
+      logger,
+      posthogExecPermissionRegex,
+    );
+    const result = await hook(
+      buildPreToolUseHookInput("mcp__posthog__exec-write", {
+        command: "call experiment-create {}",
+      }),
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "ask" },
+    });
+  });
+
   test("allows non-PostHog tool via settings rule unchanged", async () => {
     const settingsManager = buildSettingsManagerStub({
       decision: "allow",
