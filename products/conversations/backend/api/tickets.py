@@ -901,6 +901,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 raise PermissionDenied(
                     "Scouts can add private notes but cannot compose emails, upload files or change existing notes."
                 )
+            if self.action == "ai_rerun":
+                raise PermissionDenied("Scouts cannot start Support AI runs.")
             if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
                 raise PermissionDenied("Scouts cannot change customer identity fields.")
 

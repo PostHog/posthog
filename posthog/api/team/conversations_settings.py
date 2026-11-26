@@ -284,7 +284,7 @@ def validate_conversations_settings(
             raise serializers.ValidationError({"ai_resolution_channels": "Must be a list of channel names or null."})
     if "ai_rerun_mode" in value:
         rerun_mode = value.get("ai_rerun_mode")
-        if rerun_mode is not None and rerun_mode not in VALID_AI_RERUN_MODES:
+        if rerun_mode is not None and (not isinstance(rerun_mode, str) or rerun_mode not in VALID_AI_RERUN_MODES):
             raise serializers.ValidationError(
                 {"ai_rerun_mode": f"Must be one of: {', '.join(sorted(VALID_AI_RERUN_MODES))}."}
             )

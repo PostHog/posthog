@@ -1984,6 +1984,26 @@ class TestClarifyActivity:
         assert ticket.status == Status.PENDING
         assert ticket.ai_triage["status"] == "awaiting_clarification"
 
+    def test_a_later_run_posts_its_own_question(self):
+        from posthog.models.comment import Comment
+
+        ticket = self._ticket()
+        for run_id, question in (("run-1", "Which SDK are you using?"), ("run-2", "Which version?")):
+            _clarify_sync(
+                ClarifyInput(
+                    team_id=ticket.team_id,
+                    ticket_id=str(ticket.id),
+                    ticket_type="how_to",
+                    clarifying_questions=[question],
+                    run_id=run_id,
+                )
+            )
+
+        run_ids = Comment.objects.filter(team_id=ticket.team_id, item_id=str(ticket.id)).values_list(
+            "item_context__run_id", flat=True
+        )
+        assert sorted(run_ids) == ["run-1", "run-2"]
+
     def test_retry_after_private_note_does_not_duplicate(self):
         from posthog.models.comment import Comment
 

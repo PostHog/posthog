@@ -400,6 +400,9 @@ class TestChildWorkflowId:
     def test_customer_reply_run_has_its_own_id(self):
         assert _child_workflow_id("abc", rerun_key="1700000000") == "support-reply-abc-c1700000000"
 
+    def test_follow_up_to_a_customer_reply_run_does_not_reuse_the_plain_round_id(self):
+        assert _child_workflow_id("abc", 1, "1700000000") == "support-reply-abc-c1700000000-r1"
+
 
 def _at(hour: int, minute: int = 0, second: int = 0) -> datetime:
     return datetime(2026, 11, 26, hour, minute, second, tzinfo=UTC)
@@ -429,6 +432,8 @@ class TestCustomerReplyRerunKey:
                 str(int(_at(11, 59, 30).timestamp())),
             ),
             ("run_limit_reached", {**_RUN_AT_TEN, "rerun_keys": ["1", "2", "3"]}, _at(11), None, False, None),
+            ("input_was_blocked", {**_RUN_AT_TEN, "result": "blocked_unsafe"}, _at(11), None, False, None),
+            ("reply_was_blocked", {**_RUN_AT_TEN, "result": "blocked_unsafe_reply"}, _at(11), None, False, None),
             (
                 "retry_of_a_counted_message",
                 {**_RUN_AT_TEN, "rerun_keys": ["1", "2", _ELEVEN_KEY]},
@@ -659,6 +664,47 @@ class TestCollectEligibleAwaitingClarification:
             assert ticket.ai_triage["rerun_keys"] == [result[0].rerun_key]
         else:
             assert "rerun_keys" not in ticket.ai_triage
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_failed_first_run_stays_on_the_first_draft_path_in_until_team_reply_mode(self, mock_master_flag):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        team.conversations_settings = {"ai_suggestions_enabled": True, "ai_rerun_mode": "until_team_reply"}
+        team.save()
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={"status": "in_progress", "started_at": (timezone.now() - timedelta(minutes=6)).isoformat()}
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 4)])
+
+        result = _collect_eligible()
+
+        assert [(t.ticket_id, t.rerun_key) for t in result] == [(str(ticket.id), "")]
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_follow_up_to_a_question_from_a_customer_reply_run_carries_its_key(self, mock_master_flag):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket()
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={
+                "status": "awaiting_clarification",
+                "clarification_rounds": 1,
+                "trigger": "customer_reply",
+                "rerun_keys": ["1700000000"],
+            }
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 8), ("AI", 5), ("customer", 3)])
+
+        result = _collect_eligible()
+
+        assert [(t.ticket_id, t.clarification_round, t.rerun_key) for t in result] == [
+            (str(ticket.id), 1, "1700000000")
+        ]
 
     @parameterized.expand(
         [

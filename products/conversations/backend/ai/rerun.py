@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
@@ -22,6 +23,10 @@ from products.conversations.backend.temporal.ai_reply.constants import TRIGGER_M
 
 # A run that started longer ago than this is treated as dead, so a stuck status cannot block the button forever.
 STALE_RUN_AFTER = timedelta(minutes=30)
+# The key on `ai_triage` that holds a request's claim, and how long the claim blocks other requests.
+# The workflow records `in_progress` within seconds, so the claim only has to cover that gap.
+CLAIM_KEY = "manual_run_claimed_at"
+CLAIM_HOLDS_FOR = timedelta(minutes=2)
 
 
 class ManualRerunRefused(Exception):
@@ -41,19 +46,52 @@ def manual_rerun_workflow_id(ticket_id: str, latest_activity: datetime) -> str:
     return f"support-reply-{ticket_id}-m{int(latest_activity.timestamp())}"
 
 
+def _is_recent(value: object, *, now: datetime, within: timedelta) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and now - parsed < within
+
+
 def _run_in_progress(triage: dict, *, now: datetime) -> bool:
+    # A request claims the ticket before its workflow records `in_progress`, so a second request
+    # in that gap sees the claim.
+    if _is_recent(triage.get(CLAIM_KEY), now=now, within=CLAIM_HOLDS_FOR):
+        return True
     if triage.get("status") != "in_progress":
         return False
     started_at = triage.get("started_at")
-    if not isinstance(started_at, str):
-        return True
-    try:
-        started = datetime.fromisoformat(started_at)
-    except ValueError:
-        return True
-    if started.tzinfo is None:
-        return True
-    return now - started < STALE_RUN_AFTER
+    return not isinstance(started_at, str) or _is_recent(started_at, now=now, within=STALE_RUN_AFTER)
+
+
+def _claim(ticket_id: str, team_id: int) -> str:
+    """Mark the ticket as claimed by this request, or refuse when a run is already under way."""
+    now = timezone.now()
+    with transaction.atomic():
+        locked = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        triage = dict(locked.ai_triage) if locked and isinstance(locked.ai_triage, dict) else {}
+        if locked is None or _run_in_progress(triage, now=now):
+            raise ManualRerunRefused(
+                "ai_rerun_in_progress", "Support AI is already working on this ticket.", conflict=True
+            )
+        claim = now.isoformat()
+        locked.ai_triage = {**triage, CLAIM_KEY: claim}
+        locked.save(update_fields=["ai_triage"])
+    return claim
+
+
+def _release_claim(ticket_id: str, team_id: int, claim: str) -> None:
+    with transaction.atomic():
+        locked = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        triage = dict(locked.ai_triage) if locked and isinstance(locked.ai_triage, dict) else {}
+        if locked is None or triage.get(CLAIM_KEY) != claim:
+            return
+        del triage[CLAIM_KEY]
+        locked.ai_triage = triage
+        locked.save(update_fields=["ai_triage"])
 
 
 def start_manual_rerun(ticket: Ticket, team: Team) -> str:
@@ -75,15 +113,17 @@ def start_manual_rerun(ticket: Ticket, team: Team) -> str:
             "ai_rerun_unavailable", "Support AI is not turned on for this project.", conflict=False
         )
 
-    triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
-    if _run_in_progress(triage, now=timezone.now()):
-        raise ManualRerunRefused("ai_rerun_in_progress", "Support AI is already working on this ticket.", conflict=True)
+    # Only a message that a customer or a teammate sent changes the ticket's state. A note that
+    # a run wrote must not, or each run would allow the next one with nothing new to read.
+    latest_message_at = (
+        Comment.objects.filter(team_id=team.id, scope="conversations_ticket", item_id=str(ticket.id), deleted=False)
+        .exclude(item_context__author_type="AI")
+        .exclude(item_context__is_private=True)
+        .aggregate(latest=Max("created_at"))["latest"]
+    )
+    workflow_id = manual_rerun_workflow_id(str(ticket.id), latest_message_at or ticket.created_at)
 
-    latest_comment_at = Comment.objects.filter(
-        team_id=team.id, scope="conversations_ticket", item_id=str(ticket.id), deleted=False
-    ).aggregate(latest=Max("created_at"))["latest"]
-    workflow_id = manual_rerun_workflow_id(str(ticket.id), latest_comment_at or ticket.created_at)
-
+    claim = _claim(str(ticket.id), team.id)
     try:
         client = sync_connect()
         asyncio.run(
@@ -96,12 +136,14 @@ def start_manual_rerun(ticket: Ticket, team: Team) -> str:
             )
         )
     except WorkflowAlreadyStartedError:
+        _release_claim(str(ticket.id), team.id, claim)
         raise ManualRerunRefused(
             "ai_rerun_nothing_new",
-            "Support AI already ran on this ticket and nothing was added since. Add a message or a note, then run it again.",
+            "Support AI already ran on this ticket and no new message has arrived since.",
             conflict=True,
         ) from None
     except RPCError as error:
+        _release_claim(str(ticket.id), team.id, claim)
         raise ManualRerunRefused(
             "ai_rerun_failed", "Could not start Support AI. Try again in a minute.", conflict=False
         ) from error

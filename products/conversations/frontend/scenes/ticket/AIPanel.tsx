@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { LemonButton, LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { aiCitationClickProps } from '../../components/Chat/aiCitationClickProps'
@@ -202,6 +203,16 @@ function AITriageDetails({ aiTriage }: { aiTriage: AITriage }): JSX.Element {
     )
 }
 
+// The server treats a run that started longer ago than this as dead and accepts a new one.
+const STALE_RUN_AFTER_MINUTES = 30
+
+function runIsLive(aiTriage?: AITriage): boolean {
+    if (aiTriage?.status !== 'in_progress') {
+        return false
+    }
+    return !aiTriage.started_at || dayjs().diff(dayjs(aiTriage.started_at), 'minute') < STALE_RUN_AFTER_MINUTES
+}
+
 export function AIPanel({ aiTriage, onRerun, rerunning = false }: AIPanelProps): JSX.Element {
     const hasData = Boolean(aiTriage?.status)
     const rerunButton = onRerun ? (
@@ -213,7 +224,7 @@ export function AIPanel({ aiTriage, onRerun, rerunning = false }: AIPanelProps):
             disabledReason={
                 rerunning
                     ? 'Starting Support AI'
-                    : aiTriage?.status === 'in_progress'
+                    : runIsLive(aiTriage)
                       ? 'Support AI is working on this ticket'
                       : undefined
             }

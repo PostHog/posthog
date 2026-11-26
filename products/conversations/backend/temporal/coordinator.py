@@ -73,6 +73,7 @@ MASTER_FLAG = "product-support-ai-suggestion-orgs"
 # Set to 0 locally to skip the BK readiness check entirely.
 MIN_READY_BK_SOURCES = 0
 
+BLOCKED_RESULTS = ("blocked_unsafe", "blocked_unsafe_reply")
 SKIPPED_TEAM_REPLIED = "skipped_team_replied"
 SKIPPED_CHANNEL_EXCLUDED = "skipped_channel_excluded"
 
@@ -101,7 +102,10 @@ class EligibleTicket:
 
 def _child_workflow_id(ticket_id: str, clarification_round: int = 0, rerun_key: str = "") -> str:
     # A completed run blocks its id forever under ALLOW_DUPLICATE_FAILED_ONLY, so a run for a
-    # later customer message needs an id of its own.
+    # later customer message needs an id of its own. So does the follow-up to a question that
+    # such a run asked, because an earlier question on the ticket already used the plain round id.
+    if rerun_key and clarification_round >= 1:
+        return f"support-reply-{ticket_id}-c{rerun_key}-r{clarification_round}"
     if rerun_key:
         return f"support-reply-{ticket_id}-c{rerun_key}"
     # Round 0 keeps the pre-clarify id so in-flight runs and ALLOW_DUPLICATE_FAILED_ONLY
@@ -138,6 +142,9 @@ def customer_reply_rerun_key(
     """
     previous_run_started = _parse_iso(triage.get("started_at"))
     if previous_run_started is None or triage.get("status") != "done":
+        return None
+    # A safety gate stopped the previous run. Another run would give the same sender another try at it.
+    if triage.get("result") in BLOCKED_RESULTS:
         return None
     if last_customer is None or last_customer <= previous_run_started:
         return None
@@ -213,6 +220,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     forwarded_ticket_ids: set[str] = set()
     # Triage of tickets that already had a run, for teams that run again on later customer messages.
     rerun_triage_by_ticket: dict[str, dict] = {}
+    # The message key of the run that asked the open clarifying question, when a later-message run asked it.
+    asking_rerun_key_by_ticket: dict[str, str] = {}
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
     # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
     master_flag_by_org: dict[str, bool] = {}
@@ -236,12 +245,24 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             continue
 
         is_untriaged = not ticket.ai_triage
+        triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
+        # Only a finished run takes the ticket off the first-draft path. A run that failed keeps
+        # `in_progress`, and the first-draft path is what retries it under its original id.
         if (
             settings_dict.get("ai_rerun_mode") == RERUN_MODE_UNTIL_TEAM_REPLY
-            and isinstance(ticket.ai_triage, dict)
-            and _parse_iso(ticket.ai_triage.get("started_at")) is not None
+            and triage.get("status") == "done"
+            and _parse_iso(triage.get("started_at")) is not None
         ):
-            rerun_triage_by_ticket[str(ticket.id)] = ticket.ai_triage
+            rerun_triage_by_ticket[str(ticket.id)] = triage
+        dispatched_keys = triage.get("rerun_keys")
+        if (
+            triage.get("status") == "awaiting_clarification"
+            and triage.get("trigger") == TRIGGER_CUSTOMER_REPLY
+            and isinstance(dispatched_keys, list)
+            and dispatched_keys
+            and isinstance(dispatched_keys[-1], str)
+        ):
+            asking_rerun_key_by_ticket[str(ticket.id)] = dispatched_keys[-1]
         allowed_channels = settings_dict.get("ai_resolution_channels")
         if allowed_channels is not None and ticket.channel_source not in allowed_channels:
             if is_untriaged:
@@ -345,6 +366,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 continue
             if not settle_exempt and last_customer > settle_cutoff:
                 continue
+            rerun_key = asking_rerun_key_by_ticket.get(ticket_id_str, "")
         elif rerun_triage is not None:
             # The ticket already had a run, so the first-draft gates below do not apply to it.
             due_key = customer_reply_rerun_key(
@@ -494,9 +516,12 @@ class SupportReplyCoordinatorWorkflow:
             # The patch comes before the data check. A history that an older worker recorded
             # started this child under the first-draft id, and replay must do the same.
             if workflow.patched(CUSTOMER_REPLY_RERUN_PATCH) and ticket.rerun_key:
-                child_id = _child_workflow_id(ticket.ticket_id, rerun_key=ticket.rerun_key)
+                child_id = _child_workflow_id(ticket.ticket_id, ticket.clarification_round, ticket.rerun_key)
                 child_input = SupportReplyInput(
-                    team_id=ticket.team_id, ticket_id=ticket.ticket_id, trigger=TRIGGER_CUSTOMER_REPLY
+                    team_id=ticket.team_id,
+                    ticket_id=ticket.ticket_id,
+                    clarification_round=ticket.clarification_round,
+                    trigger=TRIGGER_CUSTOMER_REPLY,
                 )
             try:
                 await workflow.start_child_workflow(

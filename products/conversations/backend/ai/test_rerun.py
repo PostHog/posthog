@@ -55,6 +55,16 @@ class TestAiRerunAPI(APIBaseTest):
 
     @patch(FLAG, return_value=True)
     def test_starts_a_manual_run_keyed_on_the_latest_message(self, _flag) -> None:
+        # Notes that a run or a teammate wrote later must not change the id, or each run would allow another.
+        with time_machine.travel("2026-11-26T12:05:00Z", tick=False):
+            for context in ({"author_type": "AI", "is_private": True}, {"author_type": "support", "is_private": True}):
+                Comment.objects.create(
+                    team=self.team,
+                    scope="conversations_ticket",
+                    item_id=str(self.ticket.id),
+                    content="note",
+                    item_context=context,
+                )
         client = self._temporal_client()
         with patch(f"{RERUN_MODULE}.sync_connect", return_value=client):
             response = self.client.post(self.url)
@@ -110,6 +120,20 @@ class TestAiRerunAPI(APIBaseTest):
         assert response.status_code == expected_status
         assert response.json()["error_type"] == expected_error
         assert client.start_workflow.await_count == (1 if start_error else 0)
+        self.ticket.refresh_from_db()
+        assert "manual_run_claimed_at" not in self.ticket.ai_triage
+
+    @patch(FLAG, return_value=True)
+    def test_a_second_request_is_refused_while_the_first_is_starting(self, _flag) -> None:
+        client = self._temporal_client()
+        with patch(f"{RERUN_MODULE}.sync_connect", return_value=client):
+            first = self.client.post(self.url)
+            second = self.client.post(self.url)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED
+        assert second.status_code == status.HTTP_409_CONFLICT
+        assert second.json()["error_type"] == "ai_rerun_in_progress"
+        assert client.start_workflow.await_count == 1
 
     @patch(FLAG, return_value=True)
     def test_a_run_stuck_in_progress_does_not_block_forever(self, _flag) -> None:

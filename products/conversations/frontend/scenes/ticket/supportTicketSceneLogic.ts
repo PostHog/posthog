@@ -101,8 +101,8 @@ import { changedTicketFields } from './ticketFieldChanges'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 const AI_RERUN_POLL_INTERVAL = 10000
-// Ten minutes of polling. A run that takes longer shows its result on the next ticket load.
-const AI_RERUN_MAX_POLLS = 60
+// Thirty minutes of polling, which is how long the server treats a run as live.
+const AI_RERUN_MAX_POLLS = 180
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
@@ -1807,18 +1807,25 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         refreshAiTriage: async () => {
             const ticketId = values.ticket?.id
+            // A slow response must not land after a newer one and overwrite its result.
+            if (cache.aiTriageRefreshInFlight) {
+                return
+            }
             cache.aiRerunPollsLeft = (cache.aiRerunPollsLeft ?? 0) - 1
             if (!ticketId || cache.aiRerunPollsLeft < 0) {
                 cache.disposables.dispose('aiTriagePolling')
                 return
             }
             let triage: AITriage | undefined
+            cache.aiTriageRefreshInFlight = true
             try {
                 const fetched = await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)
                 // The serializer types `ai_triage` as unknown JSON. `AITriage` is its documented shape.
                 triage = (fetched.ai_triage ?? undefined) as AITriage | undefined
             } catch {
                 return
+            } finally {
+                cache.aiTriageRefreshInFlight = false
             }
             const runFinished =
                 triage?.status !== 'in_progress' && (triage?.finished_at ?? null) !== cache.aiRerunPreviousFinishedAt
