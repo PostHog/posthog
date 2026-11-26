@@ -5191,6 +5191,8 @@ export const workflowLogic = kea<workflowLogicType>([
             if (props.id && props.id !== 'new') {
                 try {
                     const latest = await api.hogFlows.getHogFlow(props.id)
+                    // A staged save also fences its live metadata write, so the live stamp moves to the latest too.
+                    cache.lastSavedWorkflow = latest
                     // On an active workflow the next save races the draft slot, so its stamp is the baseline.
                     actions.setSaveBaseUpdatedAt(latest.draft_updated_at ?? latest.updated_at)
                 } catch {
@@ -5293,6 +5295,8 @@ export const workflowLogic = kea<workflowLogicType>([
             if (missingTemplates.length) {
                 actions.loadMissingHogFunctionTemplates(missingTemplates)
             }
+            const previousSaveBaseline =
+                (cache.lastSavedWorkflow as HogFlow | undefined) ?? selectors.originalWorkflow(previousState)
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
@@ -5310,15 +5314,14 @@ export const workflowLogic = kea<workflowLogicType>([
             const unsavedEdits = editsKeptOverReload(baseBeforeExternalEdit, values.workflow, loaded)
             // Without the keep-local-edits reload, edits typed while this silent reload ran would be reset away,
             // such as an email canvas edit that reached the form after the reload started.
-            const previousBase = selectors.originalWorkflow(previousState)
             const editedDuringSilentReload =
                 !values.keepsLocalEditsOnExternalEdit &&
                 selectors.isSyncingExternalEdit(previousState) &&
                 selectors.workflowChanged(previousState)
             if (editedDuringSilentReload) {
                 actions.setExternallyEdited(true)
-                // The form still holds the older copy, so a save stays fenced until the person picks Keep mine.
-                actions.setSaveBaseUpdatedAt(previousBase?.draft_updated_at ?? previousBase?.updated_at ?? null)
+                // The form still holds the older copy, so saves stay fenced by it, as when no reload ran.
+                cache.lastSavedWorkflow = previousSaveBaseline
             } else {
                 actions.resetWorkflow(loaded)
             }
@@ -5339,11 +5342,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowFailure: (_, __, ___, previousState) => {
-            if (
-                values.keepsLocalEditsOnExternalEdit &&
-                selectors.isSyncingExternalEdit(previousState) &&
-                values.workflowChanged
-            ) {
+            if (selectors.isSyncingExternalEdit(previousState) && values.workflowChanged) {
                 actions.setExternallyEdited(true)
             }
             actions.replayDeferredResourceEdited()
