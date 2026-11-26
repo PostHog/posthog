@@ -197,7 +197,7 @@ class TestDashboardImportAPI(APIBaseTest):
         assert task.profile == "metrics.dashboard_import"
         assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == AGENT_MCP_SCOPES
         assert "docs-search" in run.state["mcp_exclude_tools"]
-        assert {artifact["name"] for artifact in run.artifacts} == {"brief.json", "grafana-dashboard.json"}
+        assert {artifact["name"] for artifact in run.artifacts} == {"brief.json"}
         assert run.state["pending_user_artifact_ids"] == [artifact["id"] for artifact in run.artifacts]
         brief = json.loads(self.storage.write.call_args_list[0].args[1])
         assert [panel["key"] for panel in brief["panels_to_convert"]] == ["p3"]

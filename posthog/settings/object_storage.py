@@ -37,6 +37,9 @@ OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
 OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER = os.getenv("OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER", "query_cache")
 OBJECT_STORAGE_TASKS_FOLDER = os.getenv("OBJECT_STORAGE_TASKS_FOLDER", "tasks")
 OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER = os.getenv("OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER", "legal_documents")
+# A bucket lifecycle rule deletes everything under this prefix after TRANSCRIPT_RETENTION_DAYS
+# (products/agent_transcripts/backend/facade/contracts.py). Changing the prefix needs the rule moved too.
+OBJECT_STORAGE_AGENT_TRANSCRIPTS_FOLDER = os.getenv("OBJECT_STORAGE_AGENT_TRANSCRIPTS_FOLDER", "agent_transcripts")
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
 # Endpoint the ClickHouse *cluster* uses to reach the frames bucket for that INSERT — which is

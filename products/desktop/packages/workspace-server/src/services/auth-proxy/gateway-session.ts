@@ -110,7 +110,7 @@ export class GatewaySessionHandler {
     res.on("close", () => {
       if (!res.writableEnded) abort.abort();
     });
-    const path = subPath.replace(/^\/posthog_code(?=\/|$)/, "") || "/";
+    const path = subPath || "/";
     if (!SESSION_PATHS.has(path)) {
       this.deps.log.warn(
         "Rejected gateway session request outside the allowlist",
@@ -177,7 +177,6 @@ export class GatewaySessionHandler {
     }
 
     await this.forward(
-      target,
       credential,
       {
         path,
@@ -235,7 +234,6 @@ export class GatewaySessionHandler {
   }
 
   private async forward(
-    target: SessionTarget,
     initial: GoCredential,
     request: {
       path: string;
@@ -293,14 +291,14 @@ export class GatewaySessionHandler {
       if (refusal.reason) {
         const source = this.deps.source();
         const fresh = await source
-          .remint(refusal.reason, credential.token, target.projectId)
+          .remint(refusal.reason, credential.token, credential.projectId)
           .catch(() => null);
         if (fresh?.mode === "go") {
           credential = fresh;
           response = await send(credential);
           bufferedBody = null;
           if (response.status === 401 && refusal.reason === "unauthorized") {
-            source.fallBack(credential.token, target.projectId);
+            source.fallBack(credential.token, credential.projectId);
           }
         }
       }

@@ -8,7 +8,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import type { MessageSuppressionApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { suppressionListLogic } from './suppressionListLogic'
+import { SEARCH_MAX_LENGTH, suppressionListLogic } from './suppressionListLogic'
 
 const PAGE_SIZE = 20
 
@@ -101,6 +101,7 @@ export function SuppressionList(): JSX.Element {
                     placeholder="Search addresses"
                     value={searchTerm}
                     onChange={setSearchTerm}
+                    maxLength={SEARCH_MAX_LENGTH}
                     className="w-60"
                 />
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={() => setShowAddModal(true)}>

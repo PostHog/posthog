@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import dataclasses
 from datetime import timedelta
 
@@ -8,6 +9,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay.backend.temporal.export_recordings.activities import (
+    EXPORT_POOL_WAIT_SECONDS,
     check_destination,
     export_shard,
     load_day_viewports,
@@ -61,7 +63,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
         plan = shard_plan(input)
         batch = plan[input.next_shard : input.next_shard + MAX_SHARDS_PER_RUN]
         semaphore = asyncio.Semaphore(input.max_parallel_shards)
-        pool_shards = min(input.max_parallel_shards, len(batch))
+        day_shards = collections.Counter(day for day, _ in batch)
         # A day's shards share one viewport read, which the day's first shard to start begins.
         day_viewports: dict[str, asyncio.Task[None]] = {}
         # A viewport read can outlast the pool's scale-down window, so each day waits for the pool after its read.
@@ -74,6 +76,8 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
                         day_viewports[day] = asyncio.create_task(self._load_day_viewports(input, day))
                     await day_viewports[day]
                     if day not in day_pools:
+                        # Days wait together, so a day counts only its own shards in the pool's scaling metric.
+                        pool_shards = min(input.max_parallel_shards, day_shards[day])
                         day_pools[day] = asyncio.create_task(self._wait_for_export_pool(input, pool_shards))
                     await day_pools[day]
                     return await self._export_shard(input, day, shard)
@@ -148,7 +152,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 wait_for_export_pool,
                 ExportPoolInput(run_id=input.run_id, shards=shards),
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(seconds=EXPORT_POOL_WAIT_SECONDS + 120),
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=common.RetryPolicy(maximum_attempts=2),
             )

@@ -1,13 +1,16 @@
-"""Experiment reads: one experiment as the experiment API shows it, and a page of the experiments list.
+"""Experiment reads: one experiment as the experiment API shows it, a page of the experiments list, and the reads of
+the detail actions of the experiment API. Also the create and the update of the experiment API.
 
 A read that the API must refuse, such as an unknown `order`, raises the `ValidationError` of Django REST framework,
-with the message the API returns.
+with the message the API returns. A read that loads the experiment for a detail action raises `ExperimentNotFound`
+when the project has no live experiment with the id.
 """
 
 from dataclasses import fields
 from typing import Any
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 
 from products.experiments.backend.experiment_creator import to_experiment_creator
@@ -25,15 +28,23 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 
+from .api import create_experiment
 from .contracts import (
+    CreateExperimentInput,
     ExperimentBasic,
     ExperimentDetail,
     ExperimentFlag,
+    ExperimentHandle,
     ExperimentHoldoutView,
     ExperimentListFilters,
     ExperimentSavedMetricLinkView,
+    ExperimentTimeseriesResults,
+    ExperimentUpdate,
+    ExperimentUpdateTarget,
+    FlagCleanupTarget,
     ListAccess,
 )
+from .warehouse_native_access import warehouse_native_connection_id
 
 
 def _to_experiment_flag(experiment: Experiment) -> ExperimentFlag:
@@ -178,4 +189,110 @@ def list_experiments(
     return experiments.list_page(team=team, filters=filters, access=access, page=page).map(
         # The list computes is_legacy in SQL, because it does not read the metric columns.
         lambda experiment: _to_experiment_basic(experiment, is_legacy=experiment.is_legacy_annotation)  # type: ignore[attr-defined]
+    )
+
+
+def _to_handle(experiment: Experiment) -> ExperimentHandle:
+    return ExperimentHandle(
+        id=experiment.id,
+        team_id=experiment.team_id,
+        created_by_id=experiment.created_by_id,
+        feature_flag_id=experiment.feature_flag_id,
+        feature_flag_created_by_id=experiment.feature_flag.created_by_id,
+        holdout_id=experiment.holdout_id,
+        flag_cleanup_task_id=experiment.flag_cleanup_task_id,
+        warehouse_native_connection_id=warehouse_native_connection_id(experiment.exposure_criteria),
+    )
+
+
+def get_experiment_handle(*, team: Team, experiment_id: int) -> ExperimentHandle | None:
+    """The live experiment of the project with the id, or None when the project has no such experiment. One query."""
+    experiment = experiments.get_handle(team=team, experiment_id=experiment_id)
+    return None if experiment is None else _to_handle(experiment)
+
+
+def linked_saved_metric_ids(*, experiment_id: int) -> list[int]:
+    """The ids of the shared metrics that the experiment uses."""
+    return experiments.linked_saved_metric_ids(experiment_id)
+
+
+def get_flag_cleanup_target(*, team: Team, user: User, experiment_id: int) -> FlagCleanupTarget:
+    experiment = experiments.get_for_action(team=team, experiment_id=experiment_id)
+    target = ExperimentService(team=team, user=user).get_cleanup_repository_target(experiment)
+    return FlagCleanupTarget(
+        repository=target["repository"], source=target["source"], candidates=tuple(target["candidates"])
+    )
+
+
+def get_timeseries_results(
+    *, team: Team, user: User, experiment_id: int, metric_uuid: str
+) -> ExperimentTimeseriesResults:
+    """Raises the `ValidationError` of Django REST framework for an experiment that has not started."""
+    experiment = experiments.get_for_action(team=team, experiment_id=experiment_id)
+    return ExperimentTimeseriesResults(
+        **ExperimentService(team=team, user=user).get_timeseries_results(experiment, metric_uuid=metric_uuid)
+    )
+
+
+def assert_user_may_run_warehouse_native_sources(*, team: Team, user: User, experiment_id: int) -> None:
+    """Raises the `ValidationError` of Django REST framework when `user` may not run the warehouse-native sources of
+    the experiment, which a recalculation sends to the customer's warehouse with no user to check."""
+    experiment = experiments.get_for_action(team=team, experiment_id=experiment_id)
+    ExperimentService(team=team, user=user).assert_user_may_run_warehouse_native_sources(experiment)
+
+
+def add_experiment(*, team: Team, user: User, experiment: CreateExperimentInput, tags: list[str] | None) -> int:
+    """The id of a new experiment with the configuration of `experiment` and the tags, or no tags when `tags` is None.
+
+    Raises `ExperimentValidationError` when the project has no holdout with `experiment.holdout_id`. The
+    `ValidationError` of Django REST framework and the approval exceptions of the flag write pass through unchanged.
+    """
+    created = create_experiment(team=team, user=user, input_dto=experiment)
+    if tags is not None:
+        experiments.replace_tags(team=team, experiment_id=created.id, tags=tags)
+    return created.id
+
+
+def get_experiment_update_target(
+    *, team: Team, experiment_id: int, include_deleted: bool
+) -> ExperimentUpdateTarget | None:
+    """The experiment of the project with the id, or None when the project has no such experiment. A deleted
+    experiment counts only with `include_deleted`. One query."""
+    experiment = experiments.get_update_target(team=team, experiment_id=experiment_id, include_deleted=include_deleted)
+    if experiment is None:
+        return None
+    return ExperimentUpdateTarget(
+        id=experiment.id,
+        team_id=experiment.team_id,
+        created_by_id=experiment.created_by_id,
+        is_draft=experiment.is_draft,
+        feature_flag_active=experiment.feature_flag.active,
+        parameters=experiments.projected_parameters(experiment),
+    )
+
+
+def edit_experiment(
+    *,
+    team: Team,
+    user: User,
+    experiment_id: int,
+    update: ExperimentUpdate,
+    include_deleted: bool,
+    serializer_context: dict[str, Any],
+) -> None:
+    """Write the fields of `update` onto the experiment of the project with the id.
+
+    `serializer_context["request"]` is the HTTP request, which a write of the experiment's flag needs: an approval
+    policy on the flag turns the write into a change request. Raises `ExperimentNotFound` when the project has no
+    such experiment, where a deleted experiment counts only with `include_deleted`, and `ExperimentVersionConflict`
+    when a stale update cannot merge. The approval exceptions and the `ValidationError` of Django REST framework pass
+    through unchanged.
+    """
+    experiments.apply_update(
+        team=team,
+        user=user,
+        experiment_id=experiment_id,
+        update=update,
+        include_deleted=include_deleted,
+        serializer_context=serializer_context,
     )

@@ -9,6 +9,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
+from posthog.api.request_scope import ShadowOutcome, request_scope_shadow
 from posthog.api.scope_resolution import (
     CURRENT_ALIAS,
     TokenOnProjectPath,
@@ -33,6 +34,7 @@ FLAT_ROUTE_REQUESTS_METRIC = "api.flat_route.requests"
 FLAT_ROUTE_USED_EVENT = "api flat route used"
 TOKEN_ON_PROJECT_PATH_REQUESTS_METRIC = "api.token_on_project_path.requests"
 TOKEN_ON_PROJECT_PATH_USED_EVENT = "api token on project path used"
+REQUEST_SCOPE_SHADOW_METRIC = "api.request_scope_shadow.requests"
 # One event per caller and route each day identifies who to contact; the metric keeps the volume.
 ATTRIBUTION_DEDUPE_SECONDS = 24 * 60 * 60
 # Session calls come from PostHog's own web app, which is fixed in code, so they get no event.
@@ -84,6 +86,11 @@ def current_alias_scope(path: str) -> CurrentAliasScope | None:
 def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -> None:
     """Report a request that names its scope as `@current`, reaches a route that takes the project from the user,
     or names its project in the path and also carries a token that decides it."""
+    try:
+        _record_request_scope_shadow(request, route=route, status_class=status_class)
+    except Exception:
+        logger.warning("request_scope_shadow_record_failed", exc_info=True)
+
     token_on_path: TokenOnProjectPath | None = None
     if scope := current_alias_scope(request.path):
         report = _CURRENT_ALIAS_REPORT
@@ -107,6 +114,38 @@ def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -
         logger.warning("scope_usage_record_failed", exc_info=True)
 
 
+def _access_method(request: HttpRequest) -> str:
+    # The authenticator's tag can be missing when the middleware reads it, so an Authorization header alone marks a
+    # credential caller rather than a session.
+    return str(
+        get_query_tag_value("access_method")
+        or ("credential" if request.headers.get("Authorization") else None)
+        or ("session" if request.user.is_authenticated else "anonymous")
+    )
+
+
+def _record_request_scope_shadow(request: HttpRequest, *, route: str, status_class: str) -> None:
+    shadow = request_scope_shadow(request)
+    client = posthoganalytics.default_client
+    if shadow is None or client is None:
+        return
+    # Requests the resolver places the same way are most of the API, so they skip the route to keep the series few.
+    route_attributes = {} if shadow.outcome == ShadowOutcome.SAME else {"route": route}
+    client.metrics.count(
+        REQUEST_SCOPE_SHADOW_METRIC,
+        1,
+        attributes={
+            "level": shadow.level.value,
+            "source": shadow.source.value if shadow.source else "",
+            "outcome": shadow.outcome.value,
+            "method": request.method or "",
+            "access_method": _access_method(request),
+            "status_class": status_class,
+            **route_attributes,
+        },
+    )
+
+
 def _oauth_application_id() -> str | None:
     # The OAuth authenticator records the token's application as the request's activity credential.
     # CHQueries runs inside ActivityLoggingMiddleware, so the credential is still set here.
@@ -126,13 +165,7 @@ def _record(
     token_on_path: TokenOnProjectPath | None,
 ) -> None:
     user = request.user
-    # The authenticator's tag can be missing when the middleware reads it, so an Authorization header alone marks a
-    # credential caller rather than a session.
-    access_method = str(
-        get_query_tag_value("access_method")
-        or ("credential" if request.headers.get("Authorization") else None)
-        or ("session" if user.is_authenticated else "anonymous")
-    )
+    access_method = _access_method(request)
     source = str(get_query_tag_value("source") or "")
     token_in_query = any(param in request.GET for param in TOKEN_QUERY_PARAMS)
     method = request.method or ""

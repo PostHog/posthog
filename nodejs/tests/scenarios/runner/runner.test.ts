@@ -21,7 +21,7 @@ import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
-import { Registry, collectDefaultMetrics } from 'prom-client'
+import { Counter, Registry, collectDefaultMetrics, register } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import { ProxyAgent } from 'undici'
 import { stringify } from 'yaml'
@@ -96,7 +96,10 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
 // The loader refuses an email claim target of 500 a second at a 2x step on the default SES limiter.
 const SES_ROOM = { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2200', CDP_SES_RATE_LIMIT_CAPACITY: '500' }
 
+const SES_SENDS = 'cdp_ses_send_results_total'
+
 let processMetrics: { url: string; server: http.Server }
+let servingSends = false
 let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
 beforeAll(async () => {
@@ -106,7 +109,11 @@ beforeAll(async () => {
         const resets = req.url?.includes('role=cdp-cyclotron-v2-janitor')
             ? [`cdp_cyclotron_v2_janitor_stalled ${janitor.scrapes++ === 0 ? 0 : janitor.resetsAfterFirstScrape}`]
             : []
-        res.end([await registry.metrics(), ...resets].join('\n'))
+        const sends =
+            servingSends && req.url?.includes('role=cdp-cyclotron-worker-email')
+                ? [await register.getSingleMetricAsString(SES_SENDS)]
+                : []
+        res.end([await registry.metrics(), ...sends, ...resets].join('\n'))
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
@@ -254,6 +261,36 @@ describe('runner', () => {
         expect(api.captured.map(({ properties }) => properties)).toEqual([
             expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
         ])
+    })
+
+    it("resets a pair's control with the Cyclotron routing of its faulted run", async () => {
+        const routings: unknown[] = []
+        const pairing = createRunner(
+            {
+                ...environment,
+                reset: (_settings, _replicas, through) => {
+                    routings.push(through)
+                    return Promise.resolve()
+                },
+            },
+            { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+            { topologyEveryMs: 10 }
+        )
+        const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+        const refusing = {
+            ...loaded,
+            card: {
+                ...loaded.card,
+                valves: [{ valve: 'pg.enqueue_refused', target: 'cyclotron', dose: { count: 1 }, at: '1s', for: '1s' }],
+            },
+        }
+        try {
+            await pairing.runPair(refusing, NEVER_ABORTED)
+        } finally {
+            await pairing.down()
+        }
+
+        expect(routings).toEqual([{ cyclotronThroughEdge: true }, { cyclotronThroughEdge: true }])
     })
 
     it('runs one card under the run id of its run manifest', async () => {
@@ -1756,6 +1793,78 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+
+    it('records the alerts a profile names in the evidence, the live record and the result', async () => {
+        const rules = path.join(cacheHome, 'rules.yaml')
+        const labels = path.join(cacheHome, 'labels.yaml')
+        writeFileSync(
+            rules,
+            stringify({
+                groups: [
+                    {
+                        name: 'synthetic',
+                        interval: '1s',
+                        rules: [
+                            {
+                                alert: 'SyntheticEmailSent',
+                                expr: `sum by (environment) (${SES_SENDS}{environment="synthetic-env"}) > 0`,
+                            },
+                            { alert: 'SyntheticNeedsMissingSeries', expr: 'sum(synthetic_lost_total) > 0' },
+                        ],
+                    },
+                ],
+            })
+        )
+        writeFileSync(labels, stringify({ labels: { environment: 'synthetic-env' } }))
+        const { card, profile } = shortSmoke([], 'event_email', { driveFor: '5s' })
+        const profilePath = path.join(cacheHome, 'profile.yaml')
+        writeFileSync(
+            profilePath,
+            stringify({ ...profile, alerts: { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] } })
+        )
+        const cardPath = path.join(cacheHome, 'card.yaml')
+        writeFileSync(cardPath, stringify(card))
+        const loaded = load(cardPath, { profilePath })
+        const sends = register.getSingleMetric(SES_SENDS) as Counter
+        sends.reset()
+        sends.labels({ result: 'success' }).inc(0)
+        servingSends = true
+
+        const result = await createRunner(environmentOf('all'), env, {
+            topologyWithinMs: 1000,
+            topologyEveryMs: 10,
+            counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
+            alertScrapeIntervalMs: 1000,
+        })
+            .run(loaded, NEVER_ABORTED)
+            .finally(() => (servingSends = false))
+        results.push(result)
+
+        expect(result.alerts).toEqual({
+            evaluated: ['SyntheticEmailSent'],
+            fired: ['SyntheticEmailSent'],
+            unevaluable: [{ rule: 'SyntheticNeedsMissingSeries', selectors: ['synthetic_lost_total'] }],
+            excluded: [],
+            gaps: expect.any(Array),
+        })
+        const linesOf = (file: string): Record<string, unknown>[] =>
+            readFileSync(path.join(result.evidenceDir, file), 'utf8')
+                .trim()
+                .split('\n')
+                .map((line) => parseJSON(line) as Record<string, unknown>)
+        expect(linesOf('alerts.jsonl')).toContainEqual(
+            expect.objectContaining({
+                type: 'transition',
+                rule: 'SyntheticEmailSent',
+                state: 'firing',
+                labels: expect.objectContaining({ environment: 'synthetic-env' }),
+                sinceDriveMs: expect.any(Number),
+            })
+        )
+        expect(linesOf(LIVE_FILE)).toContainEqual(
+            expect.objectContaining({ type: 'alert', rule: 'SyntheticEmailSent', state: 'firing' })
+        )
+    }, 60_000)
 
     const KILL_EMAIL_WORKER: ValveEntry = {
         valve: 'role.kill',

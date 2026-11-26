@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
@@ -31,6 +32,13 @@ class BrazeEndpointConfig:
     # events/list returns a bare list of event-name strings rather than objects;
     # wrap each string under this key so the row is a dict with a stable primary key.
     wrap_scalar_as: Optional[str] = None
+    # The email list queries return nothing without a `start_date`/`end_date` pair of days, so
+    # these endpoints always send one: from the watermark day on incremental runs, else from
+    # EMAIL_HISTORY_START.
+    date_range: bool = False
+    params: dict[str, str] = field(default_factory=dict)
+    # Field Braze writes as `YYYY-MM-DD HH:MM:SS +0000`, rewritten to ISO 8601 so it reads as a datetime.
+    timestamp_field: Optional[str] = None
 
 
 def _datetime_field(name: str) -> IncrementalField:
@@ -100,7 +108,48 @@ BRAZE_ENDPOINTS: dict[str, BrazeEndpointConfig] = {
         incremental_fields=[_datetime_field("last_edited")],
         modified_after_param="modified_after",
     ),
+    "products": BrazeEndpointConfig(
+        name="products",
+        path="/purchases/product_list",
+        data_key="products",
+        primary_key="product_id",
+        pagination="page",
+        wrap_scalar_as="product_id",
+    ),
+    "email_unsubscribes": BrazeEndpointConfig(
+        name="email_unsubscribes",
+        path="/email/unsubscribes",
+        data_key="emails",
+        # Braze returns each address once, with its latest unsubscribe.
+        primary_key="email",
+        pagination="offset",
+        page_size=500,
+        # `unsubscribed_at` moves when an address unsubscribes again, so it can't partition.
+        incremental_fields=[_datetime_field("unsubscribed_at")],
+        date_range=True,
+        # The default is newest first, which shifts offsets as new unsubscribes land in range.
+        params={"sort_direction": "asc"},
+        # Documented as ISO 8601, but older Braze docs show the `+0000` form the bounces use.
+        timestamp_field="unsubscribed_at",
+    ),
+    "email_hard_bounces": BrazeEndpointConfig(
+        name="email_hard_bounces",
+        path="/email/hard_bounces",
+        data_key="emails",
+        primary_key="email",
+        pagination="offset",
+        page_size=500,
+        incremental_fields=[_datetime_field("hard_bounced_at")],
+        date_range=True,
+        timestamp_field="hard_bounced_at",
+    ),
 }
+
+# The email list queries re-read the watermark day on every run, so appending would duplicate it.
+DATE_RANGE_ENDPOINTS = tuple(name for name, config in BRAZE_ENDPOINTS.items() if config.date_range)
+
+# Braze launched (as Appboy) in 2011, so no workspace has an unsubscribe or hard bounce before it.
+EMAIL_HISTORY_START = date(2011, 1, 1)
 
 # Braze's analytics endpoints (`/*/data_series`) return a daily series instead of a page of
 # rows. Each takes a window — `ending_at` plus a `length` in days capped per endpoint — and the
@@ -231,6 +280,24 @@ BRAZE_DATA_SERIES_ENDPOINTS: dict[str, BrazeDataSeriesConfig] = {
         primary_keys=["time"],
         max_length_days=100,
     ),
+    "purchase_revenue": BrazeDataSeriesConfig(
+        name="purchase_revenue",
+        path="/purchases/revenue_series",
+        primary_keys=["time"],
+        max_length_days=100,
+    ),
+    "purchase_quantity": BrazeDataSeriesConfig(
+        name="purchase_quantity",
+        path="/purchases/quantity_series",
+        primary_keys=["time"],
+        max_length_days=100,
+    ),
+    "session_analytics": BrazeDataSeriesConfig(
+        name="session_analytics",
+        path="/sessions/data_series",
+        primary_keys=["time"],
+        max_length_days=100,
+    ),
 }
 
 
@@ -290,9 +357,16 @@ def _probe_target(config: BrazeDataSeriesConfig) -> str:
     return f"{config.path}?length=1"
 
 
+def _list_probe_target(config: BrazeEndpointConfig) -> str:
+    # The email list queries reject a request without a date range.
+    if config.date_range:
+        return f"{config.path}?start_date=2020-01-01&end_date=2020-01-02&limit=1"
+    return f"{config.path}?page=0"
+
+
 # Request each endpoint's credential probe sends, path and query.
 BRAZE_PROBE_TARGETS: dict[str, str] = {
-    **{name: f"{config.path}?page=0" for name, config in BRAZE_ENDPOINTS.items()},
+    **{name: _list_probe_target(config) for name, config in BRAZE_ENDPOINTS.items()},
     **{name: _probe_target(config) for name, config in BRAZE_DATA_SERIES_ENDPOINTS.items()},
     # A details endpoint rejects a request without its parent id, so it probes the list endpoint
     # its fan-out walks — same reasoning as the fan-out series above.

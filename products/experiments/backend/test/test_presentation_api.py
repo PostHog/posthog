@@ -51,6 +51,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.contracts import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.experiments.backend.facade.experiments import get_experiment
 from products.experiments.backend.health.context import ConditionSetTraffic
 from products.experiments.backend.logic.experiments import LIST_DEFERRED_FIELDS
@@ -72,7 +73,6 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
-from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
@@ -4694,9 +4694,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIn(active_experiment_id, experiment_ids)
         self.assertNotIn(experiment_id, experiment_ids)
 
-    def test_detail_endpoint_returns_404_for_deleted_experiment(self):
-        """Test that detail endpoint returns 404 for soft-deleted experiments"""
-
+    @parameterized.expand(
+        [
+            ("retrieve", None),
+            ("update", {"name": "Renamed"}),
+            ("update_with_null_deleted", {"deleted": None, "name": "Renamed"}),
+        ]
+    )
+    def test_detail_endpoint_returns_404_for_deleted_experiment(self, _name, update_body):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -4717,9 +4722,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             format="json",
         )
 
-        # Try to get the deleted experiment
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        url = f"/api/projects/{self.team.id}/experiments/{experiment_id}/"
+        response = self.client.get(url) if update_body is None else self.client.patch(url, update_body, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Test Experiment")
 
     def test_restore_allows_payload_with_additional_fields(self):
         create_response = self.client.post(
@@ -5889,7 +5895,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
         )
 
-        with patch("products.experiments.backend.presentation.views.sync_connect") as mock_connect:
+        with patch("products.experiments.backend.recalculation.admission.sync_connect") as mock_connect:
             mock_connect.return_value.start_workflow = AsyncMock()
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",
@@ -9739,7 +9745,7 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == expected_status, response.content
 
-    def test_omits_experiments_the_user_cannot_access(self) -> None:
+    def test_omits_experiments_and_shared_metrics_the_user_cannot_access(self) -> None:
         other_user = self._create_user("setup-context-other@posthog.com")
         visible_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="setup-visible")
         hidden_flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="setup-hidden")
@@ -9750,6 +9756,20 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             team=self.team, name="Hidden", created_by=other_user, feature_flag=hidden_flag
         )
         AccessControl.objects.create(resource="experiment", resource_id=hidden.id, team=self.team, access_level="none")
+        metric_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        visible_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Visible metric", created_by=self.user, query=metric_query
+        )
+        hidden_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Hidden metric", created_by=other_user, query=metric_query
+        )
+        AccessControl.objects.create(
+            resource="experiment_saved_metric", resource_id=hidden_metric.id, team=self.team, access_level="none"
+        )
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -9758,6 +9778,8 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         listed = [experiment["id"] for experiment in response.json()["previous_experiments"]["data"]["experiments"]]
         assert listed == [visible.id]
+        shared = [metric["id"] for metric in response.json()["shared_metrics"]["data"]["metrics"]]
+        assert shared == [visible_metric.id]
 
     def test_serializes_a_context_with_every_section_populated(self) -> None:
         # The response serializer runs outside the per-section guard, so a field it cannot render
@@ -9981,7 +10003,7 @@ class TestExperimentTags(APILicensedTest):
         return response.json()
 
     def test_create_with_tags_persists_and_normalizes_them(self):
-        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
+        # Guards the expected_fields allowlist in ExperimentSerializer.to_create: if tags stops being
         # popped before that check, every tagged create fails with "Can't create keys: tags".
         experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
         assert sorted(experiment["tags"]) == ["checkout", "growth"]
