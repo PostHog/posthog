@@ -50,6 +50,9 @@ class RKICovidEndpointConfig:
     # Whether the endpoint accepts the optional `/:days` path suffix to trim the returned history
     # window server-side.
     supports_days: bool = False
+    # Columns that are null in every row of a short history window. Null values are dropped from the
+    # rows and the columns are typed as double, so they are not stored as text before values arrive.
+    double_columns: tuple[str, ...] = ()
     description: Optional[str] = None
 
 
@@ -130,7 +133,7 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         primary_keys=["date"],
         partition_key="date",
         supports_days=True,
-        description="Daily COVID-19 reproduction number (R value) estimates for Germany, as 4-day and 7-day values. One row per day. Full refresh.",
+        description="Daily COVID-19 reproduction number (R value) estimates for Germany, as 4-day and 7-day values. One row per day. Full refresh. The series ends in June 2023, so leave the history window empty to import it.",
     ),
     "states": RKICovidEndpointConfig(
         name="states",
@@ -177,6 +180,14 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         key_field="abbreviation",
         partition_key="date",
         supports_days=True,
+        double_columns=(
+            "adjustedCases7Days",
+            "adjustedLowerCases7Days",
+            "adjustedUpperCases7Days",
+            "adjustedIncidence7Days",
+            "adjustedLowerIncidence7Days",
+            "adjustedUpperIncidence7Days",
+        ),
         description="Daily 7-day hospitalization cases and incidence per German federal state, including reporting-delay adjusted values. One row per state and day. Full refresh.",
     ),
     "states_age_groups": RKICovidEndpointConfig(
@@ -186,7 +197,7 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         primary_keys=["abbreviation", "age_group"],
         key_field="abbreviation",
         nested_key_field="age_group",
-        description="Cases, deaths, and hospitalization per German federal state, broken down by age group and sex. One row per state and age group. Full refresh.",
+        description="Cases and deaths by sex, and hospitalization, per German federal state and age group. One row per state and age group. Full refresh.",
     ),
     "districts": RKICovidEndpointConfig(
         name="districts",

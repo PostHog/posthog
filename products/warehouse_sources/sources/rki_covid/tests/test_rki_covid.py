@@ -178,6 +178,34 @@ class TestRKICovid:
             {key_field: second_key, "name": "second", value_field: 2, "date": "2026-07-19T00:00:00.000Z"},
         ]
 
+    @parameterized.expand([("all_null", None), ("with_value", 3.0)])
+    def test_states_hospitalization_types_adjusted_columns_as_double(self, _name: str, adjusted: float | None) -> None:
+        # A short window returns only null nowcasts; an untyped null column would be stored as text.
+        body = {
+            "data": {
+                "SH": {
+                    "name": "Schleswig-Holstein",
+                    "history": [
+                        {"cases7Days": 4, "adjustedCases7Days": adjusted, "date": "2026-07-19"},
+                        {"cases7Days": 5, "adjustedIncidence7Days": None, "date": "2026-07-20"},
+                    ],
+                },
+            },
+            "meta": {},
+        }
+        result = _run("states_history_hospitalization", [_ok(body)], history_days=3)
+        assert result.response is not None
+        assert result.response.column_hints is not None
+        assert result.response.column_hints["adjustedCases7Days"] == "double"
+        assert result.response.column_hints["adjustedIncidence7Days"] == "double"
+        first_row = {"abbreviation": "SH", "name": "Schleswig-Holstein", "cases7Days": 4, "date": "2026-07-19"}
+        if adjusted is not None:
+            first_row["adjustedCases7Days"] = adjusted
+        assert result.rows == [
+            first_row,
+            {"abbreviation": "SH", "name": "Schleswig-Holstein", "cases7Days": 5, "date": "2026-07-20"},
+        ]
+
     def test_large_responses_are_yielded_in_bounded_batches_without_losing_rows(self) -> None:
         districts = {
             f"{n:05d}": {

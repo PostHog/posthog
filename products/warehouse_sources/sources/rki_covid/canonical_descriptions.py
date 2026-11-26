@@ -97,7 +97,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "germany_history_r_value": {
-        "description": "Daily reproduction number (R value) estimates for Germany.",
+        "description": "Daily reproduction number (R value) estimates for Germany. The series ends in June 2023.",
         "docs_url": _DOCS_URL,
         "columns": {
             "date": "Reporting day.",
@@ -180,7 +180,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "states_age_groups": {
-        "description": "Cases, deaths, and hospitalization per German federal state, broken down by age group and sex.",
+        "description": "Cases and deaths by sex, and hospitalization, per German federal state and age group.",
         "docs_url": _DOCS_URL,
         "columns": {
             "abbreviation": "Two-letter state abbreviation (e.g. BY for Bayern).",
@@ -189,10 +189,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "casesFemale": "Cumulative cases among females in this age group.",
             "deathsMale": "Cumulative deaths among males in this age group.",
             "deathsFemale": "Cumulative deaths among females in this age group.",
-            "casesMalePer100k": "Cumulative cases among males per 100,000 inhabitants of this age group.",
-            "casesFemalePer100k": "Cumulative cases among females per 100,000 inhabitants of this age group.",
-            "deathsMalePer100k": "Cumulative deaths among males per 100,000 inhabitants of this age group.",
-            "deathsFemalePer100k": "Cumulative deaths among females per 100,000 inhabitants of this age group.",
+            "casesMalePer100k": "Cumulative cases among males per 100,000 males in this age group.",
+            "casesFemalePer100k": "Cumulative cases among females per 100,000 females in this age group.",
+            "deathsMalePer100k": "Cumulative deaths among males per 100,000 males in this age group.",
+            "deathsFemalePer100k": "Cumulative deaths among females per 100,000 females in this age group.",
             "hospitalization": "Current 7-day hospitalization cases and incidence for this state and age group.",
         },
     },
@@ -246,10 +246,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "casesFemale": "Cumulative cases among females in this age group.",
             "deathsMale": "Cumulative deaths among males in this age group.",
             "deathsFemale": "Cumulative deaths among females in this age group.",
-            "casesMalePer100k": "Cumulative cases among males per 100,000 inhabitants of this age group.",
-            "casesFemalePer100k": "Cumulative cases among females per 100,000 inhabitants of this age group.",
-            "deathsMalePer100k": "Cumulative deaths among males per 100,000 inhabitants of this age group.",
-            "deathsFemalePer100k": "Cumulative deaths among females per 100,000 inhabitants of this age group.",
+            "casesMalePer100k": "Cumulative cases among males per 100,000 males in this age group.",
+            "casesFemalePer100k": "Cumulative cases among females per 100,000 females in this age group.",
+            "deathsMalePer100k": "Cumulative deaths among males per 100,000 males in this age group.",
+            "deathsFemalePer100k": "Cumulative deaths among females per 100,000 females in this age group.",
         },
     },
     "testing_history": {
