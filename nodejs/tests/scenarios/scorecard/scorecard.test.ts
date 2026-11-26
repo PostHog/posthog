@@ -197,18 +197,32 @@ describe('scorecard', () => {
     it('reports a run that stopped before the drive with empty verdict fields', () => {
         const stopped: RunResult = {
             ...RESULT,
+            status: 'invalid',
+            statusReason: 'the run stopped: statement timeout',
             units: undefined,
             convergence: undefined,
+            janitorResets: undefined,
             invariants: [],
+            measurements: [],
+            admissions: [],
+            bars: [],
+            restarts: undefined,
+            stopped: { phase: 'seed', stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)' },
         }
 
         expect(scorecardOf(stopped, SMOKE, PROVENANCE)).toMatchObject({
+            stopped_phase: 'seed',
+            stopped_stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)',
             units_target: null,
             units_offered: null,
             send_retries: null,
             converged: null,
             unfinished_jobs: null,
+            janitor_resets: null,
             invariants_failed: [],
+            admissions: [],
+            bars: [],
+            role_restarts: [],
         })
     })
 

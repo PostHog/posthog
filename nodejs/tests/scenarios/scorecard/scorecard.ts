@@ -188,6 +188,7 @@ export function scorecardOf(
         seed: card.seed,
         status: result.status,
         status_reason: result.statusReason,
+        ...(result.stopped && { stopped_phase: result.stopped.phase, stopped_stack: result.stopped.stack }),
         started_at: result.startedAt,
         ended_at: result.endedAt,
         duration_s: (Date.parse(result.endedAt) - Date.parse(result.startedAt)) / 1000,

@@ -121,8 +121,8 @@ const BACKED_UP = { due: 50, oldestDueSeconds: 30 }
 
 type Read = typeof QUIET | 'failed' | 'missed'
 
-const probedQueue = (lag: (second: number) => Read): QueueSample[] =>
-    everySecondOf(0, 1500, 5).flatMap((second): QueueSample[] => {
+const probedQueue = (lag: (second: number) => Read, step = 5): QueueSample[] =>
+    everySecondOf(0, 1500, step).flatMap((second): QueueSample[] => {
         const read = lag(second)
         return read === 'missed'
             ? []
@@ -180,9 +180,13 @@ describe('measurements', () => {
         ])
     })
 
-    it('keeps the largest resident set of each role across its replicas', () => {
-        const samples = [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]
-
+    it.each([
+        ['a few scrapes', [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]],
+        [
+            'more scrapes than one call takes arguments',
+            Array.from({ length: 200_000 }, (_, i) => sample(i * 5, -60, 1, i === 1234 ? 900 : 300)),
+        ],
+    ])('keeps the largest resident set of each role across its replicas over %s', (_story, samples) => {
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
         ])
@@ -550,6 +554,17 @@ describe('measurements', () => {
         expect(measure([{ name, params: {} }], evidence({ queue, drive: DRIVE, timeline }))).toEqual(
             measured.map((value) => ({ name, unit: 's', ...value }))
         )
+    })
+
+    it('peaks the oldest due age over more reads than one call takes arguments', () => {
+        const queue = probedQueue((second) => (between(720, 760)(second) ? BACKED_UP : QUIET), 0.002)
+
+        expect(
+            measure(
+                [{ name: 'queue_lag_peak_seconds', params: {} }],
+                evidence({ queue, drive: DRIVE, timeline: [VALVE] })
+            )
+        ).toEqual([{ name: 'queue_lag_peak_seconds', unit: 's', value: 30 }])
     })
 
     const errors = (
