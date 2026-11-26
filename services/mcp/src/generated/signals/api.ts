@@ -2440,27 +2440,6 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersIt
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemKeyMax = 64
-
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemKeyRegExp = new RegExp(
-    '^[a-z0-9]+(?:-[a-z0-9]+)\*$'
-)
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemWhenMax = 300
-
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemUserMax = 255
-
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemUserRegExp = new RegExp(
-    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
-)
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemChannelMax = 255
-
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemChannelRegExp = new RegExp(
-    '^[CG][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
-)
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToMax = 5
-
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesMax = 10
-
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const SignalsScoutCreateBody = () => zod
@@ -2684,71 +2663,6 @@ export const SignalsScoutCreateBody = () => zod
                             .describe(
                                 "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
                             ),
-                        messages: zod
-                            .array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemKeyMax)
-                                        .regex(
-                                            signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemKeyRegExp
-                                        )
-                                        .describe(
-                                            'Slug naming the route, unique within the scout, e.g. `outside-team-change`. The scout names this key when it sends a message, and never a recipient.'
-                                        ),
-                                    when: zod
-                                        .string()
-                                        .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemWhenMax)
-                                        .describe(
-                                            'Short plain text saying when the scout should send a message on this route, e.g. `Someone outside the team merges a significant change to our code`. Shown to the scout in its run prompt.'
-                                        ),
-                                    to: zod
-                                        .array(
-                                            zod.object({
-                                                type: zod
-                                                    .enum(['slack_dm', 'slack_channel'])
-                                                    .describe(
-                                                        '\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
-                                                    )
-                                                    .describe(
-                                                        '`slack_dm` sends a direct message to `user`. `slack_channel` posts in `channel`.\n\n\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
-                                                    ),
-                                                user: zod
-                                                    .string()
-                                                    .max(
-                                                        signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemUserMax
-                                                    )
-                                                    .regex(
-                                                        signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemUserRegExp
-                                                    )
-                                                    .optional()
-                                                    .describe(
-                                                        "Slack member to message for a `slack_dm` target, as a member ID (`U0123ABC456`) or the picker's `member_id|@display-name` format."
-                                                    ),
-                                                channel: zod
-                                                    .string()
-                                                    .max(
-                                                        signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemChannelMax
-                                                    )
-                                                    .regex(
-                                                        signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToItemChannelRegExp
-                                                    )
-                                                    .optional()
-                                                    .describe(
-                                                        "Slack channel to post in for a `slack_channel` target, as a channel ID (`C0456DEF789`) or the picker's `channel_id|#channel-name` format. A channel shared with another workspace is never posted to."
-                                                    ),
-                                            })
-                                        )
-                                        .min(1)
-                                        .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesItemToMax)
-                                        .describe('Who receives a message sent on this route. At most 5 targets.'),
-                                })
-                            )
-                            .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneMessagesMax)
-                            .optional()
-                            .describe(
-                                'Routes this scout may send a message on, through the Slack integration in `slack`. The scout decides whether a finding deserves a message and names a route `key`; the route decides who receives it. Routes need `slack.integration_id`, and work with no `slack.channel` or `slack.users`, so a scout can record every report and message only on conditions. An update that omits this key keeps the stored routes; pass `[]` to clear them. Only used while scout messaging is on for the project. At most 10 routes.'
-                            ),
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
@@ -2870,14 +2784,8 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemWhenMa
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemUserMax = 255
 
-export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemUserRegExp = new RegExp(
-    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
-)
 export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemChannelMax = 255
 
-export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemChannelRegExp = new RegExp(
-    '^[CG][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
-)
 export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToMax = 5
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesMax = 10
@@ -3063,15 +2971,11 @@ export const SignalsScoutConfigCreateBody = () => zod
                                 .string()
                                 .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemKeyMax)
                                 .regex(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemKeyRegExp)
-                                .describe(
-                                    'Slug naming the route, unique within the scout, e.g. `outside-team-change`. The scout names this key when it sends a message, and never a recipient.'
-                                ),
+                                .describe('Slug the scout names to send on this route.'),
                             when: zod
                                 .string()
                                 .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemWhenMax)
-                                .describe(
-                                    'Short plain text saying when the scout should send a message on this route, e.g. `Someone outside the team merges a significant change to our code`. Shown to the scout in its run prompt.'
-                                ),
+                                .describe('When the scout should send, shown in its run prompt.'),
                             to: zod
                                 .array(
                                     zod.object({
@@ -3079,47 +2983,36 @@ export const SignalsScoutConfigCreateBody = () => zod
                                             .enum(['slack_dm', 'slack_channel'])
                                             .describe(
                                                 '\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
-                                            )
-                                            .describe(
-                                                '`slack_dm` sends a direct message to `user`. `slack_channel` posts in `channel`.\n\n\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
                                             ),
                                         user: zod
                                             .string()
                                             .max(
                                                 signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemUserMax
                                             )
-                                            .regex(
-                                                signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemUserRegExp
-                                            )
                                             .optional()
-                                            .describe(
-                                                "Slack member to message for a `slack_dm` target, as a member ID (`U0123ABC456`) or the picker's `member_id|@display-name` format."
-                                            ),
+                                            .describe('Slack member ID, for `slack_dm`.'),
                                         channel: zod
                                             .string()
                                             .max(
                                                 signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemChannelMax
                                             )
-                                            .regex(
-                                                signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemChannelRegExp
-                                            )
                                             .optional()
-                                            .describe(
-                                                "Slack channel to post in for a `slack_channel` target, as a channel ID (`C0456DEF789`) or the picker's `channel_id|#channel-name` format. A channel shared with another workspace is never posted to."
-                                            ),
+                                            .describe('Slack channel ID, for `slack_channel`. Never a shared channel.'),
                                     })
                                 )
                                 .min(1)
-                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToMax)
-                                .describe('Who receives a message sent on this route. At most 5 targets.'),
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToMax),
                         })
                     )
                     .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesMax)
                     .optional()
                     .describe(
-                        'Routes this scout may send a message on, through the Slack integration in `slack`. The scout decides whether a finding deserves a message and names a route `key`; the route decides who receives it. Routes need `slack.integration_id`, and work with no `slack.channel` or `slack.users`, so a scout can record every report and message only on conditions. An update that omits this key keeps the stored routes; pass `[]` to clear them. Only used while scout messaging is on for the project. At most 10 routes.'
+                        'Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.'
                     ),
             })
+            .describe(
+                'Output destinations plus message routes. Only the config create and update paths take routes, so the\nscout and source-product create tools keep their schemas small.'
+            )
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
         network_access: zod
@@ -3211,14 +3104,8 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemWhenMa
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemUserMax = 255
 
-export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemUserRegExp = new RegExp(
-    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
-)
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemChannelMax = 255
 
-export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemChannelRegExp = new RegExp(
-    '^[CG][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
-)
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToMax = 5
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesMax = 10
@@ -3350,15 +3237,11 @@ export const SignalsScoutConfigUpdateBody = () => zod
                                 .string()
                                 .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemKeyMax)
                                 .regex(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemKeyRegExp)
-                                .describe(
-                                    'Slug naming the route, unique within the scout, e.g. `outside-team-change`. The scout names this key when it sends a message, and never a recipient.'
-                                ),
+                                .describe('Slug the scout names to send on this route.'),
                             when: zod
                                 .string()
                                 .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemWhenMax)
-                                .describe(
-                                    'Short plain text saying when the scout should send a message on this route, e.g. `Someone outside the team merges a significant change to our code`. Shown to the scout in its run prompt.'
-                                ),
+                                .describe('When the scout should send, shown in its run prompt.'),
                             to: zod
                                 .array(
                                     zod.object({
@@ -3366,47 +3249,36 @@ export const SignalsScoutConfigUpdateBody = () => zod
                                             .enum(['slack_dm', 'slack_channel'])
                                             .describe(
                                                 '\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
-                                            )
-                                            .describe(
-                                                '`slack_dm` sends a direct message to `user`. `slack_channel` posts in `channel`.\n\n\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
                                             ),
                                         user: zod
                                             .string()
                                             .max(
                                                 signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemUserMax
                                             )
-                                            .regex(
-                                                signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemUserRegExp
-                                            )
                                             .optional()
-                                            .describe(
-                                                "Slack member to message for a `slack_dm` target, as a member ID (`U0123ABC456`) or the picker's `member_id|@display-name` format."
-                                            ),
+                                            .describe('Slack member ID, for `slack_dm`.'),
                                         channel: zod
                                             .string()
                                             .max(
                                                 signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemChannelMax
                                             )
-                                            .regex(
-                                                signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemChannelRegExp
-                                            )
                                             .optional()
-                                            .describe(
-                                                "Slack channel to post in for a `slack_channel` target, as a channel ID (`C0456DEF789`) or the picker's `channel_id|#channel-name` format. A channel shared with another workspace is never posted to."
-                                            ),
+                                            .describe('Slack channel ID, for `slack_channel`. Never a shared channel.'),
                                     })
                                 )
                                 .min(1)
-                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToMax)
-                                .describe('Who receives a message sent on this route. At most 5 targets.'),
+                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToMax),
                         })
                     )
                     .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesMax)
                     .optional()
                     .describe(
-                        'Routes this scout may send a message on, through the Slack integration in `slack`. The scout decides whether a finding deserves a message and names a route `key`; the route decides who receives it. Routes need `slack.integration_id`, and work with no `slack.channel` or `slack.users`, so a scout can record every report and message only on conditions. An update that omits this key keeps the stored routes; pass `[]` to clear them. Only used while scout messaging is on for the project. At most 10 routes.'
+                        'Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.'
                     ),
             })
+            .describe(
+                'Output destinations plus message routes. Only the config create and update paths take routes, so the\nscout and source-product create tools keep their schemas small.'
+            )
             .optional()
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'

@@ -652,7 +652,7 @@ class SendScoutMessageResponseSerializer(serializers.Serializer):
     """Outcome of a `scout-send-message` call."""
 
     outcome = serializers.ChoiceField(
-        choices=[(outcome.value, outcome.value) for outcome in SendMessageOutcome],
+        choices=SendMessageOutcome.choices,
         help_text=(
             "`queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this "
             "route and key, and it now holds this content. `duplicate`: the route and key were sent in the last "
@@ -3442,33 +3442,13 @@ class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
     )
 
 
+# Help text here is kept short on purpose: every scout config tool embeds this schema, and the MCP
+# catalog caps each tool's input schema size.
 class SignalScoutMessageTargetSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(
-        choices=SignalScoutMessageDelivery.TargetType.choices,
-        help_text="`slack_dm` sends a direct message to `user`. `slack_channel` posts in `channel`.",
-    )
-    user = serializers.RegexField(
-        SLACK_MEMBER_TARGET_RE,
-        required=False,
-        max_length=255,
-        trim_whitespace=True,
-        error_messages={"invalid": SLACK_MEMBER_TARGET_ERROR},
-        help_text=(
-            "Slack member to message for a `slack_dm` target, as a member ID (`U0123ABC456`) or the "
-            "picker's `member_id|@display-name` format."
-        ),
-    )
-    channel = serializers.RegexField(
-        SLACK_CHANNEL_TARGET_RE,
-        required=False,
-        max_length=255,
-        trim_whitespace=True,
-        error_messages={"invalid": "Expected a Slack channel ID such as `C0456DEF789` or `C0456DEF789|#name`."},
-        help_text=(
-            "Slack channel to post in for a `slack_channel` target, as a channel ID (`C0456DEF789`) or the "
-            "picker's `channel_id|#channel-name` format. A channel shared with another workspace is never "
-            "posted to."
-        ),
+    type = serializers.ChoiceField(choices=SignalScoutMessageDelivery.TargetType.choices)
+    user = serializers.CharField(required=False, max_length=255, help_text="Slack member ID, for `slack_dm`.")
+    channel = serializers.CharField(
+        required=False, max_length=255, help_text="Slack channel ID, for `slack_channel`. Never a shared channel."
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -3478,9 +3458,15 @@ class SignalScoutMessageTargetSerializer(serializers.Serializer):
         if attrs["type"] == MESSAGE_TARGET_SLACK_DM:
             if not attrs.get("user") or attrs.get("channel"):
                 raise serializers.ValidationError("A `slack_dm` target needs `user` and no `channel`.")
+            if not re.match(SLACK_MEMBER_TARGET_RE, attrs["user"]):
+                raise serializers.ValidationError({"user": SLACK_MEMBER_TARGET_ERROR})
             return {"type": MESSAGE_TARGET_SLACK_DM, "user": attrs["user"]}
         if not attrs.get("channel") or attrs.get("user"):
             raise serializers.ValidationError("A `slack_channel` target needs `channel` and no `user`.")
+        if not re.match(SLACK_CHANNEL_TARGET_RE, attrs["channel"]):
+            raise serializers.ValidationError(
+                {"channel": "Expected a Slack channel ID such as `C0456DEF789` or `C0456DEF789|#name`."}
+            )
         return {"type": MESSAGE_TARGET_SLACK_CHANNEL, "channel": attrs["channel"]}
 
 
@@ -3489,25 +3475,12 @@ class SignalScoutMessageRouteSerializer(serializers.Serializer):
         ROUTE_KEY_RE,
         max_length=MAX_ROUTE_KEY_LENGTH,
         error_messages={"invalid": "Route keys are lowercase kebab-case slugs, e.g. `outside-team-change`."},
-        help_text=(
-            "Slug naming the route, unique within the scout, e.g. `outside-team-change`. The scout names "
-            "this key when it sends a message, and never a recipient."
-        ),
+        help_text="Slug the scout names to send on this route.",
     )
     when = serializers.CharField(
-        max_length=MAX_ROUTE_WHEN_LENGTH,
-        trim_whitespace=True,
-        help_text=(
-            "Short plain text saying when the scout should send a message on this route, e.g. `Someone "
-            "outside the team merges a significant change to our code`. Shown to the scout in its run prompt."
-        ),
+        max_length=MAX_ROUTE_WHEN_LENGTH, help_text="When the scout should send, shown in its run prompt."
     )
-    to = serializers.ListField(
-        child=SignalScoutMessageTargetSerializer(),
-        min_length=1,
-        max_length=MAX_ROUTE_TARGETS,
-        help_text=f"Who receives a message sent on this route. At most {MAX_ROUTE_TARGETS} targets.",
-    )
+    to = serializers.ListField(child=SignalScoutMessageTargetSerializer(), min_length=1, max_length=MAX_ROUTE_TARGETS)
 
     def validate(self, attrs: dict) -> dict:
         # DRF skips required fields on a partial update, nested ones included, so check them here.
@@ -3541,18 +3514,23 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "An update that omits this key keeps the stored value."
         ),
     )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # Configs stored before the key existed carry no `inbox`, and they list their reports.
+        data["inbox"] = scout_lists_reports_in_inbox(instance)
+        return data
+
+
+class SignalScoutRoutedOutputDestinationsSerializer(SignalScoutOutputDestinationsSerializer):
+    """Output destinations plus message routes. Only the config create and update paths take routes, so the
+    scout and source-product create tools keep their schemas small."""
+
     messages = serializers.ListField(
         child=SignalScoutMessageRouteSerializer(),
         required=False,
         max_length=MAX_MESSAGE_ROUTES,
-        help_text=(
-            "Routes this scout may send a message on, through the Slack integration in `slack`. The scout "
-            "decides whether a finding deserves a message and names a route `key`; the route decides who "
-            "receives it. Routes need `slack.integration_id`, and work with no `slack.channel` or "
-            "`slack.users`, so a scout can record every report and message only on conditions. An update "
-            "that omits this key keeps the stored routes; pass `[]` to clear them. Only used while scout "
-            f"messaging is on for the project. At most {MAX_MESSAGE_ROUTES} routes."
-        ),
+        help_text="Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.",
     )
 
     def validate_messages(self, value: list[dict]) -> list[dict]:
@@ -3562,14 +3540,8 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Route keys must be unique within a scout: {', '.join(duplicates)}.")
         return value
 
-    def to_representation(self, instance: Any) -> dict[str, Any]:
-        data = super().to_representation(instance)
-        # Configs stored before the key existed carry no `inbox`, and they list their reports.
-        data["inbox"] = scout_lists_reports_in_inbox(instance)
-        return data
 
-
-class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutOutputDestinationsSerializer):
+class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutRoutedOutputDestinationsSerializer):
     slack = SignalScoutSlackDestinationUpdateSerializer(
         required=False,
         allow_null=True,
@@ -4251,7 +4223,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.",
     )
-    output_destinations = SignalScoutOutputDestinationsSerializer(
+    output_destinations = SignalScoutRoutedOutputDestinationsSerializer(
         read_only=True,
         help_text="Destinations that receive each finding or report this scout emits. Empty when none is configured.",
     )
@@ -4931,6 +4903,10 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     """
 
     display_name = _display_name_field()
+    output_destinations = SignalScoutRoutedOutputDestinationsSerializer(
+        required=False,
+        help_text="Destinations that receive each finding or report this scout emits. Empty by default.",
+    )
     skill_name = serializers.CharField(
         max_length=200,
         help_text=(

@@ -20,9 +20,8 @@ from __future__ import annotations
 
 import uuid
 import logging
-from enum import StrEnum
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -56,7 +55,7 @@ MESSAGE_REFUSALS_METADATA_KEY = "message_refusals"
 MAX_RECORDED_REFUSALS = 20
 
 
-class SendMessageOutcome(StrEnum):
+class SendMessageOutcome(models.TextChoices):
     QUEUED = "queued"
     REPLACED = "replaced"
     DUPLICATE = "duplicate"
