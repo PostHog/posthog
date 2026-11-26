@@ -1119,6 +1119,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             if (outcome.refresh) {
                 actions.loadRun()
                 actions.loadSnapshots()
+                // A deep-linked snapshot sits outside the list, so it reloads on its own.
+                if (values.deepLinkedSnapshot) {
+                    actions.loadDeepLinkedSnapshot(values.deepLinkedSnapshot.id)
+                }
             }
         }
         const patchReviewState = (snapshotId: string, reviewState: string): void => {
@@ -1155,6 +1159,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     s.id === snapshotId ? { ...s, review_state, decision, earlier_decision } : s
                 )
             )
+            if (values.deepLinkedSnapshot?.id === snapshotId) {
+                actions.loadDeepLinkedSnapshotSuccess({
+                    ...values.deepLinkedSnapshot,
+                    review_state,
+                    decision,
+                    earlier_decision,
+                })
+            }
         }
 
         return {
