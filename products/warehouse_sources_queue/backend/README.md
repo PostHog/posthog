@@ -105,6 +105,10 @@ A fifth change followed a backlog that stayed claimable but drained slowly:
 
 - The claim query materialized every claimable batch on every poll, so one claim cost as much as the backlog was deep, and the loaders spent their time in claims while group slots stayed empty. The query now reads a bounded window: a loose index scan over `sb_claimable_idx` finds the next teams with work (one index descent per team and partition), and a per-team scan reads the oldest candidates of those teams only. See "A bounded claim window" above for the ordering rule that comes with it. The planner can price this statement above `jit_above_cost` although it runs in milliseconds, and JIT compilation then costs more than the statement, so the claim does not depend on the session: it runs in its own transaction after `SET LOCAL jit = off`, and the query is written so that the planner's estimate stays below the threshold. The consumer connections also set `jit = off` for the other queue statements.
 
+A sixth change came from a November 2026 audit of production plans:
+
+- The stranded-run sweep filtered on all four non-terminal states in one IN list, which matches no partial index, so every sweep seq-scanned every retained partition. The scan is now two arms, `pending`/`waiting_retry` on `sb_claimable_idx` and `executing` on `sb_schema_busy_idx`. The arms leave out `waiting`, because no writer sets that state.
+
 The shared lesson: every query on these tables must scale with the size of its answer (the claimable set, the candidate runs), never with retained failure history, because failure history is largest exactly when the fleet is least healthy.
 The `core/jobs_db.py` docstrings on `_state_claim_candidates_sql`, `_claim_window_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `test_jobs_db.py` pin the query shapes.
 

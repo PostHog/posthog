@@ -2,15 +2,20 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.confluent_cloud.settings import (
+    CLOUD_API_BASE_URL,
+    CLOUD_API_PAGE_SIZE,
     CONFLUENT_CLOUD_BASE_URL,
     CONFLUENT_CLOUD_ENDPOINTS,
+    COSTS_INCREMENTAL_OVERLAP,
+    COSTS_LOOKBACK_DAYS,
+    COSTS_QUERY_WINDOW,
     DATASET,
     DEFAULT_LOOKBACK_DAYS,
     DESCRIPTOR_PAGE_SIZE,
@@ -23,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     SyncWindow,
+    coerce_date,
     format_datetime,
     make_tracked_session,
     retry_with_deadline,
@@ -273,6 +279,121 @@ def _iter_metrics_rows(
             resumable_source_manager.save_state(ConfluentCloudResumeConfig(window_start=format_datetime(window_start)))
 
 
+def _next_cloud_page_token(data: dict) -> str | None:
+    # `metadata.next` is a full URL. Only its page_token is taken, and the original filters are sent
+    # again, because the documented next links carry no filters.
+    next_url = (data.get("metadata") or {}).get("next")
+    if not next_url:
+        return None
+    tokens = parse_qs(urlparse(next_url).query).get("page_token")
+    return tokens[0] if tokens else None
+
+
+def _iter_cloud_api_pages(
+    session: requests.Session,
+    path: str,
+    logger: FilteringBoundLogger,
+    params: dict[str, Any],
+) -> Iterator[list[dict]]:
+    url = f"{CLOUD_API_BASE_URL}/{path}"
+    page_token: str | None = None
+    while True:
+        page_params = {**params, "page_token": page_token} if page_token else params
+        data = _fetch_json(session, "GET", url, logger, params=page_params)
+        items = data.get("data") or []
+        if items:
+            yield items
+        page_token = _next_cloud_page_token(data)
+        if not page_token:
+            break
+
+
+def _iter_kafka_cluster_rows(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ConfluentCloudResumeConfig],
+) -> Iterator[list[dict]]:
+    environments_path = CONFLUENT_CLOUD_ENDPOINTS["environments"].cloud_api_path
+    clusters_path = CONFLUENT_CLOUD_ENDPOINTS["kafka_clusters"].cloud_api_path
+    assert environments_path is not None and clusters_path is not None
+
+    # The clusters list requires an environment filter, so walk every environment the key can see.
+    for environments in _iter_cloud_api_pages(session, environments_path, logger, {"page_size": CLOUD_API_PAGE_SIZE}):
+        for environment in environments:
+            environment_id = environment.get("id")
+            if not environment_id:
+                continue
+            found = False
+            for clusters in _iter_cloud_api_pages(
+                session,
+                clusters_path,
+                logger,
+                {"environment": environment_id, "page_size": CLOUD_API_PAGE_SIZE},
+            ):
+                found = True
+                yield [{**cluster, "environment_id": environment_id} for cluster in clusters]
+            if not found:
+                resumable_source_manager.safe_point()
+
+
+def _costs_range(
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    today: date,
+) -> SyncWindow[date]:
+    floor = today - timedelta(days=COSTS_LOOKBACK_DAYS)
+    start = floor
+    if should_use_incremental_field:
+        watermark = coerce_date(db_incremental_field_last_value)
+        if watermark is not None:
+            start = max(min(watermark, today) - COSTS_INCREMENTAL_OVERLAP, floor)
+    # end_date is exclusive, so the in-progress day is left for the next sync.
+    return SyncWindow(start=start, end=today)
+
+
+def _iter_cost_rows(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ConfluentCloudResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict]]:
+    path = CONFLUENT_CLOUD_ENDPOINTS["costs"].cloud_api_path
+    assert path is not None
+
+    window = _costs_range(should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date())
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.window_start:
+        resumed_start = coerce_date(resume.window_start)
+        if resumed_start is not None and window.start <= resumed_start < window.end:
+            window = SyncWindow(start=resumed_start, end=window.end)
+            logger.debug(f"Confluent Cloud: resuming costs from window start {resume.window_start}")
+
+    window_start = window.start
+    while window_start < window.end:
+        window_end = min(window_start + COSTS_QUERY_WINDOW, window.end)
+        params = {"start_date": format_datetime(window_start, "date"), "end_date": format_datetime(window_end, "date")}
+
+        # One page is held back so the next window's start is staged before the last page of this
+        # window is yielded.
+        held: list[dict] | None = None
+        for page in _iter_cloud_api_pages(session, path, logger, params):
+            if held is not None:
+                yield held
+            held = page
+
+        if window_end < window.end:
+            resumable_source_manager.save_state(
+                ConfluentCloudResumeConfig(window_start=format_datetime(window_end, "date"))
+            )
+        if held is not None:
+            yield held
+        else:
+            resumable_source_manager.safe_point()
+        window_start = window_end
+
+
 def get_rows(
     api_key: str,
     api_secret: str,
@@ -289,6 +410,21 @@ def get_rows(
     if config.kind == "descriptors":
         assert config.descriptor_path is not None
         yield from _iter_descriptor_pages(session, config.descriptor_path, logger)
+        return
+
+    if config.kind == "cloud_list":
+        assert config.cloud_api_path is not None
+        yield from _iter_cloud_api_pages(session, config.cloud_api_path, logger, {"page_size": CLOUD_API_PAGE_SIZE})
+        return
+
+    if config.kind == "kafka_clusters":
+        yield from _iter_kafka_cluster_rows(session, logger, resumable_source_manager)
+        return
+
+    if config.kind == "costs":
+        yield from _iter_cost_rows(
+            session, logger, resumable_source_manager, should_use_incremental_field, db_incremental_field_last_value
+        )
         return
 
     yield from _iter_metrics_rows(
@@ -329,8 +465,8 @@ def confluent_cloud_source(
         primary_keys=config.primary_keys,
         # The API returns points newest-first within each group, and we interleave per-metric
         # queries per window — rows are not globally ascending, so the incremental watermark must
-        # only persist at successful job end (desc mode).
-        sort_mode="desc",
+        # only persist at successful job end (desc mode). Cost rows have no documented order.
+        sort_mode="desc" if config.kind in ("descriptors", "metrics") else None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

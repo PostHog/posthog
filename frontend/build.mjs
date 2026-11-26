@@ -47,6 +47,7 @@ copyPublicFolder(
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
+copyButtonSounds()
 copyWarehouseSourceIcons()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
@@ -366,6 +367,16 @@ function copyEmojibaseData() {
     const to = path.resolve(__dirname, 'dist', 'emoji', 'en')
     fs.mkdirSync(to, { recursive: true })
     for (const file of ['data.json', 'messages.json']) {
+        fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
+    }
+}
+
+// uiSoundsLogic loads these from /static/button-sounds, so keep them in sync with playUiSound.ts and the Vite plugin.
+function copyButtonSounds() {
+    const from = path.resolve(__dirname, 'node_modules', 'button-sounds', 'assets')
+    const to = path.resolve(__dirname, 'dist', 'button-sounds')
+    fs.mkdirSync(to, { recursive: true })
+    for (const file of ['hi75-soft.mp3', 'lock-closed.mp3', 'lock-open.mp3']) {
         fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
     }
 }

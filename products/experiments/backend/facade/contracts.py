@@ -16,7 +16,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome
+from products.experiments.backend.facade.enums import RecalculationStartOutcome, SharedMetricType
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -248,6 +248,8 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
@@ -330,6 +332,8 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 @frozen
@@ -429,6 +433,24 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     DAILY_CALCULATION_ENDS_AT = (
         "daily_calculation_ends_at",
         "When the daily calculation stops covering the experiment, a fixed number of days after its start date",
+    )
+    EVENTS_BILLING_LIMIT_REACHED = (
+        "events_billing_limit_reached",
+        "Whether the organization reached its billing limit for product analytics, so that PostHog drops the "
+        "project's product analytics events",
+    )
+    EVENTS_BILLING_LIMIT_ENDS_AT = (
+        "events_billing_limit_ends_at",
+        "When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier",
+    )
+    FEATURE_FLAGS_BILLING_LIMIT_REACHED = (
+        "feature_flags_billing_limit_reached",
+        "Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to "
+        "the project's flag requests",
+    )
+    FEATURE_FLAGS_BILLING_LIMIT_ENDS_AT = (
+        "feature_flags_billing_limit_ends_at",
+        "When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier",
     )
     METRIC_NAME = "metric_name", "The name of a metric"
     METRIC_ROLE = "metric_role", "Whether a metric is primary or secondary"
@@ -1354,6 +1376,12 @@ class SavedMetricListFilters:
     search_terms: tuple[str, ...] = ()
     # Keeps the metrics whose query references this event, directly or through an action.
     event: str | None = None
+    # Keeps the metrics that any of these users created.
+    created_by_ids: tuple[int, ...] = ()
+    # Keeps the metrics that carry at least one of these tags.
+    tags: tuple[str, ...] = ()
+    # Keeps the metrics of this type. `funnel` also keeps legacy funnels, and `trend` keeps legacy trends.
+    metric_type: SharedMetricType | None = None
 
 
 SavedMetricWriteField = Literal["name", "description", "query", "tags"]
@@ -1474,3 +1502,62 @@ class ProportionTestResult:
     confidence_interval: tuple[float, float]
     p_value: float
     is_significant: bool
+
+
+@frozen
+class MetricRecalculationResult:
+    metric_uuid: str
+    status: str
+    result: dict[str, Any] | None
+    error_message: str | None
+    configuration_status: str
+
+
+@frozen
+class ActiveRecalculationRun:
+    id: str
+    status: str
+
+
+@frozen
+class RecalculationRunSummary:
+    id: str
+    experiment_id: int
+    status: str
+    total_metrics: int
+    completed_metrics: int
+    failed_metrics: int
+    metric_errors: dict[str, dict[str, Any]]
+    created_at: datetime | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    query_to: datetime | None
+
+
+@frozen
+class RequestedRecalculation(RecalculationRunSummary):
+    is_existing: bool
+
+
+@frozen
+class RecalculationRun(RecalculationRunSummary):
+    metric_retries: dict[str, dict[str, Any]]
+    results: tuple[MetricRecalculationResult, ...]
+    rows_read: int | None = None
+    estimated_rows_total: int | None = None
+
+
+@frozen
+class LatestRecalculation(RecalculationRun):
+    active_run: ActiveRecalculationRun | None
+    result_source: Literal["recalculation", "timeseries_fallback"]
+    exceeds_recalculation_age_limit: bool
+
+
+class WarehouseNativeResultAccessDenied(Exception):
+    """Raised when the reader may not read the stored results of a warehouse-native experiment. The detail is written
+    for the reader, so a caller at an HTTP boundary can return it as a 403."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail

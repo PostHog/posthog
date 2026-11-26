@@ -64,6 +64,7 @@ describe('canvasAppWidgetLogic', () => {
         })
         expect(logic.values.hostProps).toEqual({
             canvasId: CANVAS_ID,
+            canvasName: 'Launch board',
             spaceId: 'space-1',
             sourceVersionId: 'version-1',
             instanceKey: 'dashboard-tile-1',

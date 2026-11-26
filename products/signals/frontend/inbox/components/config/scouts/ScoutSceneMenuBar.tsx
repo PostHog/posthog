@@ -8,6 +8,7 @@ import {
     IconListCheck,
     IconPencil,
     IconRefresh,
+    IconTrash,
     IconUpload,
 } from '@posthog/icons'
 
@@ -44,17 +45,24 @@ function ScoutSceneMenuBarInner({ config }: { config: SignalScoutConfig }): JSX.
     const {
         running,
         updating,
+        deleting,
+        canDelete,
         publishDisabledReason,
         canPublish,
         canEditRubrics,
         noteDisabledReason,
         runNoteDisabledReason,
     } = useValues(logic)
-    const { runNow, leaveNote, setEnabled, setRunNoteOpen, publish, openDialog, skillOpened } = useActions(logic)
+    const { runNow, leaveNote, setEnabled, setRunNoteOpen, publish, openDialog, confirmDelete, skillOpened } =
+        useActions(logic)
 
     return (
         <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`} disabled={!canPublish}>
+            <SceneMenuBarMenu
+                label="File"
+                dataAttr={`${RESOURCE_TYPE}-menubar-file`}
+                disabled={!canPublish && !canDelete}
+            >
                 {canPublish && (
                     <SceneMenuBarItem
                         onClick={publish}
@@ -66,6 +74,22 @@ function ScoutSceneMenuBarInner({ config }: { config: SignalScoutConfig }): JSX.
                         <IconUpload />
                         Publish to community
                     </SceneMenuBarItem>
+                )}
+                {canDelete && (
+                    <>
+                        {canPublish && <SceneMenuBarSeparator />}
+                        <SceneMenuBarItem
+                            variant="destructive"
+                            onClick={confirmDelete}
+                            disabled={deleting}
+                            tooltip={deleting ? 'Deleting…' : undefined}
+                            opensFloatingUi
+                            data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                        >
+                            <IconTrash />
+                            Delete
+                        </SceneMenuBarItem>
+                    </>
                 )}
             </SceneMenuBarMenu>
             <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>

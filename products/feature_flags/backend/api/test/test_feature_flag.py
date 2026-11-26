@@ -27,7 +27,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
-from rest_framework.relations import ManyRelatedField
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
@@ -1360,22 +1360,37 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "feature-with-analytics-dashboards")
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
+    @parameterized.expand([("another_teams_dashboard",), ("soft_deleted_dashboard",), ("unknown_id",)])
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
-        other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
-        other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
+    def test_create_feature_flag_rejects_dashboard_the_team_cannot_link(self, case: str, mock_report_user_action):
+        if case == "unknown_id":
+            dashboard_id = 9_999_999
+        else:
+            other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
+            dashboard_id = Dashboard.objects.create(
+                team=other_team if case == "another_teams_dashboard" else self.team,
+                name="unusable dashboard",
+                created_by=self.user,
+                deleted=case == "soft_deleted_dashboard",
+            ).pk
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
-                "key": "flag-with-other-dashboard",
-                "analytics_dashboards": [other_dashboard.pk],
+                "key": "flag-with-unusable-dashboard",
+                "analytics_dashboards": [dashboard_id],
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "analytics_dashboards")
-        self.assertIn("does not exist", response.json()["detail"])
+        self.assertEqual(
+            {key: response.json()[key] for key in ("attr", "code", "detail")},
+            {
+                "attr": "analytics_dashboards",
+                "code": "does_not_exist",
+                "detail": f'Invalid pk "{dashboard_id}" - object does not exist.',
+            },
+        )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
@@ -1402,17 +1417,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["attr"], "analytics_dashboards")
         self.assertIn("does not exist", response.json()["detail"])
 
-    def test_serializer_without_team_context_returns_empty_dashboard_queryset(self):
-        """When team_id is missing from context, analytics_dashboards should allow nothing (fail safe)."""
-        Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+    def test_serializer_without_team_context_rejects_every_dashboard(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+        analytics_field = FeatureFlagSerializer(context={}).fields["analytics_dashboards"]
 
-        # Instantiate serializer WITHOUT team_id in context
-        serializer = FeatureFlagSerializer(context={})
-        fields = serializer.get_fields()
+        with self.assertRaises(ValidationError) as error:
+            analytics_field.run_validation([dashboard.pk])
 
-        # The queryset should be empty (fail safe to prevent IDOR)
-        analytics_field = cast(ManyRelatedField, fields["analytics_dashboards"])
-        self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
+        self.assertEqual(error.exception.get_codes(), ["does_not_exist"])
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):

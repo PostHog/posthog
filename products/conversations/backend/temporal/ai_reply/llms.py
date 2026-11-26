@@ -49,7 +49,6 @@ def tracing_kwargs(trace_id: str, ticket_id: str) -> dict[str, Any]:
 
 def build_conversations_client(team_id: int, trace_id: str, ticket_id: str) -> AsyncAnthropic:
     return build_async_anthropic_client(
-        product="conversations",
         ai_product="conversations",
         team_id=team_id,
         trace_id=trace_id or None,

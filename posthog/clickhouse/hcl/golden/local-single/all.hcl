@@ -1,24 +1,24 @@
-node "events" {
+node "ingestion_events" {
   macros = {
-    hostClusterRole = "events"
+    hostClusterRole = "ingestion_events"
     hostClusterType = "online"
-    replica         = "events"
+    replica         = "ingestion_events"
     shard           = "01"
   }
 }
 
-node "medium" {
+node "ingestion_medium" {
   macros = {
-    hostClusterRole = "medium"
+    hostClusterRole = "ingestion_medium"
     hostClusterType = "online"
     replica         = "medium"
     shard           = "01"
   }
 }
 
-node "small" {
+node "ingestion_small" {
   macros = {
-    hostClusterRole = "small"
+    hostClusterRole = "ingestion_small"
     hostClusterType = "online"
     replica         = "small"
     shard           = "01"

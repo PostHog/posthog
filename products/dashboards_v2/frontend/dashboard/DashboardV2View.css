@@ -1,0 +1,14 @@
+.DashboardV2 {
+    --dv2-interaction-color: var(--color-blue-500);
+}
+
+.DashboardV2View__canvas {
+    min-width: 0;
+
+    /* Room below the last row, so a tile can be dragged under everything. */
+    padding-bottom: 30vh;
+
+    .DashboardV2View--capturing & {
+        padding-bottom: 0;
+    }
+}

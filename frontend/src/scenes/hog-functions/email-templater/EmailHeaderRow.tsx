@@ -9,17 +9,20 @@ export function EmailHeaderRow({
     info,
     error,
     className,
+    wrap,
     children,
 }: {
     label: string
     info?: string
     error?: string | null
     className?: string
+    /** Moves what doesn't fit to another line, for a row with more than a value. */
+    wrap?: boolean
     children: ReactNode
 }): JSX.Element {
     return (
         <div className={clsx('border-b shrink-0', className)}>
-            <div className="flex gap-2 items-center pl-2 pr-1 min-w-0">
+            <div className={clsx('flex gap-2 items-center pl-2 pr-1 min-w-0', wrap && 'flex-wrap')}>
                 <LemonLabel className={clsx('w-26 shrink-0 whitespace-nowrap', error && 'text-danger')} info={info}>
                     {label}
                 </LemonLabel>

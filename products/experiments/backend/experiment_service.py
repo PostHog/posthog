@@ -126,6 +126,7 @@ from products.experiments.backend.models.experiment import (
     experiment_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.presentation.list_filters import parse_tag_names
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
@@ -220,21 +221,6 @@ BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
 def _is_imported_concluded(experiment: Experiment) -> bool:
     """An experiment whose end_date has passed at create or launch never ran in PostHog: it is an import."""
     return experiment.end_date is not None and experiment.end_date <= timezone.now()
-
-
-def _parse_tag_names(value: Any) -> list[str]:
-    """Parse a tags query param that arrives as a list or a JSON-encoded string.
-
-    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
-    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
-    """
-    try:
-        tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
-    if not isinstance(tags, list):
-        return []
-    return [tag for tag in tags if isinstance(tag, str)]
 
 
 DEFAULT_VARIANTS = [
@@ -2628,7 +2614,7 @@ class ExperimentService:
 
         Runs a synchronous scan of the experiment's exposure events, honoring
         ``exposure_criteria`` (custom exposure event or action plus its property filters) and the
-        $experiment_exposure rollout resolution via the same helpers the metrics pipeline uses,
+        resolved default exposure event via the same helpers the metrics pipeline uses,
         and requiring the exposure to have landed a variant — so the snapshot is the analyzed
         population, not everyone who fired the event.
         Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most
@@ -2647,7 +2633,7 @@ class ExperimentService:
         # The same rollout resolution the analysis queries apply: a post-cutoff experiment frozen
         # off $feature_flag_called would snapshot nobody once the two events stop being emitted
         # together, and an empty snapshot un-enrolls everyone.
-        default_exposure_event = resolve_default_exposure_event(self.team, start_date)
+        default_exposure_event = resolve_default_exposure_event(start_date)
         _, variant_property = get_exposure_event_and_property(
             flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
         )
@@ -4648,7 +4634,7 @@ class ExperimentService:
                 if prop.type in ("event", "feature", "element", "hogql")
             ]
         else:
-            target_entities = exposure_event_names(resolve_default_exposure_event(self.team, experiment.start_date))
+            target_entities = exposure_event_names(resolve_default_exposure_event(experiment.start_date))
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
@@ -4834,7 +4820,7 @@ class ExperimentService:
                 # narrow the queryset by primary key to preserve ordering and pagination.
                 queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
 
-            tags = _parse_tag_names(query_params.get("tags"))
+            tags = parse_tag_names(query_params.get("tags"))
             if tags:
                 # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
                 # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
@@ -4843,7 +4829,7 @@ class ExperimentService:
                 ).values("pk")
                 queryset = queryset.filter(pk__in=experiments_with_tags)
 
-            excluded_tags = _parse_tag_names(query_params.get("excluded_tags"))
+            excluded_tags = parse_tag_names(query_params.get("excluded_tags"))
             if excluded_tags:
                 # Exclude by ID subquery so an experiment carrying both an excluded and a
                 # non-excluded tag is still reliably filtered out.

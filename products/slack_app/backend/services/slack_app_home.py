@@ -40,6 +40,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_byos_enabled,
     is_slack_app_link_search_scopes_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_web_settings_enabled,
 )
 from products.slack_app.backend.logic.daily_focus import (
     DailyFocusAccess,
@@ -503,6 +504,7 @@ def render_home_view(
     has_project_access: bool = True,
     account_settings_url: str | None = None,
     interview_invite: dict | None = None,
+    web_settings_url: str | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -539,6 +541,9 @@ def render_home_view(
     accounts = _linked_accounts_section_blocks(account_state, github_state, own_plan)
     if accounts:
         blocks.extend([{"type": "divider"}, *accounts])
+
+    if web_settings_url:
+        blocks.extend([{"type": "divider"}, _web_settings_block(web_settings_url)])
 
     if is_admin:
         blocks.extend(_workspace_blocks(project_state, channel_welcome_mode, stats_state))
@@ -588,6 +593,24 @@ def _workspace_blocks(
     if stats_state is not None:
         blocks.extend([{"type": "divider"}, *_stats_section_blocks(stats_state)])
     return blocks
+
+
+def _web_settings_block(url: str) -> dict:
+    return {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": "*More settings in PostHog*\nSettings for each channel, emoji reactions and more.",
+        },
+        "accessory": {"type": "button", "url": url, "text": {"type": "plain_text", "text": "Open settings"}},
+    }
+
+
+def _web_settings_url(integration: WorkspaceIntegration) -> str | None:
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    if not site_url or not is_slack_app_web_settings_enabled(integration):
+        return None
+    return f"{site_url}/project/{integration.team.id}/settings/environment-slack-app"
 
 
 def _home_image(name: str, alt_text: str) -> dict:
@@ -2347,6 +2370,7 @@ def _build_home_view(
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
         interview_invite=invite_section(INVITE_MESSAGE, book_button(integration.id, "home")),
+        web_settings_url=_web_settings_url(integration),
     )
     return _HomeRender(
         view=view,

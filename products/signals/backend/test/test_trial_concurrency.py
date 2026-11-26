@@ -15,26 +15,33 @@ from django.db import OperationalError, close_old_connections, connection, trans
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.models import OrganizationMembership, Team
+from posthog.models import Integration, OrganizationMembership, Team
+from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend import spend as spend_module
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import CheckAuthoringStatus
 from products.signals.backend.facade.trial import TaskTrialAdmission
-from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSpend
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutConfig, SignalSpend
+from products.signals.backend.monitor_pr import MonitorPRInput, PRMonitoringLimitExceeded, request_pr_monitoring
 from products.signals.backend.rated_usage_models import SignalRatedUsage
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.scout_harness.skill_loader import REPORT_CHANNEL_TOOLS
+from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT
 from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.stack_plan import create_layer_reports
+from products.signals.backend.task_profiles import PR_MONITORING
 from products.signals.backend.test.test_billing import _at
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.limits import STANDARD_TRIAL_LIMITS, TrialLimits
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.trial.rated_usage import snapshot_rated_usage, trial_pool_id
+from products.signals.backend.trial.reports import report_trial_context
 from products.signals.backend.trial.service import TrialService
 from products.signals.backend.usage import trial_usage
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade.profiles import SourceKind, TaskSource
 from products.tasks.backend.models import Task
 
 
@@ -447,3 +454,128 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             grant.refresh_from_db()
             assert trial_usage(grant).spend_microusd == 40_003
             assert task.runs.count() == 1
+
+    def test_concurrent_pr_monitoring_respects_trial_report_and_daily_user_limits(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="123", config={"organization": "example"}
+        )
+
+        async def noop_start(_inputs: MonitorPRInput) -> None:
+            return None
+
+        def pr_payload(_gh: GitHubIntegration, repo: str, number: int) -> dict[str, object]:
+            return {
+                "success": True,
+                "title": f"PR {number}",
+                "head_sha": "a" * 40,
+                "head_repository": repo,
+                "base_branch": "main",
+                "state": "open",
+                "draft": False,
+                "merged": False,
+            }
+
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+            patch.object(
+                GitHubIntegration, "list_all_cached_repositories", return_value=[{"full_name": "example/widget"}]
+            ),
+            patch.object(GitHubIntegration, "get_pull_request", autospec=True, side_effect=pr_payload),
+            patch("products.signals.backend.temporal.monitor_pr.start_pr_monitoring", side_effect=noop_start),
+        ):
+            policy = TrialPolicy(self.team)
+            grant = policy.claim(user_id=self.user.pk)
+            for _ in range(grant.report_limit - 1):
+                existing = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
+                policy.admit(report_id=existing.id, paid_authorized=False)
+
+            trial_barrier = Barrier(2)
+
+            def race_trial(number: int) -> bool:
+                close_old_connections()
+                try:
+                    trial_barrier.wait(timeout=10)
+                    request_pr_monitoring(
+                        team=self.team,
+                        user=self.user,
+                        pr_url=f"https://github.com/example/widget/pull/{number}",
+                    )
+                    return True
+                except PRMonitoringLimitExceeded:
+                    return False
+                finally:
+                    close_old_connections()
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                assert sorted(pool.map(race_trial, (101, 102))) == [False, True]
+            assert trial_usage(grant).running_reports == grant.report_limit
+            admitted = SignalReport.objects.get(team=self.team, scout_idempotency_key__startswith="monitor-pr:")
+            token = report_trial_context.set((self.team.id, str(admitted.id)))
+            try:
+                task = Task.create_without_run(
+                    team=self.team,
+                    title="PR research",
+                    description="Research PR",
+                    user_id=self.user.id,
+                    profile=PR_MONITORING,
+                    source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(admitted.id)),
+                )
+                run = task.create_run(extra_state={"ai_stage": "custom_agent"})
+                assert run.state["self_driving_funding"]["grant_id"] == str(grant.id)
+                assert run.state["self_driving_funding"]["stage"] == "custom_agent"
+            finally:
+                report_trial_context.reset(token)
+
+        second_team = Team.objects.create(organization=self.organization, name="Daily cap project")
+        Integration.objects.create(
+            team=second_team, kind="github", integration_id="456", config={"organization": "example"}
+        )
+        actor = ArtefactAttribution.from_user(self.user.id)
+        for index in range(USER_REPORT_DAILY_LIMIT - 1):
+            seeded = SignalReport.objects.create(
+                team=second_team,
+                created_by=self.user,
+                user_authored=True,
+                status=SignalReport.Status.READY,
+                title=f"Seed {index}",
+                summary="Seed",
+            )
+            SignalReportArtefact.append_status(
+                team_id=second_team.id,
+                report_id=str(seeded.id),
+                content=CheckAuthoringStatus(status="succeeded", reason="seeded"),
+                attribution=actor,
+            )
+
+        daily_barrier = Barrier(2)
+
+        def race_daily(number: int) -> bool:
+            close_old_connections()
+            try:
+                daily_barrier.wait(timeout=10)
+                request_pr_monitoring(
+                    team=second_team,
+                    user=self.user,
+                    pr_url=f"https://github.com/example/widget/pull/{number}",
+                )
+                return True
+            except PRMonitoringLimitExceeded:
+                return False
+            finally:
+                close_old_connections()
+
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=False),
+            patch.object(
+                GitHubIntegration, "list_all_cached_repositories", return_value=[{"full_name": "example/widget"}]
+            ),
+            patch.object(GitHubIntegration, "get_pull_request", autospec=True, side_effect=pr_payload),
+            patch("products.signals.backend.temporal.monitor_pr.start_pr_monitoring", side_effect=noop_start),
+        ):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                assert sorted(pool.map(race_daily, (201, 202))) == [False, True]
+        assert SignalReport.objects.filter(team=second_team, created_by=self.user).count() == USER_REPORT_DAILY_LIMIT

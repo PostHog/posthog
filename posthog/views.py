@@ -293,6 +293,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "cohort_csv_upload_max_bytes": settings.COHORT_CSV_UPLOAD_MAX_BYTES,
             "webmcp_available": webmcp_api.is_available(),
             "cimd_verification_token_issuer_url": settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL,
+            "experiment_exposure_event_cutoff": settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF.isoformat()
+            if settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+            else None,
         }
 
     return JsonResponse(response)
