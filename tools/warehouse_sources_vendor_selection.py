@@ -1,7 +1,7 @@
 """Select the warehouse source vendors a pull request can affect.
 
 Each directory under `products/warehouse_sources/sources/` is one vendor, except `sdk`. A vendor
-imports shared code only from the SDK, and hoglint (`sources-vendors-use-sdk`,
+imports shared code only from the SDK, and Hoglint (`sources-vendors-use-sdk`,
 `sources-vendors-independent`) and a repo invariant enforce that, so no vendor can change what
 another vendor does. A diff that stays inside vendor directories can
 therefore only break those vendors. Any other changed file (the SDK, a file at the top of the

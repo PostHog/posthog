@@ -22,8 +22,8 @@ const {
     NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
+    extendContext,
     parseRustAffectedCrates,
-    compileContractMatcher,
     compileWorkspaceMatcher,
     globToRegExp,
     isProductDirectory,
@@ -78,7 +78,7 @@ const CONTEXT = {
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
 
-// A graph the hoglint map walked all three products into, so their importer sets
+// A graph the Hoglint map walked all three products into, so their importer sets
 // are known. The base CONTEXT deliberately holds none, which covers the case
 // where a product sits outside the map and has to keep widening. Keys and
 // values are product directory names, the shape productGraphFromImportMap emits.
@@ -1652,6 +1652,38 @@ test('the crate inventory holds every crate the determinator can name', () => {
     assert.deepEqual(missing, [], 'these workspace members are absent from the crate inventory')
 })
 
+// A Hoglint run takes most of a minute, and no lane of a docs or frontend change reads its
+// answer. A field read eagerly again (a destructure, a spread, a call in buildContext) fails here.
+test('only a product backend change runs hoglint', () => {
+    const turboDiscover = require('./turbo-discover')
+    const { loadImportGraph, loadWatchedSets } = turboDiscover
+    const calls = []
+    turboDiscover.loadImportGraph = () => {
+        calls.push('graph')
+        return null
+    }
+    turboDiscover.loadWatchedSets = () => {
+        calls.push('watched')
+        return { status: 'unavailable', digest: null, isolated: new Set(), watched: new Map() }
+    }
+    try {
+        const context = buildContext(REPO_ROOT)
+        for (const file of ['docs/internal/monorepo-layout.md', 'frontend/src/scenes/App.tsx']) {
+            const targets = computeTargets([file], extendContext(context, { deletedFiles: new Set() }))
+            assert.equal(Array.isArray(targets), true, file)
+        }
+        assert.deepEqual(calls, [])
+
+        const backendFile = `products/${context.products[0]}/backend/api.py`
+        computeTargets([backendFile], context)
+        computeTargets([backendFile], context)
+        assert.deepEqual(calls.sort(), ['graph', 'watched'])
+    } finally {
+        turboDiscover.loadImportGraph = loadImportGraph
+        turboDiscover.loadWatchedSets = loadWatchedSets
+    }
+})
+
 // The consumer lanes are declared rather than derived, so a second dependent
 // appearing anywhere in the pnpm workspace has to fail here. Reads the real
 // workspace for that reason: a synthetic one cannot notice the new dependent.
@@ -1819,20 +1851,31 @@ test('an isolated product change stays narrow and names its import dependents', 
     assert.deepEqual(computeTargets(['products/beta/backend/api.py'], CONTEXT), ['py:product:beta'])
 })
 
-const withContractSurface = (product, inputs) => ({
-    ...CONTEXT,
-    contractSurfaces: new Map([[product, compileContractMatcher(inputs)]]),
+// The shape turbo-discover's parseWatchedAnswer returns: every product here passes
+// the Isolated level, with these watched files.
+const watchedSets = (watchedByProduct) => ({
+    status: 'ok',
+    digest: null,
+    isolated: new Set(Object.keys(watchedByProduct)),
+    watched: new Map(Object.entries(watchedByProduct).map(([product, files]) => [product, new Set(files)])),
 })
+
+const withContractSurface = (product, watchedFiles) => ({
+    ...CONTEXT,
+    contractSurfaces: loadContractSurfaces(CONTEXT.products, watchedSets({ [product]: watchedFiles })),
+})
+
+const ALPHA_FACADE = 'products/alpha/backend/facade/models.py'
 
 // Nothing outside the product can import a file the product never exposes, so
 // no other PR can add a call to it and there is no combination to serialize.
-test('a change outside a declared contract surface keeps its own lane', () => {
-    const context = withContractSurface('alpha', ['backend/facade/**'])
+test('a change outside the watched set keeps its own lane', () => {
+    const context = withContractSurface('alpha', [ALPHA_FACADE])
     assert.deepEqual(computeTargets(['products/alpha/backend/connectors/mongo.py'], context), ['py:product:alpha'])
 })
 
-test('a change inside a declared contract surface still cascades to dependents', () => {
-    const context = withContractSurface('alpha', ['backend/facade/**'])
+test('a change inside the watched set still cascades to dependents', () => {
+    const context = withContractSurface('alpha', [ALPHA_FACADE])
     assert.deepEqual(computeTargets(['products/alpha/backend/facade/models.py'], context), [
         'py:product:alpha',
         'py:product:beta',
@@ -1843,7 +1886,7 @@ test('a change inside a declared contract surface still cascades to dependents',
 // The gate applies to the change set, not to each file: a PR that touches the
 // contract has to cascade no matter how much internal code sits beside it.
 test('one contract file among internals still cascades', () => {
-    const context = withContractSurface('alpha', ['backend/facade/**'])
+    const context = withContractSurface('alpha', [ALPHA_FACADE])
     const targets = computeTargets(
         ['products/alpha/backend/connectors/mongo.py', 'products/alpha/backend/facade/models.py'],
         context
@@ -1851,63 +1894,40 @@ test('one contract file among internals still cascades', () => {
     assert.equal(targets.includes('py:product:gamma'), true)
 })
 
-// The absence of a declaration has to mean "all of it is contract". Reading it
+// The absence of a watched set has to mean "all of it is contract". Reading it
 // as "none of it" would hand every isolated product a lane it has not earned.
-test('a product that declares no contract surface cascades on any backend file', () => {
+test('a product without a watched set cascades on any backend file', () => {
     const targets = computeTargets(['products/alpha/backend/connectors/mongo.py'], CONTEXT)
     assert.equal(targets.includes('py:product:gamma'), true)
 })
 
-// Both declarations are read from the PR's own tree, so a change that narrows
-// the contract and edits a file it just removed would otherwise be gated
-// against the narrower version and never reach its dependents.
-test('editing the declarations that define the gate always cascades', () => {
-    const context = withContractSurface('alpha', ['backend/facade/**'])
+// turbo.json and package.json declare what the product's backend suite runs, so an
+// edit to either reaches every dependent's run even when no watched file changed.
+test('editing the declarations of the backend test task always cascades', () => {
+    const context = withContractSurface('alpha', [ALPHA_FACADE])
     for (const file of ['products/alpha/turbo.json', 'products/alpha/package.json']) {
         const targets = computeTargets([file], context)
         assert.equal(targets.includes('py:product:gamma'), true, file)
     }
 })
 
-// Isolation is the claim that a product's change can be tested alone, and the
-// contract-check script alone does not back it: without a turbo.json the task
-// keeps the root inputs, which are the product's whole backend. turbo-discover
-// reads the same pair, so a reader that accepted the script alone would call a
-// product isolated in one place and not the other.
-test('isolation needs both the contract-check script and a narrowed turbo.json', () => {
-    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'isolation-'))
-    const write = (product, files) => {
-        fs.mkdirSync(path.join(repoRoot, 'products', product), { recursive: true })
-        for (const [name, body] of Object.entries(files)) {
-            fs.writeFileSync(path.join(repoRoot, 'products', product, name), JSON.stringify(body))
-        }
+// Isolation and the contract surface come from one answer, the one turbo-discover
+// reads: a product that fails the level, or a run in which Hoglint gave no
+// complete answer, has no surface and cascades on every backend file.
+test('only a product hoglint reports isolated gets a contract surface', () => {
+    const watched = {
+        ...watchedSets({ alpha: [ALPHA_FACADE] }),
+        watched: new Map([
+            ['alpha', new Set([ALPHA_FACADE])],
+            ['beta', new Set(['products/beta/backend/facade/api.py'])],
+        ]),
     }
-    const contractScript = { scripts: { 'backend:contract-check': 'true' } }
-    const narrowed = { tasks: { 'backend:contract-check': { inputs: ['backend/facade/**'] } } }
-    write('declared', { 'package.json': contractScript, 'turbo.json': narrowed })
-    write('script-only', { 'package.json': contractScript })
-    write('inputs-only', { 'turbo.json': narrowed })
-    write('neither', { 'package.json': {} })
+    assert.deepEqual([...listIsolatedProducts(CONTEXT.products, watched)], ['alpha'])
+    assert.deepEqual([...loadContractSurfaces(CONTEXT.products, watched).keys()], ['alpha'])
 
-    const products = ['declared', 'inputs-only', 'neither', 'script-only']
-    const isolated = listIsolatedProducts(repoRoot, products, loadContractSurfaces(repoRoot, products))
-
-    assert.deepEqual([...isolated], ['declared'])
-})
-
-test('contract inputs honor negation and drop inputs outside the product', () => {
-    const matcher = compileContractMatcher(['backend/**/*.py', '!backend/**/__pycache__/**', '../../uv.lock'])
-    assert.equal(matcher('backend/api.py'), true)
-    assert.equal(matcher('backend/facade/models.py'), true)
-    assert.equal(matcher('backend/__pycache__/api.py'), false)
-    assert.equal(matcher('frontend/Scene.tsx'), false)
-})
-
-// A matcher that matched nothing would classify every file as internal, which
-// is the same silent under-report as a missing cascade.
-test('a contract with no product-relative inputs yields no matcher', () => {
-    assert.equal(compileContractMatcher(['../../uv.lock']), null)
-    assert.equal(compileContractMatcher([]), null)
+    const unavailable = { status: 'unavailable', digest: null, isolated: new Set(), watched: new Map() }
+    assert.equal(listIsolatedProducts(CONTEXT.products, unavailable).size, 0)
+    assert.equal(loadContractSurfaces(CONTEXT.products, unavailable).size, 0)
 })
 
 // Only a direct importer can name the changed product's symbols. The hop beyond
@@ -2088,9 +2108,9 @@ test('files no vendor check reads keep their own lanes but not the vendor lane',
 })
 
 // The base CONTEXT keeps an empty import graph, so no product is mapped in it.
-// A product the hoglint map did not walk has no bounded importer set: any
+// A product the Hoglint map did not walk has no bounded importer set: any
 // module may import it, so its change still has to reach every backend lane.
-// The hoglint map is read from the head tree, so a file the PR deleted has no
+// The Hoglint map is read from the head tree, so a file the PR deleted has no
 // importer edge left; alpha's known importers are not enough to bound its lane.
 test('a deleted product python file widens to every backend target', () => {
     const file = 'products/alpha/backend/facade/api.py'
@@ -2108,7 +2128,7 @@ test('a product absent from the import graph widens to every backend target', ()
 })
 
 // The lane only has to answer whether another PR can reference the symbols this
-// one changed, and the hoglint map answers exactly that. Isolation is the stronger,
+// one changed, and the Hoglint map answers exactly that. Isolation is the stronger,
 // separate claim that the product's own suite is sufficient, which lets CI
 // skip the full Django suite, and which products/architecture.md says an import
 // graph cannot prove. A product can be too unsealed for that and still be bounded
@@ -2132,7 +2152,10 @@ test('isolation still buys a narrowed contract surface on top of the lane', () =
     const context = {
         ...MAPPED_CONTEXT,
         isolatedProducts: new Set([...CONTEXT.isolatedProducts, 'gamma']),
-        contractSurfaces: new Map([['gamma', compileContractMatcher(['backend/facade/**'])]]),
+        contractSurfaces: loadContractSurfaces(
+            CONTEXT.products,
+            watchedSets({ gamma: ['products/gamma/backend/facade/api.py'] })
+        ),
     }
     // Internals keep the product's own lane, with no cascade to beta.
     assert.deepEqual(computeTargets(['products/gamma/backend/internal/helper.py'], context), ['py:product:gamma'])
@@ -2308,7 +2331,7 @@ test('the vendored workspace files claim only the product lane', () => {
 })
 
 // delta stands in for products/desktop: an app imported from another
-// repository that pytest.ini ignores and the hoglint map never walks. Its
+// repository that pytest.ini ignores and the Hoglint map never walks. Its
 // vendored .py files read as backend to the layout rules, so without the
 // detachment check they claim every backend lane for suites that never run on
 // them.

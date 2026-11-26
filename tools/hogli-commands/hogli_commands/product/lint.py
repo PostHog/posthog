@@ -28,7 +28,7 @@ def lint_product(name: str, verbose: bool = True, structure: dict | None = None)
       strict  — all structure rules enforced
       lenient — subset of rules enforced (see product_structure.yaml)
 
-    The boundaries between products are hoglint's (`hoglint check`), not this lint's.
+    The boundaries between products are Hoglint's (`hoglint check`), not this lint's.
 
     Pass structure= to avoid re-parsing product_structure.yaml on every call (useful in --all mode).
     """
@@ -85,7 +85,8 @@ def lint_all_products() -> None:
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
         "Checks: product.yaml, required root files, backend package marker, package.json scripts, "
-        "misplaced files (strict), file/folder conflicts, test file coverage, system checks, isolation baseline\n"
+        "contract-check task, misplaced files (strict), file/folder conflicts, test file coverage, system checks, "
+        "isolation baseline\n"
     )
 
     structure = load_structure()

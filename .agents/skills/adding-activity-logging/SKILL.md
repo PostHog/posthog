@@ -95,7 +95,6 @@ FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
 Product configs must use exactly `products/<name>/backend/activity_log_config.py`; other names and locations will not load by convention.
 For a core model, put the config beside it so it inherits the model's owners. If the ownership rule lists explicit files, add the config to its `match` list.
 Installed product apps discover their config automatically.
-If the product narrows its `backend:contract-check` inputs, add `backend/activity_log_config.py` to those inputs in the product's `turbo.json`.
 For a core model, add an import and a `MODULES` entry in `posthog/models/activity_logging/activity_log_config_registry.py`.
 The registry is intentionally unowned so the model team can register its config without a review from the activity-log owners.
 A config module holds no imports: `activity_log.py` merges it at `django.setup()`.

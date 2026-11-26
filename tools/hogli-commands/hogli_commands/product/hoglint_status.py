@@ -1,10 +1,10 @@
-"""What hoglint says about each product: the Isolated level and the debt it carries.
+"""What Hoglint says about each product: the Isolated level and the debt it carries.
 
-The Isolated level comes from files: `level:isolated <product>` lines in `hoglint.ledger` say the
-product passed when the ledger was last written, and `baseline.claims_isolated_level` says whether
-it claims the level, read the way hoglint's turbo adapter reads a claim. The debt comes from `hoglint query --by package --json`, which groups
-finding rows by the source module's `package` label, hoglint's own attribution. A row's status is
-`accepted` (in the ledger), `new` (blocks) or `advisory` (its rule never blocks, so it is no debt).
+The Isolated level comes from the ledger: a `level:isolated <product>` line in `hoglint.ledger` says
+Hoglint judged the product and it passes. No product claims the level; one that passes gets the
+test skip. The debt comes from `hoglint query --by package --json`, which groups finding rows by the
+source module's `package` label, Hoglint's own attribution. A row's status is `accepted` (in the
+ledger), `new` (blocks) or `advisory` (its rule never blocks, so it is no debt).
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from .baseline import claims_isolated_level
 
 LEDGER_FILE = "hoglint.ledger"
 ISOLATED_LEVEL_RULE = "level:isolated"
@@ -45,7 +43,6 @@ class IsolatedPasses:
 
 @dataclass(frozen=True)
 class IsolatedLevel:
-    claims: bool
     passes: bool
     known: bool = True
 
@@ -53,33 +50,17 @@ class IsolatedLevel:
     def detail(self) -> str:
         if not self.known:
             return f"unknown: no {LEDGER_FILE}"
-        if self.claims and self.passes:
-            return "claims and passes"
-        if self.claims:
-            return "claims and fails"
-        if self.passes:
-            return "passes without claiming"
-        return "neither claims nor passes"
+        return "passes" if self.passes else "does not pass"
 
     @property
     def short(self) -> str:
         if not self.known:
             return "?"
-        if self.claims and self.passes:
-            return "yes"
-        if self.claims:
-            return "FAIL"
-        if self.passes:
-            return "free"
-        return "-"
+        return "yes" if self.passes else "-"
 
     @staticmethod
-    def of(product: str, product_dir: Path, passes: IsolatedPasses) -> IsolatedLevel:
-        return IsolatedLevel(
-            claims=claims_isolated_level(product_dir),
-            passes=product in passes.products,
-            known=passes.exists,
-        )
+    def of(product: str, passes: IsolatedPasses) -> IsolatedLevel:
+        return IsolatedLevel(passes=product in passes.products, known=passes.exists)
 
 
 @dataclass(frozen=True)

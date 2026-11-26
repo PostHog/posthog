@@ -5326,7 +5326,7 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
 
 # --- Custom property values ---
 
-# Re-exported from logic so the presentation layer can catch them — hoglint forbids
+# Re-exported from logic so the presentation layer can catch them — Hoglint forbids
 # presentation importing logic directly, so these errors are part of the facade's surface.
 CustomPropertyDefinitionNotFound = _custom_property_values_logic.CustomPropertyDefinitionNotFound
 CustomPropertyValueHistoryTooLong = _custom_property_values_logic.CustomPropertyValueHistoryTooLong

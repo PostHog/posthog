@@ -2,20 +2,22 @@
 
 // Discovers which products need testing and builds a GitHub Actions matrix.
 //
-// Isolation detection: products that declare a backend:contract-check script
-// (with narrowed inputs in their own turbo.json) are considered isolated —
-// they can be tested alone when only their non-contract files change.
-// Products changed by Turbo's Git affectedness query are selected for product tests.
-// Products without contract-check are non-isolated: any change in them
-// triggers the full test suite (all products + Django).
+// Isolation detection: `hoglint watched` judges the Isolated level for every
+// product and names the ones that pass it, with each one's watched files.
+// Nothing in a product marks it; the ledger's `level:isolated` lines record
+// which products pass. An isolated product can be tested alone when the diff changes none
+// of its watched files. Products changed by Turbo's Git affectedness query are
+// selected for product tests. Any change in a product that is not isolated
+// triggers the full test suite (all products + Django), and so does an
+// answer Hoglint could not give.
 //
 // Lib packages are the other kind of workspace package with a backend:test task:
 // the Python distributions under packages/ (@posthog/owners-yaml and the like). They
 // never become matrix entries, because their own tests run in ci-python.yml.
-// They matter here as cascade sources. Each one is a uv distribution, so hoglint
+// They matter here as cascade sources. Each one is a uv distribution, so Hoglint
 // resolves an import of it as third-party and records no edge to it, which means
 // nothing declares who its consumers are. A changed lib's direct consumers come
-// from scanning products/ for its import statements, and the hoglint map then
+// from scanning products/ for its import statements, and the Hoglint map then
 // supplies the product-to-product closure over those consumers. The same scan
 // covers posthog/, ee/ and common/, where an importer has no product id to
 // select, so the only sound answer there is the full suite.
@@ -52,10 +54,11 @@
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
+const crypto = require('crypto')
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
-const { loadContractSurfaces } = require('./trunk-impacted-targets')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // The test pool is not fungible across products, so a product is the unit of
@@ -211,21 +214,6 @@ function packageToProduct(pkg) {
     return pkg.replace(PRODUCT_PACKAGE_PREFIX, '')
 }
 
-// A product that ships the contract-check script but no turbo.json of its own
-// inherits the root task, whose inputs are the product's whole backend. Every
-// backend edit then reads as a contract change, so the isolation it claims can
-// never pay out. Requiring the narrowed declaration keeps "isolated" meaning
-// what turbo-discover uses it for, and reading it through loadContractSurfaces
-// keeps this reader and the Trunk lane reader on one definition.
-function getIsolatedProducts(contractTasks, repoRoot = process.cwd()) {
-    const products = contractTasks.map((t) => packageToProduct(t.package))
-    // Package names use dashes, product directories use underscores; the surface
-    // reader resolves products/<dir>/turbo.json, so look up the directory form.
-    const toDir = (product) => product.replace(/-/g, '_')
-    const surfaces = loadContractSurfaces(repoRoot, products.map(toDir))
-    return new Set(products.filter((product) => surfaces.has(toDir(product))))
-}
-
 function getAffectedTaskProducts(tasks) {
     return [
         ...new Set(
@@ -366,7 +354,7 @@ function testlessProducts(testTasks) {
     )
 }
 
-// --- Dependent cascade (hoglint map) ---
+// --- hoglint: the watched sets and the dependent cascade ---
 // When a product's contract changes, Turbo's graph has no edges to the
 // products that depend on it (no workspace deps, no `dependsOn`), so those
 // dependents never get retested — see #70556. `hoglint map` is the graph we
@@ -377,9 +365,15 @@ function testlessProducts(testTasks) {
 // another product's facade) still cascades. Reuse it to compute who
 // transitively depends on a changed product's contract.
 //
-// hoglint_map.py pins hoglint in its PEP 723 block and runs under `uv run
-// --no-project`, so the callers need uv and nothing from the Python project.
-const HOGLINT_MAP_SCRIPT = path.join(__dirname, 'hoglint_map.py')
+// A product's contract is its watched set: the files `hoglint watched` names
+// because code outside the product runs or reaches them, every file of its
+// facade, presentation and migrations, and the package __init__.py files
+// above them. Hoglint derives the set from the tree; nobody keeps a list.
+//
+// One `hoglint watched --map` run writes both answers. hoglint_run.py pins Hoglint
+// and Django in its PEP 723 block and runs under `uv run --no-project`, so the
+// callers need uv and nothing from the Python project.
+const HOGLINT_RUN_SCRIPT = path.join(__dirname, 'hoglint_run.py')
 const PRODUCTS_DIR = 'products/'
 
 // Turbo package names are dashed; product directories are underscored. Every
@@ -420,13 +414,15 @@ function productsWithUndeclaredInputChanges(changedFiles, allProductSet) {
     return [...products].sort()
 }
 
+// `-z` keeps each path as written. Without it git quotes a non-ASCII path ("products/x/caf\303\251.py"),
+// which matches no watched file.
 function listChangedFiles(base, head) {
-    return execFileSync('git', ['diff', '--name-only', '--no-renames', base, head], TURBO_EXEC_OPTS)
-        .split('\n')
+    return execFileSync('git', ['diff', '--name-only', '--no-renames', '-z', base, head], TURBO_EXEC_OPTS)
+        .split('\0')
         .filter(Boolean)
 }
 
-// Collapse hoglint's file map ({ file: [files that import it] }) into
+// Collapse Hoglint's file map ({ file: [files that import it] }) into
 // product -> [products it imports]. Keys and values are product directory
 // names (underscores); callers normalize to/from Turbo's dashed names. Every
 // product that owns a file in the map is a key, with or without cross-product
@@ -511,41 +507,254 @@ function importDependents(changedProducts, moduleGraph, { direct = false } = {})
     return [...visited].map(moduleToProduct)
 }
 
-// Runs hoglint_map.py in repoRoot and returns the product graph, or null when uv
-// is missing, the run fails, or it prints something that is not the map. Callers
-// must treat null as "unknown dependents" and widen the matrix — never as "no
-// dependents", which would silently under-test exactly the contract changes
-// this cascade guards.
-//
-// hoglint map exits 0 and reads no import from a file it cannot parse, so a
+// The JSON format of `hoglint watched` this script reads.
+const WATCHED_FORMAT = 1
+// A cold run takes about a minute. Past this the run counts as failed.
+const HOGLINT_TIMEOUT_MS = 6 * 60 * 1000
+
+// No product is isolated when Hoglint gives no complete answer: more tests, never fewer.
+function unreadWatchedSets(status, digest = null) {
+    return { status, digest, isolated: new Set(), watched: new Map() }
+}
+
+const isPlainObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// Reads the JSON of `hoglint watched` into { status, digest, isolated, watched }:
+//   status    'ok'; 'incomplete' when Hoglint says an unknown can make a set too small;
+//             'unavailable' when the text is no answer in the format this script reads
+//   digest    the start of the answer's sha256: the same tree, policy and engine give the
+//             same bytes, so the digest names the sets a selection read
+//   isolated  the product directories that pass the Isolated level
+//   watched   product directory -> Set of the repo-relative paths it watches
+// A product that fails the level, or that is missing, is not isolated.
+function parseWatchedAnswer(text) {
+    let answer
+    try {
+        answer = JSON.parse(text)
+    } catch (e) {
+        console.error(`::warning::Could not parse hoglint's watched answer (${e.message}) — no product counts as isolated`)
+        return unreadWatchedSets('unavailable')
+    }
+    if (answer?.format !== WATCHED_FORMAT || typeof answer.groups !== 'object' || answer.groups === null) {
+        console.error(`::warning::hoglint's watched answer is not format ${WATCHED_FORMAT} — no product counts as isolated`)
+        return unreadWatchedSets('unavailable')
+    }
+    const digest = crypto.createHash('sha256').update(text).digest('hex').slice(0, 16)
+    if (answer.complete !== true) {
+        console.error(
+            `::warning::hoglint's watched answer is incomplete (${JSON.stringify(answer.problems ?? [])}) — no product counts as isolated`
+        )
+        return unreadWatchedSets('incomplete', digest)
+    }
+    const isolated = new Set()
+    const watched = new Map()
+    for (const [product, group] of Object.entries(answer.groups)) {
+        // An empty set would read as "no watched file changed" and skip Django.
+        if (!isPlainObject(group?.watched)) {
+            console.error(`::warning::hoglint's watched answer has no readable watched files for ${product} — no product counts as isolated`)
+            return unreadWatchedSets('unavailable', digest)
+        }
+        watched.set(product, new Set(Object.keys(group.watched)))
+        if (group.passes === true) {
+            isolated.add(product)
+        }
+    }
+    return { status: 'ok', digest, isolated, watched }
+}
+
+// Hoglint map exits 0 and reads no import from a file it cannot parse, so a
 // syntax error hides that file's imports. That cannot under-test here: a file broken on master
 // fails ruff and every import of it, and a file the PR broke sits in a product
 // Turbo already selects.
-//
-// The run walks every Python file and takes seconds, so the result is kept per
-// process; a second caller gets the same graph, a failure included.
-const importGraphByRoot = new Map()
-
-function loadImportGraph(repoRoot = process.cwd()) {
-    if (!importGraphByRoot.has(repoRoot)) {
-        importGraphByRoot.set(repoRoot, runHoglintMap(repoRoot))
+function readImportMap(file) {
+    try {
+        return JSON.parse(fs.readFileSync(file, 'utf-8'))
+    } catch (e) {
+        console.error(
+            `::warning::Could not parse the hoglint map (${e.message}) — the dependent cascade widens to every product and no product counts as isolated`
+        )
+        return null
     }
-    return importGraphByRoot.get(repoRoot)
 }
 
-function runHoglintMap(repoRoot) {
-    let raw
-    try {
-        raw = execFileSync('uv', ['run', '--no-project', HOGLINT_MAP_SCRIPT], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
-    } catch (e) {
-        console.error(`::warning::hoglint map failed (${e.message}) — the dependent cascade widens to every product`)
-        return null
+// The other repo paths a file runs through: each hop of a symlink chain, the real location of the
+// file and of each hop (a symlinked directory on the way names a path that is not the file's own),
+// and the real path the chain ends at. Every one counts: a change to an intermediate link
+// retargets the chain, and a deleted last hop leaves the chain dangling, where realpath fails.
+// The hops resolve by text against each link's directory, so a dangling chain still names its
+// deleted file. A regular file outside any symlinked directory has none.
+const MAX_SYMLINK_HOPS = 40
+
+function linkedPaths(file, repoRoot) {
+    const realRoot = fs.realpathSync(repoRoot)
+    const paths = []
+    const addRealLocation = (full) => {
+        try {
+            paths.push(path.relative(realRoot, path.join(fs.realpathSync(path.dirname(full)), path.basename(full))))
+        } catch {
+            // A deleted directory has no real location; its text path is already in the list.
+        }
+    }
+    let current = path.join(repoRoot, file)
+    addRealLocation(current)
+    for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
+        let isLink
+        try {
+            isLink = fs.lstatSync(current).isSymbolicLink()
+        } catch {
+            break
+        }
+        if (!isLink) {
+            break
+        }
+        current = path.resolve(path.dirname(current), fs.readlinkSync(current))
+        paths.push(path.relative(repoRoot, current))
+        addRealLocation(current)
     }
     try {
-        return productGraphFromImportMap(JSON.parse(raw))
+        paths.push(path.relative(realRoot, fs.realpathSync(current)))
+    } catch {
+        // The chain dangles: its last hop is the deleted file.
+    }
+    return [...new Set(paths)].filter((linked) => linked !== file)
+}
+
+// Whether a changed path touches a path a file runs through: the path itself, a file under it,
+// or a directory above it (a retargeted or deleted directory symlink).
+function touchesPath(changed, runPath) {
+    return changed === runPath || changed.startsWith(`${runPath}/`) || runPath.startsWith(`${changed}/`)
+}
+
+// Python runs the __init__.py of every package above a module before the module itself. These
+// are the ones inside the product, from the file's own package up to products/<product>/.
+function packageInitsAbove(file, product, repoRoot) {
+    const productDir = `${PRODUCTS_DIR}${product}`
+    const found = []
+    let dir = path.posix.dirname(file)
+    while (dir === productDir || dir.startsWith(`${productDir}/`)) {
+        const init = `${dir}/__init__.py`
+        if (init !== file && fs.existsSync(path.join(repoRoot, init))) {
+            found.push(init)
+        }
+        dir = path.posix.dirname(dir)
+    }
+    return found
+}
+
+// Code outside a product runs more of the product than the files it imports: each of those
+// files runs what it imports in turn, and the package __init__.py files above it. So a
+// product's watched set grows by every file of the product that is reachable inside it from a
+// file code outside imports or from a watched file. The map holds every import, a
+// function-local one too, so the closure follows those as well. Without a map no product
+// counts as isolated.
+function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
+    if (watched.status !== 'ok') {
+        return watched
+    }
+    if (fileMap === null) {
+        return unreadWatchedSets('unavailable', watched.digest)
+    }
+    const importsInside = new Map()
+    const importedFromOutside = new Map()
+    const add = (map, key, value) => {
+        if (!map.has(key)) {
+            map.set(key, new Set())
+        }
+        map.get(key).add(value)
+    }
+    for (const [imported, importers] of Object.entries(fileMap)) {
+        const product = productOfFile(imported)
+        if (product === null) {
+            continue
+        }
+        for (const importer of importers) {
+            if (productOfFile(importer) === product) {
+                add(importsInside, importer, imported)
+            } else {
+                add(importedFromOutside, product, imported)
+            }
+        }
+    }
+    const closed = new Map()
+    for (const [product, files] of watched.watched) {
+        const reached = new Set()
+        const queue = [...files, ...(importedFromOutside.get(product) ?? [])]
+        while (queue.length > 0) {
+            const file = queue.pop()
+            if (reached.has(file)) {
+                continue
+            }
+            reached.add(file)
+            queue.push(...(importsInside.get(file) ?? []), ...packageInitsAbove(file, product, repoRoot))
+        }
+        closed.set(product, reached)
+    }
+    // A watched file runs every path it resolves through, so those are watched too.
+    for (const files of closed.values()) {
+        for (const file of [...files]) {
+            for (const linked of linkedPaths(file, repoRoot)) {
+                files.add(linked)
+            }
+        }
+    }
+    return { ...watched, watched: closed }
+}
+
+// Runs `hoglint watched --map` in repoRoot and returns { graph, watched }: the product graph or
+// null, and parseWatchedAnswer's result. When uv is missing, the run fails or it times out, the
+// graph is null and no product is isolated. Callers must treat
+// a null graph as "unknown dependents" and widen the matrix — never as "no dependents", which
+// would silently under-test exactly the contract changes this cascade guards.
+function runHoglint(repoRoot) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoglint-'))
+    const watchedFile = path.join(dir, 'watched.json')
+    const mapFile = path.join(dir, 'map.json')
+    try {
+        execFileSync(
+            'uv',
+            // No level has `claimed_by`, so Hoglint needs the level named.
+            ['run', '--no-project', HOGLINT_RUN_SCRIPT, 'watched', '--level', 'isolated', '--out', watchedFile, '--map', mapFile],
+            { ...TURBO_EXEC_OPTS, cwd: repoRoot, timeout: HOGLINT_TIMEOUT_MS }
+        )
+        const fileMap = readImportMap(mapFile)
+        const watched = closeWatchedSets(parseWatchedAnswer(fs.readFileSync(watchedFile, 'utf-8')), fileMap, repoRoot)
+        return { graph: fileMap === null ? null : productGraphFromImportMap(fileMap), watched }
     } catch (e) {
-        console.error(`::warning::Could not parse the hoglint map (${e.message}) — the dependent cascade widens to every product`)
-        return null
+        console.error(
+            `::warning::hoglint watched failed (${e.message}) — no product counts as isolated and the dependent cascade widens to every product`
+        )
+        return { graph: null, watched: unreadWatchedSets('unavailable') }
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+}
+
+// The run reads every Python file and takes most of a minute, so its answer is kept per
+// process; a second caller gets the same answer, a failure included.
+const hoglintByRoot = new Map()
+
+function loadHoglint(repoRoot) {
+    if (!hoglintByRoot.has(repoRoot)) {
+        hoglintByRoot.set(repoRoot, runHoglint(repoRoot))
+    }
+    return hoglintByRoot.get(repoRoot)
+}
+
+function loadImportGraph(repoRoot = process.cwd()) {
+    return loadHoglint(repoRoot).graph
+}
+
+function loadWatchedSets(repoRoot = process.cwd()) {
+    return loadHoglint(repoRoot).watched
+}
+
+// What the selection telemetry records of the run: whether the answer was read, and which.
+// Empty when no Hoglint run happened in this process.
+function watchedTelemetry(repoRoot = process.cwd()) {
+    const answer = hoglintByRoot.get(repoRoot)
+    return {
+        watched_status: answer ? answer.watched.status : '',
+        watched_digest: answer ? answer.watched.digest : null,
     }
 }
 
@@ -565,10 +774,10 @@ function deletedProductPythonFiles() {
     try {
         return execFileSync(
             'git',
-            ['diff', '--name-only', '--no-renames', '--diff-filter=D', `${base}...HEAD`, '--', 'products/'],
+            ['diff', '--name-only', '--no-renames', '-z', '--diff-filter=D', `${base}...HEAD`, '--', 'products/'],
             TURBO_EXEC_OPTS
         )
-            .split('\n')
+            .split('\0')
             .filter((file) => file.endsWith('.py') && productOfFile(file) !== null)
     } catch (e) {
         console.error(`::warning::Could not list deleted files against ${base} (${e.message}) — the dependent cascade widens to every product`)
@@ -588,7 +797,7 @@ function contractCascadeIsDirect({ applies, disabled }) {
     return applies && !disabled
 }
 
-// Products that depend on `products` per the hoglint map, transitively unless
+// Products that depend on `products` per the Hoglint map, transitively unless
 // `direct`, or null when the map cannot be read. Callers treat null as
 // "unknown dependents" and widen.
 function importDependentProducts(products, allProductSet, { direct = false } = {}) {
@@ -605,6 +814,195 @@ function importDependentProducts(products, allProductSet, { direct = false } = {
         return null
     }
     return importDependents(products, importGraph, { direct }).filter((p) => allProductSet.has(p))
+}
+
+// The files that make Hoglint's policy or engine. A diff that changes one would be
+// judged by watched sets that its own change computed.
+const WATCHED_POLICY_FILES = ['hoglint.toml', 'pyproject.toml', '.github/scripts/hoglint_run.py']
+const WATCHED_POLICY_DIRS = ['tools/hoglint/']
+
+function watchedPolicyChanges(changedFiles) {
+    return (changedFiles ?? []).filter(
+        (file) => WATCHED_POLICY_FILES.includes(file) || WATCHED_POLICY_DIRS.some((dir) => file.startsWith(dir))
+    )
+}
+
+// A file under a product that the product's code, or core's, can run or read: anything outside
+// its frontend and test directories, other than Markdown.
+const NOT_PRODUCT_INPUT_DIRS = ['frontend', 'tests', 'test', '__pycache__']
+
+function isProductInputFile(file) {
+    if (productOfFile(file) === null || file.endsWith('.md')) {
+        return false
+    }
+    const directories = file.split('/').slice(2, -1)
+    return !directories.some((directory) => NOT_PRODUCT_INPUT_DIRS.includes(directory))
+}
+
+// A non-Python product input: a seed, a template or a manifest that product or core code reads,
+// or the product's package.json or turbo.json, which decide what Turbo selects. Hoglint watches
+// Python modules only, so a change to one counts as a watched change.
+function isProductDataFile(file) {
+    return !file.endsWith('.py') && isProductInputFile(file)
+}
+
+// The products (dashed names, among allProducts) that a product input or a product test input of
+// the diff sits in. Turbo's affected query sees only a product's declared backend:test inputs,
+// and a product's own turbo.json can narrow those, so it can report none of these.
+function productsReachedByFiles(changedFiles, allProducts, repoRoot = process.cwd()) {
+    const allProductSet = new Set(allProducts)
+    const inputProducts = (changedFiles ?? [])
+        .filter(isProductInputFile)
+        .map((file) => moduleToProduct(productOfFile(file)))
+        .filter((product) => allProductSet.has(product))
+    const testInputProducts = productsWithUndeclaredInputChanges(changedFiles ?? [], allProductSet)
+    const links = linksToChangedFiles(changedFiles ?? [], repoRoot)
+    if (links === null) {
+        console.error('::warning::git ls-files failed, so a changed symlink target is unknown — reaching every product')
+        return [...allProducts].sort()
+    }
+    const linkProducts = links
+        .map(productOfFile)
+        .filter((product) => product !== null)
+        .map(moduleToProduct)
+        .filter((product) => allProductSet.has(product))
+    return [...new Set([...inputProducts, ...testInputProducts, ...linkProducts])].sort()
+}
+
+// The tracked symlinks under products/ whose target the diff changed, or null when git cannot list
+// them. A symlink runs or reads its target, and the target can sit where a change reaches no
+// product (tests/, frontend/).
+function linksToChangedFiles(changedFiles, repoRoot) {
+    if (changedFiles.length === 0) {
+        return []
+    }
+    let listing
+    try {
+        // The listing of every file under products/ runs to megabytes, past execFileSync's 1 MB default.
+        listing = execFileSync('git', ['ls-files', '-s', '-z', '--', PRODUCTS_DIR], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024 * 1024,
+        })
+    } catch {
+        return null
+    }
+    const links = []
+    for (const entry of listing.split('\0')) {
+        if (!entry.startsWith('120000 ')) {
+            continue
+        }
+        const link = entry.slice(entry.indexOf('\t') + 1)
+        const linked = linkedPaths(link, repoRoot)
+        if (linked.some((runPath) => changedFiles.some((file) => touchesPath(file, runPath)))) {
+            links.push(link)
+        }
+    }
+    return links
+}
+
+// The products among `products` (dashed names) whose watched set the diff touched: a
+// changed file in the set, a data file of the product, or a deleted or renamed-away
+// file under the product. A deleted file is in no set of the head tree, so any deletion
+// counts. Without a list of changed files every product counts.
+function productsWithWatchedChanges(products, changedFiles, deletedFiles, watched) {
+    if (changedFiles === null) {
+        return [...products].sort()
+    }
+    return products
+        .filter((product) => {
+            const prefix = `${PRODUCTS_DIR}${productToModule(product)}/`
+            const files = watched.get(productToModule(product)) ?? new Set()
+            return changedFiles.some(
+                (file) =>
+                    files.has(file) ||
+                    (file.startsWith(prefix) && (deletedFiles.has(file) || isProductDataFile(file))) ||
+                    // A changed directory symlink sits above the watched paths it redirects.
+                    [...files].some((runPath) => runPath.startsWith(`${file}/`))
+            )
+        })
+        .sort()
+}
+
+// What a diff with no legacy edit runs for the products it reached: the ones Turbo's affected
+// query reports, and every product a changed product file sits in.
+// Pure: Hoglint's answer, the diff and the dependent cascade come in as arguments.
+//   affectedProducts  the products Turbo's affected query reports, dashed names
+//   allProducts       every product
+//   watched           parseWatchedAnswer's result
+//   changedFiles      the diff's files, or null when there is no base to diff against
+//   deletedFiles      the diff's files the head tree no longer has, as a Set
+//   direct            whether a watched change cascades to direct dependents only
+//   dependentsOf      (products, { direct }) => the products that depend on them, or null
+//                     when unknown
+// Returns { products, runLegacy, runLegacyReason, diffProducts, dependentCascade }.
+// diffProducts is the set the diff reached when a cascade widened the matrix, else null.
+function decideProductChange({ affectedProducts, allProducts, watched, changedFiles, deletedFiles, direct, dependentsOf }) {
+    const none = { runLegacyReason: '', diffProducts: null, dependentCascade: '' }
+    const everything = (runLegacyReason) => ({ ...none, products: allProducts, runLegacy: true, runLegacyReason })
+    // Before the empty check: a policy-only diff reaches no product, yet it changes every watched set.
+    const policyChanges = watchedPolicyChanges(changedFiles)
+    if (policyChanges.length > 0) {
+        console.error(
+            `hoglint's policy or engine changed (${JSON.stringify(policyChanges)}) — the watched sets come from this diff, so all products + Django run`
+        )
+        return everything('watched_policy')
+    }
+    // A file directly under products/ (the package's __init__.py, the shared conftest.py,
+    // db_routing.yaml that settings read) belongs to no one product and runs for all of them.
+    // So does a symlink there whose target changed.
+    const isLooseRoot = (f) => f.startsWith(PRODUCTS_DIR) && !f.slice(PRODUCTS_DIR.length).includes('/')
+    const links = linksToChangedFiles(changedFiles ?? [], process.cwd())
+    if (links === null) {
+        console.error('git ls-files failed, so a changed symlink target under products/ is unknown — testing all products + Django')
+        return everything('products_root')
+    }
+    const looseRoot = [...(changedFiles ?? []).filter((f) => isLooseRoot(f) && !f.endsWith('.md')), ...links.filter(isLooseRoot)]
+    if (looseRoot.length > 0) {
+        console.error(`Shared files under products/ changed (${JSON.stringify(looseRoot)}) — testing all products + Django`)
+        return everything('products_root')
+    }
+    const reached = [...new Set([...affectedProducts, ...productsReachedByFiles(changedFiles, allProducts)])].sort()
+    if (reached.length === 0) {
+        console.error('No product changes detected')
+        return { ...none, products: [], runLegacy: false }
+    }
+    if (watched.status !== 'ok') {
+        console.error(`hoglint gave no complete watched answer (${watched.status}) — testing all products + Django`)
+        return everything('watched_unavailable')
+    }
+    const nonIsolated = reached.filter((p) => !watched.isolated.has(productToModule(p)))
+    if (nonIsolated.length > 0) {
+        console.error(`Non-isolated products changed: ${JSON.stringify(nonIsolated)} — testing all products + Django`)
+        // Products that import the changed product's internals keep their events_json paths too.
+        const dependents = dependentsOf(nonIsolated, { direct: false })
+        return {
+            ...everything('non_isolated_product'),
+            diffProducts: dependents === null ? null : [...new Set([...reached, ...dependents])].sort(),
+        }
+    }
+    const touched = productsWithWatchedChanges(reached, changedFiles, deletedFiles, watched.watched)
+    if (touched.length === 0) {
+        console.error('Only unwatched files of isolated products changed — Django can be skipped')
+        return { ...none, products: reached, runLegacy: false }
+    }
+    console.error(`Watched files of isolated products changed: ${JSON.stringify(touched)} — Django will run`)
+    const dependentCascade = direct ? 'direct' : 'transitive'
+    const dependents = dependentsOf(touched, { direct })
+    if (dependents === null) {
+        // Fail toward over-testing, like the quarantine loaders above: without the
+        // graph we cannot know which products depend on the changed contract, and
+        // guessing "none" silently recreates the gap this cascade exists to close.
+        console.error('Dependent cascade unavailable — testing all products rather than risk skipping a dependent')
+        return { ...everything('contract_cascade'), dependentCascade }
+    }
+    if (dependents.length > 0) {
+        console.error(
+            `Dependent products cascaded in via hoglint map: ${JSON.stringify(dependents)} (${dependentCascade}ly depend on ${JSON.stringify(touched)})`
+        )
+    }
+    const products = [...new Set([...reached, ...dependents])].sort()
+    return { products, runLegacy: true, runLegacyReason: 'contract_cascade', diffProducts: products, dependentCascade }
 }
 
 // Products a schema change reaches, [] for a purely additive change, or null when
@@ -788,8 +1186,8 @@ function productPrefix(product) {
 }
 
 // --- Lib package consumers (import scan) ---
-// The hoglint map cannot answer who uses a lib package: the package is a uv
-// distribution, so hoglint resolves `import owners_yaml` as third-party and records
+// The Hoglint map cannot answer who uses a lib package: the package is a uv
+// distribution, so Hoglint resolves `import owners_yaml` as third-party and records
 // no edge to it. The import statements themselves are the only record, and unlike
 // a declared edge they cannot drift from what the code does.
 //
@@ -1755,7 +2153,15 @@ module.exports = {
     DJANGO_FALLBACK_SHARDS,
     narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
-    getIsolatedProducts,
+    parseWatchedAnswer,
+    closeWatchedSets,
+    productsReachedByFiles,
+    loadWatchedSets,
+    watchedPolicyChanges,
+    productsWithWatchedChanges,
+    decideProductChange,
+    listChangedFiles,
+    deletedProductPythonFiles,
     testlessProducts,
     collectTestFiles,
     checkProductStaleness,
@@ -1781,12 +2187,9 @@ const legacyChanged = process.env.LEGACY_CHANGED === 'true'
 const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
 const selection = loadSelection(process.env.SELECTION_JSON)
 
-let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
+let allTestTasks, affectedTestTasks
 try {
     allTestTasks = parseTurboTasks(runTurbo(['run', 'backend:test', '--dry-run=json']))
-    if (!legacyChanged) {
-        contractTasks = parseTurboTasks(runTurbo(['run', 'backend:contract-check', '--dry-run=json']))
-    }
 } catch (e) {
     console.error(`turbo discovery failed: ${e.message}`)
     if (e.stderr) {
@@ -1798,8 +2201,7 @@ console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}
 console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
 if (!legacyChanged) {
     affectedTestTasks = queryAffectedTasks('backend:test')
-    affectedContractTasks = queryAffectedTasks('backend:contract-check')
-    if (affectedTestTasks === null || affectedContractTasks === null) {
+    if (affectedTestTasks === null) {
         console.error('turbo discovery failed')
         process.exit(1)
     }
@@ -1810,6 +2212,20 @@ if (!legacyChanged) {
 }
 const allProducts = getAllProducts(allTestTasks)
 const allProductSet = new Set(allProducts)
+
+// The diff's files, and the ones the head tree no longer has. Null without a base: then
+// every affected isolated product counts as having changed a watched file.
+let changedFiles = null
+let deletedFiles = new Set()
+if (process.env.TURBO_SCM_BASE) {
+    try {
+        changedFiles = listChangedFiles(process.env.TURBO_SCM_BASE, process.env.TURBO_SCM_HEAD || 'HEAD')
+    } catch (e) {
+        console.error(`changed-file listing failed: ${e.message}`)
+        process.exit(1)
+    }
+    deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(file)))
+}
 
 let products
 let runLegacy
@@ -1836,66 +2252,34 @@ if (legacyChanged) {
         mustRunProducts = legacyMustRunProducts(affectedTestTasks, allProductSet, schemaChanged)
     }
 } else {
-    const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
-    const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
-
-    console.error(`Isolated products (have contract-check): ${JSON.stringify([...isolatedProducts].sort())}`)
     console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
     logAffectedReasons('backend:test', affectedTestTasks)
 
-    if (nonIsolatedAffectedProducts.length > 0) {
-        // Non-isolated product changed — must test everything
-        console.error(
-            `Non-isolated products changed: ${JSON.stringify(nonIsolatedAffectedProducts)} — testing all products + Django`
-        )
-        products = allProducts
-        runLegacy = true
-        runLegacyReason = 'non_isolated_product'
-        // Products that import the changed product's internals keep their events_json paths too.
-        const dependents = importDependentProducts(nonIsolatedAffectedProducts, allProductSet)
-        diffProducts = dependents === null ? null : [...new Set([...affectedProducts, ...dependents])].sort()
-    } else if (affectedProducts.length > 0) {
-        // Only isolated products changed — check whether their contract surface was affected
-        const affectedProductSet = new Set(affectedProducts)
-        const affectedContracts = getAffectedTaskProducts(affectedContractTasks)
-            .filter((p) => affectedProductSet.has(p))
-        logAffectedReasons('backend:contract-check', affectedContractTasks)
-        if (affectedContracts.length > 0) {
-            console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
-            runLegacy = true
-            runLegacyReason = 'contract_cascade'
-            const direct = contractCascadeIsDirect({
-                applies: process.env.SELECTION_APPLIES === 'true',
-                disabled: process.env.SELECTION_DISABLED === 'true',
-            })
-            dependentCascade = direct ? 'direct' : 'transitive'
-            const dependents = importDependentProducts(affectedContracts, allProductSet, { direct })
-            if (dependents === null) {
-                // Fail toward over-testing, like the quarantine loaders above: without the
-                // graph we cannot know which products depend on the changed contract, and
-                // guessing "none" silently recreates the gap this cascade exists to close.
-                console.error('Dependent cascade unavailable — testing all products rather than risk skipping a dependent')
-                products = allProducts
-            } else {
-                if (dependents.length > 0) {
-                    console.error(
-                        `Dependent products cascaded in via hoglint map: ${JSON.stringify(dependents)} (${direct ? 'directly' : 'transitively'} depend on ${JSON.stringify(affectedContracts)})`
-                    )
-                }
-                products = [...new Set([...affectedProducts, ...dependents])].sort()
-                diffProducts = products
-            }
-        } else {
-            console.error('Only isolated product internals changed — Django can be skipped')
-            runLegacy = false
-            products = affectedProducts
-        }
-    } else {
-        console.error('No product changes detected')
-        products = []
-        runLegacy = false
+    // Hoglint runs only when a product changed, or below when a lib change reaches one.
+    const watched =
+        affectedProducts.length > 0 || productsReachedByFiles(changedFiles, allProducts).length > 0 ? loadWatchedSets() : null
+    if (watched !== null) {
+        const isolated = [...watched.isolated].map(moduleToProduct).sort()
+        console.error(`Isolated products (hoglint watched, ${watched.status}): ${JSON.stringify(isolated)}`)
     }
+    const decision = decideProductChange({
+        affectedProducts,
+        allProducts,
+        watched,
+        changedFiles,
+        deletedFiles,
+        direct: contractCascadeIsDirect({
+            applies: process.env.SELECTION_APPLIES === 'true',
+            disabled: process.env.SELECTION_DISABLED === 'true',
+        }),
+        dependentsOf: (seeds, { direct }) => importDependentProducts(seeds, allProductSet, { direct }),
+    })
+    products = decision.products
+    runLegacy = decision.runLegacy
+    runLegacyReason = decision.runLegacyReason
+    diffProducts = decision.diffProducts
+    dependentCascade = decision.dependentCascade
 
     // The scan only ever yields product directory names, so a lib package can never
     // reach the matrix, whose filters resolve @posthog/products-* packages.
@@ -1938,7 +2322,8 @@ if (legacyChanged) {
                 if (diffProducts !== null) {
                     diffProducts = [...new Set([...diffProducts, ...reached])].sort()
                 }
-                const nonIsolatedReached = reached.filter((p) => !isolatedProducts.has(p))
+                const isolated = loadWatchedSets().isolated
+                const nonIsolatedReached = reached.filter((p) => !isolated.has(productToModule(p)))
                 if (nonIsolatedReached.length > 0) {
                     console.error(
                         `Non-isolated products cascaded in from a lib change: ${JSON.stringify(nonIsolatedReached)} — Django will run, since core can import their internals`
@@ -1965,14 +2350,7 @@ if (legacyChanged) {
 }
 
 let undeclaredInputProductsAdded = []
-let changedFiles = null
-if (process.env.TURBO_SCM_BASE) {
-    try {
-        changedFiles = listChangedFiles(process.env.TURBO_SCM_BASE, process.env.TURBO_SCM_HEAD || 'HEAD')
-    } catch (e) {
-        console.error(`changed-file listing failed: ${e.message}`)
-        process.exit(1)
-    }
+if (changedFiles !== null) {
     const undeclaredInputProducts = productsWithUndeclaredInputChanges(changedFiles, allProductSet)
     const unselected = undeclaredInputProducts.filter((p) => !products.includes(p))
     if (unselected.length > 0) {
@@ -2149,6 +2527,7 @@ const result = {
         full_run_already_passed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
         rearmed_by_queue_kick: process.env.QUEUE_KICK_REARMED === 'true',
         dependent_cascade: dependentCascade,
+        ...watchedTelemetry(),
         ...runContext(),
     },
 }

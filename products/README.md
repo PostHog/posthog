@@ -169,33 +169,34 @@ The lint command validates:
   - No `|| true` or `|| exit 0` — these swallow test failures in CI
   - No no-op scripts (e.g., `echo 'No backend tests'`) when `backend/` contains actual test files
   - Pytest paths referenced in the command must exist on disk and contain discoverable tests
+- **No `backend:contract-check`** in `package.json` or `turbo.json`: nothing reads it, and Hoglint derives the watched files
 
 The lint does not check the boundaries between products.
-hoglint checks them: run `hoglint check`.
-A product that narrows its `backend:contract-check` inputs in its own `turbo.json` claims hoglint's Isolated level.
-turbo-discover then skips the full Django test suite for a change in that product that leaves those inputs untouched, and `hoglint check` fails when the product does not meet the level.
+Hoglint checks them: run `hoglint check`.
+Hoglint judges its Isolated level for every product, and nothing in a product marks it: a product that passes is isolated.
+turbo-discover then skips the full Django test suite for a change in that product that leaves its watched files untouched.
+A changed non-Python file of the product outside `frontend/` and test directories, other than Markdown, runs the suite too: Hoglint watches Python modules only, and the product's `package.json` and `turbo.json` change what Turbo selects.
+Hoglint derives the watched files from the tree; `hoglint watched --level isolated` prints them per product, with the reasons a product does not pass.
 
 > [!NOTE]
 > To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
 ### New products must be isolated
 
-hoglint judges only the products that claim its Isolated level, so a product that never narrows its inputs would pass it.
-`products/isolation_baseline.txt` closes that gap: it lists every backend product that does not claim the level, and `hogli product:lint --all` fails when the tree and that file disagree in either direction.
-A new product not on the list must claim the level; a product that starts to claim it drops off the list.
+`hoglint.ledger` records each product that passes the Isolated level as a `level:isolated <product>` line.
+`products/isolation_baseline.txt` lists every backend product without that line, and `hogli product:lint --all` fails when the ledger and that file disagree in either direction.
+A new product not on the list must pass the level; a product that starts to pass it drops off the list.
 Adding a line exempts the product from isolation and keeps the full Django backend suite running on every change it makes, which is why DevEx owns the file in `.github/CODEOWNERS`.
-Regenerate it after a product claims the level:
+Regenerate it after the ledger gains or loses a product's line:
 
 ```bash
 bin/hogli product:lint --regenerate-baseline
 ```
 
-`hogli product:bootstrap` scaffolds a product that is already isolated: real facade, contracts, `backend:contract-check` and narrowed `turbo.json` inputs.
-The scaffold passes hoglint's Isolated level from its first commit.
-The narrowed inputs claim that level, and `hoglint.ledger` records each product that passes it, so bootstrap ends with `hoglint check --write-ledger`, which adds the product's `level:isolated` line.
+`hogli product:bootstrap` scaffolds a product that is already isolated: real facade and contracts.
+The scaffold passes Hoglint's Isolated level from its first commit, so bootstrap ends with `hoglint check --write-ledger`, which adds the product's `level:isolated` line.
 Commit `hoglint.ledger` in a commit of its own, after the product, so that a reviewer sees the ledger change apart from the code. `hoglint compare` fails a pull request that lacks the line.
-When `hoglint check` names a file that the narrowed inputs do not watch, add the file to the inputs.
-Dropping the narrowing needs a person: the product is then not isolated, and the full Django backend suite runs on every change it makes.
+A change that makes a product stop passing the level needs a person: the product is then not isolated, and the full Django backend suite runs on every change it makes.
 
 ### Manual setup
 

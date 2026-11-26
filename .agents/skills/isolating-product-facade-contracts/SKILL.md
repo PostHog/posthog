@@ -51,7 +51,7 @@ hoglint check --all --rule public-surface | rg -F 'products.<name>.'  # crossing
 knowing whether this is untouched or mid-flight, and that decides where you pick up.**
 The signals are all in the output above; there is no status file to consult (a hand-kept
 one would drift). The product's rows _are_ the status: its `public-surface` rows, which
-only report and so live in hoglint's output rather than the ledger, and its lines in
+only report and so live in Hoglint's output rather than the ledger, and its lines in
 `hoglint.ledger`. Both shrink as modules finish:
 
 - **Fresh** — no `backend/facade/`, and `public-surface` reports code that reaches the
@@ -82,7 +82,7 @@ source of truth for the rest of the flow:
   mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, required
   root files in place) surface up front instead of mid-migration. Strict lint checks
   the required root files only. It does not restrict internal directory names: the
-  enforced shape is hoglint's `presentation-uses-facade` rule (`routes.py` and
+  enforced shape is Hoglint's `presentation-uses-facade` rule (`routes.py` and
   `presentation/` reach product code only through `facade/`), so a product may add other
   internal packages (`services/`, `reviewer/`, …) as long as they stay behind the facade.
 - **Thin/thick signal per view module** — how many view modules the presentation wave
@@ -117,7 +117,7 @@ nothing to do with importer count:
   dispatches into the view stack in the same process, not over a real socket).
   Cross-cutting tests — permissions, schema, activity-log, "every viewset does X" —
   reach a product's endpoints by URL, coupling to its live behavior with **zero
-  imports**. hoglint and this scan both read the code for references, so neither of
+  imports**. Hoglint and this scan both read the code for references, so neither of
   them can see it. "No importers" is necessary, not sufficient.
 - Because the channel can't be enumerated, it is closed by construction, not audit:
   keep presentation thin and reaching internals only through the facade, so every
@@ -129,8 +129,8 @@ So a product whose only consumers are over HTTP (node services, the TS/MCP codeg
 is **not** facade-optional — there the facade's whole job is sealing its own
 presentation (step 2's second demand source). The genuine exception is
 a product with essentially no Django-side logic (a thin shim over an external
-service): it has nothing to seal, but it is then simply _not isolated_ — no
-`backend:contract-check`, still paying the full suite. That is an accept-the-cost
+service): it has nothing to seal, but it is then simply _not isolated_ — it
+fails Hoglint's Isolated level and still pays the full suite. That is an accept-the-cost
 choice, not "isolated without a facade".
 
 This is the third non-import coupling channel, alongside hogql system tables and
@@ -149,7 +149,7 @@ boundary without `related_name="+"` adds a reverse accessor and a reverse query
 name to the target class. No import exists, so the scan cannot see it, but any
 caller can traverse it. The move: seal the relation with `related_name="+"`,
 remove any explicit `related_query_name` (it keeps `filter()` traversal alive,
-and hoglint's `reverse-accessor` rule still reports it), and drop its stale line
+and Hoglint's `reverse-accessor` rule still reports it), and drop its stale line
 from `hoglint.ledger` in the same change (`hoglint ledger shrink`); give a
 caller that needs reverse access a facade read function. The `reverse-accessor`
 rule blocks new unsealed relations. See products/architecture.md § Cross-product
@@ -168,13 +168,13 @@ sender is a string. Three moves, by case:
 - _Either direction_ — never do slow or external work in a receiver body. Use
   `transaction.on_commit` to dispatch a task instead.
 
-**Test-infrastructure coupling.** hoglint's `public-surface` rule judges tests
+**Test-infrastructure coupling.** Hoglint's `public-surface` rule judges tests
 like production code. A test may import any product's facade, and CI reports a
 new test import of another product's internals the same way it reports
 production code. Such a test gets one of the moves below. When the product
 cannot offer the move yet, the import stays, `public-surface` keeps reporting
-it, and `reached-watched` asks for the file it reaches in the product's
-contract-check inputs. Never hand the internals out from a facade module under a sanctioned
+it, and `reached-watched` puts the file it reaches in the product's
+watched set. Never hand the internals out from a facade module under a sanctioned
 name to clear the finding. Core tests reach into the product's test helpers,
 which no facade re-export naturally covers:
 
@@ -198,7 +198,7 @@ which no facade re-export naturally covers:
   facade is a `public-surface` finding. Never
   `apps.get_model("<label>", "<Model>")` at module scope: it is the same
   dependency with the import edge removed.
-  hoglint's `get-model` rule skips tests, mypy and LSP stop seeing it, and
+  Hoglint's `get-model` rule skips tests, mypy and LSP stop seeing it, and
   snob (the PR test selector) does not select the test when the model
   changes, so the break lands on master.
   A `TYPE_CHECKING` import next to it does not restore the edge, because
@@ -207,8 +207,8 @@ which no facade re-export naturally covers:
 **Surfaces outside `backend/`.** A product can expose non-Django surfaces at its
 root — Dagster assets under `products/<name>/dags/`, for instance — that core
 imports directly. The scan only walks `backend.*`, so it won't list them, and
-hoglint reports the core import as a `public-surface` row, and as an unwatched
-file (`reached-watched`) once the product claims the Isolated level. Re-export them through a facade submodule (`facade/dags.py`
+Hoglint reports the core import as a `public-surface` row, and as an unwatched
+file in the product's watched set (`reached-watched`). Re-export them through a facade submodule (`facade/dags.py`
 re-exporting the asset modules) and reroute the core importer, exactly like
 the temporal and query-runner wiring.
 
@@ -247,7 +247,7 @@ hand-outs as debt. That allowance only says the class may leave the product; it
 says nothing about what the consumer does with it. Two rules cover that:
 
 - **Default-deny.** A product model may appear in consumer code only in a shape
-  hoglint's `model-crossings` rule calls instance-free: an annotation,
+  Hoglint's `model-crossings` rule calls instance-free: an annotation,
   `X.DoesNotExist`, a nested class attribute (`X.Status`), `X._meta`, a manager
   chain ending in `values`/`values_list`/`count`/`exists`/`aggregate`, a chain
   embedded in `Exists(...)`/`Subquery(...)`, a signal sender, or the class passed
@@ -258,7 +258,7 @@ says nothing about what the consumer does with it. Two rules cover that:
   function is what the move leaves behind, and the consumer keeps orchestration
   and ids.
 
-`apps.get_model('label', 'Class')` is counted too, by hoglint's `get-model` rule, and
+`apps.get_model('label', 'Class')` is counted too, by Hoglint's `get-model` rule, and
 for **every** product model, not only the allowance ones. It leaves no import edge,
 so an import check cannot refuse it.
 Test modules stay out of the rule, which is a blind spot, not permission: a core
@@ -282,13 +282,13 @@ couplings.
 - A view without a `queryset` declares its URL kwarg types with `path_parameters = {"pk": UUID}`, and does not parse path ids by hand. See `products/architecture.md` § Path ids.
 - Never return ORM models across product boundaries.
 - A list view pages through the facade: the facade takes a `PageRequest` and returns a `Page`, and the view uses `FacadeLimitOffsetPagination` or `FacadeCursorPagination`. Never set paginator state by hand. See `products/architecture.md` § How do lists page?
-- hoglint reads the facades: `facade-signature` (what a public facade function
+- Hoglint reads the facades: `facade-signature` (what a public facade function
   accepts and returns), `export-shape` (what a facade module hands out) and
   `facade-logic` (a capability submodule holds no body). `hoglint.ledger` records
   what the facades do today and only shrinks, so a new finding fails `hoglint compare`.
   The rule is `products/architecture.md` § Facades: The Public Interface.
 - Declare every relation field that crosses a product boundary with
-  `related_name="+"`. hoglint's `reverse-accessor` rule blocks new unsealed ones.
+  `related_name="+"`. Hoglint's `reverse-accessor` rule blocks new unsealed ones.
 - Do not register a signal receiver on another boundary's sender; use the moves
   in "Signal coupling" above.
 - Keep contract files pure (no Django/DRF imports in `facade/contracts.py` or `facade/enums.py`). A choices enum there is a `LabeledStrEnum` / `LabeledIntEnum` from `posthog/enums.py`.
@@ -296,7 +296,7 @@ couplings.
 - Do not add product-specific fields to `Team`; use a Team Extension model.
 - Add request/response schema annotations on viewset endpoints (`@validated_request` or `@extend_schema`).
 - Regenerate OpenAPI/types (`hogli build:openapi`) when serializer/view changes affect API schema.
-- Presentation may only reach internals via the facade. hoglint's
+- Presentation may only reach internals via the facade. Hoglint's
   `presentation-uses-facade` rule enforces it. Any new internal module (`cache.py`,
   `helpers.py`, …) is auto-covered; there is no blocklist to maintain. New
   cross-cutting imports must go through the facade.
@@ -350,16 +350,16 @@ couplings.
      `hoglint.ledger`. Do not move a view that still reaches internals into
      `presentation/`: that adds new `presentation-uses-facade` findings, and
      `hoglint compare` blocks new debt. That debt **gates the skip**: while any line
-     remains the product must NOT narrow its `backend:contract-check` inputs (step 6),
-     so the full suite keeps running and there is no coverage hole. This is the
+     remains the product fails Hoglint's Isolated level (step 6), so the full suite
+     keeps running and there is no coverage hole. This is the
      soundness boundary — the skip only re-runs the suite on facade/presentation
      changes, so it is honest only once presentation is thin. A thick deferred view
      reaches internals directly, so an internals change flowing to HTTP through it
      would slip past the skip (and past the cross-cutting core tests that exercise the
-     product by URL with zero imports). hoglint enforces the gate:
-     `presentation-uses-facade` is strict for the Isolated level, so a product that
-     narrows its inputs while the lines remain fails `hoglint check`. The skip is the
-     reward the presentation-wave PR unlocks when it empties them.
+     product by URL with zero imports). Hoglint enforces the gate:
+     `presentation-uses-facade` is strict for the Isolated level, so the product does
+     not pass while the lines remain. The skip is the reward the presentation-wave PR
+     unlocks when it empties them.
    - The mechanical share is one command: `hogli product:isolate:move <name>` (run
      `--dry-run` first) moves the ViewSet modules into `presentation/views/` (auto-detected,
      `--views` to override, for example to leave the deferred modules where they are), `tasks.py` into a `tasks/` package with celery names pinned
@@ -381,50 +381,39 @@ couplings.
      unambiguous); **relative** imports (`from ..x import y`, any depth) go through libcst
      (`cst_helpers.py`, ported from the product-model-migration `import_rewriter`) because
      resolving them needs the importing module's package, which a line regex can't know.
-6. Enforce boundaries and verify. A product that narrows its
-   `backend:contract-check` inputs in `products/<name>/turbo.json` claims
-   hoglint's Isolated level, and `hoglint check` fails when the product does
-   not meet it. The isolated skip needs all four of these:
+6. Enforce boundaries and verify. Hoglint judges its Isolated level for every
+   product, and a product that passes it gets the CI skip; nothing in the product
+   marks it. The skip needs all three of these:
    1. **Real facade** — `backend/facade/contracts.py` (or a `contracts/`
       package) and a `backend/facade/api.py` with actual function defs, not
       just re-exports from `logic` (`has-facade`).
    2. **Presentation through the facade** — no `presentation-uses-facade`
-      lines left for the product in `hoglint.ledger`.
-   3. **`backend:contract-check` script** — add to `package.json` so
-      turbo-discover treats the product as isolated. This is the **last** piece,
-      together with the narrowed inputs: add it only once the product is fully
-      isolated, with no `presentation-uses-facade` lines left and presentation
-      thin. hoglint fails the level while lines remain, because the skip is
-      unsound until then (see step 5).
-   4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
-      inputs to `backend/facade/**` and `backend/presentation/**` so the
-      Django suite is only re-run on facade/presentation changes (see
-      `products/visual_review/turbo.json`). The inputs must also watch the
-      whole model surface — `backend/models.py` or `backend/models/**`,
-      plus `backend/migrations/**` (required even before the first
-      migration lands): a model is reachable without an import
-      (`apps.get_model` strings, migrations, admin, hogql system tables,
-      dotted-string config), so no import check can prove nothing
-      outside observes it. `product:bootstrap` scaffolds the inputs
-      already covering it. The inputs must also watch every file that
-      hoglint names: `wiring-watched` asks for the model surface and the
-      wiring that runs without an import (admin autodiscovery, core's request
-      path, app setup, hooks, settings paths, wiring an outside test drives),
-      and `reached-watched` asks for each product file that code outside the
-      product reaches past the facade. When `hoglint check` names an unwatched
-      file, add it to the inputs. Dropping the narrowing instead needs a person.
+      lines left for the product in `hoglint.ledger`. Hoglint fails the level
+      while lines remain, because the skip is unsound until then (see step 5).
+   3. **A watched set Hoglint can derive** — Hoglint puts the whole facade,
+      presentation and migrations in it, the model surface (a model is
+      reachable without an import: `apps.get_model` strings, migrations,
+      admin, hogql system tables, dotted-string config), the wiring that runs
+      without an import (admin autodiscovery, core's request path, app setup,
+      hooks, settings paths, wiring an outside test drives, registered
+      Temporal items) and each product file that code outside the product
+      reaches past the facade. A module it cannot place makes the level fail;
+      `hoglint watched --level isolated` prints the reasons and the set.
+      When the product passes, `hoglint check --write-ledger` adds its
+      `level:isolated` line; commit it. A change that makes it stop passing
+      needs a person.
    - **Permanent-interface exception (irreducible import coupling).** Some
      import coupling genuinely cannot be drained: ClickHouse DDL modules
      (`backend.sql`, `backend.embedding`, …) are imported by core's
      `posthog/clickhouse/schema.py` registry, `conftest.py`, and **frozen**
      ClickHouse migrations that hardcode the import path forever. You cannot
      reroute a frozen migration or move the module. For this, the `permanent`
-     assign in the hoglint preset (`tools/hoglint/presets/posthog.toml`) lists
-     those modules. The assign tells hoglint the module is a declared,
+     assign in the Hoglint preset (`tools/hoglint/presets/posthog.toml`) lists
+     those modules. The assign tells Hoglint the module is a declared,
      irreducible exposure, **not** debt: `public-surface` lets core production
      code (not tests) reach it past the facade. Soundness is preserved by
-     pairing it with turbo.json: `wiring-watched` asks for every permanent
-     module in the contract-check `inputs` (e.g. `backend/sql.py`), so a change
+     the watched set: `wiring-watched` puts every permanent module in it
+     (e.g. `backend/sql.py`), so a change
      to it still re-runs the full suite. Only a person changes the preset. Use
      this only for coupling that is both non-behavioral-over-HTTP and
      impossible to reroute (frozen-migration / schema-registry DDL), not as an
@@ -480,12 +469,12 @@ and let commit structure — not PR boundaries — organize review.
 2. **Commit — sweep.** All caller migrations. Mechanical; reviewers sample, the
    verification chain carries it.
 3. **Commit — structure + chain.** Presentation move and rewrites
-   (`hogli product:isolate:move`), strict-lint fixes, the shrunk `hoglint.ledger`. Add
-   `backend:contract-check` + narrowed `turbo.json` here **only if the product is
-   fully isolated in this PR** — no deferred view modules. If any module is deferred
-   (`presentation-uses-facade` lines remain), the skip can't turn on yet (hoglint fails
-   the Isolated level), so it lands with the presentation-wave PR; this PR ships without
-   the skip and keeps paying the full suite, which is sound.
+   (`hogli product:isolate:move`), strict-lint fixes, the shrunk `hoglint.ledger`. If
+   the product is fully isolated in this PR — no deferred view modules — it passes
+   Hoglint's Isolated level here, and the ledger gains its `level:isolated` line. If any
+   module is deferred (`presentation-uses-facade` lines remain), the skip can't turn on
+   yet, so it lands with the presentation-wave PR; this PR ships without the skip and
+   keeps paying the full suite, which is sound.
 
 Don't split the facade into its own PR for reviewability: new files cannot conflict
 regardless of which PR they sit in, so a standalone design PR buys no conflict
@@ -515,11 +504,10 @@ when the sweep must be sliced.** Gate on the core-coupling count from the baseli
     is about to code against it — then slice the sweep by who owns the calling code (the
     consuming team/area, not the product's own owner), reviewed in parallel, never
     serially by capability. Core's remaining imports stay as `public-surface` rows (above) while
-    slices land, but do NOT add `backend:contract-check` yet: the Isolated level would
-    ask the product to watch every file core still reaches. The final cleanup PR drops
-    the last of those imports, dead adapters, and shims, and only then enables
-    contract-check + narrowed `turbo.json` inputs. The CI payoff for this path lands
-    at the end.
+    slices land, and the product's watched set holds every file core still reaches,
+    so the skip pays little. The final cleanup PR drops the last of those imports,
+    dead adapters, and shims, which shrinks the watched set. The CI payoff for this
+    path lands at the end.
 
 **Deferred view modules (step 5) add one follow-up on either path:** the presentation
 wave — see the section below for its flow and outputs.
@@ -561,8 +549,8 @@ here (e.g. subsuming a runner builder under a run-function) is fine — its call
 few and the parity tests pin behavior. The product's done criteria below are only fully
 satisfiable once this wave has emptied the product's `presentation-uses-facade` lines,
 and emptying them is what unlocks the skip: the PR that drops the last line is where
-`backend:contract-check` + narrowed `turbo.json` are finally added (hoglint fails the
-Isolated level until then). For a product that deferred modules, this is when it earns
+product starts to pass Hoglint's Isolated level, and `hoglint check --write-ledger`
+adds its `level:isolated` line. For a product that deferred modules, this is when it earns
 the CI skip.
 
 ## Done criteria
@@ -578,10 +566,8 @@ Treat migration as complete only when:
 - `hoglint.ledger` holds **no `presentation-uses-facade` line for this product**. Those
   lines are tracked architectural debt from deferred view modules; the presentation
   wave removes them.
-- `hoglint check` passes, including hoglint's Isolated level for the product.
+- `hoglint check` passes, including Hoglint's Isolated level for the product.
 - `hogli product:lint <name>` passes.
-- `backend:contract-check` is present in `package.json` with `turbo.json` inputs
-  narrowed to `backend/facade/**` and `backend/presentation/**`, plus the files hoglint
-  asks to watch (enables the CI skip). This is the **last** thing added: hoglint fails
-  the Isolated level until the `presentation-uses-facade` lines above are gone, so the
-  skip only ever turns on for a fully isolated product.
+- `hoglint.ledger` holds the product's `level:isolated` line (enables the CI skip).
+  Hoglint fails the Isolated level until the `presentation-uses-facade` lines above are
+  gone, so the skip only ever turns on for a fully isolated product.

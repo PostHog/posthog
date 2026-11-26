@@ -26,7 +26,7 @@
 // call to the old name, and master breaks on a combination neither run held.
 //
 //   1. A product change claims its own lane plus its direct importers, rather
-//      than every backend lane. The hoglint map is the real Python import graph
+//      than every backend lane. The Hoglint map is the real Python import graph
 //      (`hoglint map` reads the imports that `hoglint compare` checks in CI), so for
 //      a product it walked, the products that import it are known from the
 //      files. A product absent from that map has no known importer set and
@@ -46,19 +46,20 @@
 //      cross-cutting tests reach a product's endpoints by URL, in process,
 //      with no import for any graph to see. A lane only has to answer whether
 //      another PR can reference the symbols this one changed, which is the
-//      import half that hoglint does check. So a product too unsealed to skip
+//      import half that Hoglint does check. So a product too unsealed to skip
 //      the suite still has a bounded importer set, and gets a lane from it.
 //
 //      Which of the product's own files seed that cascade is the narrower
-//      question isolation does govern. An isolated product declares a contract
-//      surface as its `backend:contract-check` inputs in products/<name>/turbo.json.
-//      This is the same declaration turbo-discover reads to decide whether dependent
-//      test suites run, so the two mechanisms cannot drift apart. A change confined
+//      question isolation does govern. An isolated product's contract surface
+//      is its watched set, which `hoglint watched` derives from the tree. This
+//      is the same answer turbo-discover reads to decide whether dependent test
+//      suites run, so the two mechanisms cannot drift apart. A change confined
 //      to its internals keeps its own lane without cascading. This makes the
-//      declaration load-bearing for
-//      correctness: an input list that omits a file other products import puts
-//      those products in a parallel lane. A product that declares no narrowed
-//      inputs, isolated or not, cascades on every backend file.
+//      set load-bearing for correctness: a file other products import that the
+//      set misses puts those products in a parallel lane, which is why
+//      Hoglint's reached-watched rule puts every such file in it. A product
+//      that is not isolated, or a run in which Hoglint gives no complete
+//      answer, cascades on every backend file.
 //
 //   2. The cascade names direct importers rather than the transitive closure.
 //      Only a direct importer can reference the changed product's symbols.
@@ -74,7 +75,7 @@
 //   3. A warehouse source vendor directory (products/warehouse_sources/sources/
 //      <vendor>/, every directory there except the SDK) claims only the vendor
 //      lane, not the warehouse_sources product lane. A vendor imports nothing but
-//      the SDK and third-party packages, and hoglint and a repo invariant
+//      the SDK and third-party packages, and Hoglint and a repo invariant
 //      enforce that, so no code outside the vendor can reference its
 //      symbols. That makes the SDK the vendors' only direct import, and narrowing
 //      2 already bounds a cascade at direct importers. The lane is therefore
@@ -1151,25 +1152,12 @@ function listProducts(repoRoot) {
         .sort()
 }
 
-// A product is isolated when it declares a backend:contract-check script *and*
-// narrows that task's inputs in its own turbo.json, the same pair turbo-discover
-// uses to decide a product can be tested alone. The script alone leaves the task
-// on the root definition, whose inputs are the product's whole backend, so the
-// product claims a contract surface it never narrowed. Non-isolated products
-// have no narrowed contract, so a change in one is treated as a core change.
-function listIsolatedProducts(repoRoot, products, contractSurfaces) {
-    const isolated = new Set()
-    for (const product of products) {
-        const manifest = path.join(repoRoot, 'products', product, 'package.json')
-        if (!fs.existsSync(manifest) || !contractSurfaces.has(product)) {
-            continue
-        }
-        const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'))
-        if (parsed.scripts && parsed.scripts['backend:contract-check']) {
-            isolated.add(product)
-        }
-    }
-    return isolated
+// A product is isolated when it passes the Isolated level, as `hoglint watched`
+// reports: the answer turbo-discover reads to
+// decide a product can be tested alone. Without a complete answer no product is
+// isolated, so every backend file of a product counts as its contract.
+function listIsolatedProducts(products, watched) {
+    return new Set(products.filter((product) => watched.isolated.has(product)))
 }
 
 // --- Nested JS workspaces ---
@@ -1307,7 +1295,7 @@ function isInProductWorkspace(product, file, productWorkspaces) {
 //      filter, but a filter tuned to over-run is not a safe source for lane
 //      assignment, while an --ignore is a statement that the suite does not
 //      cover the path at all.
-//   2. The product is absent from the hoglint map, the real Python import graph,
+//   2. The product is absent from the Hoglint map, the real Python import graph,
 //      so no Python file under a source root imports it.
 //
 // A product satisfying both cannot fail another product's backend suite, so
@@ -1343,7 +1331,7 @@ function loadBackendDetachedProducts(repoRoot, products, importGraph) {
     return detached
 }
 
-// A product the hoglint map walked has a known importer set. One absent from the
+// A product the Hoglint map walked has a known importer set. One absent from the
 // map (no Python with an import edge under a source root, or excluded by
 // hoglint.toml), or a map that could not be read at all, has none.
 function isMapped(product, importGraph) {
@@ -1357,12 +1345,10 @@ function listMappedProducts(products, importGraph) {
     return new Set(products.filter((product) => isMapped(product, importGraph)))
 }
 
-// --- Contract surfaces ---
+// --- JSON with comments ---
 
-const CONTRACT_TASK = 'backend:contract-check'
-
-// turbo.json permits comments, which JSON.parse rejects. Strip them outside
-// string literals so a `//` inside a glob survives.
+// turbo.json and the oxc configs permit comments, which JSON.parse rejects. Strip
+// them outside string literals so a `//` inside a glob survives.
 function stripJsonComments(text) {
     let out = ''
     let inString = false
@@ -1406,74 +1392,27 @@ function stripJsonComments(text) {
     return out
 }
 
-// Compiles a task's `inputs` into a predicate over product-relative paths. A
-// path is contract when at least one positive glob matches it and no negated
-// one does, matching how Turbo reads the same list.
-function compileContractMatcher(inputs) {
-    const include = []
-    const exclude = []
-    for (const input of inputs) {
-        const negated = input.startsWith('!')
-        const glob = negated ? input.slice(1) : input
-        // An input reaching outside the product (../../uv.lock and the like)
-        // cannot be expressed as a product-relative path. Dropping it is safe
-        // because every such file in use today is already a tripwire or lands
-        // in py:core, both of which overlap this product's lane anyway.
-        if (glob.startsWith('../')) {
-            continue
-        }
-        if (negated) {
-            exclude.push(globToRegExp(glob))
-        } else {
-            include.push(globToRegExp(glob))
-        }
-    }
-    if (include.length === 0) {
-        return null
-    }
-    return (relativePath) => include.some((re) => re.test(relativePath)) && !exclude.some((re) => re.test(relativePath))
-}
+// --- Contract surfaces ---
 
-// Only products that narrow `backend:contract-check` in their own turbo.json get
-// an entry. Absence means "every backend file is contract", so a product that
-// has not declared a surface, or whose turbo.json cannot be read, keeps
+// An isolated product's contract surface is its watched set: a predicate over
+// product-relative paths. Only isolated products get an entry. Absence means
+// "every backend file is contract", so a product that is not isolated keeps
 // cascading on every backend change.
-function loadContractSurfaces(repoRoot, products) {
+function loadContractSurfaces(products, watched) {
     const surfaces = new Map()
-    for (const product of products) {
-        const manifest = path.join(repoRoot, 'products', product, 'turbo.json')
-        if (!fs.existsSync(manifest)) {
-            continue
-        }
-        let inputs
-        try {
-            const parsed = JSON.parse(stripJsonComments(fs.readFileSync(manifest, 'utf8')))
-            const tasks = parsed.tasks || parsed.pipeline || {}
-            inputs = (tasks[CONTRACT_TASK] || {}).inputs
-        } catch (error) {
-            console.error(
-                `Could not read products/${product}/turbo.json (${error.message}); every backend file counts as its contract`
-            )
-            continue
-        }
-        if (!Array.isArray(inputs)) {
-            continue
-        }
-        const matcher = compileContractMatcher(inputs)
-        if (matcher) {
-            surfaces.set(product, matcher)
+    for (const product of listIsolatedProducts(products, watched)) {
+        const files = watched.watched.get(product)
+        if (files) {
+            surfaces.set(product, (relativePath) => files.has(`products/${product}/${relativePath}`))
         }
     }
     return surfaces
 }
 
-// The files that define the gate for their own product: turbo.json holds the
-// contract inputs, package.json decides whether the product is isolated at all.
-// Neither is importable, so the surface test would call them internal, and both
-// are read from the PR's own tree. A change that drops a path from the contract
-// and edits a file under that path in the same commit would then be gated
-// against its own new, narrower contract and keep the lane to itself, which is
-// exactly when the dependents most need to be tested alongside it.
+// The files that declare the product's backend test task. Neither is importable,
+// so the surface test would call them internal, and both are read from the PR's
+// own tree. A change to either can change what runs against the product, so it
+// always cascades.
 const CONTRACT_DECLARATIONS = ['turbo.json', 'package.json']
 
 function isContractDeclaration(product, file) {
@@ -2152,17 +2091,12 @@ function applyRustNonCrateLanes(file, targets, context) {
 }
 
 function computeTargets(changedFiles, context) {
-    const {
-        products,
-        isolatedProducts,
-        rustInventory,
-        importGraph,
-        contractSurfaces = new Map(),
-        productWorkspaces = new Map(),
-        backendDetachedProducts = new Set(),
-        mappedProducts = listMappedProducts(products, importGraph),
-        deletedFiles = new Set(),
-    } = context
+    const { products, rustInventory, productWorkspaces = new Map(), deletedFiles = new Set() } = context
+    // Hoglint answers these, and buildContext runs it on first read. Destructuring them here
+    // would run it for every change set, so only a change to a product's backend reads them.
+    const contractSurfaces = () => context.contractSurfaces ?? new Map()
+    const backendDetachedProducts = () => context.backendDetachedProducts ?? new Set()
+    const mappedProducts = () => context.mappedProducts ?? listMappedProducts(products, context.importGraph)
     const targets = new Set()
 
     const allPyProducts = () => {
@@ -2390,24 +2324,24 @@ function computeTargets(changedFiles, context) {
                     targets.add(WAREHOUSE_SOURCE_VENDORS)
                 }
                 if (isBackend && deletedFiles.has(file)) {
-                    // The hoglint map is read from the head tree, so a deleted or
+                    // The Hoglint map is read from the head tree, so a deleted or
                     // renamed-away file is not in it and its importers are
                     // unknown. The PR that removes a facade module beside a
                     // caller it missed is the exact conflict lanes exist for.
                     allPyProducts()
-                } else if (isolatedProducts.has(product)) {
+                } else if (context.isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
-                    if (touchesContractSurface(product, file, contractSurfaces)) {
+                    if (touchesContractSurface(product, file, contractSurfaces())) {
                         cascadeSeeds.add(product)
                     }
-                } else if (backendDetachedProducts.has(product)) {
+                } else if (backendDetachedProducts().has(product)) {
                     // No backend suite covers this product and no declared
                     // module imports it, so the lane it keeps is its own. This
                     // case comes first because it also answers the declaration
                     // case below: a product absent from the module graph has no
                     // importers for the cascade to name.
                     targets.add(pyProduct(product))
-                } else if (isContractDeclaration(product, file) || mappedProducts.has(product)) {
+                } else if (isContractDeclaration(product, file) || mappedProducts().has(product)) {
                     // A non-isolated product has declared no contract surface,
                     // so every backend file in it counts as contract and seeds
                     // the cascade. That names its direct importers, which is
@@ -2425,7 +2359,7 @@ function computeTargets(changedFiles, context) {
                     // product can be too unsealed to skip the suite and still
                     // have a bounded importer set.
                     //
-                    // The bound only holds for a product the hoglint map walked.
+                    // The bound only holds for a product the Hoglint map walked.
                     // One absent from the map has no known importer set, so
                     // it still widens below.
                     targets.add(pyProduct(product))
@@ -2455,7 +2389,7 @@ function computeTargets(changedFiles, context) {
     // deep. See the two numbered narrowings at the top of this file for what
     // that gives up.
     if (cascadeSeeds.size > 0) {
-        const dependents = importDependentProducts([...cascadeSeeds], importGraph)
+        const dependents = importDependentProducts([...cascadeSeeds], context.importGraph)
         if (dependents === null) {
             allPyProducts()
         } else {
@@ -2532,7 +2466,7 @@ function computeTargets(changedFiles, context) {
     return [...targets].sort()
 }
 
-// The hoglint map is the real Python import graph (`hoglint map` reads the imports
+// The Hoglint map is the real Python import graph (`hoglint map` reads the imports
 // that `hoglint compare` checks in CI, so it cannot drift from what is
 // importable). Turbo-style dashed names cross the boundary in both directions;
 // product directories are underscored.
@@ -2557,6 +2491,12 @@ function loadImportMap(repoRoot) {
     const { loadImportGraph, importDependents } = require('./turbo-discover')
     const graph = loadImportGraph(repoRoot)
     return graph === null ? null : { graph, importDependents }
+}
+
+// The same `hoglint watched --map` run as the import map: turbo-discover keeps one per process.
+function loadWatched(repoRoot) {
+    const { loadWatchedSets } = require('./turbo-discover')
+    return loadWatchedSets(repoRoot)
 }
 
 // Every directory under services/ holds a lane, so the list has to be read
@@ -3174,31 +3114,57 @@ function findDeletedFiles(changedFiles) {
     return new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
 }
 
+// A field computed on its first read and kept. The getter is enumerable, so a spread of the
+// object reads it: extend a context with extendContext instead.
+function defineLazyField(target, name, compute) {
+    let computed = false
+    let value
+    Object.defineProperty(target, name, {
+        enumerable: true,
+        get() {
+            if (!computed) {
+                value = compute()
+                computed = true
+            }
+            return value
+        },
+    })
+}
+
+// The context with more fields. The copy inherits the lazy fields, so none of them runs.
+function extendContext(context, fields) {
+    return Object.assign(Object.create(context), fields)
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
-    const importGraph = loadImportMap(repoRoot)
     const rustInventory = loadRustInventory(repoRoot)
-    const contractSurfaces = loadContractSurfaces(repoRoot, products)
     const nodeLaneMap = loadNodeLaneMap(repoRoot)
     const headLockfile = readOptional(path.join(repoRoot, 'pnpm-lock.yaml'))
-    return {
+    const context = {
         products,
         nodeLaneMap,
         nodeWorkspaceDependencies: nodeWorkspaceDependencies(headLockfile),
         jsLockfileNodeLanes: jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile),
         rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
-        isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
-        contractSurfaces,
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
-        backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, importGraph),
-        mappedProducts: listMappedProducts(products, importGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
         warehouseSourceSdkImports: loadWarehouseSourceSdkImports(repoRoot),
         warehouseSourceRegistryFiles: loadWarehouseSourceRegistryFiles(repoRoot),
         rustInventory,
-        importGraph,
     }
+    // Hoglint answers these, and a run takes most of a minute. A docs-only or frontend-only
+    // change never reads them, so it never runs Hoglint.
+    defineLazyField(context, 'importGraph', () => loadImportMap(repoRoot))
+    defineLazyField(context, 'mappedProducts', () => listMappedProducts(products, context.importGraph))
+    defineLazyField(context, 'backendDetachedProducts', () =>
+        loadBackendDetachedProducts(repoRoot, products, context.importGraph)
+    )
+    defineLazyField(context, 'watched', () => loadWatched(repoRoot))
+    defineLazyField(context, 'isolatedProducts', () => listIsolatedProducts(products, context.watched))
+    defineLazyField(context, 'contractSurfaces', () => loadContractSurfaces(products, context.watched))
+    return context
 }
 
 module.exports = {
@@ -3209,8 +3175,8 @@ module.exports = {
     NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
-    compileContractMatcher,
     compileWorkspaceMatcher,
+    extendContext,
     findDeletedFiles,
     globToRegExp,
     isProductDirectory,
@@ -3262,10 +3228,7 @@ if (require.main === module) {
         } else {
             context = buildContext(REPO_ROOT)
             deletedFiles = findDeletedFiles(changedFiles)
-            result = computeTargets(changedFiles, {
-                ...context,
-                deletedFiles,
-            })
+            result = computeTargets(changedFiles, extendContext(context, { deletedFiles }))
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a

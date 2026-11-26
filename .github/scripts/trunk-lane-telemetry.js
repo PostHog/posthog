@@ -28,6 +28,7 @@ const {
     ALL,
     allKnownTargets,
     buildContext,
+    extendContext,
     findDeletedFiles,
     isTripwire,
     tripwireDomain,
@@ -140,10 +141,10 @@ function summarizeLane(changedFiles, impactedTargets, context, deletedFiles = nu
     let crossLane = null
     if (context) {
         try {
-            crossLane = crossLaneFiles(changedFiles, {
-                ...context,
-                deletedFiles: deletedFiles ?? findDeletedFiles(changedFiles),
-            })
+            crossLane = crossLaneFiles(
+                changedFiles,
+                extendContext(context, { deletedFiles: deletedFiles ?? findDeletedFiles(changedFiles) })
+            )
         } catch (error) {
             console.error(
                 `Could not classify the change set by lane side (${error.message}); cross_lane reports unknown`

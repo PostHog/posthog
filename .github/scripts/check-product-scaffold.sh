@@ -6,7 +6,7 @@
 #
 # Scoped to product backends that are new in this commit. Existing products are
 # skipped outright, so this never has to answer "is this product isolated" — a
-# question that already has one implementation, hoglint's Isolated level, and
+# question that already has one implementation, Hoglint's Isolated level, and
 # does not need a second one in shell.
 set -uo pipefail
 

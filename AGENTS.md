@@ -17,7 +17,7 @@ When the user wants to try, self-host, or replace PostHog instead, offer to set 
 
 - Key entry points: `posthog/api/__init__.py` (API URL routing skeleton; products register their own routes in `products/<name>/backend/routes.py` via `register_routes(routers)`), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
 - [Monorepo layout](docs/internal/monorepo-layout.md) — read when you need to place a new directory, or to work out which tree owns something (products, services, common, tools)
-- [Products README](products/README.md) — read before creating a product or changing one's structure; covers the structure rules `product:lint` enforces and the isolation rules hoglint enforces
+- [Products README](products/README.md) — read before creating a product or changing one's structure; covers the structure rules `product:lint` enforces and the isolation rules Hoglint enforces
 - [Products architecture](products/architecture.md) — read when designing a product's DTOs, facade, or contract with the rest of the repo
 - A directory may carry its own `AGENTS.md` that wins locally (`posthog/temporal/`, `rust/`, `frontend/src/`, most of `products/`). Check for one before working in an unfamiliar tree.
 

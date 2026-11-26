@@ -6,12 +6,22 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const {
+    closeWatchedSets,
+    productsReachedByFiles,
     decideJsonTargets,
+    decideProductChange,
     decideSelection,
     decideSelectionWithShadow,
+    deletedProductPythonFiles,
     isDagsterOnlyLegacyEdit,
+    listChangedFiles,
     narrowedProducts,
+    parseWatchedAnswer,
     productCascadePhase,
     productsWithUndeclaredInputChanges,
     selectedShards,
@@ -453,5 +463,411 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
     ]
     for (const [overrides, expected] of cases) {
         assert.deepEqual(jsonTargets(overrides), expected, JSON.stringify(overrides))
+    }
+})
+
+// --- Isolation from Hoglint's watched answer ---
+
+// One answer in `hoglint watched`'s format 1: canvas claims the level and passes, tasks claims it
+// and fails, and data_warehouse passes without a claim.
+const watchedAnswer = (extra) =>
+    JSON.stringify({
+        format: 1,
+        hoglint: '0.2.0',
+        engine: 'native-0',
+        policy: '0',
+        level: 'isolated',
+        complete: true,
+        problems: [],
+        groups: {
+            canvas: {
+                claimed: null,
+                passes: true,
+                reasons: [],
+                watched: {
+                    'products/canvas/backend/facade/api.py': 'structural: zone facade',
+                    'products/canvas/backend/apps.py': 'wiring-watched: ...',
+                },
+            },
+            tasks: { claimed: null, passes: false, reasons: ['has-facade: ...'], watched: {} },
+        },
+        ...extra,
+    })
+
+// No product claims the level: Hoglint judges every one, and only a product that passes isolates.
+test('only a product that passes the Isolated level is isolated', () => {
+    const read = parseWatchedAnswer(watchedAnswer())
+    assert.equal(read.status, 'ok')
+    assert.deepEqual([...read.isolated], ['canvas'])
+    assert.deepEqual([...read.watched.get('canvas')].sort(), [
+        'products/canvas/backend/apps.py',
+        'products/canvas/backend/facade/api.py',
+    ])
+    assert.match(read.digest, /^[0-9a-f]{16}$/)
+})
+
+// Each of these would otherwise read as "no watched file changed" and skip Django.
+test('an answer hoglint could not complete, or one this script cannot read, isolates nothing', () => {
+    const cases = [
+        ['not json', 'unavailable'],
+        [watchedAnswer({ format: 2 }), 'unavailable'],
+        [JSON.stringify({ format: 1 }), 'unavailable'],
+        [watchedAnswer({ groups: { canvas: { passes: true, watched: ['products/canvas/backend/facade/api.py'] } } }), 'unavailable'],
+        [watchedAnswer({ groups: { canvas: { passes: true, watched: 'products/canvas/backend/facade/api.py' } } }), 'unavailable'],
+        [watchedAnswer({ complete: false, problems: ['wiring-watched: cannot read every item of ...'] }), 'incomplete'],
+    ]
+    for (const [text, status] of cases) {
+        const read = parseWatchedAnswer(text)
+        assert.equal(read.status, status, text.slice(0, 60))
+        assert.equal(read.isolated.size, 0, text.slice(0, 60))
+    }
+})
+
+const ALL_PRODUCTS = ['canvas', 'error-tracking', 'tasks']
+
+// A products-only diff reaching canvas, the one isolated product of the answer above.
+const decideCanvas = (overrides) =>
+    decideProductChange({
+        affectedProducts: ['canvas'],
+        allProducts: ALL_PRODUCTS,
+        watched: parseWatchedAnswer(watchedAnswer()),
+        changedFiles: ['products/canvas/backend/logic/layout.py'],
+        deletedFiles: new Set(),
+        direct: false,
+        dependentsOf: () => ['error-tracking'],
+        ...overrides,
+    })
+
+test('an isolated product skips Django only when the diff leaves its watched set alone', () => {
+    const cases = [
+        // An unwatched file: the product's own suite is enough.
+        [{}, { products: ['canvas'], runLegacy: false, runLegacyReason: '' }],
+        // A watched file: Django runs, with the products that depend on it.
+        [
+            { changedFiles: ['products/canvas/backend/facade/api.py'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A deleted file is in no set of the head tree, so the deletion itself counts.
+        [
+            {
+                changedFiles: ['products/canvas/backend/logic/old_layout.py'],
+                deletedFiles: new Set(['products/canvas/backend/logic/old_layout.py']),
+            },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A backend data file can change what a core test sees, and Turbo's Python-only inputs
+        // report no product for it.
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/backend/logic/seed.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // So can a data file outside backend/ that backend code reads, and a product package.json
+        // or turbo.json changes what Turbo selects.
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/packages/canvas_builder/manifest.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/package.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/turbo.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A fixture under the product's tests is no data file: the product's own suite reads it.
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/backend/tests/fixture.json'] },
+            { products: ['canvas'], runLegacy: false, runLegacyReason: '' },
+        ],
+        // No base to diff against: nothing says the watched set was left alone.
+        [
+            { changedFiles: null },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A selecting PR run takes direct dependents only; the queue walks them all.
+        [
+            {
+                changedFiles: ['products/canvas/backend/facade/api.py'],
+                direct: true,
+                dependentsOf: (seeds, { direct }) => (direct ? ['error-tracking'] : ['error-tracking', 'tasks']),
+            },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // Without the cascade the dependents are unknown.
+        [
+            { changedFiles: ['products/canvas/backend/facade/api.py'], dependentsOf: () => null },
+            { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+    ]
+    for (const [overrides, expected] of cases) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas(overrides)
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, expected, JSON.stringify(overrides))
+    }
+})
+
+// Core imports canvas's facade and its models; each goes on to import a logic file. A core test
+// runs those logic files too, so a change to one must run Django.
+test('a product file that outside code reaches through the product runs Django, and a missing map isolates nothing', () => {
+    const fileMap = {
+        'products/canvas/backend/facade/api.py': ['posthog/api/canvas.py'],
+        'products/canvas/backend/models.py': ['posthog/models/test/test_canvas.py'],
+        'products/canvas/backend/logic/layout.py': ['products/canvas/backend/facade/api.py'],
+        'products/canvas/backend/logic/sizing.py': ['products/canvas/backend/models.py'],
+        'products/canvas/backend/logic/unused.py': ['products/canvas/backend/tests/test_unused.py'],
+    }
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap)
+    const cases = [
+        ['products/canvas/backend/logic/layout.py', true],
+        ['products/canvas/backend/logic/sizing.py', true],
+        ['products/canvas/backend/logic/unused.py', false],
+    ]
+    for (const [file, runLegacy] of cases) {
+        assert.equal(decideCanvas({ watched: closed, changedFiles: [file] }).runLegacy, runLegacy, file)
+    }
+    const unread = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), null)
+    assert.equal(unread.status, 'unavailable')
+    assert.equal(decideCanvas({ watched: unread }).runLegacyReason, 'watched_unavailable')
+})
+
+// Writes empty files at the given repo paths under a new temporary root, and returns the root.
+const treeWith = (prefix, files) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+    for (const file of files) {
+        fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true })
+        fs.writeFileSync(path.join(root, file), '')
+    }
+    return root
+}
+
+// Python runs every package __init__.py above a module it imports, and what each one imports.
+test('the package __init__.py files above a reached product file run Django, and what they import', () => {
+    const root = treeWith('package-inits-', [
+        'products/canvas/__init__.py',
+        'products/canvas/backend/__init__.py',
+        'products/canvas/backend/signals.py',
+        'products/canvas/backend/logic/__init__.py',
+        'products/canvas/backend/logic/queries.py',
+        'products/canvas/backend/logic/unused.py',
+    ])
+    const fileMap = {
+        'products/canvas/backend/logic/queries.py': ['posthog/models/organization.py'],
+        'products/canvas/backend/signals.py': ['products/canvas/backend/__init__.py'],
+    }
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
+    const cases = [
+        ['products/canvas/backend/logic/__init__.py', true],
+        ['products/canvas/backend/__init__.py', true],
+        ['products/canvas/__init__.py', true],
+        ['products/canvas/backend/signals.py', true],
+        ['products/canvas/backend/logic/unused.py', false],
+    ]
+    for (const [file, runLegacy] of cases) {
+        assert.equal(decideCanvas({ watched: closed, changedFiles: [file] }).runLegacy, runLegacy, file)
+    }
+    fs.rmSync(root, { recursive: true, force: true })
+})
+
+// Turbo's affected query sees only a product's declared backend:test inputs, and a product's own
+// turbo.json can narrow those, so a product file it reports no product for still reaches its product.
+test('a changed product file reaches its product whatever Turbo reports, and frontend or test files skip Django', () => {
+    const root = treeWith('product-root-', ['products/canvas/__init__.py', 'products/canvas/backend/facade/api.py'])
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), {}, root)
+    fs.rmSync(root, { recursive: true, force: true })
+    const cases = [
+        // The product's root package runs before any of its modules.
+        [
+            { watched: closed, changedFiles: ['products/canvas/__init__.py'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A product turbo.json narrowed to its tests, with a watched edit Turbo no longer sees.
+        [
+            { changedFiles: ['products/canvas/turbo.json', 'products/canvas/backend/facade/api.py'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        [{ changedFiles: ['products/canvas/frontend/Canvas.tsx'] }, { products: [], runLegacy: false, runLegacyReason: '' }],
+        [{ changedFiles: ['products/canvas/backend/AGENTS.md'] }, { products: [], runLegacy: false, runLegacyReason: '' }],
+        [
+            { changedFiles: ['products/canvas/backend/tests/test_layout.py'] },
+            { products: ['canvas'], runLegacy: false, runLegacyReason: '' },
+        ],
+        [
+            { changedFiles: ['products/canvas/backend/tests/__snapshots__/test_layout.ambr'] },
+            { products: ['canvas'], runLegacy: false, runLegacyReason: '' },
+        ],
+    ]
+    for (const [overrides, expected] of cases) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas({ affectedProducts: [], ...overrides })
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, expected, JSON.stringify(overrides.changedFiles))
+    }
+})
+
+// Files directly under products/ run for every product, and settings read db_routing.yaml.
+test('a change to a shared file directly under products/ runs every product and Django', () => {
+    for (const file of ['products/__init__.py', 'products/conftest.py', 'products/db_routing.yaml']) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas({ affectedProducts: [], changedFiles: [file] })
+        assert.deepEqual(
+            { products, runLegacy, runLegacyReason },
+            { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: 'products_root' },
+            file
+        )
+    }
+})
+
+// A watched module runs every path it resolves through, wherever that lives. The paths sit
+// outside products/, where no other rule reaches the product.
+// Each case: the files and symlinks the tree holds, the watched module, the changed path, and
+// whether the diff deletes it.
+const LINKED = 'products/canvas/backend/linked.py'
+for (const { label, files = ['shared/impl.py'], links, watchedFile = LINKED, changed, deleted = false } of [
+    { label: 'a changed target', links: [[LINKED, '../../../shared/impl.py']], changed: 'shared/impl.py' },
+    // A deleted target leaves the link dangling, so the link must still name it.
+    { label: 'a deleted target', links: [[LINKED, '../../../shared/impl.py']], changed: 'shared/impl.py', deleted: true },
+    {
+        label: 'the deleted end of a two-hop chain',
+        links: [[LINKED, '../../../shared/alias.py'], ['shared/alias.py', 'impl.py']],
+        changed: 'shared/impl.py',
+        deleted: true,
+    },
+    // Retargeting the middle link changes what the chain runs, while realpath names only the end.
+    {
+        label: 'a changed middle link',
+        links: [[LINKED, '../../../shared/alias.py'], ['shared/alias.py', 'impl.py']],
+        changed: 'shared/alias.py',
+    },
+    // The changed path is the directory symlink above the hop, not the hop itself.
+    {
+        label: 'a retargeted directory link on the way',
+        links: [[LINKED, '../../../alias_dir/impl.py'], ['alias_dir', 'shared']],
+        changed: 'alias_dir',
+    },
+    {
+        label: 'a changed file behind a directory link on the way',
+        links: [[LINKED, '../../../alias_dir/impl.py'], ['alias_dir', 'shared']],
+        changed: 'shared/impl.py',
+    },
+    // The watched module is a regular file; only a directory on its path is a symlink.
+    {
+        label: 'a changed file under a symlinked product directory',
+        links: [['products/canvas/backend/sub', '../../../shared']],
+        watchedFile: 'products/canvas/backend/sub/impl.py',
+        changed: 'shared/impl.py',
+    },
+]) {
+    test(`${label} of a watched module runs Django`, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'links-'))
+        for (const file of files) {
+            fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true })
+            fs.writeFileSync(path.join(root, file), '')
+        }
+        for (const [link, text] of links) {
+            fs.mkdirSync(path.join(root, path.dirname(link)), { recursive: true })
+            fs.symlinkSync(text, path.join(root, link))
+        }
+        execFileSync('git', ['init', '-q'], { cwd: root })
+        execFileSync('git', ['add', '.'], { cwd: root })
+        if (deleted) {
+            fs.rmSync(path.join(root, changed))
+        }
+        const fileMap = { [watchedFile]: ['posthog/api/canvas.py'] }
+        const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
+        // The selector loads Hoglint's answer only for a diff that reaches a product, so the change must reach it.
+        assert.deepEqual(productsReachedByFiles([changed], ALL_PRODUCTS, root), ['canvas'])
+        const previous = process.cwd()
+        process.chdir(root)
+        try {
+            const deletedFiles = new Set(deleted ? [changed] : [])
+            assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [changed], deletedFiles }).runLegacy, true)
+        } finally {
+            process.chdir(previous)
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+}
+
+test('a symlink directly under products/ whose target changed runs every product and Django', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loose-link-'))
+    fs.mkdirSync(path.join(root, 'products'), { recursive: true })
+    fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'shared/conftest.py'), '')
+    fs.symlinkSync('../shared/conftest.py', path.join(root, 'products/conftest.py'))
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    execFileSync('git', ['add', '.'], { cwd: root })
+    const previous = process.cwd()
+    process.chdir(root)
+    try {
+        const { products, runLegacy, runLegacyReason } = decideCanvas({ affectedProducts: [], changedFiles: ['shared/conftest.py'] })
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: 'products_root' })
+    } finally {
+        process.chdir(previous)
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+
+// Without the listing a changed file may be any link's target, so every product is reached.
+test('a failed listing of symlinks reaches every product', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'no-git-'))
+    try {
+        assert.deepEqual(productsReachedByFiles(['shared/whatever.py'], ALL_PRODUCTS, root), [...ALL_PRODUCTS].sort())
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+
+// Each case is an answer the diff cannot be judged by, so every product and Django run.
+test('a missing answer, a failed level or a change to hoglint itself widens to every product', () => {
+    const cases = [
+        [{ watched: parseWatchedAnswer('not json') }, 'watched_unavailable'],
+        [{ watched: parseWatchedAnswer(watchedAnswer({ complete: false })) }, 'watched_unavailable'],
+        [{ affectedProducts: ['canvas', 'tasks'] }, 'non_isolated_product'],
+        [{ changedFiles: ['products/canvas/backend/logic/layout.py', 'tools/hoglint/presets/posthog.toml'] }, 'watched_policy'],
+        [{ changedFiles: ['products/canvas/backend/logic/layout.py', 'hoglint.toml'] }, 'watched_policy'],
+        // A policy-only diff reaches no product, and still changes every watched set.
+        [{ affectedProducts: [], watched: null, changedFiles: ['hoglint.toml'] }, 'watched_policy'],
+        [{ affectedProducts: [], watched: null, changedFiles: ['tools/hoglint/presets/posthog.toml'] }, 'watched_policy'],
+    ]
+    for (const [overrides, reason] of cases) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas(overrides)
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: reason }, reason)
+    }
+})
+
+// git quotes a non-ASCII path in plain output ("products/canvas/backend/facade/pol\303\255cy.py").
+// That string matches no watched file, so a change there would skip Django.
+test('the diff lists a non-ASCII path as written, so it can match a watched file', () => {
+    const changed = 'products/canvas/backend/facade/polícy.py'
+    const deleted = 'products/canvas/backend/logic/cafés.py'
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'non-ascii-diff-'))
+    const origCwd = process.cwd()
+    const origBase = process.env.TURBO_SCM_BASE
+    try {
+        process.chdir(root)
+        const git = (...args) => execFileSync('git', args, { encoding: 'utf-8' }).trim()
+        git('init', '-q')
+        git('config', 'user.email', 'test@example.com')
+        git('config', 'user.name', 'test')
+        git('config', 'commit.gpgsign', 'false')
+        for (const file of [changed, deleted]) {
+            fs.mkdirSync(path.dirname(file), { recursive: true })
+            fs.writeFileSync(file, 'x = 1\n')
+        }
+        git('add', '.')
+        git('commit', '-q', '-m', 'base')
+        const base = git('rev-parse', 'HEAD')
+        fs.writeFileSync(changed, 'x = 2\n')
+        fs.rmSync(deleted)
+        git('commit', '-q', '-am', 'head')
+
+        assert.deepEqual(listChangedFiles(base, 'HEAD'), [changed, deleted])
+        process.env.TURBO_SCM_BASE = base
+        assert.deepEqual(deletedProductPythonFiles(), [deleted])
+    } finally {
+        process.chdir(origCwd)
+        if (origBase === undefined) {
+            delete process.env.TURBO_SCM_BASE
+        } else {
+            process.env.TURBO_SCM_BASE = origBase
+        }
+        fs.rmSync(root, { recursive: true, force: true })
     }
 })

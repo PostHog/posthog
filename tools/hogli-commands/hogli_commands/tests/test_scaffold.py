@@ -27,7 +27,7 @@ def _write_scaffold(product_dir: Path) -> None:
 
 
 class TestScaffoldPassesTheLint:
-    # A bootstrapped product passes product:lint from its first commit. hoglint judges its
+    # A bootstrapped product passes product:lint from its first commit. Hoglint judges its
     # isolation; CI checks the scaffold with `hoglint check`.
 
     def test_scaffold_passes_the_system_checks_lint(self, tmp_path: Path) -> None:

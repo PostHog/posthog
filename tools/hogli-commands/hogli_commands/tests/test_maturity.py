@@ -35,15 +35,6 @@ LEDGER = (
 )
 
 
-def _write_turbo(product_dir: Path, tasks: dict) -> None:
-    product_dir.mkdir(parents=True)
-    (product_dir / "turbo.json").write_text(json.dumps({"extends": ["//"], "tasks": tasks}))
-    scripts = dict.fromkeys(tasks, "echo")
-    (product_dir / "package.json").write_text(
-        json.dumps({"name": f"@posthog/products-{product_dir.name}", "scripts": scripts})
-    )
-
-
 def _fake_query(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, stderr: str) -> None:
     def run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args, returncode, stdout, stderr)
@@ -53,26 +44,21 @@ def _fake_query(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, s
 
 class TestIsolatedLevel:
     @pytest.mark.parametrize(
-        "product, claims, write_ledger, expected",
+        "product, write_ledger, expected",
         [
-            ("harbor", True, True, "claims and passes"),
-            ("lantern", True, True, "claims and fails"),
-            ("harbor", False, True, "passes without claiming"),
-            ("lantern", False, True, "neither claims nor passes"),
-            ("harbor", True, False, "unknown: no hoglint.ledger"),
+            ("harbor", True, "passes"),
+            ("lantern", True, "does not pass"),
+            ("harbor", False, "unknown: no hoglint.ledger"),
         ],
-        ids=["claims_and_passes", "debt_line_is_no_pass", "passes_without_claim", "neither", "missing_ledger"],
+        ids=["level_line_passes", "debt_line_is_no_pass", "missing_ledger"],
     )
     def test_level_reads_only_level_lines(
-        self, tmp_path: Path, product: str, claims: bool, write_ledger: bool, expected: str
+        self, tmp_path: Path, product: str, write_ledger: bool, expected: str
     ) -> None:
         if write_ledger:
             (tmp_path / "hoglint.ledger").write_text(LEDGER)
-        tasks = {"backend:contract-check": {"inputs": ["backend/facade/**"]}} if claims else {}
-        product_dir = tmp_path / "products" / product
-        _write_turbo(product_dir, tasks)
 
-        level = IsolatedLevel.of(product, product_dir, IsolatedPasses.read(tmp_path))
+        level = IsolatedLevel.of(product, IsolatedPasses.read(tmp_path))
 
         assert level.detail == expected
 

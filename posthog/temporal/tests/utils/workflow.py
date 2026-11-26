@@ -149,6 +149,6 @@ def wait_for_activity_sync(inputs: WaitInputsActivity) -> None:
 
 WORKFLOWS = [WaitWorkflow]
 
-# hoglint reads this list for isolation claims. It cannot prove what a bound method of a
+# Hoglint reads this list for isolation claims. It cannot prove what a bound method of a
 # decorated activity resolves to, so list module-level functions, not WAITER's methods.
 ACTIVITIES = [wait_for_activity, wait_for_activity_sync]
