@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl, router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
-    LemonDialog,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -22,16 +20,19 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, RoleType } from '~/types'
 
+import { QuillDefaultRoleSelector } from './quill/QuillDefaultRoleSelector'
+import { QuillRolesAccessControls } from './quill/QuillRolesAccessControls'
 import { roleAccessControlLogic } from './roleAccessControlLogic'
+import { confirmDeleteRole, openRoleAccessSettings } from './roleActions'
 
 export function RolesAccessControls(): JSX.Element {
     const { sortedRoles, rolesLoading, selectedRoleId, canEditRoles } = useValues(roleAccessControlLogic)
@@ -43,6 +44,11 @@ export function RolesAccessControls(): JSX.Element {
     const defaultRoleRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillRolesAccessControls />
+    }
 
     const columns: LemonTableColumns<RoleType> = [
         {
@@ -208,14 +214,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                     size="small"
                     className="whitespace-nowrap"
                     onClick={() =>
-                        guardAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS, () => {
-                            router.actions.push(
-                                combineUrl(urls.settings('environment-access-control'), {
-                                    access_tab: 'roles',
-                                    access_role_id: role.id,
-                                }).url
-                            )
-                        })
+                        guardAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS, () => openRoleAccessSettings(role.id))
                     }
                 >
                     Manage access
@@ -281,31 +280,7 @@ function RoleModal(): JSX.Element {
     const isDefaultRole = currentOrganization?.default_role_id === editingRoleId
 
     const onDelete = (): void => {
-        const baseContent = 'Are you sure you want to delete this role? This action cannot be undone.'
-
-        LemonDialog.open({
-            title: 'Delete role',
-            maxWidth: 400,
-            content: (
-                <div>
-                    <p>{baseContent}</p>
-                    {isDefaultRole && (
-                        <p className="text-warning font-medium mt-2">
-                            ⚠️ This role is currently set as the default for new members and will be cleared from
-                            organization settings.
-                        </p>
-                    )}
-                </div>
-            ),
-            primaryButton: {
-                children: 'Delete permanently',
-                onClick: () => deleteRole(editingRoleId as string),
-                status: 'danger',
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
+        confirmDeleteRole(isDefaultRole, () => deleteRole(editingRoleId as string))
     }
 
     return (
@@ -351,18 +326,33 @@ export function DefaultRoleSelector(): JSX.Element {
     const defaultRoleRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleChange = (value: string | null): void => {
+        guardAvailableFeature(
+            AvailableFeature.ROLE_BASED_ACCESS,
+            updateOrganization.bind(null, { default_role_id: value })
+        )
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillDefaultRoleSelector
+                roles={sortedRoles ?? []}
+                value={currentOrganization?.default_role_id || null}
+                onChange={handleChange}
+                loading={rolesLoading}
+                disabledReason={defaultRoleRestrictionReason}
+            />
+        )
+    }
 
     return (
         <div className="max-w-80">
             <LemonSelect
                 fullWidth
                 value={currentOrganization?.default_role_id || null}
-                onChange={(value) => {
-                    guardAvailableFeature(
-                        AvailableFeature.ROLE_BASED_ACCESS,
-                        updateOrganization.bind(null, { default_role_id: value })
-                    )
-                }}
+                onChange={handleChange}
                 options={[
                     { value: null, label: 'No default role' },
                     ...(sortedRoles?.map((role) => ({

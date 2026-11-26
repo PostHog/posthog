@@ -32,13 +32,14 @@ class DirectMotherDuckTable(DirectSQLTable):
     def to_printed_duckdb(self, context) -> str:
         if not self.motherduck_database.strip() or not self.motherduck_schema.strip():
             raise QueryError("Direct MotherDuck tables require a database and schema name.")
-        return ".".join(
+        table_ref = ".".join(
             [
                 escape_duckdb_identifier(self.motherduck_database),
                 escape_duckdb_identifier(self.motherduck_schema),
                 escape_duckdb_identifier(self.motherduck_table_name),
             ]
         )
+        return self.project_allowed_columns(table_ref, escape_duckdb_identifier)
 
     def to_printed_postgres(self, context) -> str:
         raise QueryError("Direct MotherDuck tables cannot be printed into Postgres SQL")

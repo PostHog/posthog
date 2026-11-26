@@ -65,7 +65,7 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     saved_trends_insights,
 )
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout
+from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout, judges_team
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
@@ -143,6 +143,10 @@ _MAX_DUE_ROWS = 5000
 # mostly the oldest due rows. They get at most this many of the rows that one plan reads. Without this limit, a train
 # backlog larger than the read fills every plan, and no scored row reaches the score pass.
 _MAX_NEVER_SCORED_DUE_ROWS = _MAX_DUE_ROWS // 2
+# The never-scored rows that one project gets in the read. Far more than the train picks of one project in one tick,
+# so that rows in a cooldown or over a budget leave rows to pick from. Without this limit, one project with a large
+# train backlog fills the read, and the never-scored rows of the other projects never reach a plan.
+_MAX_NEVER_SCORED_DUE_ROWS_PER_TEAM = 50
 # More rows than the lane picks, so that rows in a cooldown or over a budget leave rows to pick from.
 _FIRST_TRAIN_ROWS_PER_TEAM = 10
 _MAX_FIRST_TRAIN_DUE_ROWS = 500
@@ -257,6 +261,8 @@ class Selection:
     # Eligible teams, and their organizations.
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    # Eligible teams that score with `default-v2`.
+    ai_judge_teams: int = 0
     # Insights in a cooldown after two or more consecutive too-expensive visits.
     long_cooldown: int = 0
     # Insights in a cooldown after a train pick with no series.
@@ -266,6 +272,8 @@ class Selection:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    # Due rows that the read caps left out. None when the tick does not plan from the due list.
+    due_unread: int | None = None
     first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
 
@@ -285,6 +293,8 @@ class DueList:
     first_train_teams: frozenset[int] = frozenset()
     first_train_waiting: int = 0
     never_scored_due: int = 0
+    # Due rows that the read caps left out. The backlog counts of the plan do not include them.
+    due_unread: int = 0
 
 
 @frozen
@@ -522,22 +532,23 @@ def load_due_list(
         "next_due_at", "insight_id"
     )
     never_scored_due = due.filter(series_scored_through={})
-    never_scored = list(never_scored_due[:_MAX_NEVER_SCORED_DUE_ROWS])
+    # Never-scored rows all have the same staleness, so `pick_order` weighs them by usage alone. The read takes the
+    # first row of each project, then the second, and so on, so every project with a train backlog gets a share.
+    never_scored = list(
+        never_scored_due.alias(team_rank=_usage_rank())
+        .filter(team_rank__lte=_MAX_NEVER_SCORED_DUE_ROWS_PER_TEAM)
+        .order_by("team_rank", "next_due_at", "insight_id")[:_MAX_NEVER_SCORED_DUE_ROWS]
+    )
     scored = list(due.exclude(series_scored_through={})[: _MAX_DUE_ROWS - len(never_scored)])
     trained_daily_teams = (
         scope.filter(interval=IntervalType.DAY.value).exclude(series_scored_through={}).values("team_id")
     )
     first_train_due = never_scored_due.filter(interval=IntervalType.DAY.value).exclude(team_id__in=trained_daily_teams)
-    # Never-scored rows all have the same staleness, so `pick_order` weighs them by usage alone.
     first_train = (
         list(
-            first_train_due.alias(
-                team_rank=Window(
-                    RowNumber(),
-                    partition_by=F("team_id"),
-                    order_by=[F("has_enabled_alert").desc(), F("viewers").desc(), F("insight_id").asc()],
-                )
-            ).filter(team_rank__lte=_FIRST_TRAIN_ROWS_PER_TEAM)[:_MAX_FIRST_TRAIN_DUE_ROWS]
+            first_train_due.alias(team_rank=_usage_rank()).filter(team_rank__lte=_FIRST_TRAIN_ROWS_PER_TEAM)[
+                :_MAX_FIRST_TRAIN_DUE_ROWS
+            ]
         )
         if first_train_lane
         else []
@@ -560,6 +571,16 @@ def load_due_list(
         first_train_teams=frozenset(row.team_id for row in first_train),
         first_train_waiting=first_train_due.order_by().values("team_id").distinct().count(),
         never_scored_due=never_scored_due.count(),
+        due_unread=due.count() - len(rows),
+    )
+
+
+def _usage_rank() -> Window:
+    """The rank of a due row in its project, the most used row first."""
+    return Window(
+        RowNumber(),
+        partition_by=F("team_id"),
+        order_by=[F("has_enabled_alert").desc(), F("viewers").desc(), F("insight_id").asc()],
     )
 
 
@@ -744,6 +765,16 @@ def reserve_queries(
     return False
 
 
+def charge_queries(team_id: int, queries: int, now: datetime.datetime, kind: ScoringRun) -> None:
+    """Charge ``queries`` that a pick sent past its plan to both hourly budgets of ``kind``.
+
+    The pick has already sent them, so the charge can pass a cap. Later plans then have that much less budget.
+    """
+    for key in (_fleet_budget_key(now, kind), _project_budget_key(team_id, now, kind)):
+        cache.add(key, 0, timeout=int(_BUDGET_TTL.total_seconds()))
+        cache.incr(key, queries)
+
+
 def within_budget(
     order: list[int],
     team_ids: dict[int, int],
@@ -800,7 +831,7 @@ def _run_plans(
     team: Team, insight_ids: list[int], config: AnomalyScoringConfig, now: datetime.datetime
 ) -> dict[int, RunPlan]:
     insights = insights_including_soft_deleted_for_team(team_id=team.id, insight_ids=insight_ids)
-    states = load_states(team, insights) if config.train_score_split else {}
+    states = load_states(team, insights, config.ai_judge) if config.train_score_split else {}
     plans = {insight.id: plan_run(insight, team, states.get(insight.id), config, now) for insight in insights}
     # An insight that no longer exists sends no query, but one query is the safe charge.
     missing = RunPlan(queries=1, run=ScoringRun.TRAIN if config.train_score_split else None)
@@ -1074,11 +1105,13 @@ def select_insights(
         teams_skipped=len(teams_with_insights) - len(loaded_teams),
         enrolled_teams=len(teams),
         enrolled_organizations=len({team.organization_id for team in teams.values()}),
+        ai_judge_teams=sum(judges_team(config.ai_judge, team) for team in teams.values()),
         long_cooldown=sum(too_expensive.get(insight_id, 0) > 1 for insight_id in cooling),
         empty_backoff=sum(insight_id in empty_train for insight_id in cooling),
         due_insights=None if due_list is None else len(due_list.insights),
         oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
         oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
+        due_unread=None if due_list is None else due_list.due_unread,
         first_train=FirstTrainReport(
             waiting_teams=len({team_ids[insight_id] for insight_id in first_train_ids})
             if due_list is None

@@ -5,11 +5,13 @@ import { LemonBanner, LemonButton, LemonInput, LemonTextArea } from '@posthog/le
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { OrganizationMemberNoticeMessage } from '~/layout/navigation/OrganizationMemberNoticeMessage'
 
 import { organizationMemberNoticeLogic } from './organizationMemberNoticeLogic'
+import { QuillOrganizationMemberNotice } from './QuillOrganizationMemberNotice'
 
 const MESSAGE_MAX_LENGTH = 1000
 const BUTTON_LABEL_MAX_LENGTH = 40
@@ -25,6 +27,11 @@ export function OrganizationMemberNotice(): JSX.Element {
     const { removeMemberNotice } = useActions(organizationMemberNoticeLogic)
 
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillOrganizationMemberNotice />
+    }
 
     return (
         <Form

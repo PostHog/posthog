@@ -1,5 +1,7 @@
 import json
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -34,7 +36,7 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
@@ -112,7 +114,7 @@ class TestImageExporter(APIBaseTest):
             team=self.team, export_format=ExportedAsset.ExportFormat.PNG, export_context=context
         )
 
-        image_exporter._export_to_png(asset)
+        image_exporter._export_rendered_asset(asset)
 
         asset.refresh_from_db()
         assert asset.export_context == {**context, **expected}
@@ -126,7 +128,40 @@ class TestImageExporter(APIBaseTest):
         )
 
         with self.assertRaises(InvalidExportContext):
-            image_exporter._export_to_png(exported_asset)
+            image_exporter._export_rendered_asset(exported_asset)
+
+    @parameterized.expand([(100000, 1), (10, 21)])
+    def test_pdf_rejects_oversized_layout_before_querying_or_opening_browser(
+        self, mock_remove: Any, mock_file: Any, mock_screenshot: Any, height: int, tile_count: int
+    ) -> None:
+        source_insight = self.exported_asset.insight
+        assert source_insight is not None
+        dashboard = Dashboard.objects.create(team=self.team)
+        DashboardTile.objects.bulk_create(
+            [
+                DashboardTile(
+                    dashboard=dashboard,
+                    team=self.team,
+                    insight=Insight.objects.create(team=self.team, query=source_insight.query),
+                    layouts={"sm": {"h": height}},
+                )
+                for _ in range(tile_count)
+            ]
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team, dashboard=dashboard, export_format=ExportedAsset.ExportFormat.PDF
+        )
+
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight",
+                side_effect=RuntimeError("An oversized export must not query insights"),
+            ),
+            self.assertRaises(InvalidExportContext),
+        ):
+            image_exporter.export_image(asset)
+
+        mock_screenshot.assert_not_called()
 
     @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
     def test_adhoc_query_export_renders_without_insight(
@@ -268,10 +303,16 @@ class TestImageExporter(APIBaseTest):
 
             assert self.exported_asset.content == b"image_data"
 
-    @parameterized.expand([(None,), ({"date_from": "-90d", "date_to": "2026-01-01"},)])
+    @parameterized.expand(
+        [
+            (export_format, selected_filters)
+            for export_format in (ExportedAsset.ExportFormat.PNG, ExportedAsset.ExportFormat.PDF)
+            for selected_filters in (None, {"date_from": "-90d", "date_to": "2026-01-01"})
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_calculates_all_insights(
-        self, selected_filters: dict | None, mock_calculate: Any, *args: Any
+        self, export_format: str, selected_filters: dict | None, mock_calculate: Any, *args: Any
     ) -> None:
         mock_calculate.return_value = make_insight_result("test_cache_key")
 
@@ -293,7 +334,7 @@ class TestImageExporter(APIBaseTest):
 
         dashboard_asset = ExportedAsset.objects.create(
             team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
+            export_format=export_format,
             dashboard=dashboard,
             insight=None,
             export_context={"filters_override": selected_filters},
@@ -301,6 +342,8 @@ class TestImageExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(dashboard_asset)
+
+        assert dashboard_asset.content == b"image_data"
 
         assert mock_calculate.call_count == insight_count, (
             f"Expected cache warming for {insight_count} insights, got {mock_calculate.call_count} calls"
@@ -415,6 +458,44 @@ class TestImageExporter(APIBaseTest):
         assert exported_cache_keys == {
             str(insight.id): f"cache_key_for_insight_{insight.id}{cache_key_suffix}" for insight in insights
         }
+
+    @parameterized.expand(
+        [
+            ("no_tiles", None, False),
+            ("only_deleted_insight", "deleted_insight", False),
+            ("only_text", "text", True),
+        ]
+    )
+    def test_dashboard_export_renders_only_when_a_tile_is_shown(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+        _name: str,
+        tile_kind: str | None,
+        renders: bool,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        if tile_kind == "deleted_insight":
+            insight = Insight.objects.create(team=self.team, deleted=True, query={"kind": "TrendsQuery", "series": []})
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        elif tile_kind == "text":
+            DashboardTile.objects.create(dashboard=dashboard, text=Text.objects.create(team=self.team, body="Notes"))
+        dashboard_asset = ExportedAsset.objects.create(
+            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, dashboard=dashboard
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            if renders:
+                image_exporter.export_image(dashboard_asset)
+            else:
+                with self.assertRaisesRegex(InvalidExportContext, "no insights or text cards"):
+                    image_exporter.export_image(dashboard_asset)
+
+        if renders:
+            assert mock_screenshot_asset.call_args[0][3] == ".DashboardTileCard"
+        else:
+            mock_screenshot_asset.assert_not_called()
 
     @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
@@ -1009,6 +1090,42 @@ class TestBuildCdpEndpoint(SimpleTestCase):
 
 
 class TestScreenshotAssetBrowserless(SimpleTestCase):
+    def test_pdf_renderer_writes_pdf_bytes(self) -> None:
+        page = MagicMock()
+        page.evaluate.return_value = 2400
+        page.pdf.side_effect = lambda path, **kwargs: Path(path).write_bytes(b"%PDF-rendered")
+        page.screenshot.side_effect = lambda path: Path(path).write_bytes(b"PNG-rendered")
+        playwright_cm = MagicMock()
+        browser = playwright_cm.__enter__.return_value.chromium.connect_over_cdp.return_value
+        browser.new_context.return_value.new_page.return_value = page
+
+        with (
+            TemporaryDirectory() as directory,
+            patch("products.exports.backend.tasks.image_exporter.sync_playwright", return_value=playwright_cm),
+        ):
+            path = Path(directory) / "dashboard.pdf"
+            image_exporter._screenshot_asset_browserless(
+                str(path), "https://example.com/export", 1122, ".react-grid-item", export_pdf=True
+            )
+            assert path.read_bytes() == b"%PDF-rendered"
+            assert page.set_viewport_size.call_args.args[0] == {"width": 1122, "height": 794}
+
+    @parameterized.expand([(100, 800), (500, 100000)])
+    def test_pdf_rejects_oversized_document_before_printing(self, first_tile_space: int, document_height: int) -> None:
+        page = MagicMock()
+        page.evaluate.side_effect = [None, first_tile_space, document_height]
+        playwright_cm = MagicMock()
+        browser = playwright_cm.__enter__.return_value.chromium.connect_over_cdp.return_value
+        browser.new_context.return_value.new_page.return_value = page
+
+        with patch("products.exports.backend.tasks.image_exporter.sync_playwright", return_value=playwright_cm):
+            with self.assertRaises(InvalidExportContext):
+                image_exporter._screenshot_asset_browserless(
+                    "/tmp/oversized.pdf", "https://example.com/export", 1122, ".react-grid-item", export_pdf=True
+                )
+
+        page.pdf.assert_not_called()
+
     def test_connect_error_is_wrapped_as_browserless_unavailable(self) -> None:
         playwright_obj = MagicMock()
         playwright_obj.chromium.connect_over_cdp.side_effect = PlaywrightError("ECONNREFUSED")

@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -69,7 +69,7 @@ def _build_request_body(
 ) -> dict[str, Any]:
     # Single-page endpoints document an optional (or absent) request body; an empty JSON
     # object is accepted either way and keeps the request shape uniform.
-    body: dict[str, Any] = {}
+    body: dict[str, Any] = {**config.extra_body}
     if config.paginated:
         body["limit"] = _page_size(config, api_version)
     if (
@@ -92,11 +92,59 @@ def _post(client: RESTClient, path: str, body: dict[str, Any]) -> dict[str, Any]
     return response
 
 
-def _iter_customer_fan_out(
-    api_key: str,
+CustomerRowsFetcher = Callable[[RESTClient, str, dict[str, Any]], list[dict[str, Any]]]
+
+
+def _fetch_customer_rows(config: AutumnEndpointConfig) -> CustomerRowsFetcher:
+    def fetch(client: RESTClient, customer_id: str, customer: dict[str, Any]) -> list[dict[str, Any]]:
+        child = _post(client, config.path, {"customer_id": customer_id})
+        return [{**row, "customer_id": customer_id} for row in child.get(config.data_selector) or []]
+
+    return fetch
+
+
+def _fetch_customer_feature_rows(
     config: AutumnEndpointConfig,
     api_version: str,
     resumable_source_manager: ResumableSourceManager[AutumnResumeConfig],
+) -> CustomerRowsFetcher:
+    def fetch(client: RESTClient, customer_id: str, customer: dict[str, Any]) -> list[dict[str, Any]]:
+        balances = customer.get("balances")
+        feature_ids = sorted(balances) if isinstance(balances, dict) else []
+        rows: list[dict[str, Any]] = []
+        for feature_id in feature_ids:
+            cursor: str | None = None
+            while True:
+                body: dict[str, Any] = {
+                    "customer_id": customer_id,
+                    "feature_id": feature_id,
+                    "limit": _page_size(config, api_version),
+                }
+                if cursor is not None:
+                    body["start_cursor"] = cursor
+                page = _post(client, config.path, body)
+                rows.extend(
+                    {**row, "customer_id": customer_id, "balance_feature_id": feature_id}
+                    for row in page.get(config.data_selector) or []
+                )
+                # The staged cursor ends at the previous customer, so a hand-off here re-reads this one.
+                resumable_source_manager.safe_point()
+                next_cursor = page.get("next_cursor")
+                if not next_cursor:
+                    break
+                if next_cursor == cursor:
+                    raise ValueError(f"Autumn {config.path} pagination is not advancing (repeated cursor)")
+                cursor = next_cursor
+        return rows
+
+    return fetch
+
+
+def _iter_customer_fan_out(
+    api_key: str,
+    api_version: str,
+    resumable_source_manager: ResumableSourceManager[AutumnResumeConfig],
+    fetch_rows: CustomerRowsFetcher,
 ) -> Iterator[list[dict[str, Any]]]:
     customers = AUTUMN_ENDPOINTS["Customers"]
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -132,8 +180,7 @@ def _iter_customer_fan_out(
                 if customer_id is None:
                     resumable_source_manager.safe_point()
                     continue
-                child = _post(client, config.path, {"customer_id": customer_id})
-                rows = [{**row, "customer_id": customer_id} for row in child.get(config.data_selector) or []]
+                rows = fetch_rows(client, str(customer_id), customer)
                 resumable_source_manager.save_state(
                     AutumnResumeConfig(next_cursor=cursor, last_customer_id=str(customer_id))
                 )
@@ -195,11 +242,30 @@ def autumn_source(
 ) -> SourceResponse:
     config = AUTUMN_ENDPOINTS[endpoint]
 
-    if config.customer_fan_out:
+    if api_version in config.unsupported_api_versions:
+        raise ValueError(unsupported_api_version_message(config, api_version))
+
+    partition_keys: Optional[list[str]] = None
+    partition_mode: Optional[PartitionMode] = None
+    partition_size: Optional[int] = None
+    if config.partition_key is not None:
+        partition_keys = [config.partition_key]
+        partition_mode = "numerical"
+        partition_size = PARTITION_BUCKET_MILLISECONDS
+
+    if config.customer_fan_out or config.customer_feature_fan_out:
+        fetch_rows = (
+            _fetch_customer_feature_rows(config, api_version, resumable_source_manager)
+            if config.customer_feature_fan_out
+            else _fetch_customer_rows(config)
+        )
         return SourceResponse(
             name=config.name,
-            items=lambda: _iter_customer_fan_out(api_key, config, api_version, resumable_source_manager),
+            items=lambda: _iter_customer_fan_out(api_key, api_version, resumable_source_manager, fetch_rows),
             primary_keys=config.primary_keys,
+            partition_keys=partition_keys,
+            partition_mode=partition_mode,
+            partition_size=partition_size,
         )
 
     json_body = _build_request_body(
@@ -246,14 +312,6 @@ def autumn_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    partition_keys: Optional[list[str]] = None
-    partition_mode: Optional[PartitionMode] = None
-    partition_size: Optional[int] = None
-    if config.partition_key is not None:
-        partition_keys = [config.partition_key]
-        partition_mode = "numerical"
-        partition_size = PARTITION_BUCKET_MILLISECONDS
-
     return SourceResponse(
         name=config.name,
         items=lambda: resource,
@@ -265,6 +323,16 @@ def autumn_source(
         # and "desc" is also the safe choice if the order turns out to be ascending — the
         # watermark then only commits once the sync completes.
         sort_mode="desc" if config.incremental_range_field is not None else "asc",
+    )
+
+
+UNSUPPORTED_API_VERSION_PREFIX = "This Autumn source uses an API version that can't sync"
+
+
+def unsupported_api_version_message(config: AutumnEndpointConfig, api_version: str) -> str:
+    return (
+        f"{UNSUPPORTED_API_VERSION_PREFIX} the {config.name} table (version {api_version}). "
+        f"Connect Autumn again as a new source, which uses version {AUTUMN_API_VERSION_2_4_0}, to sync it."
     )
 
 

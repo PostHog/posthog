@@ -107,7 +107,13 @@ from products.error_tracking.backend.facade.testing import (
     create_symbol_set,
 )
 from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
-from products.experiments.backend.facade.testing import create_experiment
+from products.experiments.backend.facade.testing import (
+    clear_experiment_status,
+    create_experiment,
+    create_saved_metric,
+    link_saved_metric,
+    update_experiment,
+)
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
@@ -129,8 +135,10 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutRun,
+    SignalScratchpad,
     SignalSpend,
 )
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.facade import testing as tasks_testing
 from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
@@ -180,6 +188,8 @@ TEAM_ID_FILTER_PATTERNS: dict[str, str | tuple[str, ...]] = {
     # Runs have no team_id column; isolation is enforced via a predicate scoping through the
     # run's parent (scheduled or on-demand batch export)
     "batch_export_runs": "system__batch_exports.team_id",
+    # Saved metric links have no team_id column; isolation flows through system.experiments
+    "experiment_to_saved_metrics": "system__experiments.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_event_definition_tagged_items": "system___event_definition_tagged_items.team_id",
@@ -278,6 +288,7 @@ class TestSystemTablesTeamScoping(BaseTest):
             ("inbox_report_actions", "metadata"),
             ("activity_logs", "credential_id"),
             ("activity_logs", "impersonated_by_id"),
+            ("task_runs", "state"),
         ]
     )
     def test_viewer_restricted_fields_are_not_queryable(self, table_name, field_name):
@@ -698,6 +709,16 @@ def _create_experiment(team: Team, label: str) -> int:
     return create_experiment(team_id=team.id, name=f"experiment_{label}", feature_flag_id=flag.id)
 
 
+def _create_experiment_saved_metric(team: Team, label: str) -> int:
+    return create_saved_metric(team_id=team.id, name=f"saved_metric_{label}", query={"kind": "ExperimentMetric"})
+
+
+def _create_experiment_to_saved_metric(team: Team, label: str) -> int:
+    return link_saved_metric(
+        experiment_id=_create_experiment(team, label), saved_metric_id=_create_experiment_saved_metric(team, label)
+    )
+
+
 def _create_export(team: Team, label: str) -> ExportedAsset:
     return ExportedAsset.objects.create(team=team, export_format="text/csv")
 
@@ -991,6 +1012,31 @@ def _create_task_run(team: Team, label: str) -> TaskRun:
     return TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.QUEUED)
 
 
+def _create_slack_thread_mapping(
+    team: Team, label: str, task: Task | None = None, conversation_type: str | None = "public_channel"
+) -> SlackThreadTaskMapping:
+    if task is None:
+        task = Task.objects.create(
+            team=team, title=f"slack_{label}", description="x", origin_product=Task.OriginProduct.SLACK
+        )
+    run = TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.COMPLETED)
+    return SlackThreadTaskMapping.objects.create(
+        team=team,
+        integration=_create_integration(team, label),
+        slack_workspace_id="T00000000",
+        channel=f"C_{label}",
+        thread_ts=f"{uuid.uuid4().int % 10**10}.000100",
+        task=task,
+        task_run=run,
+        mentioning_slack_user_id="U00000000",
+        conversation_type=conversation_type,
+    )
+
+
+def _create_public_slack_task(team: Team, label: str) -> Task:
+    return _create_slack_thread_mapping(team, label).task
+
+
 def _create_file_system(team: Team, label: str):
     from posthog.models.file_system.file_system import FileSystem
 
@@ -1104,6 +1150,10 @@ def _create_scout_run_emission(team: Team, label: str) -> SignalScoutEmission:
     return SignalScoutEmission.objects.for_team(team.pk).create(
         team=team, scout_run=run, finding_id=label, description=label, source_id=f"run:{run.pk}:finding:{label}"
     )
+
+
+def _create_scout_scratchpad(team: Team, label: str) -> SignalScratchpad:
+    return SignalScratchpad.objects.for_team(team.pk).create(team=team, key=f"memory:{label}", content=label)
 
 
 def _create_signal_spend(team: Team, label: str) -> SignalSpend:
@@ -1228,6 +1278,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("event_definitions", _create_event_definition),
     ("evaluations", _create_evaluation),
     ("experiments", _create_experiment),
+    ("experiment_saved_metrics", _create_experiment_saved_metric),
+    ("experiment_to_saved_metrics", _create_experiment_to_saved_metric),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
     ("feature_request_account_links", _create_feature_request_account_link),
@@ -1268,6 +1320,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("scout_configs", _create_scout_config),
     ("scout_run_emissions", _create_scout_run_emission),
     ("scout_runs", _create_scout_run),
+    ("scout_scratchpad", _create_scout_scratchpad),
     ("signal_spend", _create_signal_spend),
     ("_signal_spend_scout_runs", _create_scout_run),
     ("session_recording_playlists", _create_session_recording_playlist),
@@ -1277,6 +1330,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("survey_response_archives", _create_survey_response_archive),
     ("surveys", _create_survey),
     ("_task_public_channels", _create_public_task_channel),
+    ("_task_public_slack_tasks", _create_public_slack_task),
     ("tags", _create_tag),
     ("task_artifacts", _create_task_artifact),
     ("task_runs", _create_task_run),
@@ -1339,6 +1393,32 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
 
         assert response.results == [("high",)]
+
+    @parameterized.expand(
+        [
+            ("never_ran", None, None, None),
+            # Rows whose last run predates the column only have the sync stamp.
+            ("synced_only", datetime(2026, 11, 1, tzinfo=UTC), None, datetime(2026, 11, 1, tzinfo=UTC)),
+            ("checked_only", None, datetime(2026, 11, 5, tzinfo=UTC), datetime(2026, 11, 5, tzinfo=UTC)),
+            (
+                "checked_after_sync",
+                datetime(2026, 11, 1, tzinfo=UTC),
+                datetime(2026, 11, 5, tzinfo=UTC),
+                datetime(2026, 11, 5, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_source_schemas_last_checked_at(self, _name, last_synced_at, last_checked_at, expected):
+        schema = _create_source_schema(self.team, "checked")
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(
+            last_synced_at=last_synced_at, last_checked_at=last_checked_at
+        )
+
+        response = execute_hogql_query(
+            "SELECT last_checked_at FROM system.source_schemas", team=self.team, user=self.user
+        )
+
+        assert [row[0] for row in response.results] == [expected]
 
     def test_data_deletion_requests_excludes_non_query_backed_requests(self):
         self._authorize_data_deletion_requests()
@@ -1739,6 +1819,159 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
         assert str(internal_task.pk) not in ids
 
 
+class TestSystemTablesSlackTaskVisibility(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("public_channel", ["public_channel"], True),
+            ("two_public_channels", ["public_channel", "public_channel"], True),
+            ("no_thread", [], False),
+            ("private_channel", ["private_channel"], False),
+            ("direct_message", ["im"], False),
+            ("group_direct_message", ["mpim"], False),
+            ("unknown", ["unknown"], False),
+            ("unclassified", [None], False),
+            ("public_and_private", ["public_channel", "private_channel"], False),
+        ]
+    )
+    def test_slack_task_visible_only_when_every_thread_is_public(
+        self, _name: str, conversation_types: list[str | None], expected_visible: bool
+    ) -> None:
+        with team_scope(self.team.pk):
+            personal_space = Channel.objects.create(
+                team=self.team, name="personal", channel_type=Channel.ChannelType.PRIVATE
+            )
+        task = Task.objects.create(
+            team=self.team,
+            channel=personal_space,
+            title="slack",
+            description="x",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        for index, conversation_type in enumerate(conversation_types):
+            _create_slack_thread_mapping(self.team, f"{_name}_{index}", task=task, conversation_type=conversation_type)
+        if not conversation_types:
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        for table, column in [("tasks", "id"), ("task_runs", "task_id")]:
+            response = execute_hogql_query(f"SELECT {column} FROM system.{table}", team=self.team, user=self.user)
+            assert (str(task.pk) in {str(row[0]) for row in response.results}) is expected_visible, table
+
+    def test_private_thread_mappings_are_not_readable(self) -> None:
+        public = _create_slack_thread_mapping(self.team, "public").task
+        _create_slack_thread_mapping(self.team, "dm", conversation_type="im")
+
+        response = execute_hogql_query("SELECT id FROM system._task_public_slack_tasks", team=self.team, user=self.user)
+
+        assert [str(row[0]) for row in response.results] == [str(public.pk)]
+
+    def test_public_thread_does_not_expose_non_slack_task(self) -> None:
+        task = Task.objects.create(
+            team=self.team, title="user", description="x", origin_product=Task.OriginProduct.USER_CREATED
+        )
+        _create_slack_thread_mapping(self.team, "user_task", task=task)
+
+        response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team, user=self.user)
+
+        assert str(task.pk) not in {str(row[0]) for row in response.results}
+
+
+class TestSystemTablesTaskSummaries(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("own_values", {"task_summary": " Asked about churn. ", "task_tags": ["churn", "retention"]}, False),
+            (
+                "blank_summary_falls_back",
+                {"task_summary": "  ", "prior_run_summary": "Earlier answer", "prior_run_tags": ["inherited"]},
+                False,
+            ),
+            ("explicit_empty_tags_win", {"task_tags": [], "prior_run_tags": ["inherited"]}, False),
+            ("non_string_values_skipped", {"task_summary": 42, "task_tags": ["kept", 7, None]}, False),
+            ("empty_state", {}, False),
+            (
+                "analytics_query_context",
+                {"task_summary": "Private", "task_tags": ["x"], "analytics_query_context": {}},
+                True,
+            ),
+        ]
+    )
+    def test_run_summary_and_tags_match_the_model(self, _name: str, state: dict, hidden: bool) -> None:
+        channel = _create_public_task_channel(self.team, _name)
+        task = Task.objects.create(
+            team=self.team, channel=channel, title="t", description="x", origin_product=Task.OriginProduct.USER_CREATED
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={**state, "sandbox_connect_token": "fake-token"},
+        )
+
+        response = execute_hogql_query(
+            "SELECT r.task_summary, r.task_tags, t.task_summary, t.task_tags "
+            "FROM system.task_runs AS r JOIN system.tasks AS t ON t.id = r.task_id",
+            team=self.team,
+            user=self.user,
+        )
+
+        expected = (None, []) if hidden else (run.task_summary, run.task_tags)
+        assert [tuple(row) for row in response.results] == [(*expected, *expected)]
+
+    def test_workflow_run_summary_is_hidden(self) -> None:
+        channel = _create_public_task_channel(self.team, "workflow")
+        task = Task.objects.create(
+            team=self.team, channel=channel, title="t", description="x", origin_product=Task.OriginProduct.WORKFLOW
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, state={"task_summary": "Trigger context", "task_tags": ["private"]}
+        )
+
+        response = execute_hogql_query(
+            "SELECT task_summary, task_tags FROM system.task_runs", team=self.team, user=self.user
+        )
+
+        assert [tuple(row) for row in response.results] == [(None, [])]
+
+    def test_task_shows_its_latest_run(self) -> None:
+        channel = _create_public_task_channel(self.team, "latest")
+        task = Task.objects.create(
+            team=self.team, channel=channel, title="t", description="x", origin_product=Task.OriginProduct.USER_CREATED
+        )
+        no_runs = Task.objects.create(
+            team=self.team, channel=channel, title="u", description="x", origin_product=Task.OriginProduct.USER_CREATED
+        )
+        older = TaskRun.objects.create(task=task, team=self.team, state={"task_summary": "Old", "task_tags": ["old"]})
+        newer = TaskRun.objects.create(task=task, team=self.team, state={})
+        TaskRun.objects.filter(pk=older.pk).update(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        TaskRun.objects.filter(pk=newer.pk).update(created_at=datetime(2026, 1, 2, tzinfo=UTC))
+
+        response = execute_hogql_query(
+            "SELECT id, task_summary, task_tags FROM system.tasks", team=self.team, user=self.user
+        )
+
+        assert {str(row[0]): (row[1], row[2]) for row in response.results} == {
+            str(task.pk): (None, []),
+            str(no_runs.pk): (None, []),
+        }
+
+    @parameterized.expand(
+        [
+            ("runs", "SELECT id FROM system.task_runs"),
+            ("latest_run_of_tasks", "SELECT task_summary FROM system.tasks"),
+        ]
+    )
+    def test_team_guard_stays_next_to_the_task_runs_postgres_read(self, _name: str, query: str) -> None:
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        printed, _ = prepare_and_print_ast(parse_select(query), context, dialect="clickhouse")
+
+        assert f"WHERE team_id = {self.team.pk}) AS system__task_runs" in printed
+
+
 class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -1774,6 +2007,15 @@ class TestSystemTablesInboxAccess(BaseTest):
         _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
         assert ("signal_spend" not in denied) is expected_visible
         assert ("_signal_spend_scout_runs" not in denied) is expected_visible
+
+    @parameterized.expand([("signal_scout:read", False), ("insight:read", True)])
+    def test_scout_scratchpad_needs_the_scout_runs_scope(self, scope: str, expected_denied: bool) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="scout-tables", secure_value="sha256$" + "e" * 64, scopes=[scope]
+        )
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert ("scout_runs" in denied) is expected_denied
+        assert ("scout_scratchpad" in denied) is expected_denied
 
     @parameterized.expand(
         [
@@ -1894,6 +2136,41 @@ class TestSystemTablesScoutTrialExclusionIsolation(NonAtomicBaseTest):
         }
         assert [(str(row[0]), str(row[1])) for row in spend.results] == [(str(visible.scout_run_id), "12.3456")]
         assert [(str(row[0]), str(row[1])) for row in run_spend.results] == [(str(visible.scout_run_id), "12.3456")]
+
+
+class TestSystemTablesScoutScratchpad(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_scratchpad_joins_runs_by_creator_and_keeps_expired_entries(self):
+        run = _create_scout_run(self.team, "creator")
+        SignalScratchpad.objects.for_team(self.team.pk).create(
+            team=self.team, key="memory:live", content="live", created_by_run=run
+        )
+        SignalScratchpad.objects.for_team(self.team.pk).create(
+            team=self.team,
+            key="memory:expired",
+            content="expired",
+            created_by_run=run,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        SignalScratchpad.objects.for_team(self.team.pk).create(
+            team=self.team, key="memory:pipeline", content="pipeline", created_by_identity="pipeline:report-research"
+        )
+
+        by_scout = execute_hogql_query(
+            "SELECT r.skill_name, count() FROM system.scout_scratchpad s "
+            "JOIN system.scout_runs r ON s.created_by_run_id = r.id GROUP BY r.skill_name",
+            team=self.team,
+            user=self.user,
+        )
+        live = execute_hogql_query(
+            "SELECT key FROM system.scout_scratchpad WHERE expires_at IS NULL OR expires_at > now() ORDER BY key",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert by_scout.results == [("scout-creator", 2)]
+        assert live.results == [("memory:live",), ("memory:pipeline",)]
 
 
 class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
@@ -2233,6 +2510,166 @@ class TestSystemTicketAssignmentLazyJoin(NonAtomicBaseTest):
             user=self.user,
         )
         assert response.results == []
+
+
+class TestSystemExperimentAndFlagColumns(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([("enabled", True, 1), ("disabled", False, 0)])
+    def test_feature_flag_active(self, _name, active, expected):
+        FeatureFlag.objects.create(team=self.team, key="flag", active=active)
+
+        response = execute_hogql_query("SELECT key, active FROM system.feature_flags", team=self.team, user=self.user)
+
+        assert response.results == [("flag", expected)]
+
+    def test_experiment_metric_config_and_status_columns(self):
+        metric = {"kind": "ExperimentMetric", "metric_type": "funnel", "conversion_window": 14}
+        secondary_metric = {"kind": "ExperimentMetric", "metric_type": "mean"}
+        exposure_criteria = {"filterTestAccounts": True, "multiple_variant_handling": "exclude"}
+        stats_config = {"method": "frequentist", "frequentist": {"alpha": 0.05}}
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            name="checkout",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            end_date=datetime(2026, 2, 1, tzinfo=UTC),
+            metrics=[metric],
+            metrics_secondary=[secondary_metric],
+            exposure_criteria=exposure_criteria,
+        )
+        update_experiment(
+            team_id=self.team.id,
+            experiment_id=experiment_id,
+            stats_config=stats_config,
+            conclusion="won",
+            conclusion_comment="clear winner",
+        )
+
+        response = execute_hogql_query(
+            "SELECT status, conclusion, conclusion_comment, metrics, metrics_secondary, exposure_criteria, "
+            "stats_config, deleted FROM system.experiments",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(response.results) == 1
+        row = response.results[0]
+        assert row[:3] == ("stopped", "won", "clear winner")
+        assert [json.loads(value) for value in row[3:7]] == [
+            [metric],
+            [secondary_metric],
+            exposure_criteria,
+            stats_config,
+        ]
+        assert row[7] == 0
+
+    @parameterized.expand([("not_deleted", False, 0), ("deleted", True, 1), ("legacy_null", None, 0)])
+    def test_experiment_deleted(self, _name, deleted, expected):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, deleted=deleted)
+
+        response = execute_hogql_query("SELECT deleted FROM system.experiments", team=self.team, user=self.user)
+
+        assert response.results == [(expected,)]
+
+    @parameterized.expand(
+        [
+            ("draft", None, None, "draft"),
+            ("running", datetime(2026, 1, 1, tzinfo=UTC), None, "running"),
+            ("stopped", datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC), "stopped"),
+        ]
+    )
+    def test_experiment_status_derived_from_dates_when_null(self, _name, start_date, end_date, expected):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, start_date=start_date, end_date=end_date
+        )
+        clear_experiment_status(team_id=self.team.id, experiment_id=experiment_id)
+
+        response = execute_hogql_query("SELECT status FROM system.experiments", team=self.team, user=self.user)
+
+        assert response.results == [(expected,)]
+
+    @parameterized.expand([("other_creator", False, []), ("reader_is_creator", True, ["restricted"])])
+    def test_saved_metric_object_access_rule_hides_row(self, _name, reader_is_creator, expected_restricted):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        creator = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+        create_saved_metric(team_id=self.team.id, name="open", query={"kind": "ExperimentMetric"})
+        restricted_id = create_saved_metric(
+            team_id=self.team.id, name="restricted", query={"kind": "ExperimentMetric"}, created_by_id=creator.id
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="experiment_saved_metric",
+            resource_id=str(restricted_id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = execute_hogql_query(
+            "SELECT name FROM system.experiment_saved_metrics ORDER BY name", team=self.team, user=self.user
+        )
+
+        assert [row[0] for row in response.results] == ["open", *expected_restricted]
+
+    @parameterized.expand([("other_creator", False, 0), ("reader_is_creator", True, 1)])
+    def test_saved_metric_links_follow_experiment_access(self, _name, reader_is_creator, expected_links):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        creator = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=creator.id)
+        saved_metric_id = create_saved_metric(team_id=self.team.id, name="revenue", query={"kind": "ExperimentMetric"})
+        link_saved_metric(experiment_id=experiment_id, saved_metric_id=saved_metric_id)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="experiment",
+            resource_id=str(experiment_id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = execute_hogql_query(
+            "SELECT count() FROM system.experiment_to_saved_metrics", team=self.team, user=self.user
+        )
+
+        assert response.results == [(expected_links,)]
+
+    def test_saved_metrics_join_to_their_experiments(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="checkout")
+        unused_flag = FeatureFlag.objects.create(team=self.team, key="other_flag")
+        create_experiment(team_id=self.team.id, feature_flag_id=unused_flag.id, name="unused")
+        saved_metric_id = create_saved_metric(
+            team_id=self.team.id, name="revenue", query={"kind": "ExperimentMetric", "metric_type": "mean"}
+        )
+        link_saved_metric(experiment_id=experiment_id, saved_metric_id=saved_metric_id, metadata={"type": "secondary"})
+
+        response = execute_hogql_query(
+            "SELECT e.name, m.name, m.query, l.metadata "
+            "FROM system.experiment_to_saved_metrics AS l "
+            "JOIN system.experiments AS e ON e.id = l.experiment_id "
+            "JOIN system.experiment_saved_metrics AS m ON m.id = l.saved_metric_id",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(response.results) == 1
+        experiment_name, metric_name, query, metadata = response.results[0]
+        assert (experiment_name, metric_name) == ("checkout", "revenue")
+        assert json.loads(query) == {"kind": "ExperimentMetric", "metric_type": "mean"}
+        assert json.loads(metadata) == {"type": "secondary"}
 
 
 class TestSystemDefinitionTables(NonAtomicBaseTest):

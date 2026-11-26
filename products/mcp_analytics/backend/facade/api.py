@@ -13,7 +13,9 @@ from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
 from products.mcp_analytics.backend import custom_harnesses, logic
+from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, custom_arms_sql, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -73,6 +75,10 @@ def _to_submission(instance: MCPAnalyticsSubmission) -> contracts.Submission:
         created_at=instance.created_at,
         updated_at=instance.updated_at,
     )
+
+
+def default_dashboard_template() -> DashboardTemplateDefinition:
+    return get_mcp_analytics_default_template()
 
 
 def list_feedback_submissions(team: Team) -> list[contracts.Submission]:
@@ -278,7 +284,7 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
 
     # Deterministic per team: Temporal refuses a second start while a run with
     # this id is live, so even a run that outlives STALE_COMPUTING_THRESHOLD
-    # (which is shorter than the 20-minute execution timeout) can't be
+    # (which is shorter than the 30-minute execution timeout) can't be
     # overlapped by a retry — the id frees up once the previous run closes.
     workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc"
 

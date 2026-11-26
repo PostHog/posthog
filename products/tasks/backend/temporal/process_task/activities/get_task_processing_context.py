@@ -2,6 +2,7 @@ import json
 import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 from django.conf import settings
@@ -18,8 +19,10 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
+    AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG,
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
@@ -51,6 +54,8 @@ from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressEnrollmentConfig
+from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import (
     agent_instructions_state_update,
     receives_agent_memory,
@@ -60,13 +65,14 @@ from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_ports,
     enforced_egress_domains,
 )
+from products.tasks.backend.logic.services.desktop_gateway_token import POSTHOG_CODE_PRODUCT
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
     compile_network_policy,
 )
-from products.tasks.backend.logic.services.sandbox import SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import SandboxTemplate, is_public_sandbox_repo
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -79,7 +85,8 @@ from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
-from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
+from products.tasks.backend.temporal.observability import emit_agent_log, get_bound_logger, log_with_activity_context
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_actor_distinct_id,
@@ -98,6 +105,8 @@ class GetTaskProcessingContextInput:
     resumed_sandbox_backend: str | None = None
     stream_generation: str | None = None
     launches_agent: bool = False
+    resume_agent_egress_enrollment: bool = False
+    supports_agent_egress_git_reads: bool = False
 
 
 @dataclass(frozen=False)
@@ -157,7 +166,12 @@ class TaskProcessingContext:
     overlap_clone_boot_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
+    baked_repo_clone_enabled: bool = False
     agent_shadow_enabled: bool = False
+    agent_egress_observation_config: str | None = None
+    agent_egress_enrollment_enabled: bool = False
+    agent_egress_maintain_for_run: bool = False
+    agent_egress_git_reads: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -187,6 +201,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    gateway_ai_product: str | None = None
 
     @property
     def model_access(self) -> ModelAccess:
@@ -281,9 +296,11 @@ class TaskProcessingContext:
         value = (self.state or {}).get("model")
         if not isinstance(value, str):
             return None
-        if self.origin_product == Task.OriginProduct.POSTHOG_AI and not model_allowed_by_product_pin(
-            "posthog_ai", value
-        ):
+        product = self.gateway_ai_product
+        if product is None and self.origin_product == Task.OriginProduct.POSTHOG_AI:
+            product = "posthog_ai"
+        # posthog_code keeps an off-pin model so its refusal can tell the user to pick another.
+        if product and product != POSTHOG_CODE_PRODUCT and not model_allowed_by_product_pin(product, value):
             return None
         return value
 
@@ -336,11 +353,7 @@ class TaskProcessingContext:
         )
 
     def _is_user_origin(self) -> bool:
-        return not self.origin_product or self.origin_product in (
-            Task.OriginProduct.USER_CREATED.value,
-            Task.OriginProduct.IMAGE_BUILDER.value,
-            Task.OriginProduct.SPACE_SETUP.value,
-        )
+        return Task.is_user_origin(self.origin_product)
 
     def max_run_duration(self) -> timedelta | None:
         """Hard wall-clock cap on total run time, or None when the run is exempt.
@@ -441,7 +454,9 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
@@ -822,6 +837,21 @@ def _is_desktop_workspace_warm_enabled(
     return enabled
 
 
+def _is_baked_repo_clone_enabled(
+    *,
+    flags: FlagsAndPayloads,
+    run_id: str,
+) -> bool:
+    enabled = _flag_enabled(flags, BAKED_REPO_CLONE_FEATURE_FLAG)
+
+    log_with_activity_context(
+        "baked_repo_clone_flag_checked",
+        run_id=run_id,
+        baked_repo_clone_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_dev_stack_preview_enabled(
     *,
     flags: FlagsAndPayloads,
@@ -931,6 +961,85 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
         debug_domains=debug_domains,
         debug_ports=debug_ports,
     )
+
+
+def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool, handoff: bool = False) -> bool:
+    return (
+        (handoff or (not resumed and not context.is_snapshot_resume))
+        and context.environment == "cloud"
+        and context.sandbox_backend == "modal"
+        and context.use_modal_vm_sandbox
+        and context.allowed_domains is None
+        and context.sandbox_resource_overrides().get("memory_gb", 2) >= 2
+    )
+
+
+def _agent_egress_enrollment_config(
+    context: TaskProcessingContext, *, flags: FlagsAndPayloads, input: GetTaskProcessingContextInput
+) -> AgentEgressEnrollmentConfig | None:
+    resumed = input.resumed_sandbox_id is not None
+    handoff = (
+        resumed
+        and input.resume_agent_egress_enrollment
+        and input.resumed_sandbox_id == (context.state or {}).get("sandbox_id")
+        and (context.state or {}).get("sandbox_backend", "modal") == "modal"
+    )
+    if not _agent_egress_eligible(context, resumed=resumed, handoff=handoff) or not _flag_enabled(
+        flags, AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG
+    ):
+        return None
+    if not settings.AGENT_EGRESS_ENROLLMENT_CONFIG:
+        return None
+    try:
+        config = AgentEgressEnrollmentConfig.load()
+    except ValueError:
+        get_bound_logger(run_id=context.run_id, team_id=context.team_id).warning(
+            "agent_egress_enrollment_disabled", reason="invalid_configuration"
+        )
+        return None
+    if (resumed or context.mode == "interactive") and not config.maintain_for_run:
+        return None
+    return config
+
+
+def _agent_egress_git_enabled(
+    context: TaskProcessingContext, enrollment: AgentEgressEnrollmentConfig | None, *, resumed: bool
+) -> bool:
+    return bool(
+        enrollment is not None
+        and enrollment.route_git_reads
+        and context.github_read_access
+        and len(context.repositories) == 1
+        and not is_public_sandbox_repo(context.repositories[0])
+        and not context.has_gitlab_credentials
+        and context.mode != "interactive"
+        and not context.custom_image_name
+        and not context.is_snapshot_resume
+        and not resumed
+    )
+
+
+def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
+    path = settings.AGENT_EGRESS_OBSERVATION_CONFIG
+    if (
+        not path
+        or not settings.DEBUG
+        or settings.SANDBOX_PROVIDER != "MODAL_DOCKER"
+        or context.mode == "interactive"
+        or not _agent_egress_eligible(context, resumed=resumed)
+    ):
+        return None
+    try:
+        config = AgentEgressProbeConfig.load(Path(path))
+    except ValueError:
+        get_bound_logger(run_id=context.run_id, team_id=context.team_id).warning(
+            "agent_egress_observation_disabled",
+            reason="invalid_configuration",
+        )
+        return None
+    if config.team_id != context.team_id or str(config.run_id) != context.run_id:
+        return None
+    return path
 
 
 @activity.defn
@@ -1258,6 +1367,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     log_with_activity_context(
         f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run", run_id=run_id
     )
+    baked_repo_clone_enabled = _is_baked_repo_clone_enabled(
+        flags=flags,
+        run_id=run_id,
+    )
     agent_shadow_enabled = input.launches_agent and _is_agent_shadow_enabled(flags=flags)
     rtk_enabled = _is_rtk_enabled(
         flags=flags,
@@ -1351,7 +1464,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 
-    return TaskProcessingContext(
+    context = TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
         startup_requested_at=task_run.startup_requested_at,
@@ -1403,6 +1516,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
+        baked_repo_clone_enabled=baked_repo_clone_enabled,
         agent_shadow_enabled=agent_shadow_enabled,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
@@ -1415,9 +1529,39 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
+        gateway_ai_product=resolve_sandbox_ai_product(
+            task.origin_product,
+            state.get("ai_stage"),
+            internal=task.internal,
+            billing_product=state.get("billing_product"),
+            profile_billing_product=profile.billing_product if profile else None,
+        ),
         # Memory belongs to the task's creator, so a run another person drives must not read or write it.
         persist_agent_memory_enabled=receives_agent_memory(task)
         and (actor_user is None or actor_user.id == task.created_by_id)
         and not state.get("agent_memory_locked")
         and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )
+    if input.launches_agent:
+        enrollment = _agent_egress_enrollment_config(context, flags=flags, input=input)
+        context.agent_egress_enrollment_enabled = enrollment is not None
+        context.agent_egress_maintain_for_run = enrollment is not None and enrollment.maintain_for_run
+        git_selected = input.supports_agent_egress_git_reads and _agent_egress_git_enabled(
+            context, enrollment, resumed=input.resumed_sandbox_id is not None
+        )
+        if state.get("agent_egress_git_reads") and not git_selected:
+            raise TaskRunNotReadyError("This run requires Git egress enrollment", {"run_id": context.run_id})
+        if git_selected:
+            TaskRun.update_state_atomic(context.run_id, updates={"agent_egress_git_reads": True})
+            context.state = {**(context.state or {}), "agent_egress_git_reads": True}
+            context.agent_egress_git_reads = True
+            context.baked_repo_clone_enabled = False
+            context.use_modal_resume_snapshots = False
+            context.sandbox_rotation_enabled = False
+            context.continue_as_new_enabled = False
+        context.agent_egress_observation_config = (
+            settings.AGENT_EGRESS_ENROLLMENT_CONFIG
+            if context.agent_egress_enrollment_enabled
+            else _agent_egress_observation_config(context, resumed=input.resumed_sandbox_id is not None)
+        )
+    return context

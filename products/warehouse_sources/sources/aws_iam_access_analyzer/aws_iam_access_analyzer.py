@@ -24,11 +24,10 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
 )
-
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 @frozen
@@ -136,7 +135,7 @@ class AwsIamAccessAnalyzerClient:
 
 
 def normalize_row(row: dict[str, Any], region: str, analyzer: dict[str, str] | None = None) -> dict[str, Any]:
-    result = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in row.items()}
+    result = {camel_to_snake(key): value for key, value in row.items()}
     for column in TIMESTAMP_COLUMNS:
         value = result.get(column)
         if isinstance(value, str) and value:

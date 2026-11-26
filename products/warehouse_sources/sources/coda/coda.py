@@ -170,6 +170,20 @@ def _page_analytics_resource() -> EndpointResource:
     }
 
 
+def _pack_analytics_resource() -> EndpointResource:
+    return {
+        "name": "pack_analytics",
+        "endpoint": {
+            "path": "/analytics/packs",
+            "params": {"limit": PAGE_SIZE},
+            "data_selector": "items",
+            "paginator": _cursor_paginator(),
+        },
+        # Each item nests the pack under `pack`; lift its id so it can key the merge.
+        "data_map": _map_row(lift_ids={"pack": "pack_id"}),
+    }
+
+
 def _folders_resource() -> EndpointResource:
     return {
         "name": "folders",
@@ -182,11 +196,12 @@ def _folders_resource() -> EndpointResource:
     }
 
 
-def _pages_resource() -> EndpointResource:
+def _doc_object_resource(name: str) -> EndpointResource:
+    # Pages, controls and formulas are all listed per doc with the same shape.
     return {
-        "name": "pages",
+        "name": name,
         "endpoint": {
-            "path": "/docs/{doc_id}/pages",
+            "path": f"/docs/{{doc_id}}/{name}",
             "params": {
                 "doc_id": {"type": "resolve", "resource": "docs", "field": "id"},
                 "limit": PAGE_SIZE,
@@ -283,10 +298,10 @@ def _workspace_role_activity_resource() -> EndpointResource:
 
 
 def _resource_chain(endpoint: str) -> list[EndpointResource]:
-    # Rows and columns fan out docs → tables → …; pages, permissions and page analytics fan out
-    # over docs; workspace endpoints fan out over the distinct workspaces of the docs. Each
-    # endpoint's chain is the resources up to and including it, so iterating the leaf drives its
-    # parents lazily. Fresh dicts per call — config setup mutates.
+    # Rows and columns fan out docs → tables → …; pages, controls, formulas, permissions and page
+    # analytics fan out over docs; workspace endpoints fan out over the distinct workspaces of the
+    # docs. Each endpoint's chain is the resources up to and including it, so iterating the leaf
+    # drives its parents lazily. Fresh dicts per call — config setup mutates.
     if endpoint == "docs":
         return [_docs_resource()]
     if endpoint == "tables":
@@ -299,10 +314,12 @@ def _resource_chain(endpoint: str) -> list[EndpointResource]:
         return [_doc_analytics_resource()]
     if endpoint == "page_analytics":
         return [_docs_resource(), _page_analytics_resource()]
+    if endpoint == "pack_analytics":
+        return [_pack_analytics_resource()]
     if endpoint == "folders":
         return [_folders_resource()]
-    if endpoint == "pages":
-        return [_docs_resource(), _pages_resource()]
+    if endpoint in ("pages", "controls", "formulas"):
+        return [_docs_resource(), _doc_object_resource(endpoint)]
     if endpoint == "permissions":
         return [_docs_resource(), _permissions_resource()]
     if endpoint == "workspace_users":

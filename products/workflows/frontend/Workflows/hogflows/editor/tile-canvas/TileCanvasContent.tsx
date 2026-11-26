@@ -6,6 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { CanvasPreviewPersonPanel } from './CanvasPreviewPersonPanel'
 import { CommandBar } from './CommandBar'
 import { PathChip } from './PathChip'
 import { PathFrame } from './PathFrame'
@@ -194,6 +195,7 @@ export function TileCanvasContent(): JSX.Element {
                             <CommandBar />
                         </div>
                     </Panel>
+                    <CanvasPreviewPersonPanel />
                     <TileCanvasControls />
                 </ReactFlow>
                 {layoutError && <TileCanvasLayoutError message={layoutError} />}

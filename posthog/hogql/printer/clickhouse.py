@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -9,7 +10,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import HogQLDialect, cap_flag_call_memory_settings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -22,7 +23,8 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
-from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     extract_uuid_constants,
     get_events_session_id_table_type,
@@ -104,15 +106,39 @@ def retention_floor_for_table(
     )
 
 
+def floor_at_start(table_type: ast.TableOrSelectType, field_name: str, start: datetime) -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.GtEq,
+        left=ast.Field(
+            chain=[field_name], type=ast.FieldType(name=field_name, table_type=_table_filter_type(table_type))
+        ),
+        right=ast.Constant(value=start),
+        type=ast.BooleanType(),
+    )
+
+
 # The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
 # wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
 AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
 
-# Both the property name and its `mat_` column spelling, so visit_compare_operation can match either side of a comparison.
-COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
-    *AI_BLOOM_FILTER_PROPERTIES,
-    *(f"mat_{prop}" for prop in AI_BLOOM_FILTER_PROPERTIES),
-}
+AI_BLOOM_FILTER_COLUMNS = {f"mat_{prop}" for prop in AI_BLOOM_FILTER_PROPERTIES}
+
+
+class _ComparisonFields(GetFieldsTraverser):
+    def __init__(self, expr: ast.Expr):
+        self.ai_property_documents: list[ast.Field] = []
+        super().__init__(expr)
+
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
+        if (
+            node.map_subcolumn is None
+            and len(node.keys) == 1
+            and node.keys[0] in AI_BLOOM_FILTER_PROPERTIES
+            and isinstance(node.expr, ast.Field)
+        ):
+            self.ai_property_documents.append(node.expr)
+        super().visit_json_subcolumn_access(node)
+
 
 # The only string literals a `Constant(inline_sentinel=True)` is allowed to render inline (escaped, unparameterized): the
 # fixed scrubbing markers property resolution emits — the nullIf ''/'null' sentinels, the quote-trim regex, and the
@@ -130,6 +156,7 @@ INLINE_SENTINEL_LITERALS = frozenset(
         "{}",
         "Float64",
         "Int64",
+        "String",
         "Array(String)",
         "[]",
     }
@@ -282,7 +309,9 @@ class ClickHousePrinter(BasePrinter):
                     ]
 
                     if isinstance(suffix_arg.value, str):
-                        suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                        # Every query in the process shares suffix_arg through the function table.
+                        # Formatting it in place would print this call's arguments in every later call.
+                        suffix_arg = ast.Constant(value=suffix_arg.value.format(*suffix_arg_args_values))
                     else:
                         raise QueryError(
                             f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
@@ -490,6 +519,8 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
+            if self.context.cap_flag_call_memory:
+                cap_flag_call_memory_settings(merged)
             # ClickHouse turns the `%2E` in a stored dotted key back into `.` only when the reading query sets this
             # too, so a query that formats the native JSON columns as text without it prints `a%2Eb`. It rides with
             # the global settings, not the table's required settings, so a query printed without settings keeps its
@@ -867,37 +898,44 @@ class ClickHousePrinter(BasePrinter):
             return False
         return isinstance(constant_type, ast.DateTimeType)
 
-    def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
-        traverser = GetFieldsTraverser(node)
+    def _physical_event_column(self, field: ast.Field) -> str | None:
+        field_type = field.type
+        if not isinstance(field_type, ast.FieldType) or not isinstance(
+            field_type.table_type, (ast.TableType, ast.TableAliasType, ast.ColumnAliasedTableType)
+        ):
+            return None
+        if not isinstance(field_type.table_type.resolve_database_table(self.context), EventsTable):
+            return None
+        column = field_type.resolve_database_field(self.context)
+        return column.name if isinstance(column, DatabaseField) else None
 
-        for field in traverser.fields:
-            if isinstance(field.type, ast.FieldType):
-                field_name = str(field.chain[-1]) if field.chain else ""
+    def _uses_indexed_comparison_column(self, node: ast.CompareOperation) -> bool:
+        fields = _ComparisonFields(node)
+        if any(self._physical_event_column(doc) == "properties" for doc in fields.ai_property_documents):
+            return True
 
-                # Check if field name is timestamp-like
-                if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
-                    continue
-
-                table_type = field.type.table_type
-                while True:
-                    if isinstance(table_type, ast.TableType):
-                        table_name = table_type.table.to_printed_hogql()
-                        if table_name in (
-                            "events",
-                            "raw_sessions",
-                            "raw_sessions_v3",
-                            "session_replay_events",
-                            "raw_session_replay_events",
-                        ):
-                            return True
-                        break
-                    elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
-                        table_type = table_type.table_type
-                    elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-                        table_type = table_type.table_type
-                    else:
-                        break
-
+        for field in fields.fields:
+            if not isinstance(field.type, ast.FieldType):
+                continue
+            table_type = field.type.table_type
+            if field.type.name in AI_BLOOM_FILTER_COLUMNS or isinstance(table_type, ast.ColumnAliasedTableType):
+                if self._physical_event_column(field) in AI_BLOOM_FILTER_COLUMNS:
+                    return True
+            field_name = str(field.chain[-1]) if field.chain else ""
+            if field_name != "timestamp" and not field_name.endswith("_timestamp"):
+                continue
+            while isinstance(
+                table_type, (ast.LazyJoinType, ast.VirtualTableType, ast.TableAliasType, ast.ColumnAliasedTableType)
+            ):
+                table_type = table_type.table_type
+            if isinstance(table_type, ast.TableType) and table_type.table.to_printed_hogql() in (
+                "events",
+                "raw_sessions",
+                "raw_sessions_v3",
+                "session_replay_events",
+                "raw_session_replay_events",
+            ):
+                return True
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation):
@@ -918,9 +956,8 @@ class ClickHousePrinter(BasePrinter):
         not_nullable = not nullable_left and not nullable_right
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
-        # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        # Only apply this optimization to actual table timestamp fields, not CTE fields.
-        if self._is_events_table_timestamp_field(node.left) or self._is_events_table_timestamp_field(node.right):
+        # Wrapping indexed timestamps or AI properties in ifNull prevents ClickHouse from using their indexes.
+        if self._uses_indexed_comparison_column(node):
             not_nullable = True
 
         hack_sessions_timestamp = (
@@ -928,11 +965,6 @@ class ClickHousePrinter(BasePrinter):
             "raw_sessions_v3.session_timestamp",
         )
         if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
-            not_nullable = True
-
-        # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
-        # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
-        if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
 
         # ClickHouse can't parse datetime strings ending in 'Z' or an offset, so print those as datetime literals.
@@ -1112,6 +1144,17 @@ class ClickHousePrinter(BasePrinter):
     def visit_call(self, node: ast.Call):
         if is_decision_call(node.name):
             raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")
+        # Direct property reads keep their stored strings here even when metadata reports a different type.
+        if (
+            node.name in ("toFloatOrZero", "toIntOrZero")
+            and node.args
+            and node.args[0].type is not None
+            and not isinstance(node.args[0].type, ast.PropertyType)
+        ):
+            first_type = node.args[0].type.resolve_constant_type(self.context)
+            if not isinstance(first_type, (ast.StringType, ast.UnknownType)):
+                # OrZero parsers require String inputs even when a projection exposes another scalar type.
+                node = dataclasses.replace(node, args=[ast.Call(name="toString", args=[node.args[0]]), *node.args[1:]])
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:
             return serialized
@@ -1177,9 +1220,12 @@ class ClickHousePrinter(BasePrinter):
                 )
             return None
 
+        if isinstance(table_type.table, SavedQuery):
+            # An unexpanded view would print as a bare table name with no team_id filter.
+            raise ImpossibleASTError(f'View "{table_type.table.to_printed_hogql()}" was not expanded before printing.')
+
         if (
             not isinstance(table_type.table, DataWarehouseTable)
-            and not isinstance(table_type.table, SavedQuery)
             and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             and node_type is not None
         ):
@@ -1222,6 +1268,27 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(table_type.table, EventsRetentionTable):
             return None
         return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
+
+    def _flag_evaluations_coverage_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        # The TTL drops a monthly partition only when its newest row expires, so the table holds up to a month of rows
+        # older than the coverage start. This floor hides them from every read: a direct query, an events scan that
+        # HogQL moved to this table, and the union's flag_evaluations branch.
+        if (
+            not self.context.apply_events_retention_floor
+            or node_type is None
+            or not isinstance(table_type, ast.TableType)
+            or not isinstance(table_type.table, FlagEvaluationsTable)
+        ):
+            return None
+        return floor_at_start(
+            node_type,
+            table_type.table.events_retention_field,
+            flag_evaluations_coverage_start(self.context.flag_calls_now()),
+        )
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table
@@ -1335,16 +1402,7 @@ class ClickHousePrinter(BasePrinter):
         if retention_start is None:
             return None
 
-        field_table_type = _table_filter_type(node_type)
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Field(
-                chain=[table.retention_field],
-                type=ast.FieldType(name=table.retention_field, table_type=field_table_type),
-            ),
-            right=ast.Constant(value=retention_start),
-            type=ast.BooleanType(),
-        )
+        return floor_at_start(node_type, table.retention_field, retention_start)
 
     def _prepare_select_columns(self, columns: Iterable[ast.Expr]) -> list[tuple[ast.Expr, str | None]]:
         columns = list(columns)
@@ -1485,14 +1543,17 @@ class ClickHousePrinter(BasePrinter):
             expr = self.visit(node.expr)
 
         # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
-        # dot inside one key must not read as a path separator.
-        keys = [key.replace(".", "%2E") for key in node.keys]
+        # dot inside one key must not read as a path separator. A Map stores its keys as sent, so the subcolumn
+        # of one map key keeps its dots.
+        segments = [key.replace(".", "%2E") for key in node.keys]
+        if node.map_subcolumn is not None:
+            segments.append(node.map_subcolumn)
 
         # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
         # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
-        if any(not key for key in keys):
-            return f"getSubcolumn({expr}, {self.context.add_value('.'.join(keys))})"
+        if any(not segment for segment in segments):
+            return f"getSubcolumn({expr}, {self.context.add_value('.'.join(segments))})"
 
-        for key in keys:
-            expr = f"{expr}.{escape_clickhouse_json_path(key)}"
+        for segment in segments:
+            expr = f"{expr}.{escape_clickhouse_json_path(segment)}"
         return expr

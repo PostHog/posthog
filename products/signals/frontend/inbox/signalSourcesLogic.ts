@@ -41,7 +41,6 @@ import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigs
 import type {
     InboxOnboardingStateApi,
     PatchedSignalSourceConfigApi,
-    SignalSourceTypeApi,
     SignalSourceConfigSourceTypeEnumApi,
 } from '../generated/api.schemas'
 import {
@@ -580,7 +579,7 @@ export interface signalSourcesLogicActions {
         value: true
     }
     toggleErrorTrackingType: (sourceType: SignalSourceType) => {
-        sourceType: SignalSourceTypeApi
+        sourceType: SignalSourceType
     }
     toggleEvalReports: () => {
         value: true
@@ -648,6 +647,7 @@ export interface signalSourcesLogicMeta {
                 | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -751,6 +751,7 @@ export interface signalSourcesLogicMeta {
                 | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -807,6 +808,7 @@ export interface signalSourcesLogicMeta {
                 | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -910,6 +912,7 @@ export interface signalSourcesLogicMeta {
                 | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -956,6 +959,7 @@ export interface signalSourcesLogicMeta {
                 | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -1059,6 +1063,7 @@ export interface signalSourcesLogicMeta {
                 | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'

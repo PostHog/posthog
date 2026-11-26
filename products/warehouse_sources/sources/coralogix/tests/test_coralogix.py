@@ -15,13 +15,13 @@ from products.warehouse_sources.sources.coralogix._config import CoralogixSource
 from products.warehouse_sources.sources.coralogix.coralogix import (
     CoralogixResumeConfig,
     CoralogixRetryableError,
-    _format_datetime,
     _make_session,
     _parse_timestamp,
     _run_query,
     validate_credentials,
 )
 from products.warehouse_sources.sources.coralogix.source import CoralogixSource
+from products.warehouse_sources.sources.sdk import format_datetime
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -75,7 +75,7 @@ class _FakeServer:
         start = datetime.strptime(meta["startDate"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
         end = datetime.strptime(meta["endDate"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
         matching = [(ts, logid) for ts, logid in self.rows if start <= ts <= end]
-        items = [_result_item(_format_datetime(ts), logid) for ts, logid in matching[: meta["limit"]]]
+        items = [_result_item(format_datetime(ts, "iso_z_micros"), logid) for ts, logid in matching[: meta["limit"]]]
         return ScriptedResponse(body=_ndjson_body(items))
 
 
@@ -208,20 +208,20 @@ class TestGetRows:
         # First window is [watermark, watermark+1h); the second grows (sparse) and clamps to now.
         first, second = (request.json() for request in result.requests)
         assert (first["metadata"]["startDate"], first["metadata"]["endDate"]) == (
-            _format_datetime(watermark),
-            _format_datetime(boundary),
+            format_datetime(watermark, "iso_z_micros"),
+            format_datetime(boundary, "iso_z_micros"),
         )
         assert (second["metadata"]["startDate"], second["metadata"]["endDate"]) == (
-            _format_datetime(boundary),
-            _format_datetime(NOW),
+            format_datetime(boundary, "iso_z_micros"),
+            format_datetime(NOW, "iso_z_micros"),
         )
         assert first["query"] == "source logs"
         assert first["metadata"]["tier"] == "TIER_FREQUENT_SEARCH"
         # State is saved at each completed window boundary and cleared once fully walked, so a
         # retry starts fresh from the new watermark instead of resuming mid-stream.
         assert result.saved_states == [
-            CoralogixResumeConfig(synced_until=_format_datetime(boundary)),
-            CoralogixResumeConfig(synced_until=_format_datetime(NOW)),
+            CoralogixResumeConfig(synced_until=format_datetime(boundary, "iso_z_micros")),
+            CoralogixResumeConfig(synced_until=format_datetime(NOW, "iso_z_micros")),
         ]
         assert result.final_state is None
 
@@ -278,13 +278,13 @@ class TestGetRows:
 
         result = _run_walker(
             server,
-            resume_state=CoralogixResumeConfig(synced_until=_format_datetime(synced_until)),
+            resume_state=CoralogixResumeConfig(synced_until=format_datetime(synced_until, "iso_z_micros")),
             should_use_incremental_field=True,
             last_value=watermark,
         )
 
         assert result.raised is None
-        assert result.requests[0].json()["metadata"]["startDate"] == _format_datetime(synced_until)
+        assert result.requests[0].json()["metadata"]["startDate"] == format_datetime(synced_until, "iso_z_micros")
         assert [row["logid"] for row in result.rows] == ["at-resume-point"]
 
 

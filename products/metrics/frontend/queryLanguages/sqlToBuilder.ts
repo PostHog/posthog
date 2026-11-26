@@ -391,6 +391,7 @@ const toBuilderRegex = (values: string[]): string =>
 
 class ClauseSqlReader {
     clause: Partial<BuilderClause> & { filters: MetricsQueryFilter[] } = { filters: [] }
+    countTypes = false
 
     constructor(private issues: string[]) {}
 
@@ -418,6 +419,11 @@ class ClauseSqlReader {
         const typeMatch = new RegExp(`^metric_type=(${STRING})$`, 'i').exec(text)
         if (typeMatch) {
             this.clause.metricType = JSON.parse(typeMatch[1])
+            return
+        }
+        // A count_rate or count_increase clause with no metric type keeps only the types that carry a count.
+        if (/^metric_type IN\s*\(\s*"exponential_histogram"\s*,\s*"histogram"\s*,\s*"summary"\s*\)$/i.test(text)) {
+            this.countTypes = true
             return
         }
         // Time bounds come from the chart's date range and interval.
@@ -600,6 +606,10 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
         if (/^(\w+\.)?series_value$/i.test(valueText)) {
             // Each series stays its own line.
             aggregation = undefined
+        } else if (counter && /\btoFloat(?:64)?\((\w+\.)?count\)/i.test(allText) && /^sum\(/i.test(valueText)) {
+            // A counter over a histogram's observation count is count_rate or count_increase.
+            aggregation = rangeFunction === 'rate' ? 'count_rate' : 'count_increase'
+            rangeFunction = undefined
         } else if (counter && /^sum\((\w+\.)?contribution\)/i.test(valueText)) {
             // Summing every sample's contribution sums the per-series values.
             aggregation = 'sum'
@@ -623,6 +633,10 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
                     : 'The SQL aggregates every sample; the builder aggregates the last value of each series in each interval.'
             )
         }
+    }
+
+    if (reader.countTypes && aggregation !== 'count_rate' && aggregation !== 'count_increase') {
+        note('The metric type filter applies only to count rate and count increase, so it is dropped.')
     }
 
     // Group-by labels: the select that joins posthog.metric_series names them group_0, group_1, …

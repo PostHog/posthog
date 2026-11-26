@@ -13,6 +13,7 @@ import type {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
+    LogsAlertCreatedDestinationResponseApi,
     LogsAlertCustomizeDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
@@ -270,8 +271,8 @@ export const logsAlertsDestinationsCreate = async (
     id: string,
     logsAlertCreateDestinationApi: LogsAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<LogsAlertDestinationResponseApi> => {
-    return apiMutator<LogsAlertDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<LogsAlertCreatedDestinationResponseApi> => {
+    return apiMutator<LogsAlertCreatedDestinationResponseApi>(getLogsAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

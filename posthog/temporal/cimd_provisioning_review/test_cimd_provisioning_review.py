@@ -16,9 +16,12 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.api.oauth.provisioning_review import settle_review
+from posthog.api.oauth.provisioning_review import send_partner_review_email, settle_review
 from posthog.egress.firecrawl import FirecrawlNotConfigured, FirecrawlScrape, FirecrawlScrapeFailed, FirecrawlSearch
+from posthog.email import WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.llm.system_one import NoulAnswer, RefusalAnswer, SystemOneResult
+from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
@@ -26,7 +29,8 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
-from posthog.temporal.cimd_provisioning_review.activities import _research
+from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.temporal.cimd_provisioning_review.activities import _research, _settle
 from posthog.temporal.cimd_provisioning_review.judgment import (
     THRESHOLDS,
     PartnerJudgment,
@@ -176,28 +180,41 @@ def _make_app(client_id: str = "https://app.example.com/client.json", **provisio
 class TestSettleReview(APIBaseTest):
     @parameterized.expand(
         [
-            ("accepted", ProvisioningReviewStatus.ACCEPTED, False, True, False),
-            ("rejected", ProvisioningReviewStatus.REJECTED, False, False, True),
-            ("needs_human", ProvisioningReviewStatus.NEEDS_HUMAN, False, False, False),
+            ("accept", ReviewOutcome.ACCEPT, ProvisioningReviewStatus.ACCEPTED, False, True, False),
+            # Only staff block, so the pipeline's rejection leaves the partner a way to ask again.
+            ("reject", ReviewOutcome.REJECT, ProvisioningReviewStatus.DECLINED, False, False, False),
+            ("needs_human", ReviewOutcome.NEEDS_HUMAN, ProvisioningReviewStatus.NEEDS_HUMAN, False, False, False),
             # An admin switched the partner off while it waited, and an accept must not undo that.
-            ("accepted_after_admin_disabled", ProvisioningReviewStatus.ACCEPTED, True, False, True),
+            ("accept_after_admin_disabled", ReviewOutcome.ACCEPT, ProvisioningReviewStatus.ACCEPTED, True, False, True),
         ]
     )
     @time_machine.travel("2026-11-16T12:00:00Z", tick=False)
-    def test_verdict_applies_to_the_partner(self, _name, status, disabled_before, expected_active, expected_disabled):
+    def test_verdict_applies_to_the_partner(
+        self, _name, outcome, status, disabled_before, expected_active, expected_disabled
+    ):
         app = _make_app(disabled=disabled_before)
         CIMDProvisioningReview.objects.create(application=app, domain="example.com")
         OAuthAccessToken.objects.create(
             application=app, user=self.user, token="pha_review_token", expires=timezone.now() + timedelta(hours=1)
         )
 
-        settled = settle_review(str(app.pk), status=status, stage=ProvisioningReviewStage.RESEARCH, reason="test")
+        with (
+            patch("posthog.api.oauth.provisioning_review.send_partner_review_email") as send_email,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            settled = _settle(
+                SettleReviewInputs(
+                    application_id=str(app.pk), outcome=outcome, stage=ProvisioningReviewStage.RESEARCH, reason="test"
+                )
+            )
 
         assert settled is True
+        send_email.delay.assert_called_once_with(str(app.provisioning_review.pk), status)
         app.refresh_from_db()
         assert app.provisioning.active is expected_active
         assert app.provisioning.disabled is expected_disabled
-        token_survives = status != ProvisioningReviewStatus.REJECTED
+        # The pipeline declines the apps it judges malicious, so a decline signs them out.
+        token_survives = status != ProvisioningReviewStatus.DECLINED
         assert OAuthAccessToken.objects.filter(application=app).exists() is token_survives
         assert CIMDProvisioningReview.objects.get(application=app).status == status
 
@@ -209,7 +226,7 @@ class TestSettleReview(APIBaseTest):
 
         settled = settle_review(
             str(app.pk),
-            status=ProvisioningReviewStatus.REJECTED,
+            status=ProvisioningReviewStatus.DECLINED,
             stage=ProvisioningReviewStage.RESEARCH,
             reason="late run",
         )
@@ -218,6 +235,96 @@ class TestSettleReview(APIBaseTest):
         app.refresh_from_db()
         assert app.provisioning.disabled is False
         assert CIMDProvisioningReview.objects.get(application=app).status == ProvisioningReviewStatus.ACCEPTED
+
+
+class TestSendPartnerReviewEmail(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "fake_host")
+        set_instance_setting("EMAIL_ENABLED", True)
+
+    def _review(
+        self,
+        status: ProvisioningReviewStatus,
+        *,
+        organization: Organization | None,
+        message_written_for: Organization | None = None,
+    ) -> CIMDProvisioningReview:
+        app = _make_app()
+        app.organization = organization
+        app.save(update_fields=["organization"])
+        written_for = message_written_for or organization
+        return CIMDProvisioningReview.objects.create(
+            application=app,
+            domain="example.com",
+            status=status,
+            decided_at=timezone.now(),
+            partner_message="Add a homepage to your metadata document.",
+            run_log=[
+                {
+                    "step": "settled",
+                    "status": str(status),
+                    "partner_message": "Add a homepage to your metadata document.",
+                    "organization_id": str(written_for.pk) if written_for else None,
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            (ProvisioningReviewStatus.ACCEPTED, "oauth_app_provisioning_accepted"),
+            (ProvisioningReviewStatus.REJECTED, "oauth_app_provisioning_rejected"),
+            (ProvisioningReviewStatus.DECLINED, "oauth_app_provisioning_declined"),
+            (ProvisioningReviewStatus.CHANGES_REQUESTED, "oauth_app_provisioning_changes_requested"),
+            (ProvisioningReviewStatus.NEEDS_HUMAN, "oauth_app_provisioning_in_review"),
+        ]
+    )
+    @patch("posthog.api.oauth.provisioning_review.EmailMessage")
+    def test_emails_the_admins_of_the_owning_organization(self, status, template_name, MockEmailMessage) -> None:
+        sent = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        User.objects.create_and_join(self.organization, "member@example.com", None)
+        review = self._review(status, organization=self.organization)
+
+        send_partner_review_email(str(review.pk), status)
+
+        assert len(sent) == 1
+        assert [recipient["raw_email"] for recipient in sent[0].to] == [self.user.email]
+        assert sent[0].template_name == template_name
+        assert sent[0].template_name in WORKFLOWS_TEMPLATE_ID_MAP
+        assert "Add a homepage to your metadata document." in sent[0].html_body
+        assert f"/settings/organization-oauth-apps/{review.application_id}" in sent[0].html_body
+
+    @patch("posthog.api.oauth.provisioning_review.EmailMessage")
+    def test_leaves_out_a_message_written_for_the_previous_organization(self, MockEmailMessage) -> None:
+        sent = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        previous_owner = Organization.objects.create(name="Previous owner of the client ID")
+        review = self._review(
+            ProvisioningReviewStatus.DECLINED, organization=self.organization, message_written_for=previous_owner
+        )
+
+        send_partner_review_email(str(review.pk), ProvisioningReviewStatus.DECLINED)
+
+        assert len(sent) == 1
+        assert "Add a homepage to your metadata document." not in sent[0].html_body
+
+    @parameterized.expand(
+        [
+            ("superseded_by_a_later_decision", ProvisioningReviewStatus.REJECTED, True),
+            ("app_without_an_organization", ProvisioningReviewStatus.ACCEPTED, False),
+        ]
+    )
+    @patch("posthog.api.oauth.provisioning_review.EmailMessage")
+    def test_sends_nothing(self, _name, current_status, has_organization, MockEmailMessage) -> None:
+        sent = mock_email_messages(MockEmailMessage)
+        review = self._review(current_status, organization=self.organization if has_organization else None)
+
+        send_partner_review_email(str(review.pk), ProvisioningReviewStatus.ACCEPTED)
+
+        assert sent == []
 
 
 class _FakeSystemOne:

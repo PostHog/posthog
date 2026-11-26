@@ -73,6 +73,12 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
             SNAPCHAT_REAUTHORIZATION_REQUIRED_ERROR: SNAPCHAT_RECONNECT_MESSAGE,
             "403 Client Error": "Snapchat Ads access forbidden. Please check your account permissions.",
             "404 Client Error": "Snapchat Ads resource not found. Please check that the ad account still exists and is accessible.",
+            # Snapchat rejects a synchronous stats call with a 400 and this code when the response
+            # would be too large to process (their docs document the sibling E9001 for the same
+            # family: https://developers.snap.com/api/marketing-api/Ads-API/measurement). It fires
+            # on accounts with enough entities that a breakdown fans the response out past the
+            # limit, and retrying the same request shape cannot shrink it.
+            "code=E9012": "Snapchat rejected a stats request because the response was too large to process. This can happen for ad accounts with a large number of campaigns, ad squads, or ads. Contact PostHog support if this continues.",
         }
 
     def get_retryable_errors(self) -> set[str]:

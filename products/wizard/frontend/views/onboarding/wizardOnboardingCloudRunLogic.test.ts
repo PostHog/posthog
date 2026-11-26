@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
@@ -159,6 +160,21 @@ describe('wizardOnboardingCloudRunLogic', () => {
 
         logic.actions.setRepository('example/another-project')
         expect(logic.values.idempotencyKey).not.toBe(retryKey)
+    })
+
+    it('clears every failed setup load with one retry', async () => {
+        useMocks({ get: { '/api/environments/:team_id/integrations/': () => [500, {}] } })
+        jest.mocked(wizardRegistryList).mockRejectedValue(new Error('offline'))
+        integrationsLogic.actions.clearIntegrations()
+        logic.actions.loadRegistry()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.setupError).toBe('Could not check the GitHub connection. Retry or run it yourself.')
+
+        useMocks({ get: { '/api/environments/:team_id/integrations/': { results: [] } } })
+        jest.mocked(wizardRegistryList).mockResolvedValue({ count: 1, results: [program] })
+        logic.actions.retrySetup()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.setupError).toBeNull()
     })
 
     it.each(['flag', 'instance', 'repository', 'program'])(

@@ -7,7 +7,7 @@ import { IconArrowCircleRight } from '@posthog/icons'
 import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
 import { Chip, ChipClose, cn } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { isValidRegexp } from 'lib/utils/regexp'
 
 import { PathCleaningFilter } from '~/types'

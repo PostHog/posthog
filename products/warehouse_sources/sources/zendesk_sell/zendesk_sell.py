@@ -15,24 +15,33 @@ full refresh and leave incremental off until that can be verified against a live
 """
 
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional, cast
 from urllib.parse import urlencode, urlsplit
 
 from requests import Response
 
 from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
     ClientConfig,
     JSONResponsePaginator,
     Resource,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
+    create_response_hooks,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.zendesk_sell.settings import PER_PAGE, ZENDESK_SELL_ENDPOINTS
+from products.warehouse_sources.sources.zendesk_sell.settings import (
+    CHILD_404_IGNORE,
+    PER_PAGE,
+    ZENDESK_SELL_ENDPOINTS,
+    ZendeskSellEndpointConfig,
+)
 
 ZENDESK_SELL_BASE_URL = "https://api.getbase.com"
 ZENDESK_SELL_HOST = "api.getbase.com"
@@ -128,6 +137,40 @@ def _client_config(access_token: str) -> ClientConfig:
     }
 
 
+def _per_resource_type_rows(
+    access_token: str,
+    config: ZendeskSellEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[ZendeskSellResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the endpoint once per resource type and tag each row with its type.
+
+    A handful of small lookup requests, so there is no resume state: a retried run reads them all again.
+    """
+    client = RESTClient(
+        base_url=ZENDESK_SELL_BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=BearerTokenAuth(token=access_token),
+        allow_redirects=False,
+    )
+    # The docs do not say how an account without one of the resource types answers; a 404 is read as
+    # "no rows for this type" so it does not fail the whole table.
+    hooks = create_response_hooks(CHILD_404_IGNORE, resource_name=config.name)
+    for resource_type in config.resource_types:
+        yielded = False
+        for page in client.paginate(
+            path=config.path.replace("{resource_type}", resource_type),
+            paginator=ZendeskSellNextPagePaginator(),
+            data_selector="items",
+            hooks=hooks,
+        ):
+            rows = [{**_extract_item_data(item), "resource_type": resource_type} for item in page]
+            if rows:
+                yield rows
+                yielded = True
+        if not yielded:
+            resumable_source_manager.safe_point()
+
+
 def zendesk_sell_source(
     access_token: str,
     endpoint: str,
@@ -149,6 +192,11 @@ def zendesk_sell_source(
     resume: Optional[ZendeskSellResumeConfig] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
+
+    if config.resource_types:
+        return SourceResponse(
+            items=lambda: _per_resource_type_rows(access_token, config, resumable_source_manager), **response_kwargs
+        )
 
     if config.fanout is not None:
 

@@ -192,7 +192,7 @@ Subscription runs do not reuse prewarmed sessions, because those processes have 
 ### ChatGPT subscription access tokens
 
 A run created with `codex_model_access: "own-subscription"` uses the user's ChatGPT plan for model usage.
-The `posthog-code-codex-own-subscription-cloud` flag controls rollout, and the run must use the Codex runtime.
+The run must use the Codex runtime. PostHog AI v2 access controls the web subscription settings and billing picker.
 Owner recording and the owner check on `/command/` match the Claude path.
 No ChatGPT token travels through the credential relay. Desktop reads the local `auth.json` at connect time and uploads its tokens to PostHog. It deletes that file after acceptance if cleanup succeeds. A failed upload or cleanup can leave the file behind. Cloud runs do not use that local file.
 

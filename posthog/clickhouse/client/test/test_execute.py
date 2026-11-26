@@ -247,12 +247,15 @@ def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, ex
     with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool, tags_context(**tags):
         pool.return_value.__enter__.return_value = make_client()
         with query_stats_scope() as stats:
+            starts: list[bool] = []
+            stats.query_start_listeners.append(lambda: starts.append(True))
             if raises:
                 with pytest.raises(ValueError):
                     sync_execute("SELECT 1", flush=False)
             else:
                 sync_execute("SELECT 1", flush=False)
 
+    assert starts == [True]
     assert (stats.rows_read, stats.duration_ms) == expected
     if expected_workload == "default":
         expected_workload = get_default_clickhouse_workload_type().value

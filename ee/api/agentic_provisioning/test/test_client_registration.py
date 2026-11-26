@@ -20,7 +20,12 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import (
+    TEST_CIMD_VERIFICATION_TOKEN,
+    TEST_PARTNER_SCOPES,
+    ProvisioningTestBase,
+    provisioning_config,
+)
 
 REGISTRATION_URL = "/api/agentic/provisioning/client_registration"
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
@@ -51,8 +56,11 @@ class TestClientRegistration(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         cache.clear()
+        self._issue_cimd_verification_token(CIMD_URL)
 
-    def _document(self, *, com_posthog: object = _DECLARES_PROVISIONING, signs: bool = True) -> dict:
+    def _document(
+        self, *, com_posthog: object = _DECLARES_PROVISIONING, signs: bool = True, linked: bool = True
+    ) -> dict:
         """The document a client wanting to register publishes. Passing com_posthog=None leaves
         the namespace out, which is the shape of a third party that never asked for any of
         this."""
@@ -68,6 +76,8 @@ class TestClientRegistration(ProvisioningTestBase):
             document["jwks_uri"] = JWKS_URI
         if com_posthog is not None:
             document["com.posthog"] = com_posthog
+        if linked:
+            document["posthog_verification_token"] = TEST_CIMD_VERIFICATION_TOKEN
         return document
 
     def _register(
@@ -109,6 +119,7 @@ class TestClientRegistration(ProvisioningTestBase):
             "name": "Registered Partner",
             "client_id": CIMD_URL,
             "is_cimd_client": True,
+            "organization": self.organization,
             "client_secret": "",
             "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
             "jwks_uri": JWKS_URI,
@@ -342,17 +353,27 @@ class TestClientRegistration(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("pending", False, "PostHog is reviewing this client", 1),
-            ("needs_human", False, "PostHog staff are reviewing this client", 0),
-            ("rejected", True, "Provisioning is blocked for this client", 0),
+            ("pending", False, True, "PostHog is reviewing this client", 1),
+            ("needs_human", False, True, "PostHog staff are reviewing this client", 0),
+            ("declined", False, True, "PostHog declined this client for provisioning. An admin", 0),
+            ("changes_requested", False, True, "PostHog needs changes or more information", 0),
+            ("rejected", True, True, "Provisioning is blocked for this client", 0),
+            # Accepted, but a self-registered partner cannot provision without an organization behind it.
+            ("accepted", False, False, "Link this client to a PostHog organization", 0),
         ]
     )
-    def test_partner_under_review_is_told_to_wait(self, review_status, disabled, expected_detail, expected_restarts):
-        app = self._make_partner(_provisioning_config=provisioning_config(active=False, disabled=disabled))
+    def test_partner_under_review_is_told_to_wait(
+        self, review_status, disabled, linked, expected_detail, expected_restarts
+    ):
+        active = review_status == "accepted"
+        app = self._make_partner(
+            _provisioning_config=provisioning_config(active=active, disabled=disabled),
+            organization=self.organization if linked else None,
+        )
         CIMDProvisioningReview.objects.create(application=app, domain="example.com", status=review_status)
 
         with patch("posthog.api.oauth.provisioning_review.start_review") as mock_start:
-            res = self._register({"client_id": CIMD_URL})
+            res = self._register({"client_id": CIMD_URL}, document=self._document(linked=linked))
 
         assert res.status_code == 400, res.json()
         check = next(c for c in res.json()["checks"] if c["name"] == "provisioning_enabled")

@@ -77,12 +77,14 @@ class TestLimitsEndpoint(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("deactivated", {"active": False}, False),
-            ("dropped_its_private_key", {}, True),
+            ("deactivated", {"active": False}, False, None, 401),
+            ("dropped_its_private_key", {}, True, None, 401),
+            ("self_registered_without_an_organization", {}, False, "unlinked", 401),
+            ("self_registered_with_an_organization", {}, False, "linked", 200),
         ]
     )
-    def test_bearer_is_rejected_after_partner_changes(
-        self, _name: str, change: dict[str, bool], drop_key: bool
+    def test_bearer_after_partner_changes(
+        self, _name: str, change: dict[str, bool], drop_key: bool, organization_requirement: str | None, expected: int
     ) -> None:
         token = self._request_bearer_token().json()["access_token"]
         if change:
@@ -90,10 +92,14 @@ class TestLimitsEndpoint(ProvisioningTestBase):
         if drop_key:
             self.partner.jwks_uri = None
             self.partner.save(update_fields=["jwks_uri"])
+        if organization_requirement is not None:
+            self.partner.is_cimd_client = True
+            self.partner.organization = self.organization if organization_requirement == "linked" else None
+            self.partner.save(update_fields=["is_cimd_client", "organization"])
 
         res = self.client.post(LIMITS_URL, HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        assert res.status_code == 401
+        assert res.status_code == expected, res.json()
 
     def test_describe_budgets_marks_endpoints_the_tier_blocks(self):
         # Reported as blocked rather than as a budget, so a partner is not told it has

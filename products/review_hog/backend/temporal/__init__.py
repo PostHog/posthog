@@ -50,16 +50,16 @@ from products.review_hog.backend.temporal.workflow import (
     ValidateIssuesWorkflow,
 )
 
-WORKFLOWS = [
+WORKFLOWS = (
     ReviewPRQueueWorkflow,
     ReviewPRWorkflow,
     ReviewPerspectivesWorkflow,
     ValidateIssuesWorkflow,
     ClassifyFindingOutcomesWorkflow,
     ResolvePRWorkflow,
-]
+)
 
-ACTIVITIES = [
+ACTIVITIES = (
     review_resolution_running_activity,
     validate_github_integration_activity,
     fetch_pr_data_activity,
@@ -98,4 +98,4 @@ ACTIVITIES = [
     classify_team_outcomes_activity,
     resolve_threads_activity,
     fail_resolution_activity,
-]
+)

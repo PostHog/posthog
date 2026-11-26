@@ -175,6 +175,47 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ja4Fingerprint": "The JA4 TLS fingerprint of the client.",
         },
     },
+    "billing_summary": {
+        "description": "Usage and charges so far in the current billing month, one row per pull zone.",
+        "docs_url": "https://docs.bunny.net/reference/getbillingsummaryendpoint_getsummaryendpoint",
+        "columns": {
+            "PullZoneId": "The ID of the pull zone.",
+            "MonthlyUsage": "The total credit amount used in this month by the pull zone.",
+            "MonthlyBandwidthUsed": "The total bandwidth used by the pull zone this month, in bytes.",
+        },
+    },
+    "pull_zone_optimizer_statistics": {
+        "description": "Bunny Optimizer image and file optimization usage for one pull zone, for one time bucket.",
+        "docs_url": "https://docs.bunny.net/reference/getoptimizerstatisticsendpoint_getoptimizerstatistics",
+        "columns": {
+            "PullZoneId": "The ID of the pull zone the values belong to.",
+            "Timestamp": "The start of the interval the values cover.",
+            "RequestsOptimized": "The number of requests the optimizer processed in the interval.",
+            "AverageCompression": "The average compression of the optimized responses in the interval.",
+            "TrafficSaved": "The traffic the optimizer saved in the interval.",
+            "AverageProcessingTime": "The average time the optimizer took to process a request in the interval.",
+        },
+    },
+    "pull_zone_safehop_statistics": {
+        "description": "SafeHop origin retry activity for one pull zone, for one time bucket.",
+        "docs_url": "https://docs.bunny.net/reference/getsafehopstatisticsendpoint_getsafehopstatistics",
+        "columns": {
+            "PullZoneId": "The ID of the pull zone the values belong to.",
+            "Timestamp": "The start of the interval the values cover.",
+            "RequestsRetried": "The number of origin requests SafeHop retried in the interval.",
+            "RequestsSaved": "The number of requests SafeHop saved from failing in the interval.",
+        },
+    },
+    "pull_zone_origin_shield_queue_statistics": {
+        "description": "Origin shield concurrency and queueing for one pull zone, for one time bucket.",
+        "docs_url": "https://docs.bunny.net/reference/getoriginshieldconcurrencystatisticsendpoint_getoriginshieldconcurrencystatistics",
+        "columns": {
+            "PullZoneId": "The ID of the pull zone the values belong to.",
+            "Timestamp": "The start of the interval the values cover.",
+            "ConcurrentRequests": "The number of concurrent requests the origin shield sent to the origin in the interval.",
+            "QueuedRequests": "The number of requests the origin shield queued in the interval.",
+        },
+    },
     "videos": {
         "description": "A single video in a bunny.net Stream video library, with its encoding state and viewing totals.",
         "docs_url": "https://docs.bunny.net/reference/video_list",
@@ -213,6 +254,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "liveStreamCount": "The number of live streams in the collection.",
             "totalSize": "The total storage used by the videos in the collection, in bytes.",
             "previewVideoIds": "The video IDs used as preview thumbnails for the collection.",
+        },
+    },
+    "video_heatmaps": {
+        "description": "The attention heatmap of a Stream video: relative viewer interest per timeline segment.",
+        "docs_url": "https://docs.bunny.net/reference/video_getvideoheatmap",
+        "columns": {
+            "videoLibraryId": "The ID of the video library the video belongs to.",
+            "videoGuid": "The unique ID of the video.",
+            "segment": "The index of the timeline segment, counted from the start of the video.",
+            "intensity": "Relative viewer interest in the segment, from 0 to 100, where 100 is the most-watched segment.",
         },
     },
     "video_library_statistics": {

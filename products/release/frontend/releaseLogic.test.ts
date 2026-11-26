@@ -57,15 +57,18 @@ describe('releaseLogic', () => {
     })
 
     it.each([
-        ['loads once the flag arrives after mount', true, 1],
-        ['loads nothing while the flag is off', false, 0],
-    ])('%s', async (_name, enabled, calls) => {
+        ['loads objects without the area', false, true, 1],
+        ['loads objects with the area', true, true, 1],
+        ['loads no objects for the area alone', true, false, 0],
+        ['loads nothing while both flags are off', false, false, 0],
+    ])('%s', async (_name, areaEnabled, objectsEnabled, calls) => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         const logic = releaseLogic()
         logic.mount()
 
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.RELEASES_AREA] : [], {
-            [FEATURE_FLAGS.RELEASES_AREA]: enabled,
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.RELEASES_AREA]: areaEnabled,
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: objectsEnabled,
         })
         await expectLogic(logic).toFinishAllListeners()
 
@@ -75,6 +78,9 @@ describe('releaseLogic', () => {
     it('counts a release page open once per page, not per hash change', async () => {
         const capture = jest.mocked(posthog.capture)
         capture.mockClear()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         router.actions.push(urls.release('r1'))
         const logic = releaseLogic()
         logic.mount()
@@ -88,6 +94,48 @@ describe('releaseLogic', () => {
             ['release page opened', { release_id: 'r2' }],
         ])
     })
+
+    it.each([
+        ['flags never arrive', [], urls.releaseCalendar(), []],
+        [
+            'flags arrive while the page is still open',
+            [FEATURE_FLAGS.RELEASE_OBJECTS],
+            urls.releaseCalendar(),
+            ['release calendar opened'],
+        ],
+        ['flags arrive after the person left the page', [FEATURE_FLAGS.RELEASE_OBJECTS], urls.projectHomepage(), []],
+        [
+            'the area flag arrives for the view all page',
+            [FEATURE_FLAGS.RELEASES_AREA],
+            null,
+            ['release view all opened'],
+        ],
+        ['only the objects flag arrives for the view all page', [FEATURE_FLAGS.RELEASE_OBJECTS], null, []],
+    ])(
+        'counts a page open only when the gate lets the person in: %s',
+        async (_name, arrivingFlags, pathWhenFlagsArrive, expected) => {
+            const capture = jest.mocked(posthog.capture)
+            capture.mockClear()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            const opened = pathWhenFlagsArrive === null ? urls.releases() : urls.releaseCalendar()
+            router.actions.push(opened)
+            const logic = releaseLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            if (pathWhenFlagsArrive && pathWhenFlagsArrive !== opened) {
+                router.actions.push(pathWhenFlagsArrive)
+            }
+            featureFlagLogic.actions.setFeatureFlags(
+                arrivingFlags,
+                Object.fromEntries(arrivingFlags.map((flag) => [flag, true]))
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            const opens = capture.mock.calls.map((call) => String(call[0])).filter((event) => event.endsWith(' opened'))
+            expect(opens).toEqual(expected)
+        }
+    )
 
     it.each([
         [
@@ -114,13 +162,20 @@ describe('releaseLogic', () => {
             count: 1,
             next: null,
         } as never)
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         router.actions.push(url)
-        const logic = releaseLogic()
+        const logic = releaseLogic({ id: url === urls.release('r1') ? 'r1' : undefined })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.breadcrumbs).toEqual(expected)
+        expect(logic.values.todayRecent).toEqual(
+            url === urls.release('r1')
+                ? { type: 'release', id: 'r1', name: 'Quiet theme', href: urls.release('r1') }
+                : null
+        )
     })
 
     it.each([
@@ -163,7 +218,9 @@ describe('releaseLogic', () => {
             }
             return { ...release, ...changes } as never
         })
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         const logic = releaseLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()

@@ -153,6 +153,41 @@ def test_parse_openai_responses_citations() -> None:
     assert parsed.search_queries == ["feature flag tools comparison"]
 
 
+@parameterized.expand(
+    [
+        ("utm_only", "https://example.com/flags?utm_source=openai", "https://example.com/flags"),
+        ("utm_and_others", "https://example.com/a?id=7&utm_source=openai#top", "https://example.com/a?id=7#top"),
+        ("no_utm", "https://example.com/a?id=7&page=2", "https://example.com/a?id=7&page=2"),
+        (
+            "encoded_param_kept_as_is",
+            "https://example.com/s?q=feature%20flags&utm_source=openai",
+            "https://example.com/s?q=feature%20flags",
+        ),
+        ("malformed_url", "https://[invalid/path", "https://[invalid/path"),
+    ]
+)
+def test_parse_openai_responses_citations_drop_utm_params(_name: str, cited: str, expected: str) -> None:
+    body = {
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Answer.",
+                        "annotations": [
+                            {"type": "url_citation", "url": cited},
+                            {"type": "url_citation", "url": expected},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert parse_openai_responses_citations(body).cited_urls == [expected]
+
+
 OPENAI_INCOMPLETE_BODY = {
     "id": "resp_02",
     "status": "incomplete",
@@ -435,6 +470,29 @@ def test_build_check_fields_record_whether_the_answer_names_the_brand(
         target_domains=["example.com"],
     )
     assert fields["names_brand"] is expected
+
+
+@pytest.mark.parametrize(
+    "prompt_text, error, expected",
+    [
+        ("Is Example good for funnels?", None, True),
+        ("Best funnel tool?", None, False),
+        ("Is Example good for funnels?", "HTTPError: status=500", True),
+    ],
+)
+def test_build_check_fields_record_whether_the_prompt_names_the_brand(
+    prompt_text: str, error: str | None, expected: bool
+) -> None:
+    fields = build_check_fields(
+        check=CitationCheck(engine="exa-answer", model="exa-answer", answer_text="", error=error),
+        run_id="run-1",
+        prompt_id="prompt-1",
+        prompt_text=prompt_text,
+        prompt_source="manual",
+        prompt_hash="abc",
+        target_domains=["example.com"],
+    )
+    assert fields["prompt_branded"] is expected
 
 
 def test_build_check_fields_failed_check() -> None:

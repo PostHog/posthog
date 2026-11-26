@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -290,6 +290,23 @@ export const IdentityProviderConfigsScimTokenCreateParams = () => zod.object({
 })
 
 /**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const OauthApplicationsListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const OauthApplicationsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsCreateParams = () => zod.object({
@@ -351,6 +368,8 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionW
 
 export const organizationsProjectsCreateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
 
+export const organizationsProjectsCreateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax = 64
+
 export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
 
 export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmMediumMax = 500
@@ -380,6 +399,14 @@ export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsM
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
 
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
 
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
@@ -1406,6 +1433,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                                         .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                         .optional(),
                                     schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                                    use_in_recommendations: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                                        ),
                                     version: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2055,6 +2088,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                                         .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                         .optional(),
                                     schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                                    use_in_recommendations: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                                        ),
                                     version: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2709,6 +2748,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                                     schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
                                     table_name: zod.string(),
                                     timestamp_field: zod.string(),
+                                    use_in_recommendations: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                                        ),
                                     version: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2814,6 +2859,38 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .optional()
                     .describe(
                         'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
+                    ),
+                role_default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            role_id: zod.string().describe('Organization role whose members inherit these properties.'),
+                            pinned_properties: zod
+                                .array(
+                                    zod.object({
+                                        kind: zod
+                                            .enum(['custom_property', 'relationship', 'account_field'])
+                                            .describe(
+                                                '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            )
+                                            .describe(
+                                                'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            ),
+                                        id: zod
+                                            .string()
+                                            .max(
+                                                organizationsProjectsCreateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax
+                                            )
+                                            .describe(
+                                                'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                            ),
+                                    })
+                                )
+                                .describe('Ordered account properties shown to members of this role.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write."
                     ),
             })
             .optional(),
@@ -2948,14 +3025,28 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
+                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.'
                     ),
                 blocked_ips: zod
                     .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax))
                     .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax)
                     .optional()
                     .describe(
-                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
+                        'IP addresses or CIDR ranges to block from \/flags requests, up to 100. The widest ranges are \/8 for IPv4 and \/16 for IPv6.'
+                    ),
+                allowed_hosts: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.'
+                    ),
+                allowed_ips: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .optional()
+                    .describe(
+                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins."
                     ),
             })
             .optional(),
@@ -3209,8 +3300,6 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurati
 
 export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
-export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
-
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault = `exact`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault = `event`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault = `person`
@@ -3242,6 +3331,8 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttri
 
 export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
 
+export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax = 64
+
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmMediumMax = 500
@@ -3271,6 +3362,14 @@ export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlocke
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
 
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -3427,10 +3526,6 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                 'ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.'
             ),
         live_events_columns: zod.array(zod.string()).nullish(),
-        recording_domains: zod
-            .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
-            .nullish()
-            .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
         extra_settings: zod.unknown().optional(),
         modifiers: zod.unknown().optional(),
@@ -4311,6 +4406,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                         .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                         .optional(),
                                     schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                                    use_in_recommendations: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                                        ),
                                     version: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -4960,6 +5061,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                         .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                         .optional(),
                                     schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
+                                    use_in_recommendations: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                                        ),
                                     version: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -5614,6 +5721,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                     schema_map: zod.record(zod.string(), zod.union([zod.string(), zod.unknown()])),
                                     table_name: zod.string(),
                                     timestamp_field: zod.string(),
+                                    use_in_recommendations: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false."
+                                        ),
                                     version: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -5719,6 +5832,38 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
+                    ),
+                role_default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            role_id: zod.string().describe('Organization role whose members inherit these properties.'),
+                            pinned_properties: zod
+                                .array(
+                                    zod.object({
+                                        kind: zod
+                                            .enum(['custom_property', 'relationship', 'account_field'])
+                                            .describe(
+                                                '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            )
+                                            .describe(
+                                                'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            ),
+                                        id: zod
+                                            .string()
+                                            .max(
+                                                organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax
+                                            )
+                                            .describe(
+                                                'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                            ),
+                                    })
+                                )
+                                .describe('Ordered account properties shown to members of this role.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write."
                     ),
             })
             .optional(),
@@ -5857,7 +6002,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
+                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.'
                     ),
                 blocked_ips: zod
                     .array(
@@ -5866,7 +6011,27 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax)
                     .optional()
                     .describe(
-                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
+                        'IP addresses or CIDR ranges to block from \/flags requests, up to 100. The widest ranges are \/8 for IPv4 and \/16 for IPv6.'
+                    ),
+                allowed_hosts: zod
+                    .array(
+                        zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.'
+                    ),
+                allowed_ips: zod
+                    .array(
+                        zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .optional()
+                    .describe(
+                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins."
                     ),
             })
             .optional(),
@@ -6169,7 +6334,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
 })
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const UploadedMediaCompleteUploadCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this uploaded media.'),
@@ -6203,7 +6368,9 @@ export const UploadedMediaStartUploadCreateBody = () => zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 /**

@@ -70,7 +70,6 @@ from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.billing_usage_records import BillingUsageRecordsTable
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
-from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
@@ -95,7 +94,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, join_persons_to_flag_evaluations
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, follow_persons_on_events_mode
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -392,8 +391,6 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
     "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
     "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
-    # Kept only so saved queries still resolve; new queries should use `cohort_people`.
-    "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable(), hidden=True),
     "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
     "precalculated_person_properties": TableNode(
         name="precalculated_person_properties", table=PrecalculatedPersonPropertiesTable()
@@ -825,7 +822,7 @@ def _compute_system_table_access_decision(
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
-    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+    if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
@@ -876,6 +873,7 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    _denied_warehouse_table_ids: set[str] = set()  # Ids of the warehouse tables in _denied_tables
     # `models.<stored name>` -> stored chain, for authored saved queries. Only the deny check reads it.
     _models_aliases: dict[str, list[str]] = {}
     # `models.<stored name>` -> the model's own view node. Resolution uses this and not the stored chain,
@@ -950,6 +948,7 @@ class Database(BaseModel):
         self._view_table_names = []
         self._table_slot_origins = {}
         self._denied_tables = set()
+        self._denied_warehouse_table_ids = set()
         self._models_aliases = {}
         self._models_alias_nodes = {}
         self._connection_id = None
@@ -1496,6 +1495,7 @@ class Database(BaseModel):
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
         self._denied_tables.add(table.name)
+        self._denied_warehouse_table_ids.add(str(table.id))
         if table.external_data_source:
             for table_key in _get_warehouse_table_keys(table, direct_query=self._is_direct_query()):
                 self._denied_tables.add(table_key)
@@ -1602,6 +1602,7 @@ class Database(BaseModel):
         ]
         return sorted(selected, key=_serialization_order)
 
+    @tracer.start_as_current_span("serialize_hogql_database")
     def serialize(
         self,
         context: HogQLContext,
@@ -1974,6 +1975,7 @@ class Database(BaseModel):
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
+        trace.get_current_span().set_attribute("trigger", str(trigger))
 
         cache_key = None
         if use_cached_sources and not schema_table_names:
@@ -2247,6 +2249,10 @@ class Database(BaseModel):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
+            from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
+                source_has_column_restricted_schemas,
+            )
+
             direct_connection_metadata: dict[str, Any] | None = None
             is_managed_warehouse_connection = False
             # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
@@ -2275,16 +2281,19 @@ class Database(BaseModel):
                             )
                         is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
+                    is_pure_direct = direct_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
-                    if direct_source.access_method != ExternalDataSourceAccessMethod.DIRECT:
+                    if not is_pure_direct:
                         virtual_source = direct_source
+                    # A DIRECT source has full database access by design, unless its column picker hides
+                    # columns: an introspected function such as query_to_xml would read them anyway.
+                    if not is_pure_direct or source_has_column_restricted_schemas(direct_source.id, team.pk):
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
                         # `available_table_functions` (FROM func() via OpaqueFunctionCallTable) both let a
                         # user execute arbitrary SQL against the upstream DB, bypassing the table selection /
                         # row-filter / column / warehouse-object checks enforced when virtual tables are
-                        # built. Drop both so only built-in safe functions pass through; DIRECT sources
-                        # (full DB access by design) keep introspected passthrough.
+                        # built. Drop both so only built-in safe functions pass through.
                         introspected_function_keys = {"available_functions", "available_table_functions"}
                         if isinstance(direct_connection_metadata, dict) and (
                             introspected_function_keys & direct_connection_metadata.keys()
@@ -2627,9 +2636,8 @@ class Database(BaseModel):
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
                     )
-                    if database.has_table(["posthog", "flag_evaluations"]):
-                        join_persons_to_flag_evaluations(database)
 
+                follow_persons_on_events_mode(database, modifiers.personsOnEventsMode)
                 _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):
@@ -3679,7 +3687,8 @@ def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable]
             for credential in DataWarehouseCredential.objects.filter(team_id=team_id, id__in=credential_ids)
         }
     for table in warehouse_tables:
-        table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
+        # `table.credential = None` also clears `credential_id`, which marks the table as needing a key.
+        table._state.fields_cache["credential"] = credentials_by_id.get(table.credential_id)
 
 
 def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:

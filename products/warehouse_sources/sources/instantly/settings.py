@@ -40,6 +40,8 @@ class ParentFanout:
     parent_path: str = "/campaigns"
     # The parent id fills the `{param}` placeholder in the path instead of a query param.
     in_path: bool = False
+    # Parent row field that holds the parent id (accounts are keyed by email, not id).
+    parent_field: str = "id"
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,10 @@ class InstantlyEndpointConfig:
     account_email_batches: bool = False
     # Extra params the credential/scope probe needs (e.g. a required campaign id).
     probe_params: dict[str, Any] = field(default_factory=dict)
+    # Single-object endpoint that takes no query params, so the probe sends none.
+    probe_without_params: bool = False
+    # Nested object whose members move to the row root.
+    lift_field: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -262,6 +268,52 @@ INSTANTLY_ENDPOINTS: dict[str, InstantlyEndpointConfig] = {
         primary_keys=["lead_list_id"],
         partition_key=None,
         description="Email verification results per lead list: counts of verified, invalid, risky, catch-all, and pending leads.",
+    ),
+    "inbox_placement_tests": InstantlyEndpointConfig(
+        name="inbox_placement_tests",
+        path="/inbox-placement-tests",
+        params={"sort_order": "asc"},
+        description="Inbox placement test definitions: the test email, recipient email service providers, schedule, and status.",
+    ),
+    "account_campaign_mappings": InstantlyEndpointConfig(
+        name="account_campaign_mappings",
+        path="/account-campaign-mappings/{email}",
+        fanout=ParentFanout(
+            param="email", stamp_field="email", parent_path="/accounts", in_path=True, parent_field="email"
+        ),
+        primary_keys=["email", "campaign_id"],
+        description="Campaigns that each sending account sends for, with the campaign name and status.",
+    ),
+    "workspace_plan_details": InstantlyEndpointConfig(
+        name="workspace_plan_details",
+        path="/workspace-billing/plan-details",
+        pagination="single",
+        data_selector=None,
+        primary_keys=["organization_id"],
+        partition_key=None,
+        probe_without_params=True,
+        description="The workspace plan: plan name, add-on quantity, lead limit, and the current lead count.",
+    ),
+    "workspace_subscriptions": InstantlyEndpointConfig(
+        name="workspace_subscriptions",
+        path="/workspace-billing/subscription-details",
+        pagination="single",
+        data_selector="subscriptions",
+        primary_keys=["workspace_id", "price_id"],
+        partition_key=None,
+        probe_without_params=True,
+        description="Billing subscriptions of the workspace: product, plan type, interval, price, and billing period end.",
+    ),
+    "campaign_sending_status": InstantlyEndpointConfig(
+        name="campaign_sending_status",
+        path="/campaigns/{id}/sending-status",
+        pagination="single",
+        data_selector=None,
+        fanout=ParentFanout(param="id", stamp_field="campaign_id", in_path=True),
+        lift_field="diagnostics",
+        primary_keys=["campaign_id"],
+        partition_key=None,
+        description="Current sending status per campaign: why the campaign is or is not sending, with account and lead availability.",
     ),
 }
 

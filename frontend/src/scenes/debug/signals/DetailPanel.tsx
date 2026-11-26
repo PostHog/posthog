@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useCallback, useRef, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
@@ -7,6 +8,7 @@ import { signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
 import type { ErrorTrackingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
+import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 
 import { ResizeGripDots, sourceProductColor } from './helpers'
 import { SignalNode, isMatchedMetadata } from './types'
@@ -29,6 +31,7 @@ export function DetailPanel({
     isRoot: boolean
     onClose: () => void
 }): JSX.Element {
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const panelRef = useRef<HTMLDivElement>(null)
     const [size, setSize] = useState({ width: 420, height: 500 })
     const [position, setPosition] = useState({ x: 16, y: 16 })
@@ -213,7 +216,7 @@ export function DetailPanel({
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ backgroundColor: sourceProductColor(signal.source_product) }}
                         />
-                        <span>{signalCardSourceLine(signal)}</span>
+                        <span>{signalCardSourceLine(signal, scoutNamesBySkill)}</span>
                     </div>
                 </Section>
                 <div className="flex gap-6">

@@ -54,9 +54,24 @@ Details:
 - After this workflow reaches `master`, ask a repository administrator through `@PostHog/team-devex` to add `mobile-ci / Mobile CI Pass` to the `master` ruleset's required status checks with GitHub Actions as its source. Keep the other required checks. YAML comments do not configure repository rules.
 - The release workflow calls Mobile CI on the merged commit. A push has no pull request diff to filter, so the checks always run there.
 
-`@cvolzer3` owns both mobile app trees and all mobile workflow files in `CODEOWNERS`, including release requests, release tooling and the public OTA certificate.
-
 The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
+
+### Mobile rebuild acknowledgement
+
+The **Mobile Rebuild / Native rebuild acknowledged** check flags changes to build configuration, dependencies, packaging, native source and iOS extension targets. It compares the production EAS build and submission profiles, including inherited settings. Preview-only profile edits pass this check. For image assets, CI compares production iOS and Android fingerprints using the base branch's tooling. Changes to other asset types require acknowledgement.
+
+When the check finds a possible rebuild or cannot verify native inputs, it fails and a PR comment tags `@PostHog/team-mobile-app`. Anyone with repository write access, including the PR author, can acknowledge the current commit.
+
+1. Copy the `/ack-mobile-rebuild <head-sha>` command from the bot comment or check summary and post it as a separate PR comment.
+2. Select **Re-run failed jobs** on the workflow run. The check reads the comment and passes for that commit.
+
+If the check flags a later commit, repeat both steps with the new command. Acknowledgement clears this check only. Building the app, approving the PR and approving a production deployment are separate steps.
+
+If the comparison job itself fails, the bot tags the Mobile App team with a link to the failed run. Check the error and select **Re-run failed jobs** so CI can finish the comparison.
+
+The app's `product.yaml` and `.github/owners.yaml` route optional Mobile App reviews for app code, mobile workflows, build configuration and release tooling. DevEx approval is required for changes to the acknowledgement gate and its tests.
+
+A repository administrator must add **Mobile Rebuild / Native rebuild acknowledged** from GitHub Actions to the `master` ruleset as part of the ownership rollout. Update the branch of any open PR that lacks the check so it picks up the new workflow.
 
 ## Mobile Build
 

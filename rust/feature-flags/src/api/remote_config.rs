@@ -381,7 +381,7 @@ async fn authenticate(
         // because it decides redact-vs-decrypt, so the mix is worth watching during phase 2/3.
         inc(
             REMOTE_CONFIG_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
         state

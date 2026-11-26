@@ -11,6 +11,7 @@ import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
 import { AuditExporter, captureSender } from './audit/exporter'
+import { measureAuditExportLag } from './audit/lag'
 import { IntegrationKeyLoader } from './auth/integration-keys'
 import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
@@ -41,6 +42,7 @@ const DATABASE_RETRY_MS = 5_000
 
 /** How often to delete idempotency keys that passed their 24 hour window. */
 const IDEMPOTENCY_CLEANUP_MS = 10 * 60 * 1000
+const AUDIT_LAG_INTERVAL_MS = 30_000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -121,17 +123,27 @@ export class CredentialsServer {
     private apply(source: SecretSource, snapshot: SecretSnapshot | null): void {
         // Keys before secrets: a revocation and a rotation can land in one secret
         // edit, and the revoked caller must not see the new values in the gap between.
-        this.signingKeys?.reloadFrom(snapshot?.values ?? null)
-        this.applySecrets(source, snapshot)
+        // A snapshot whose keys are refused only takes values away, because the keys still held
+        // would read any value that edit added or rotated.
+        const keysLoaded = this.signingKeys?.reloadFrom(snapshot?.values ?? null) ?? true
+        this.applySecrets(source, snapshot, { withdrawOnly: !keysLoaded })
     }
 
-    private applySecrets(source: SecretSource, snapshot: SecretSnapshot | null): void {
+    private applySecrets(
+        source: SecretSource,
+        snapshot: SecretSnapshot | null,
+        { withdrawOnly = false }: { withdrawOnly?: boolean } = {}
+    ): void {
         const mount = this.mount
         if (!mount) {
             return
         }
         const before = mount.current()?.versionId
-        mount.apply(snapshot?.values ?? null)
+        if (withdrawOnly) {
+            mount.withdraw(snapshot?.values ?? null)
+        } else {
+            mount.apply(snapshot?.values ?? null)
+        }
         const after = mount.current()
         if (after && after.versionId !== before) {
             logger.info('secrets:applied', {
@@ -277,8 +289,10 @@ export class CredentialsServer {
             secrets: () => mount.current(),
             integrations: () => this.integrations,
         }
-        if (this.pool) {
-            this.startAuditMaintenance(this.pool)
+        const pool = this.pool
+        if (pool) {
+            this.cancelTimers.push(every(AUDIT_LAG_INTERVAL_MS, () => measureAuditExportLag(pool)))
+            this.startAuditExport(pool)
         }
         const app = createApp(appOptions)
 
@@ -321,7 +335,7 @@ export class CredentialsServer {
         this.setupProcessListeners()
     }
 
-    private startAuditMaintenance(pool: Pool): void {
+    private startAuditExport(pool: Pool): void {
         const { auditExport } = this.config
         if (auditExport) {
             const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize, this.config.env)

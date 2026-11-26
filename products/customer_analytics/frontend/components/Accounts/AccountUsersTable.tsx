@@ -3,9 +3,8 @@ import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonBadge, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { getUserAdminUrl } from 'lib/utils/userAdmin'
 import { urls } from 'scenes/urls'
 
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
@@ -15,6 +14,7 @@ import { ActorsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { accountMemberAdminLinksLogic } from './accountMemberAdminLinksLogic'
+import { AccountMemberImpersonateButton } from './AccountMemberImpersonateButton'
 import { accountUsersTableLogic, IMPERSONATE_COLUMN, MEMBERSHIP_COLUMN } from './accountUsersTableLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
@@ -32,20 +32,7 @@ function ImpersonateButton({
     if (!distinctId) {
         return null
     }
-    const member = memberByDistinctId[distinctId]
-    return (
-        <LemonButton
-            type="secondary"
-            size="xsmall"
-            to={getUserAdminUrl(member.region, member.user.id)}
-            targetBlank
-            tooltip="Open this user in admin to impersonate them."
-            data-attr="customer-analytics-account-user-admin-link"
-            onClick={() => posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })}
-        >
-            Impersonate
-        </LemonButton>
-    )
+    return <AccountMemberImpersonateButton member={memberByDistinctId[distinctId]} />
 }
 
 interface AccountUsersTableProps extends AccountViewTileLogicProps {

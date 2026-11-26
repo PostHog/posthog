@@ -54,6 +54,7 @@ _LAZY = {
     "store_webhook_extra_inputs": "logic.external_data_source.webhooks",
     "WebhookConsumerConfig": "logic.webhook_consumer.config",
     "WebhookS3Sink": "logic.webhook_consumer.consumer",
+    "create_data_ops_dashboard": "logic.data_ops_dashboard",
     "get_managed_warehouse_data_status": "logic.managed_warehouse_data_status",
     "get_source_schema_statuses": "logic.managed_warehouse_data_status",
     "get_mysql_source_location": "mysql_helpers",
@@ -98,6 +99,7 @@ _LAZY = {
     "get_s3_client": "s3",
     "get_size_of_folder": "s3",
     "delta_proxy_storage_options": "s3_proxy",
+    "boto_proxy_config_kwargs": "s3_proxy",
 }
 
 __all__ = sorted(_LAZY)

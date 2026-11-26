@@ -1,8 +1,10 @@
+import { Counter } from 'prom-client'
+
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisOptions, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { limitNewConnectionsWith } from '~/common/utils/connection-rate-limiter'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -214,6 +216,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
         | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
+        | 'CDP_EMAIL_TEXT_PART_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
@@ -243,7 +246,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_INTAKE_DLQ_TOPIC'
         | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
         | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
-        | 'CDP_INTAKE_PRODUCER'
+        | 'CDP_INTAKE_MSK_PRODUCER'
+        | 'CDP_INTAKE_DLQ_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
     > &
@@ -329,6 +333,44 @@ export function createCdpReaderRedisPool(
     return writerPool
 }
 
+const shadowCallsFailedOpenTotal = new Counter({
+    name: 'cdp_valkey_shadow_calls_failed_open_total',
+    help: 'Shadow Valkey calls with failOpen that failed: a pool or command error that returned null, or a pipeline with a failed command.',
+    labelNames: ['name'],
+})
+
+function failOpenOnAnyError(pool: RedisV2): RedisV2 {
+    const countFailedOpen = (options: RedisOptions, error: unknown): void => {
+        shadowCallsFailedOpenTotal.inc({ name: options.name })
+        logger.warn('🪞', `[${options.name}] shadow valkey call failed open`, { error: String(error) })
+    }
+    const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
+        try {
+            return await call()
+        } catch (error) {
+            if (!options.failOpen) {
+                throw error
+            }
+            countFailedOpen(options, error)
+            return null
+        }
+    }
+    return {
+        useClient: (options, callback) =>
+            failOpen(options, () => pool.useClient({ ...options, failOpen: false }, callback)),
+        usePipeline: async (options, callback) => {
+            const results = await failOpen(options, () => pool.usePipeline({ ...options, failOpen: false }, callback))
+            // ioredis resolves a pipeline whose commands failed, with the errors in the results, so the catch above
+            // never sees a command that timed out inside a pipeline.
+            const commandError = results?.find(([error]) => error)?.[0]
+            if (options.failOpen && commandError) {
+                countFailedOpen(options, commandError)
+            }
+            return results
+        },
+    }
+}
+
 /**
  * Creates writer + reader pools for the shadow Valkey instance used in dual-write/read mode.
  * Throws when CDP_VALKEY_HOST is unset: a CDP process that cannot reach Valkey is
@@ -370,61 +412,51 @@ export function createCdpValkeyShadowPools(
 
     const tls = config.CDP_VALKEY_TLS ? {} : undefined
 
-    const writer = createRedisV2PoolFromConfig({
-        connection: {
-            url: config.CDP_VALKEY_HOST,
-            options: {
-                port: config.CDP_VALKEY_PORT,
-                password: config.CDP_VALKEY_PASSWORD,
-                commandTimeout: shadowCommandTimeoutMs,
-                tls,
-            },
-            name: `${name}-shadow`,
-        },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
-        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-    })
-
     // The config is required, but reachability is not fatal: features not named in
     // CDP_VALKEY_READ_FEATURES still read from Redis, so an unreachable Valkey must not take
     // CDP down at boot. Features that have moved over surface it as failing reads instead.
-    void writer
-        .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
-        .catch((err) => {
-            logger.error(
-                '🪞',
-                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — valkey ops will surface as "[mirror:*] failed" warn logs from dual-store`,
-                { err }
-            )
-        })
-
-    let reader: RedisV2 = writer
-    if (config.CDP_VALKEY_READER_HOST) {
-        reader = createRedisV2PoolFromConfig({
-            connection: {
-                url: config.CDP_VALKEY_READER_HOST,
-                options: {
-                    port: config.CDP_VALKEY_READER_PORT,
-                    password: config.CDP_VALKEY_PASSWORD,
-                    commandTimeout: shadowCommandTimeoutMs,
-                    tls,
+    const createShadowPool = (host: string, port: number, poolName: string, role: string): RedisV2 => {
+        const pool = failOpenOnAnyError(
+            createRedisV2PoolFromConfig({
+                connection: {
+                    url: host,
+                    options: {
+                        port,
+                        password: config.CDP_VALKEY_PASSWORD,
+                        commandTimeout: shadowCommandTimeoutMs,
+                        tls,
+                    },
+                    name: poolName,
+                    exitOnRepeatedErrors: false,
                 },
-                name: `${name}-shadow-reader`,
-            },
-            poolMinSize: config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-        })
+                poolMinSize: config.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+                acquireTimeoutMillis: shadowCommandTimeoutMs,
+                discardStalledClients: true,
+            })
+        )
 
-        void reader
+        void pool
             .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
             .catch((err) => {
                 logger.error(
                     '🪞',
-                    `[${name}] shadow reader at ${config.CDP_VALKEY_READER_HOST}:${config.CDP_VALKEY_READER_PORT} failed startup health check`,
+                    `[${name}] shadow ${role} at ${host}:${port} failed startup health check — valkey ops will surface as "[mirror:*] failed" warn logs from dual-store`,
                     { err }
                 )
             })
+        return pool
     }
+
+    const writer = createShadowPool(config.CDP_VALKEY_HOST, config.CDP_VALKEY_PORT, `${name}-shadow`, 'writer')
+    const reader = config.CDP_VALKEY_READER_HOST
+        ? createShadowPool(
+              config.CDP_VALKEY_READER_HOST,
+              config.CDP_VALKEY_READER_PORT,
+              `${name}-shadow-reader`,
+              'reader'
+          )
+        : writer
 
     return { writer, reader }
 }
@@ -534,6 +566,7 @@ export function createCdpCoreServices(
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
             templateTagsTeams: config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS,
+            textPartTeams: config.CDP_EMAIL_TEXT_PART_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,

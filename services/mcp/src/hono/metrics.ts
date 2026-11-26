@@ -28,6 +28,12 @@ export const toolCallDurationSeconds = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300],
 })
 
+export const toolResponsesShortenedTotal = new Counter({
+    name: 'mcp_tool_responses_shortened_total',
+    help: 'Tool responses shortened to the response budget, by whether a client limit or the default ceiling applied.',
+    labelNames: ['tool', 'budget'] as const,
+})
+
 export const initDurationSeconds = new Histogram({
     name: 'mcp_init_duration_seconds',
     help: 'Session init duration (cold-start cost per new session).',
@@ -55,6 +61,12 @@ export const toolErrorsTotal = new Counter({
     name: 'mcp_tool_errors_total',
     help: 'MCP tool errors by category.',
     labelNames: ['tool', 'error_type'] as const,
+})
+
+export const posthogCaptureEventsLostTotal = new Counter({
+    name: 'mcp_posthog_capture_events_lost_total',
+    help: "Events the server's PostHog client could not deliver, by capture endpoint and reason.",
+    labelNames: ['endpoint', 'reason'] as const,
 })
 
 export const redisOperationsTotal = new Counter({

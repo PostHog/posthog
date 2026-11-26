@@ -334,7 +334,7 @@ export interface notebookLogicValues {
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
-    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
     hasUnsavedVariables: boolean
     isEditable: boolean
     isLocalOnly: boolean
@@ -739,7 +739,7 @@ export interface notebookLogicMeta {
         getSharedCachedInsight: (
             isShared: boolean,
             cachedInsightsByShortId: Record<string, InsightModel<Node<Record<string, any>>>>
-        ) => (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+        ) => (shortId: string | null | undefined) => InsightModel | null
         getSharedCachedInlineQueryResults: (
             isShared: boolean,
             cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>
@@ -1636,7 +1636,7 @@ export const notebookLogic = kea<notebookLogicType>([
             const nextByName = new Map(variables.map((variable) => [variable.name, variable.value]))
             const affected = new Set<string>()
             for (const [name, value] of nextByName) {
-                if (!previousByName.has(name) || previousByName.get(name) !== value) {
+                if (!objectsEqual(previousByName.get(name), value)) {
                     affected.add(name)
                 }
             }

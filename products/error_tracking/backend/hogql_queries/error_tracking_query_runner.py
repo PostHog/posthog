@@ -9,7 +9,7 @@ import structlog
 
 from posthog.schema import (
     CachedErrorTrackingQueryResponse,
-    ErrorTrackingIssueTagFilter,
+    ErrorTrackingIssueTagsFilter,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
 )
@@ -99,19 +99,28 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             self.date_from,
             self.date_to,
             include_recent_issue_state=include_recent_issue_state,
-            issue_tag_filter=self._issue_tag_filter,
+            issue_tags_filter=self._issue_tags_filter,
         )
 
     @cached_property
     def _enabled_tag_definitions(self) -> tuple[IssueTagDefinition, ...]:
-        return enabled_issue_tag_definitions(self.team.pk)
+        return enabled_issue_tag_definitions(self.team.pk, self.user)
 
     @cached_property
-    def _issue_tag_filter(self) -> ErrorTrackingIssueTagFilter | None:
-        tag_filter = self.query.issueTag
-        if tag_filter is None or tag_filter.key not in {definition.key for definition in self._enabled_tag_definitions}:
+    def _issue_tags_filter(self) -> ErrorTrackingIssueTagsFilter | None:
+        """The query's tag filter with the deprecated one-tag filter added, and without the keys the user cannot see."""
+        tags = self.query.issueTags or ErrorTrackingIssueTagsFilter()
+        has, has_not = set(tags.has or []), set(tags.hasNot or [])
+        if self.query.issueTag is not None:
+            (has if self.query.issueTag.applied else has_not).add(self.query.issueTag.key)
+        if not has and not has_not:
             return None
-        return tag_filter
+        visible_keys = {definition.key for definition in self._enabled_tag_definitions}
+        has &= visible_keys
+        has_not &= visible_keys
+        if not has and not has_not:
+            return None
+        return ErrorTrackingIssueTagsFilter(has=sorted(has), hasNot=sorted(has_not))
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()

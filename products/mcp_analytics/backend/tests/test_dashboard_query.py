@@ -113,7 +113,8 @@ BROWSER_HOGQL: list[tuple[MCPDashboardSection, str, bool]] = [
     (
         MCPDashboardSection.KPIS,
         f"""SELECT {BUCKET} AS bucket, countDistinctIf($session_id, $session_id != '') AS sessions, count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+    countIf(toBool(properties.$mcp_is_error)) AS errors, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
+    uniq(distinct_id) AS users
 FROM events WHERE {WHERE} GROUP BY bucket ORDER BY bucket""",
         True,
     ),
@@ -152,7 +153,7 @@ GROUP BY session_id HAVING tool_calls >= 1 ORDER BY tool_calls DESC LIMIT 500"""
     ),
     (
         MCPDashboardSection.LAB_USERS,
-        f"SELECT {LAB_SQL} AS lab, uniq(distinct_id) AS users FROM events WHERE {WHERE} GROUP BY lab",
+        f"SELECT {LAB_SQL} AS lab, uniq(distinct_id) AS users FROM events WHERE {WHERE} GROUP BY lab ORDER BY users DESC, lab",
         False,
     ),
     (

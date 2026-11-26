@@ -3,12 +3,16 @@ import path from 'path'
 import { parseArgs } from 'util'
 
 import { seedBacklog } from './backlog/backlog'
-import { Backlog, CardError, LoadedCard, Profile, load, readProfile } from './cards'
+import { Backlog, CardError, LoadedCard, Profile, Target, load, readProfile } from './cards'
+import { runManifestOf } from './cloud/lease'
+import { DevConfig, devConfigOf } from './dev-target/config'
+import { devEnvironment, devTarget } from './dev-target/target'
 import { createEnvironment, defaultStateDir } from './environment/environment'
 import { StackConflictError, holdRunLock } from './environment/processes'
 import { roleSpecs, secretsOf } from './environment/roles'
 import { cyclotronUrlOf } from './environment/stack'
-import { Runner, createRunner } from './runner/runner'
+import { pairProblemsOf } from './runner/pair'
+import { RunResult, Runner, createRunner } from './runner/runner'
 import { readSavedRun, savedRunPathOf } from './runner/saved-run'
 import { EXIT_CODE, exitCodeOf } from './runner/status'
 import { ADAPTERS } from './scorecard/scorecard'
@@ -18,40 +22,66 @@ import { RunId } from './store/runs'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = [
-    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>]',
+    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>] [--target local|dev] [--pair]',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts seed-backlog --profile <file>',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>... | --all',
 ].join('\n')
 
-function cardPathOf(card: string): string {
-    return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(CARDS_DIR, `${card}.yaml`)
+function cardPathOf(card: string, target: Target): string {
+    const dir = target === 'dev' ? path.join(CARDS_DIR, 'dev') : CARDS_DIR
+    return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(dir, `${card}.yaml`)
 }
 
 function preflight(
     cards: string[],
     profilePath: string | undefined,
+    target: Target,
     env: NodeJS.ProcessEnv
-): { loaded: LoadedCard[] } | { problems: string[] } {
+): { loaded: LoadedCard[]; dev?: DevConfig } | { problems: string[] } {
     const { problem } = credentialsOf(env)
     const problems = problem === undefined ? [] : [problem]
+    let dev: DevConfig | undefined
+    try {
+        dev = target === 'dev' ? devConfigOf(env) : undefined
+    } catch (error) {
+        problems.push((error as Error).message)
+    }
     const loaded = cards.flatMap((card) => {
         try {
-            return [load(cardPathOf(card), { profilePath })]
+            return [load(cardPathOf(card, target), { profilePath, target })]
         } catch (error) {
             problems.push(error instanceof CardError ? error.message : `${card}: ${(error as Error).message}`)
             return []
         }
     })
-    return problems.length > 0 ? { problems } : { loaded }
+    return problems.length > 0 ? { problems } : { loaded, dev }
+}
+
+function manifestAsksForPair(env: NodeJS.ProcessEnv): boolean {
+    try {
+        return runManifestOf(env)?.pair === true
+    } catch {
+        return false
+    }
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
     const { positionals, values } = parseArgs({
         args: argv,
         allowPositionals: true,
-        options: { profile: { type: 'string' }, all: { type: 'boolean' } },
+        options: {
+            profile: { type: 'string' },
+            all: { type: 'boolean' },
+            target: { type: 'string' },
+            pair: { type: 'boolean' },
+        },
     })
     const [command, ...cards] = positionals
+    const pair = values.pair === true
+    if ((values.target !== undefined || pair) && command !== 'run') {
+        process.stderr.write(`${USAGE}\n`)
+        return EXIT_CODE.invalid
+    }
     if (command === 'seed-backlog' && cards.length === 0 && values.profile !== undefined) {
         return seedBacklogOf(values.profile, env)
     }
@@ -60,20 +90,42 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     if (command === 'publish' && publishesAll !== namesRuns) {
         return publishRuns(cards, env)
     }
-    if (command !== 'run' || cards.length === 0) {
+    const target = values.target ?? 'local'
+    if (command !== 'run' || cards.length === 0 || (target !== 'local' && target !== 'dev')) {
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
     }
-    const checked = preflight(cards, values.profile, env)
-    if ('problems' in checked) {
-        process.stderr.write(`${checked.problems.join('\n\n')}\n`)
+    const onHost = Boolean(env.SCENARIO_RUN_MANIFEST)
+    if (pair && (target !== 'local' || (onHost && !manifestAsksForPair(env)))) {
+        process.stderr.write(
+            '--pair runs on the local target only, or on a run host whose manifest asks for the pair: dev cards apply no valves, and a run host otherwise runs one card per manifest.\n'
+        )
+        return EXIT_CODE.invalid
+    }
+    if (onHost && cards.length > 1) {
+        process.stderr.write('A run host runs one card per manifest, so it takes one card id.\n')
+        return EXIT_CODE.invalid
+    }
+    const checked = preflight(cards, values.profile, target, env)
+    const problems =
+        'problems' in checked
+            ? checked.problems
+            : pair
+              ? checked.loaded.flatMap((loaded) => pairProblemsOf(loaded, onHost))
+              : []
+    if (problems.length > 0 || 'problems' in checked) {
+        process.stderr.write(`${problems.join('\n\n')}\n`)
         return EXIT_CODE.invalid
     }
 
     const interrupt = new AbortController()
     process.once('SIGINT', () => interrupt.abort())
     process.once('SIGTERM', () => interrupt.abort())
-    return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
+    const { dev } = checked
+    const runner = dev
+        ? createRunner(devEnvironment(), env, { target: devTarget(dev) })
+        : createRunner(createEnvironment(), env)
+    return runCards(runner, checked.loaded, interrupt.signal, { pair })
 }
 
 function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
@@ -180,26 +232,47 @@ async function seedHeld(
     return EXIT_CODE.passed
 }
 
-export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: AbortSignal): Promise<number> {
+function printResult(result: RunResult): void {
+    process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
+    if (result.stopped) {
+        process.stdout.write(`stopped in the ${result.stopped.phase} phase: ${result.stopped.stack}\n`)
+    }
+    process.stdout.write(`evidence: ${result.evidenceDir}\n`)
+    const readBackSkipped = result.captured ? ['captured; the run was interrupted before it was read back'] : []
+    const recording = result.recorded ? ['recorded'] : readBackSkipped
+    const problems = result.scorecardError ? [result.scorecardError] : []
+    const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
+    process.stdout.write(`scorecard: ${scorecard}\n`)
+    const store = result.stored ? 'stored' : (result.storeError ?? `not reported, ${STORE_URL} is not set`)
+    process.stdout.write(`store: ${store}\n`)
+    if (result.pair) {
+        const { role, attribution, reason } = result.pair
+        process.stdout.write(`pair: ${role} run ${result.runId}, attribution ${attribution}, ${reason}\n`)
+    }
+}
+
+export async function runCards(
+    runner: Runner,
+    cards: LoadedCard[],
+    interrupt: AbortSignal,
+    { pair = false }: { pair?: boolean } = {}
+): Promise<number> {
     let code: number = EXIT_CODE.passed
     let ran = 0
     try {
-        await runner.up()
+        await runner.up(interrupt)
         for (const loaded of cards) {
             if (interrupt.aborted) {
                 break
             }
-            const result = await runner.run(loaded, interrupt)
-            process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
-            process.stdout.write(`evidence: ${result.evidenceDir}\n`)
-            const readBackSkipped = result.captured ? ['captured; the run was interrupted before it was read back'] : []
-            const recording = result.recorded ? ['recorded'] : readBackSkipped
-            const problems = result.scorecardError ? [result.scorecardError] : []
-            const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
-            process.stdout.write(`scorecard: ${scorecard}\n`)
-            const store = result.stored ? 'stored' : (result.storeError ?? `not reported, ${STORE_URL} is not set`)
-            process.stdout.write(`store: ${store}\n`)
-            code = Math.max(code, exitCodeOf(result))
+            const results = pair ? await runner.runPair(loaded, interrupt) : [await runner.run(loaded, interrupt)]
+            for (const result of results) {
+                printResult(result)
+                code = Math.max(code, exitCodeOf(result))
+            }
+            if (pair && results.length < 2) {
+                code = Math.max(code, EXIT_CODE.invalid)
+            }
             ran += 1
         }
     } catch (error) {

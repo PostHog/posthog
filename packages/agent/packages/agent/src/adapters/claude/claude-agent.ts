@@ -45,7 +45,11 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import { leadingSlashCommand, serializeError } from "@posthog/agent-contracts";
+import {
+  type GatewayModel,
+  leadingSlashCommand,
+  serializeError,
+} from "@posthog/agent-contracts";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import {
   createEnrichment,
@@ -55,7 +59,6 @@ import {
 import {
   buildFinishRunUpdate,
   isCloudRun,
-  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   resolveGithubToken,
@@ -448,6 +451,7 @@ export interface ClaudeAcpAgentOptions {
   gatewayEnv?: GatewayEnv;
   machineAuth?: MachineClaudeAuth;
   modelsGatewayUrl?: string;
+  listModels?: () => Promise<GatewayModel[]>;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -2525,6 +2529,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Conversation clear timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: params.sessionId },
+      );
       return await this.finishClear(
         params,
         session,
@@ -2884,6 +2893,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: this.sessionId },
+      );
     } catch (error) {
       // The old query is already retired and the new one is unproven, so any
       // failure here — retireQuery, timeout, or SDK init rejection — leaves
@@ -3205,6 +3219,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       | "fork"
       | "setup hooks"
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update",
     error: unknown,
@@ -3224,7 +3239,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async awaitStartupControl(
-    step: "model switch" | "effort update" | "fast mode update",
+    step:
+      | "model switch"
+      | "attribution update"
+      | "effort update"
+      | "fast mode update",
     control: Promise<void>,
     errorData: Record<string, unknown>,
   ): Promise<void> {
@@ -3344,11 +3363,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const baseBranch = meta?.baseBranch;
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
-    const taskOriginProduct =
-      typeof meta?.taskOriginProduct === "string"
-        ? meta.taskOriginProduct
-        : undefined;
-    const endRunWhenDone = meta?.endRunWhenDone === true;
+    const finishTool = meta?.finishTool === true;
+    const finishReportRequired = meta?.finishReportRequired === true;
+    const reportActivityTool = meta?.reportActivityTool === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -3364,19 +3381,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           baseBranch,
           requestFinish,
-          finishReportRequired: isFinishReportRequired({
-            taskOriginProduct,
-            endRunWhenDone,
-          }),
+          finishReportRequired,
         },
         {
           environment,
           channelMode,
           spokenNarration,
           background: meta?.mode === "background",
-          taskOriginProduct,
-          endRunWhenDone,
-          callerEndsRun: meta?.callerEndsRun === true,
+          finishTool,
+          reportActivityTool,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -3477,6 +3490,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager,
       onModeChange: this.createOnModeChange(),
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
+      onMemoryRead: (read) => {
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.MEMORY_READ, {
+            sessionId: this.sessionId,
+            ...read,
+          })
+          .catch((error) => {
+            this.logger.warn("Failed to report memory read", { error });
+          });
+      },
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
       onStartupOutput: (stdout) => initialization.observe(stdout),
@@ -3656,6 +3679,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.options?.modelsGatewayUrl,
         this.options?.gatewayEnv?.anthropicAuthToken,
         Number(this.options?.gatewayEnv?.posthogProjectId) || undefined,
+        this.options?.gatewayEnv ? undefined : this.options?.listModels,
       ),
       ...(meta?.taskRunId
         ? [
@@ -3758,10 +3782,20 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
     let startupStep:
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update"
       | undefined;
     try {
+      startupStep = "attribution update";
+      await this.awaitStartupControl(
+        startupStep,
+        this.session.query.applyFlagSettings({
+          attribution: { commit: "", pr: "" },
+        }),
+        startupErrorData,
+      );
+
       if (isResume || resolvedModelId !== options.model) {
         startupStep = "model switch";
         try {

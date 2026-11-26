@@ -36,7 +36,7 @@ use crate::inflight::{InflightGuard, InflightTracker};
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::{load_person_from_pg, LoadError, PgFallback};
 use crate::recovery::ChangelogRecovery;
-use crate::warnings::{SizeViolationWarning, WarningsProducer};
+use crate::warnings::{DepthViolationWarning, SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
     can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
     trim_properties_with_candidates, SanitizeStats, TrimResult,
@@ -88,6 +88,12 @@ struct Committer {
     /// Shared with the service; a mark names the partition's captured topic.
     captures: ChangelogCaptures,
 }
+
+const NESTING_LIMIT_REFUSAL: &str = "exceeds the nesting limit";
+
+const UPDATE_TOO_DEEP_MESSAGE: &str = "A person property update was rejected because a value is \
+     nested more than 128 levels deep. This usually means an object such as a DOM element or an \
+     SDK instance was passed as a property value. Pass a plain value instead.";
 
 /// DATA_LOSS is outside every client retry set.
 fn unprocessable_person_status() -> Status {
@@ -347,6 +353,45 @@ impl PersonHogLeaderService {
         .increment(1);
     }
 
+    /// A delete needs the row's version and creation time, never its properties.
+    pub(crate) async fn load_unreadable_row(
+        &self,
+        key: &PersonCacheKey,
+    ) -> Result<CachedPerson, Status> {
+        let Some(fallback) = &self.fallback else {
+            return Err(unprocessable_person_status());
+        };
+        match load_person_from_pg(&fallback.pool, &fallback.table, key).await {
+            Ok(Some(person)) => Ok(person),
+            Ok(None) => Err(Status::not_found("person is destroyed")),
+            Err(LoadError::UnprocessableProperties { row, .. }) => Ok(*row),
+            Err(LoadError::Query(e)) => {
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    error = %e,
+                    "PG fallback query failed"
+                );
+                Err(Status::internal("failed to load person from database"))
+            }
+        }
+    }
+
+    fn warn_update_too_deep(&self, partition: u32, key: &PersonCacheKey, refusal: &Status) {
+        if !refusal.message().ends_with(NESTING_LIMIT_REFUSAL) {
+            return;
+        }
+        let person_uuid = match self.cache.get(partition, key) {
+            CacheLookup::Found(person) => Some(person.uuid),
+            _ => None,
+        };
+        self.warnings.emit_depth(&DepthViolationWarning {
+            team_id: key.team_id,
+            person_uuid,
+            message: UPDATE_TOO_DEEP_MESSAGE,
+        });
+    }
+
     /// Recover a cache miss from the right source. A person in the dirty
     /// index has acked state the writer may not have applied to PG yet, so
     /// the PG row cannot be trusted — recover the full latest state from
@@ -555,8 +600,8 @@ impl PersonHogLeaderService {
                 Ok(person)
             }
             // As for a readable row this low: pre-death state, not a revival.
-            Err(LoadError::UnprocessableProperties { version, .. })
-                if version <= person.version =>
+            Err(LoadError::UnprocessableProperties { row, .. })
+                if row.version <= person.version =>
             {
                 counter!("personhog_leader_revivals_total", "outcome" => "row_below_death")
                     .increment(1);
@@ -963,8 +1008,6 @@ fn cached_person_into_proto(p: CachedPerson) -> Person {
         uuid: p.uuid,
         team_id: p.team_id,
         properties: p.properties,
-        properties_last_updated_at: Vec::new(),
-        properties_last_operation: Vec::new(),
         created_at: p.created_at,
         version: p.version,
         is_identified: p.is_identified,
@@ -986,7 +1029,7 @@ fn parse_update_properties(bytes: &[u8], field: &str) -> Result<serde_json::Valu
         if e.to_string().contains("recursion limit") {
             counter!("personhog_leader_updates_total", "outcome" => "rejected_too_deep")
                 .increment(1);
-            Status::invalid_argument(format!("{field} exceeds the nesting limit"))
+            Status::invalid_argument(format!("{field} {NESTING_LIMIT_REFUSAL}"))
         } else {
             Status::invalid_argument(format!("invalid {field} JSON: {e}"))
         }
@@ -1181,9 +1224,11 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
 
         // Parse JSON before acquiring the per-key lock to minimize lock hold time
-        let set_properties = parse_update_properties(&req.set_properties, "set_properties")?;
+        let set_properties = parse_update_properties(&req.set_properties, "set_properties")
+            .inspect_err(|refusal| self.warn_update_too_deep(partition, &cache_key, refusal))?;
         let set_once_properties =
-            parse_update_properties(&req.set_once_properties, "set_once_properties")?;
+            parse_update_properties(&req.set_once_properties, "set_once_properties")
+                .inspect_err(|refusal| self.warn_update_too_deep(partition, &cache_key, refusal))?;
 
         // Sanitize the request values before diffing so no-op detection
         // compares in sanitized space: cached state holds the sanitized

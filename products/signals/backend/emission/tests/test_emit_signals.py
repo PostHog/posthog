@@ -728,7 +728,10 @@ class TestEmissionRetryIdentity:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("record_processed_outputs", [False, True])
-    async def test_retry_repairs_ledger_for_finalized_signal(self, team, record_processed_outputs: bool) -> None:
+    @pytest.mark.parametrize("record_count", [1, 2])
+    async def test_retry_repairs_ledger_for_finalized_signal(
+        self, team: Team, record_processed_outputs: bool, record_count: int
+    ) -> None:
         output = replace(_make_output(source_id="record-1"), idempotency_key="record-1")
         signal_id = signal_id_for(
             team_id=team.id,
@@ -744,7 +747,9 @@ class TestEmissionRetryIdentity:
         config = _make_config(emitter=lambda team_id, record: output, record_processed_outputs=record_processed_outputs)
         with patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit:
             for _ in range(2):
-                result = await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+                result = await run_signal_pipeline(
+                    team=team, config=config, records=[{"id": "record-1"}] * record_count, extra={}
+                )
                 assert result["signals_emitted"] == 0
         emit.assert_not_awaited()
         assert await SignalEmissionRecord.objects.filter(team=team, source_id="record-1").acount() == int(
@@ -972,13 +977,11 @@ class TestCheckActionability:
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-7"
-        headers = call_kwargs["extra_headers"]
-        assert headers["x-posthog-property-ai_stage"] == "actionability"
-        assert headers["x-posthog-property-source_product"] == output.source_product
-        assert headers["x-posthog-property-source_type"] == output.source_type
-        # ai_product and $ai_billable are owned by the gateway product config, not headers
-        assert "x-posthog-property-ai_product" not in headers
-        assert "x-posthog-property-$ai_billable" not in headers
+        properties = json.loads(call_kwargs["extra_headers"]["X-PostHog-Properties"])
+        assert properties["ai_stage"] == "actionability"
+        assert properties["source_product"] == output.source_product
+        assert properties["source_type"] == output.source_type
+        assert properties["team_id"] == "7"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1189,11 +1192,9 @@ class TestSummarizeDescription:
 
         call_kwargs = client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-42"
-        headers = call_kwargs["extra_headers"]
-        assert headers["x-posthog-property-ai_stage"] == "summarization"
-        # ai_product and $ai_billable are owned by the gateway product config, not headers
-        assert "x-posthog-property-ai_product" not in headers
-        assert "x-posthog-property-$ai_billable" not in headers
+        properties = json.loads(call_kwargs["extra_headers"]["X-PostHog-Properties"])
+        assert properties["ai_stage"] == "summarization"
+        assert properties["team_id"] == "42"
 
 
 class TestSummarizeLongDescriptions:

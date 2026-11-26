@@ -73,6 +73,35 @@ export function jobLogsWindow(job: JobTiming, timezone: string): { dateFrom?: st
     }
 }
 
+interface CountedJobsPage {
+    count: number
+    count_is_capped?: boolean
+    next?: string | null
+}
+
+export function jobsPageRowRange(
+    page: CountedJobsPage | null,
+    pageNumber: number,
+    pageSize: number,
+    rowsOnPage: number
+): { firstRow: number; lastRow: number; countLabel: string } {
+    const count = page?.count ?? 0
+    const firstRow = count === 0 ? 0 : (pageNumber - 1) * pageSize + 1
+    const lastRowOnPage = firstRow + rowsOnPage - 1
+    if (page?.count_is_capped) {
+        return { firstRow, lastRow: lastRowOnPage, countLabel: `${humanFriendlyNumber(count)}+` }
+    }
+    return { firstRow, lastRow: Math.min(lastRowOnPage, count), countLabel: humanFriendlyNumber(count) }
+}
+
+export function jobsPageCount(page: CountedJobsPage | null, pageNumber: number, pageSize: number): number {
+    const countedPages = Math.max(Math.ceil((page?.count ?? 0) / pageSize), 1)
+    if (!page?.count_is_capped) {
+        return countedPages
+    }
+    return Math.max(countedPages, pageNumber + (page.next ? 1 : 0))
+}
+
 export const MATERIALIZATION_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
 // Watermarks are only ISO strings for date/datetime incremental keys. Numeric and arbitrary
@@ -132,4 +161,35 @@ export function refreshModeChange(
         incrementalDraft.enabled &&
         incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
     return { structuralChange, refreshModeChanged: structuralChange || lookbackChanged }
+}
+
+export const MATERIALIZATION_RUNNING_REASON = 'Materialization is currently running'
+
+export const CADENCE_CHANGE_DURING_RUN_NOTE =
+    "If this run hasn't finished when the new cadence next runs, it's canceled and starts again."
+
+export interface MaterializedSettingsReasons {
+    frequencyReason: string | undefined
+    refreshModeReason: string | undefined
+    cadenceNote: string | undefined
+}
+
+export function materializedSettingsReasons({
+    running,
+    startingMaterialization,
+    blockedReason,
+    hasCadenceDraft,
+}: {
+    running: boolean
+    startingMaterialization: boolean
+    blockedReason: string | undefined
+    hasCadenceDraft: boolean
+}): MaterializedSettingsReasons {
+    // A refresh mode change can rebuild the table, so it waits for the run to end. A cadence change only edits the schedule.
+    const frequencyReason = (startingMaterialization ? 'Materialization is starting' : undefined) || blockedReason
+    return {
+        frequencyReason,
+        refreshModeReason: running ? MATERIALIZATION_RUNNING_REASON : frequencyReason,
+        cadenceNote: running && hasCadenceDraft ? CADENCE_CHANGE_DURING_RUN_NOTE : undefined,
+    }
 }

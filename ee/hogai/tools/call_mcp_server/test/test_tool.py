@@ -476,6 +476,13 @@ class TestGetInstallations(TestCallMCPServerTool):
         self.assertEqual(result[0]["scope"], "shared")
         self.assertEqual(result[0]["url"], "https://mcp.linear.app/mcp")
 
+    def test_hides_teammates_shared_posthog_connection(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner, sensitive_configuration={"access_token": "pha_" + "x" * 40})
+
+        self.assertEqual(_get_installations(self.team, self.user), [])
+        self.assertEqual(len(_get_installations(self.team, owner)), 1)
+
     def test_personal_wins_over_shared_for_same_url(self):
         owner = self._create_teammate()
         self._install_shared_server(owner, url="https://mcp.linear.app/mcp")

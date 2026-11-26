@@ -17,6 +17,20 @@ The `ota-1160-live-logo` request follows `ota-1160-chat-live-20261116` and targe
 It animates the PostHog logo during Live refreshes and removes the updating row and native refresh spinner.
 Saved values remain visible, and pull-to-refresh remains available.
 
+The `ota-1160-notification-controls` request follows `ota-1160-live-logo` and targets `1.16.0` builds.
+It adds separate report and chat notification controls, clearer Inbox setup states, and sortable error cards with activity charts.
+It also makes screen header gradients consistent.
+
+The `ota-1160-navigation-and-date-ranges` request follows `ota-1160-notification-controls` and targets `1.16.0` builds.
+It keeps Live event details at a steady height while custom properties load, remembers date ranges between sessions, and scrolls to the top when you tap the selected tab.
+
+The `ota-1160-live-traffic-filters` request follows `ota-1160-replay-feed` and targets `1.16.0` builds.
+It adds traffic filters to Live and makes links pasted into chat messages tappable.
+
+The `ota-1160-dashboard-refresh-live-preferences` request follows `ota-1160-live-traffic-filters` and targets `1.16.0` builds.
+It refreshes eligible dashboard tiles on open and after returning to the app from at least a minute in the background.
+Live remembers your filters and whether the filter banner is hidden.
+
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.

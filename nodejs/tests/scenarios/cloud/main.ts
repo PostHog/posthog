@@ -1,11 +1,13 @@
+import { durationMs } from '../duration'
+import { FIRST_START_TIMEOUT_S } from '../environment/stack'
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
 import { isCardId, runCardOf } from './card'
-import { awaitCard, prepareDatabase, startCard } from './host'
+import { awaitCard, lastWorkAt, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, ProfileInputs, REGION, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, ProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -19,11 +21,11 @@ const USAGE = [
 ].join('\n')
 
 const SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+const PAIR_RUN_RESERVE = '15m'
 
 function defaultController(): Controller {
-    return {
+    const controller: Omit<Controller, 'origin'> = {
         aws: awsCli({ ...process.env, AWS_REGION: REGION, AWS_PAGER: '' }),
-        origin: githubOrigin(),
         now: () => new Date(),
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         onInterrupt: (handler) => {
@@ -34,16 +36,38 @@ function defaultController(): Controller {
         print: (line) => process.stdout.write(`${line}\n`),
         warn: (line) => process.stderr.write(`${line}\n`),
     }
+    return { ...controller, origin: githubOrigin(controller) }
 }
 
 async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
     const { profile } = inputs
+    const { min, max, idleMax } = profile.readerAcu
+    if (idleMax !== undefined && idleMax < min) {
+        throw new Error(`readerAcu.idleMax ${idleMax} is under readerAcu.min ${min}, so no reader could pass it.`)
+    }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
     const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
+    if (card.failsOver && idleMax === undefined) {
+        throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
+    }
+    if (card.failsOver && idleMax !== undefined && idleMax >= max) {
+        throw new Error(
+            `readerAcu.idleMax ${idleMax} is not under readerAcu.max ${max}, so every reader would pass it.`
+        )
+    }
+    if (card.pair) {
+        const { teardownAllowance } = profile.admission
+        refuseUnfitPair(
+            cardId,
+            card.pair,
+            durationMs(`${TTL_HOURS * 60}m`) - durationMs(teardownAllowance),
+            `the ${TTL_HOURS} h lease less its ${teardownAllowance} teardown allowance`
+        )
+    }
     const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
     controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)
@@ -59,6 +83,15 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         const parameters = await createRunStack(controller, profile, manifest, interruption.signal)
         await prepareDatabase(controller, profile, manifest, interruption.signal)
         await addReader(controller, profile, manifest, parameters, interruption.signal)
+        if (card.pair) {
+            const leftMs = lastWorkAt(profile, manifest) - controller.now().getTime()
+            refuseUnfitPair(
+                cardId,
+                card.pair,
+                leftMs,
+                `the ${Math.floor(leftMs / 60_000)}m the setup left before the teardown`
+            )
+        }
         await startCard(controller, profile, manifest, interruption.signal)
         outcome = await awaitCard(controller, profile, manifest, interruption.signal)
     } catch (error) {
@@ -74,6 +107,20 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         stopListening()
     }
     return await report(controller, loaded, manifest, { exitCode: outcome, reasons, teardownClean })
+}
+
+function refuseUnfitPair(
+    cardId: string,
+    { drive, convergeWithin }: { drive: string; convergeWithin: string },
+    workMs: number,
+    window: string
+): void {
+    const runMs = durationMs(drive) + durationMs(convergeWithin) + durationMs(PAIR_RUN_RESERVE)
+    if (FIRST_START_TIMEOUT_S * 1000 + 2 * runMs > workMs) {
+        throw new Error(
+            `${cardId} runs paired, so it needs two runs of ${drive}, each with ${convergeWithin} to converge and ${PAIR_RUN_RESERVE} to reset, seed and upload, after up to ${FIRST_START_TIMEOUT_S / 60}m for the dev stack's first start, and they do not fit ${window}.`
+        )
+    }
 }
 
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {

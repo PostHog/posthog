@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { IconEllipsis, IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { ChartAxis } from 'lib/charts/ChartAxisControls'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -18,7 +19,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { buildBIAgentContext } from './biAgentContext'
-import { BIChartAxis } from './BIChartAxisControls'
 import { BIChartAxisModal } from './BIChartAxisModal'
 import { BIEditor } from './BIEditor'
 import { biEditorLogic } from './biEditorLogic'
@@ -42,7 +42,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     const { activePanel, dataPaneFields, dataPaneFieldsLoading } = useValues(biEditorLogic({ tabId }))
     const { setActivePanel, startSuggestedChart, restoreState, runAfterChange } = useActions(biEditorLogic({ tabId }))
     const [settingsContainer, setSettingsContainer] = useState<HTMLDivElement | null>(null)
-    const [editingAxis, setEditingAxis] = useState<BIChartAxis | null>(null)
+    const [editingAxis, setEditingAxis] = useState<ChartAxis | null>(null)
     const logic = biSceneLogic({ tabId })
     const {
         name,

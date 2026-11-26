@@ -17,7 +17,7 @@ from temporalio.testing import ActivityEnvironment
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 
 from posthog.temporal.common.interceptor import is_task_queue_supported
-from posthog.temporal.common.worker import ALL_INTERCEPTOR_CLASSES
+from posthog.temporal.common.worker import interceptor_classes
 
 from products.alerts_platform.backend.facade.temporal import AlertsPlatformTelemetryInterceptor
 from products.alerts_platform.backend.temporal import telemetry
@@ -209,7 +209,7 @@ async def test_cancellation_during_logging_preserves_activity_outcome(
 def test_telemetry_registration(task_queue, supported):
     registered = [
         interceptor
-        for interceptor in ALL_INTERCEPTOR_CLASSES
+        for interceptor in interceptor_classes()
         if interceptor is AlertsPlatformTelemetryInterceptor and is_task_queue_supported(task_queue, interceptor)
     ]
     assert registered == ([AlertsPlatformTelemetryInterceptor] if supported else [])

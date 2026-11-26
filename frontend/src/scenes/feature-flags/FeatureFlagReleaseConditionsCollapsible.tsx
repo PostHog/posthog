@@ -68,6 +68,7 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { CohortFlagTargetingNotice } from 'products/cohorts/frontend/realtime/CohortFlagTargetingNotice'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
@@ -129,7 +130,7 @@ type MatchByOption = {
     learnMoreUrl?: string
 }
 
-function summarizeProperties(
+export function summarizeProperties(
     properties: AnyPropertyFilter[],
     aggregationTargetName: string,
     getDistinctIdName: (distinctId: string) => string,
@@ -659,6 +660,11 @@ const ConditionContent = ({
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                             showCohortFlagTargeting
+                                            allowNonCapturedPersonProperties
+                                        />
+                                        <CohortFlagTargetingNotice
+                                            properties={group.properties ?? []}
+                                            className="mt-2"
                                         />
                                     </div>
 
@@ -1106,7 +1112,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 within the rollout percentage.
             </p>
 
-            {!!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_EARLY_EXIT] && !hideEarlyExit && (
+            {!hideEarlyExit && (
                 <div className="flex flex-col gap-2 mb-2">
                     <div className="flex items-center gap-2">
                         <LemonCheckbox
@@ -1119,9 +1125,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     </div>
                     {releaseFilters.early_exit && (
                         <LemonBanner type="warning" className="mt-1">
-                            Early exit is not applied when a server-side SDK evaluates this flag with local evaluation —
-                            those SDKs evaluate all condition sets. It takes effect when the flag is evaluated through
-                            the <code>/flags</code> endpoint.
+                            The JVM server SDK and older versions of other server SDKs don't apply early exit when they
+                            evaluate this flag with local evaluation. Those SDKs evaluate all condition sets. Early exit
+                            always applies when the flag is evaluated through the <code>/flags</code> endpoint.
                         </LemonBanner>
                     )}
                 </div>

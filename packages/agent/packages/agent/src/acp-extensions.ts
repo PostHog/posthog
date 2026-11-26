@@ -84,6 +84,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** PostHog products used during a turn (derived from MCP exec calls) */
   RESOURCES_USED: "_posthog/resources_used",
 
+  MEMORY_READ: "_posthog/memory_read",
+
   /** Response to a relayed permission request (plan approval, question) */
   PERMISSION_RESPONSE: "_posthog/permission_response",
 

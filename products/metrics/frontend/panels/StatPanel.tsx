@@ -74,7 +74,10 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 valueColor={valueColor}
                 sparklineFill={single}
                 sparklineHeight={GROUPED_SPARKLINE_HEIGHT}
-                className={cn('@container w-full min-w-0 px-0', !showsSparkline && single && 'justify-center')}
+                className={cn(
+                    '@container w-full min-w-0 px-0',
+                    single && ['h-auto', !showsSparkline && 'justify-center']
+                )}
             >
                 {!single && <MetricTitle>{name}</MetricTitle>}
                 <MetricHeader className={cn('flex-wrap items-center', !single && 'mt-2')}>
@@ -94,7 +97,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
     return (
         <div
             className={cn(
-                'h-full w-full p-2',
+                'h-full w-full flex-1 p-2',
                 single
                     ? 'flex overflow-hidden'
                     : 'grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] content-start gap-3 overflow-auto'

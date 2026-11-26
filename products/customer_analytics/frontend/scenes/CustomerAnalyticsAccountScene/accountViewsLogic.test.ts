@@ -79,6 +79,8 @@ const tabSettings: AccountDetailTabsConfigApi = {
 }
 const userConfig: UserCustomerAnalyticsConfigApi = {
     pinned_properties: [],
+    pinned_properties_source: { kind: 'personal', roles: [] },
+    available_default_pinned_properties: [],
     task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
     account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
 }
@@ -369,6 +371,70 @@ describe('accountViewsLogic tracking', () => {
             ...components.map(({ config }) => config),
         ])
         expect(logic.values.config?.pinned_properties).toEqual([])
+    })
+
+    it('saves an SQL query tile config and reports only its length', async () => {
+        let sqlView: AccountViewApi = {
+            ...view,
+            content: createAccountViewContent([{ nodeId: 'sql', kind: 'sql_query', span: 12 }, ...components]),
+        }
+        jest.mocked(accountViewsList).mockResolvedValue([sqlView])
+        mockUpdate.mockImplementation(async (_, __, patch) => {
+            sqlView = { ...sqlView, content: patch.content ?? sqlView.content, version: 2 }
+            return sqlView
+        })
+        await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
+        const query = 'select * from invented_table where org_id = {account_external_id}'
+        await expectLogic(logic, () => {
+            logic.actions.openTileEditor(view.id, 'sql', 'Engagements', {
+                kind: 'sql_query',
+                config: {},
+                accountId: 'account-one',
+            })
+            logic.actions.setTileEditorConfig({ query })
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
+        expect(parseAccountViewContent(logic.values.views[0].content).map(({ config }) => config)).toEqual([
+            { query },
+            ...components.map(({ config }) => config),
+        ])
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.SqlQueryTileConfigured, { query_length: query.length })
+        expect(JSON.stringify(capture.mock.calls)).not.toContain('invented_table')
+    })
+
+    it('clears the SQL error once the query becomes valid', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openTileEditor(view.id, 'sql', 'SQL query', {
+                kind: 'sql_query',
+                config: { query: 'select * from invented_table where org_id = ' },
+                accountId: 'account-one',
+            })
+        }).toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeTruthy()
+
+        await expectLogic(logic, () => {
+            logic.actions.setTileEditorConfig({
+                query: 'select * from invented_table where org_id = {account_external_id}',
+            })
+        })
+            .toDispatchActions(['validateTileEditorConfigSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeNull()
+    })
+
+    it('keeps the SQL editor open when the placeholder is only in a comment', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openTileEditor(view.id, 'sql', 'SQL query', {
+                kind: 'sql_query',
+                config: { query: 'SELECT * FROM system.accounts -- {account_external_id}' },
+                accountId: 'account-one',
+            })
+        }).toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeTruthy()
+        await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
+        expect(logic.values.tileEditor).not.toBeNull()
+        expect(logic.values.tileSaving).toBe(false)
+        expect(logic.values.views).toEqual([view])
     })
 
     it.each(['editor', 'tabs'])('reports a blocked %s save without a write or success', async (surface) => {

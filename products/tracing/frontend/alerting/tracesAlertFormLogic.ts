@@ -17,6 +17,7 @@ import {
     PlatformAlertConfigurationApi,
     TracesPlatformAlertConfigurationCreateApiSourceKind,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
+import type { PlatformAlertCreateDestinationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { tracesAlertsLogic } from './tracesAlertsLogic'
 import {
@@ -31,6 +32,7 @@ export interface TracesAlertFormLogicProps {
     alert: PlatformAlertConfigurationApi | null
     /** What the traces viewer is filtered to, so a new alert starts from what the user is looking at. */
     viewerFilters?: { serviceNames: string[]; filterGroup: UniversalFiltersGroup }
+    initialForm?: TracesAlertFormType
     onSubmitSuccess?: () => void
 }
 
@@ -56,10 +58,10 @@ export interface tracesAlertFormLogicActions {
     loadAlerts: (_?: any) => any // tracesAlertsLogic
     openEditWithFailedDestinations: (
         alert: PlatformAlertConfigurationApi,
-        destinations: import('products/alerts_platform/frontend/generated/api.schemas').PlatformAlertCreateDestinationApi[]
+        destinations: PlatformAlertCreateDestinationApi[]
     ) => {
         alert: PlatformAlertConfigurationApi
-        destinations: import('products/alerts_platform/frontend/generated/api.schemas').PlatformAlertCreateDestinationApi[]
+        destinations: PlatformAlertCreateDestinationApi[]
     } // tracesAlertsLogic
     resetAlertForm: (values?: TracesAlertFormType) => {
         values?: TracesAlertFormType
@@ -127,12 +129,12 @@ export const tracesAlertFormLogic = kea<tracesAlertFormLogicType>([
 
     afterMount(({ actions, props }) => {
         // kea keeps a keyed logic's form between mounts, so a reopened modal starts from the saved alert.
-        actions.resetAlertForm(buildFormDefaults(props.alert, props.viewerFilters))
+        actions.resetAlertForm(props.initialForm ?? buildFormDefaults(props.alert, props.viewerFilters))
     }),
 
     forms(({ props, actions, values }) => ({
         alertForm: {
-            defaults: buildFormDefaults(props.alert, props.viewerFilters),
+            defaults: props.initialForm ?? buildFormDefaults(props.alert, props.viewerFilters),
             errors: validateForm,
             submit: async (form) => {
                 const projectId = String(values.currentTeamId)

@@ -122,11 +122,10 @@ impl PersonRepair for PostgresStorage {
         } else {
             sqlx::query!(
                 r#"/* service='personhog-replica', operation='restore_persons_insert_persons' */
-                INSERT INTO posthog_person (uuid, team_id, properties, properties_last_updated_at,
-                                            properties_last_operation, created_at, version,
+                INSERT INTO posthog_person (uuid, team_id, properties, created_at, version,
                                             is_identified, is_deleted)
-                SELECT f.uuid, $1, f.properties::jsonb, '{}'::jsonb, '{}'::jsonb, f.created_at,
-                       f.version, f.is_identified, false
+                SELECT f.uuid, $1, f.properties::jsonb, f.created_at, f.version, f.is_identified,
+                       false
                 FROM UNNEST($2::uuid[], $3::text[], $4::timestamptz[], $5::bigint[], $6::bool[])
                     AS f(uuid, properties, created_at, version, is_identified)
                 ON CONFLICT (team_id, uuid) DO NOTHING

@@ -16,6 +16,9 @@ from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
+from products.error_tracking.backend.presentation.views.external_references import (
+    ErrorTrackingExternalReferenceResultSerializer,
+)
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
@@ -488,6 +491,14 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     breakdown = ErrorTrackingIssueBreakdownSerializer(
         required=False, help_text="Aggregate over matching events. Returned only when includeBreakdown is true."
     )
+    external_issues = ErrorTrackingExternalReferenceResultSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull "
+            "requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed."
+        ),
+    )
     summary = ErrorTrackingIssueSummarySerializer(
         required=False,
         help_text=(
@@ -499,8 +510,8 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
         choices=contracts.IssueSummaryStatus.choices,
         help_text=(
             "'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is "
-            "written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason "
-            "says why."
+            "written when an issue is created, and when a person asks for one in PostHog. 'unavailable' means no "
+            "summary can be shown, and summary_reason says why."
         ),
     )
     summary_reason = serializers.ChoiceField(
@@ -509,7 +520,8 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
         help_text=(
             "Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that "
             "the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the "
-            "organization has not approved AI data processing."
+            "organization has not approved AI data processing. 'setting_off': the project has not turned summaries "
+            "on, and no summary is stored."
         ),
     )
 

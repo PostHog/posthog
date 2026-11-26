@@ -35,6 +35,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutRun,
@@ -117,6 +118,7 @@ from products.signals.backend.serializers import (
 )
 from products.signals.backend.temporal.emitter import SignalEmitterInput
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout
 from products.signals.backend.views import SignalReportCheckViewSet
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
@@ -3240,6 +3242,54 @@ class TestScoutCheckTools(APIBaseTest):
         )
         with self.assertRaises(InvalidCheckWriteError):
             cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
+
+    @parameterized.expand(
+        [
+            ("monitoring_member", SignalReport.Status.MONITORING, True, "tool", False),
+            ("suppressed_member", SignalReport.Status.SUPPRESSED, True, "tool", False),
+            ("written_after_entry", SignalReport.Status.MONITORING, False, "tool", True),
+            ("monitoring_member_through_rest", SignalReport.Status.MONITORING, True, "rest", False),
+        ]
+    )
+    def test_a_scout_cannot_cancel_a_check_that_verifies_monitoring(
+        self, _name: str, report_status: str, member: bool, via: str, cancellable: bool
+    ) -> None:
+        self.enterContext(
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
+        )
+        written = self._create()
+        started = timezone.now() - timedelta(hours=1)
+        SignalReport.objects.filter(team=self.team, id=self.report.id).update(
+            status=report_status,
+            status_before_suppression=SignalReport.Status.MONITORING,
+            monitoring_started_at=started,
+        )
+        SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=self.report,
+            monitoring_started_at=started,
+            check_versions={written.check_id: "snapshot"} if member else {},
+        )
+
+        if via == "rest":
+            _authenticate_as_scout(self, sandbox_task_id=self.task.id)
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/{written.check_id}/"
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        elif cancellable:
+            assert (
+                cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id).status
+                == SignalReportCheck.Status.CANCELLED
+            )
+            return
+        else:
+            with self.assertRaisesMessage(InvalidCheckWriteError, "only a person can cancel it"):
+                cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
+        assert (
+            SignalReportCheck.objects.for_team(self.team.id).get(id=written.check_id).status
+            == SignalReportCheck.Status.PENDING
+        )
 
     def test_a_dry_run_scout_neither_writes_nor_cancels_a_check(self) -> None:
         written = self._create()

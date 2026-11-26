@@ -110,7 +110,7 @@ export function reportSurveyThemeSelected(survey: Survey | NewSurvey, themeId: s
 }
 
 export function reportSiteThemeCardViewed(surveyId: string, state: SiteThemeCardState): void {
-    posthog.capture('survey site theme card viewed', { survey_id: surveyId, state })
+    posthog.capture('survey site theme card viewed', { survey_id: surveyId, card_state: state })
 }
 
 export function reportSiteThemeRequested(surveyId: string): void {

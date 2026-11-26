@@ -1,4 +1,3 @@
-import re
 import json
 import datetime as dt
 import itertools
@@ -29,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
 )
@@ -41,7 +41,6 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 THROTTLE_CODES = {"ThrottlingException", "TooManyRequestsException", "LimitExceededException", "RequestLimitExceeded"}
-CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 @frozen
@@ -145,7 +144,7 @@ def build_payload(
 
 
 def snake_case(item: dict[str, Any]) -> dict[str, Any]:
-    return {CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+    return {camel_to_snake(key): value for key, value in item.items()}
 
 
 def recommendation_details(body: dict[str, Any]) -> list[dict[str, Any]]:
@@ -195,9 +194,7 @@ def normalize_rows(endpoint: SavingsPlansEndpoint, body: dict[str, Any]) -> list
             row["period_end"] = dt.datetime.fromisoformat(period["End"]).replace(tzinfo=dt.UTC)
             for field in ("utilization", "savings", "amortized_commitment", "coverage"):
                 for key, value in row.pop(field, {}).items():
-                    row[f"{field}_{CAMEL_BOUNDARY.sub('_', key).lower()}"] = (
-                        Decimal(value) if value not in (None, "") else None
-                    )
+                    row[f"{field}_{camel_to_snake(key)}"] = Decimal(value) if value not in (None, "") else None
         rows.append(row)
     return rows
 

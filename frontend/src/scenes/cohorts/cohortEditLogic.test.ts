@@ -11,7 +11,7 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
-import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,6 +43,7 @@ import type {
     CohortRealtimeReadinessApi,
     CohortUsedInResponseApi,
 } from 'products/cohorts/frontend/generated/api.schemas'
+import { REALTIME_POLL_INTERVAL_MS } from 'products/cohorts/frontend/realtime/realtimeReadiness'
 
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
@@ -337,6 +338,19 @@ describe('cohortEditLogic', () => {
                         realtime: { ...readyRealtime, state: 'person_properties', ready_at: null },
                     })
                 }).toMatchValues({ realtimeSwitchAction: expected })
+            }
+        )
+
+        it.each(['unsupported_time_range', 'history_over_limit'] as const)(
+            'offers no turn-on for a cohort that is off with the reason %s',
+            async (reason) => {
+                await initCohortLogic({ id: 1 })
+                await expectLogic(logic, () => {
+                    logic.actions.setCohort({
+                        ...mockCohort,
+                        realtime: { ...readyRealtime, state: 'off', ready_at: null, reason },
+                    })
+                }).toMatchValues({ realtimeSwitchAction: null })
             }
         )
 

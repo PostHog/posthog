@@ -15,6 +15,7 @@ import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/Pl
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertDestinationsLogicProps } from './logsAlertDestinations'
+import { buildLogsAlertEditSummary } from './logsAlertEditorModel'
 import { LogsAlertEventHistoryContent } from './LogsAlertEventHistory'
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic } from './logsAlertFormLogic'
@@ -54,25 +55,7 @@ function LogsAlertEditModalContent({
     const { snoozingAlertIds } = useValues(logsAlertingLogic)
     const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(logsAlertingLogic)
     const nameError = alertFormErrors.name as string | undefined
-    const filterParts: string[] = []
-    if (alertForm.severityLevels.length > 0) {
-        filterParts.push(`${alertForm.severityLevels.join(', ')} logs`)
-    }
-    if (alertForm.serviceNames.length > 0) {
-        filterParts.push(`from ${alertForm.serviceNames.join(', ')}`)
-    }
-    if (alertForm.filterGroup.values.length > 0) {
-        const attributeCount = alertForm.filterGroup.values.length
-        filterParts.push(`${attributeCount} ${attributeCount === 1 ? 'attribute filter' : 'attribute filters'}`)
-    }
-    const summary: AlertSummaryParts = {
-        fires: `count ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in the last ${alertForm.windowMinutes} minutes`,
-        cadence: '',
-        notifies: destinations.length
-            ? `${destinations.length} ${destinations.length === 1 ? 'destination' : 'destinations'}`
-            : '',
-        filters: filterParts.join(' '),
-    }
+    const summary: AlertSummaryParts = buildLogsAlertEditSummary(alertForm, destinations)
     const tabs: EditAlertTab[] = [
         {
             key: 'monitor',

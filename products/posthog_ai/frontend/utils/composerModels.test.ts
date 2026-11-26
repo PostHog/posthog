@@ -40,11 +40,11 @@ describe('composerModels', () => {
     ]
 
     it.each([
-        [null, 'gpt-6.1-sol'],
+        [null, 'gpt-6.2-sol'],
         ['gpt-5.6-luna', 'gpt-5.6-luna'],
         ['openai/gpt-5.6-luna', 'gpt-5.6-luna'],
-        ['claude-opus-4-8', 'gpt-6.1-sol'],
-        ['retired-model', 'gpt-6.1-sol'],
+        ['claude-opus-4-8', 'gpt-6.2-sol'],
+        ['retired-model', 'gpt-6.2-sol'],
     ])('selects the Codex default with preference %s', (preference, expected) => {
         const catalogue: ModelChoiceApi[] = [
             ...CATALOGUE,
@@ -58,6 +58,12 @@ describe('composerModels', () => {
                 runtime_adapter: 'codex',
                 model: 'gpt-6.1-sol',
                 display_name: 'GPT-6.1 Sol',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-6.2-sol',
+                display_name: 'GPT-6.2 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
             },
         ]

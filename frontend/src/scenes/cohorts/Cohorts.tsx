@@ -40,6 +40,7 @@ import {
 
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
+import { RealtimeCohortsJoinBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsJoinBanner'
 import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsWaitlistBanner'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 
@@ -51,9 +52,16 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, cohortSorting, cohortsLoadError } =
-        useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
+    const {
+        cohorts,
+        cohortsLoading,
+        pagination,
+        cohortFilters,
+        cohortSorting,
+        cohortsLoadError,
+        cohortIdsTurningOnRealtime,
+    } = useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts, turnOnRealtime } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
     const realtimeTargetingEnabled = useRealtimeCohortsServing()
@@ -128,6 +136,17 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton to={urls.cohort(cohort.id)} fullWidth>
                                     Edit
                                 </LemonButton>
+                                {cohortId !== null && cohort.realtime?.state === 'off' && !cohort.realtime.reason && (
+                                    <LemonButton
+                                        onClick={() => turnOnRealtime(cohortId, cohort.name)}
+                                        loading={cohortIdsTurningOnRealtime.includes(cohortId)}
+                                        fullWidth
+                                        // pinned: data-attr, because autocapture insights find the click by it
+                                        data-attr="cohorts-list-turn-on-realtime"
+                                    >
+                                        Turn on realtime
+                                    </LemonButton>
+                                )}
                                 {cohortId && (
                                     <ViewRecordingsPlaylistButton
                                         filters={{
@@ -307,6 +326,7 @@ export function Cohorts(): JSX.Element {
             />
 
             <RealtimeCohortsWaitlistBanner />
+            <RealtimeCohortsJoinBanner />
 
             <div>{filtersSection}</div>
             <LemonTable

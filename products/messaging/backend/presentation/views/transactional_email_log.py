@@ -11,6 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
@@ -29,12 +30,16 @@ from products.messaging.backend.facade.transactional_email_log import (
     get_transactional_email,
     get_transactional_email_activity,
     list_transactional_emails,
+    transactional_email_impact,
     transactional_email_results,
     transactional_email_stats,
     transactional_email_stats_over_time,
 )
 from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.messaging.backend.presentation.views.message_templates import (
+    require_email_impact,
+    require_transactional_email_api,
+)
 from products.workflows.backend.facade.api import get_workflow_view_access
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
@@ -115,6 +120,15 @@ class TransactionalEmailLogEventSerializer(serializers.Serializer):
     reason = serializers.CharField(allow_null=True, help_text="Why a send failed, or the bounce type. Null otherwise.")
 
 
+class TransactionalEmailTrackingSerializer(serializers.Serializer):
+    opens = serializers.BooleanField(
+        help_text="False when the email went out with open tracking off, so it can never record an open."
+    )
+    clicks = serializers.BooleanField(
+        help_text="False when the email went out with click tracking off, so it can never record a click."
+    )
+
+
 class TransactionalEmailLogDetailSerializer(TransactionalEmailLogEntrySerializer):
     timeline = TransactionalEmailLogEventSerializer(many=True, help_text="Everything that happened, oldest first.")
     subject = serializers.CharField(help_text="The subject the email went out with. Empty when it was never sent.")
@@ -125,6 +139,10 @@ class TransactionalEmailLogDetailSerializer(TransactionalEmailLogEntrySerializer
     )
     sensitive = serializers.BooleanField(
         help_text="True when the template is marked sensitive, so no rendered body or subject values are kept."
+    )
+    tracking = TransactionalEmailTrackingSerializer(
+        help_text="What PostHog tracked for this email, in the terms of the send request's `tracking` option. Each "
+        "kind reads true until the email's sent status arrives, and for an email sent before PostHog recorded it."
     )
 
 
@@ -214,6 +232,46 @@ class TransactionalEmailResultsSerializer(serializers.Serializer):
     )
 
 
+class TransactionalEmailImpactQuerySerializer(DateRangeQuerySerializer):
+    workflow_id = serializers.UUIDField(help_text="The workflow behind the transactional email.")
+    event = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The event that counts as a conversion, such as `signed_up`. Leave it out for the funnel alone.",
+    )
+
+
+class TransactionalEmailConversionsSerializer(serializers.Serializer):
+    sends = serializers.IntegerField(help_text="Sends in this group that named a person, newest 10,000 at most.")
+    converted = serializers.IntegerField(
+        help_text="Of those, sends whose person did the event within window_days of the click, or of the send when "
+        "nobody clicked."
+    )
+
+
+class TransactionalEmailImpactSerializer(serializers.Serializer):
+    sent = serializers.IntegerField(help_text="Sends that left PostHog, including those that bounced.")
+    delivered = serializers.IntegerField(help_text="Sends the recipient's mail server accepted.")
+    opened = serializers.IntegerField(help_text="Sends opened at least once.")
+    clicked = serializers.IntegerField(help_text="Sends with at least one tracked link click.")
+    not_clicked = serializers.IntegerField(help_text="Delivered sends nobody clicked, of those that tracked clicks.")
+    untracked = serializers.IntegerField(
+        help_text="Sends that went out with open and click tracking off, counted by when they were queued like the "
+        "other counts. They can't record an open or a click."
+    )
+    clicks_untracked = serializers.IntegerField(
+        help_text="Sends that went out with opens tracked and click tracking off, counted like `untracked`. They "
+        "can't record a click, so `not_clicked` and `without_click` leave them out, along with the `untracked` sends."
+    )
+    window_days = serializers.IntegerField(help_text="How many days after the click or the send the event counts.")
+    after_click = TransactionalEmailConversionsSerializer(
+        allow_null=True, help_text="Clicked sends and how many converted. Null without an event."
+    )
+    without_click = TransactionalEmailConversionsSerializer(
+        allow_null=True, help_text="Delivered sends nobody clicked and how many converted. Null without an event."
+    )
+
+
 def _entry_data(entry: TransactionalEmailLogEntry) -> dict[str, Any]:
     return {
         "message_id": entry.message_id,
@@ -291,8 +349,9 @@ class _PageSchema(AutoSchema):
 
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
+    permission_classes = [CDPLogPropertyAccessPermission]
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results"]
+    scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results", "impact"]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -303,7 +362,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if self.action in ("list", "retrieve"):
             return ["hog_flow:read", "person:read"]
         # Results count any event the caller names, so they read event data the way a query does.
-        if self.action == "results":
+        if self.action in ("results", "impact"):
             return ["hog_flow:read", "query:read"]
         # Activity reads the recipient's events, so it needs person and event access.
         if self.action == "activity":
@@ -376,6 +435,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "distinct_id": detail.distinct_id,
             "action_id": detail.action_id,
             "sensitive": detail.sensitive,
+            "tracking": {"opens": detail.tracking.opens, "clicks": detail.tracking.clicks},
         }
         return Response(TransactionalEmailLogDetailSerializer(data).data)
 
@@ -457,6 +517,10 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TransactionalEmailResultsQuerySerializer,
         responses={
             200: OpenApiResponse(response=TransactionalEmailResultsSerializer),
+            403: OpenApiResponse(
+                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, or the user "
+                "has no access to workflows in this project or to querying events."
+            ),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
         summary="Get what happened after a transactional email",
@@ -469,6 +533,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         workflow_id = str(query["workflow_id"])
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):
             outcome = transactional_email_results(
                 self.team,
@@ -481,3 +547,38 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_to=query.get("date_to"),
             )
         return Response(TransactionalEmailResultsSerializer(asdict(outcome)).data)
+
+    @validated_request(
+        query_serializer=TransactionalEmailImpactQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TransactionalEmailImpactSerializer),
+            403: OpenApiResponse(
+                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, the user has "
+                "no access to workflows in this project, or an event was named and the user has no access to querying events."
+            ),
+            404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
+        },
+        summary="Get how far a transactional email's sends got",
+        description="Count one email's sends that were sent, delivered, opened and clicked. With an event, also count "
+        "the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.",
+    )
+    @action(detail=False, methods=["GET"])
+    def impact(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        require_email_impact(self.team)
+        query = request.validated_query_data
+        workflow_id = str(query["workflow_id"])
+        if workflow_id not in self._workflow_access().viewable_ids:
+            raise NotFound()
+        event = query.get("event") or None
+        if event and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need access to querying events to count conversions.")
+        with query_concurrency_slots(self.team):
+            impact = transactional_email_impact(
+                self.team,
+                cast(User, request.user),
+                workflow_id,
+                event,
+                date_from=query.get("date_from"),
+                date_to=query.get("date_to"),
+            )
+        return Response(TransactionalEmailImpactSerializer(asdict(impact)).data)

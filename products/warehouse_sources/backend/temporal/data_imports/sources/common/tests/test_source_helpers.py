@@ -5,6 +5,7 @@ import pytest
 import requests
 import botocore.exceptions
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAuth2AuthRequestError,
 )
@@ -57,6 +58,7 @@ def _suppressed(context: BaseException) -> ValueError:
         (requests.Timeout("timed out"), True),
         (requests.exceptions.ChunkedEncodingError("cut"), True),
         (RESTClientRetryableError("HTTP 503"), True),
+        (RetryableHTTPError("Example API error (retryable): status=503, url=https://api.example.com"), True),
         (_http_error(500), True),
         (_http_error(429), True),
         (OAuth2AuthRequestError("HTTP 502 from the token endpoint"), True),

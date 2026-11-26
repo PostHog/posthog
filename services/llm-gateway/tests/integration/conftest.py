@@ -35,7 +35,7 @@ CLOUDFLARE_MAX_RETRIES = 0
 
 # The CF-hosted models the gateway prices and allowlists (see COST_ALIASES). Smoke-tested end-to-end
 # so a routing/pricing regression for any one model fails CI rather than surfacing only in prod.
-CLOUDFLARE_SMOKE_MODELS = ["@cf/moonshotai/kimi-k2.6", "@cf/zai-org/glm-5.2"]
+CLOUDFLARE_SMOKE_MODELS = ["@cf/zai-org/glm-5.3"]
 
 MOCK_MODEL_COSTS = {
     "gpt-4o": {
@@ -94,18 +94,9 @@ MOCK_MODEL_COSTS = {
         "input_cost_per_token": 0.0000002,
         "output_cost_per_token": 0.0000002,
     },
-    "openai/@cf/moonshotai/kimi-k2.6": {
+    "openai/@cf/zai-org/glm-5.3": {
         "litellm_provider": "openai",
-        "max_input_tokens": 262144,
-        "supports_vision": True,
-        "supports_function_calling": True,
-        "mode": "chat",
-        "input_cost_per_token": 0.00000095,
-        "output_cost_per_token": 0.000004,
-    },
-    "openai/@cf/zai-org/glm-5.2": {
-        "litellm_provider": "openai",
-        "max_input_tokens": 262144,
+        "max_input_tokens": 1048576,
         "supports_function_calling": True,
         "mode": "chat",
         "input_cost_per_token": 0.0000014,
@@ -272,7 +263,7 @@ def cloudflare_gateway_url():
 def cloudflare_anthropic_client(cloudflare_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{cloudflare_gateway_url}/django",
+        base_url=f"{cloudflare_gateway_url}/review_hog",
         default_headers={"X-PostHog-Provider": "cloudflare"},
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
@@ -283,7 +274,7 @@ def cloudflare_anthropic_client(cloudflare_gateway_url):
 def cloudflare_openai_client(cloudflare_gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{cloudflare_gateway_url}/django/v1",
+        base_url=f"{cloudflare_gateway_url}/review_hog/v1",
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
     )

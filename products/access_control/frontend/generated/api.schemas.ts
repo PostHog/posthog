@@ -145,7 +145,6 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `subscription` - subscription
  * * `support_ticket` - support_ticket
  * * `survey` - survey
- * * `tagger` - tagger
  * * `ticket` - ticket
  * * `task` - task
  * * `today` - today
@@ -272,7 +271,6 @@ export const ScopeObjectEnumApi = {
     Subscription: 'subscription',
     SupportTicket: 'support_ticket',
     Survey: 'survey',
-    Tagger: 'tagger',
     Ticket: 'ticket',
     Task: 'task',
     Today: 'today',
@@ -422,7 +420,6 @@ export interface ProjectAccessSourceApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -592,7 +589,6 @@ export interface AccessControlObjectRuleApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -660,6 +656,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
  * * `business_knowledge` - business_knowledge
+ * * `canvas` - canvas
  * * `code_review_approval` - code_review_approval
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
@@ -701,7 +698,6 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
  * * `survey` - survey
- * * `tagger` - tagger
  * * `ticket` - ticket
  * * `toolbar` - toolbar
  * * `tracing` - tracing
@@ -720,6 +716,7 @@ export const RuleResourceEnumApi = {
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
     BusinessKnowledge: 'business_knowledge',
+    Canvas: 'canvas',
     CodeReviewApproval: 'code_review_approval',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
@@ -761,7 +758,6 @@ export const RuleResourceEnumApi = {
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
     Survey: 'survey',
-    Tagger: 'tagger',
     Ticket: 'ticket',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
@@ -785,6 +781,7 @@ export interface AccessControlRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
@@ -826,7 +823,6 @@ export interface AccessControlRuleRequestApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -993,7 +989,6 @@ export interface AccessControlObjectRuleResourceApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -1072,6 +1067,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
@@ -1113,7 +1109,6 @@ export interface AccessControlMemberRuleRequestApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -1287,7 +1282,6 @@ export interface ResolvedAccessApi {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -1391,6 +1385,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
@@ -1432,7 +1427,6 @@ export interface AccessControlRoleRuleRequestApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing

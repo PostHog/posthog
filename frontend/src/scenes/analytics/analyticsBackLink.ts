@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { ANALYTICS_BACK_NAME } from './analyticsUtils'
@@ -27,14 +28,16 @@ export function analyticsBackLink(
     searchParams: Record<string, unknown>,
     featureFlags: Record<string, unknown>
 ): AnalyticsBackLink | null {
-    const backUrl = searchParams.backUrl
-    if (typeof backUrl !== 'string' || !backUrl.startsWith('/') || backUrl.startsWith('//')) {
+    const rawBackUrl = searchParams.backUrl
+    if (typeof rawBackUrl !== 'string' || !rawBackUrl.startsWith('/')) {
         return null
     }
     if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
         return null
     }
-    if (!isAnalyticsPath(removeProjectIdIfPresent(backUrl.split(/[?#]/)[0]))) {
+    // Checked after URL parsing, so dot segments such as `/analytics/..//example.com` can't leave the app.
+    const backUrl = getRelativeNextPath(rawBackUrl, window.location)
+    if (!backUrl || !isAnalyticsPath(removeProjectIdIfPresent(backUrl.split(/[?#]/)[0]))) {
         return null
     }
     const backName = searchParams.backName

@@ -8,6 +8,7 @@ from django.utils.dateparse import parse_datetime
 
 import structlog
 from temporalio import activity, workflow
+from temporalio.client import Client
 from temporalio.common import RetryPolicy
 
 from posthog.egress.limiter.policies import Priority
@@ -17,11 +18,13 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.sources import GitHubReader, LandedChange, landed_change, read_closed_pull_requests, read_github
-from ..logic.pull_requests import docs_github
+from ..logic.intake import drain_legacy_held_requests
+from ..logic.pull_requests import OpenPullRequestsUnavailable, docs_github, open_writer_pull_requests
 from ..settings import writer_settings
 from .client import start_merge_check_workflow
-from .held_requests_workflow import start_held_requests
 from .merge_workflow import GITHUB_READ_ERRORS
+from .publish_workflow import run_legacy_held_requests_activity
+from .pull_request_workflow import PullRequestInputs, start_pull_request_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -122,11 +125,36 @@ async def reconcile_merged_pull_requests_activity() -> None:
     for change in merges.changes:
         await start_merge_check_workflow(change, team_id=merges.team_id, client=client)
     await database_sync_to_async(save_reconciled_at, thread_sensitive=False)(merges.reconciled_at_by_repository)
+    await watch_open_writer_pull_requests(client)
+    await database_sync_to_async(drain_legacy_held_requests, thread_sensitive=False)()
     logger.info(
         "knowledge_writer_reconcile_finished",
         merged_changes=len(merges.changes),
         repositories_reconciled=len(merges.reconciled_at_by_repository),
     )
+
+
+def open_writer_pull_request_watches() -> list[PullRequestInputs]:
+    writer = writer_settings()
+    if writer is None:
+        return []
+    try:
+        open_pull_requests = open_writer_pull_requests(writer)
+    except OpenPullRequestsUnavailable as error:
+        logger.warning("knowledge_writer_reconcile_watches_deferred", error_type=type(error).__name__)
+        return []
+    return [
+        PullRequestInputs(
+            team_id=writer.team_id, repository=writer.docs_repository, pull_request_number=pull_request.number
+        )
+        for pull_request in open_pull_requests or []
+    ]
+
+
+async def watch_open_writer_pull_requests(client: Client) -> None:
+    watches = await database_sync_to_async(open_writer_pull_request_watches, thread_sensitive=False)()
+    for watched in watches:
+        await start_pull_request_workflow(client, watched)
 
 
 @workflow.defn(name=RECONCILE_WORKFLOW_NAME)
@@ -140,4 +168,4 @@ class MergeReconcileWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         finally:
-            await start_held_requests()
+            await run_legacy_held_requests_activity()

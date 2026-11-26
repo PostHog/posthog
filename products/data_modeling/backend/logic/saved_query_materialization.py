@@ -12,7 +12,6 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
-from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.contracts import (
@@ -36,6 +35,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     declared_targets_from_nodes,
     saved_query_target_bounds,
 )
+from products.data_modeling.backend.logic.read_access import assert_user_can_read_saved_query
 from products.data_modeling.backend.logic.saved_query_dag_sync import materializes, update_node_type
 from products.data_modeling.backend.logic.saved_query_reads import get_saved_query_columns
 from products.data_modeling.backend.logic.schedule_reconcile import check_saved_query_frequency_target
@@ -170,7 +170,7 @@ def _enable_materialization(
         raise MaterializationRefusedError(MANAGED_VIEWSET_REFUSAL)
 
     _require_edit_access(saved_query, user)
-    assert_user_can_read_query(saved_query.query, saved_query.team_id, user)
+    assert_user_can_read_saved_query(saved_query, user)
 
     if frequency_target is not None:
         # Ask before writing, so the ordinary refusal never has to be undone below. Names only

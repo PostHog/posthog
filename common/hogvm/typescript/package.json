@@ -26,7 +26,7 @@
         "build:cli": "mkdir -p ./dist && cp ./src/cli.js ./dist/cli.js",
         "compile:stl": "cd ../../.. && python3 -m common.hogvm.stl.compile",
         "typecheck": "tsc -p tsconfig.build.json --noEmit",
-        "typecheck:tsgo": "tsgo -p tsconfig.build.json --noEmit",
+        "typecheck:tsgo": "tsc -p tsconfig.build.json --noEmit",
         "format:oxfmt": "oxfmt src",
         "format:check": "oxfmt --check src",
         "prepublishOnly": "pnpm clean && pnpm build"
@@ -51,7 +51,8 @@
         "oxfmt": "catalog:",
         "parcel": "^2.16.4",
         "re2": "^1.26.1",
-        "typescript": "catalog:"
+        "typescript": "catalog:compiler-api",
+        "typescript-native": "catalog:"
     },
     "peerDependencies": {
         "luxon": "^3.4.4"
