@@ -127,14 +127,14 @@ export function ProviderImportRunProgress({
     onOpenLink?: () => void
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-3">
+        <>
             <SkippedStepsBanner steps={run.steps} />
             <ul className="flex flex-col gap-3 m-0 p-0 list-none" data-attr={`${run.provider}-import-run-progress`}>
                 {run.steps.map((step) => (
                     <ProviderImportStep key={step.key} step={step} onOpenLink={onOpenLink} />
                 ))}
             </ul>
-        </div>
+        </>
     )
 }
 
