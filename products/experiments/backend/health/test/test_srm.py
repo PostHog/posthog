@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import date, timedelta
 
 from unittest import TestCase
 
@@ -382,6 +383,39 @@ class TestSrmCauses(TestCase):
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual((outcome.severity, outcome.detail), (severity, detail))
+
+    @parameterized.expand(
+        [
+            (
+                "starts_on_the_sixth_day",
+                [(100, 100)] * 5 + [(100, 60)] * 5,
+                "2026-10-06",
+                f"{MISMATCH} The users first exposed before October 6, 2026 match the split. From that day on, "
+                '"test" has 37.5% of the users first exposed, against 50% planned. A mismatch that starts on one day '
+                'often follows a release, so check what changed in the code or tracking of "test" on that day.',
+            ),
+            ("off_the_split_before_the_change_too", [(100, 40)] * 5 + [(100, 80)] * 5, None, NO_LOCATION),
+            ("first_days_too_few_to_differ", [(60, 50)] * 2 + [(100, 80)] * 8, None, NO_LOCATION),
+        ]
+    )
+    def test_names_the_day_a_mismatch_starts(
+        self, _name: str, days: list[tuple[int, int]], started_on: str | None, detail: str
+    ) -> None:
+        dates = [date(2026, 10, 1) + timedelta(days=index) for index in range(len(days))]
+        daily = {
+            "control": {day: control for day, (control, _) in zip(dates, days)},
+            "test": {day: test for day, (_, test) in zip(dates, days)},
+        }
+        exposures = replace(
+            _exposures(None),
+            total_exposures={variant: sum(counts.values()) for variant, counts in daily.items()},
+            daily_exposures=daily,
+        )
+
+        outcome = srm(replace(RUNNING_CONTEXT, exposures=exposures))
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual((outcome.evidence.get("mismatch_started_on"), outcome.detail), (started_on, detail))
 
     @parameterized.expand(
         [
