@@ -151033,8 +151033,8 @@ export namespace Schemas {
     /**
      * List only templates of this type. Leave out to list every type.
      *
-     * * `email` - email
-     * * `push` - push
+     * * `email` - Email
+     * * `push` - Push
      * @nullable
      */
     type?: MessagingTemplatesListType;
