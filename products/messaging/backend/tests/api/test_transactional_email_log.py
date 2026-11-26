@@ -778,16 +778,22 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         for distinct_id, session_id, run_id in landings:
             self._land(distinct_id, session_id, run_id)
+        self._land("early", "autocapture-only-session", message_ids["early"], event="$autocapture")
         flush_persons_and_events()
         return message_ids
 
     def _land(
-        self, distinct_id: str, session_id: str, run_id: str | None, at: datetime = NOW - timedelta(minutes=5)
+        self,
+        distinct_id: str,
+        session_id: str,
+        run_id: str | None,
+        at: datetime = NOW - timedelta(minutes=5),
+        event: str = "$pageview",
     ) -> None:
         query = f"?plan=pro&ph_workflow_run={run_id}" if run_id else "?plan=pro"
         _create_event(
             team=self.team,
-            event="$pageview",
+            event=event,
             distinct_id=distinct_id,
             timestamp=at,
             properties={"$current_url": f"https://example.com/reset{query}", "$session_id": session_id},
