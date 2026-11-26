@@ -1100,6 +1100,9 @@ WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph"
 
 def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: dict) -> Any:
     actions = data.get("actions") if isinstance(data, dict) else None
+    # The move to the test sender drops this field, so a bad value must be refused before it can be dropped.
+    if isinstance(actions, list):
+        _refuse_a_non_boolean_run_link_tag(actions)
     get_team = context.get("get_team")
     user = getattr(context.get("request"), "user", None)
     if (
@@ -1159,6 +1162,17 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
     if not moved:
         return data
     return {**data, "actions": converted}
+
+
+def _refuse_a_non_boolean_run_link_tag(actions: list) -> None:
+    for step_action in actions:
+        config = step_action.get("config") if isinstance(step_action, dict) else None
+        if (
+            step_action.get("type") == "function_email"
+            and isinstance(config, dict)
+            and not isinstance(config.get("run_link_tag_enabled", True), bool)
+        ):
+            raise serializers.ValidationError({"run_link_tag_enabled": "Must be true or false."})
 
 
 def _has_no_sender(action: dict) -> bool:
@@ -2550,8 +2564,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
                 template_id = _apply_fixed_template_id(config, template_id, fixed_template_id, strict=strict)
-            if data.get("type") == "function_email" and not isinstance(config.get("run_link_tag_enabled", True), bool):
-                raise serializers.ValidationError({"run_link_tag_enabled": "Must be true or false."})
+            _refuse_a_non_boolean_run_link_tag([data])
             # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
             # authoring mistake) lands in template_uuid first and still gets materialized.
             if data.get("type") == "function_email" and config.get("template_uuid"):
@@ -4830,11 +4843,18 @@ def _email_step_sender_ids(action: dict) -> list[str | None]:
 
 
 def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None:
+    # The opt-out keeps a senderless step off the test sender, so without this every send of it would fail.
+    problems: list[str] = [
+        f'The "{step_action.get("name") or "Email"}" step has no sender, so its emails would fail. Choose a verified sender.'
+        for step_action in actions
+        if _has_no_sender(step_action) and step_action["config"].get("run_link_tag_enabled") is False
+    ]
     named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
     if not any(sender_ids for _, sender_ids in named):
+        if problems:
+            raise serializers.ValidationError({"actions": " ".join(problems)})
         return
     verification = own_sender_verification(team_id)
-    problems: list[str] = []
     for step_action, sender_ids in named:
         for sender_id in sender_ids:
             if sender_id is not None and verification.get(sender_id):

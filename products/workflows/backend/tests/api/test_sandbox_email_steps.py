@@ -692,6 +692,44 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert stored["config"].items() >= (config or {}).items()
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
 
+    @parameterized.expand([("a_string", "false"), ("a_number", 0), ("null", None)])
+    def test_a_senderless_api_email_refuses_a_run_link_tag_switch_that_is_not_a_boolean(
+        self, _name: str, sent: Any
+    ) -> None:
+        step = _own_email_step(None)
+        step["config"]["run_link_tag_enabled"] = sent
+
+        with _flag(True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(step), format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "run_link_tag_enabled" in str(response.json())
+        assert not HogFlow.objects.filter(team=self.team).exists()
+        assert not self._sandbox_sender_is_set_up()
+
+    def test_enabling_refuses_a_senderless_email_that_keeps_the_run_link_tag_off(self) -> None:
+        step = _own_email_step(None)
+        step["config"]["run_link_tag_enabled"] = False
+        with _flag(True):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", _flow(step), format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+        assert created.status_code == 201, created.json()
+
+        with _flag(True), _runtime(True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}",
+                {"status": "active"},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "no sender" in str(response.json())
+        assert HogFlow.objects.get(id=created.json()["id"]).status == "draft"
+
     @parameterized.expand(
         [
             ("a_stale_edit", "patch", {}, {"base_updated_at": "stale"}, 409, ["trigger"]),
