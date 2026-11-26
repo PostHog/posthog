@@ -205,6 +205,7 @@ class TestRenderSectionHtml(SimpleTestCase):
             ("body_domain", "Summary", "Sign in at evil.example/login", "evil.example"),
             ("body_code_block", "Summary", "```\nevil.example/login\n```", "evil.example"),
             ("body_entities", "Summary", "https&#58;&#47;&#47;evil&#46;example&#47;login", "https://evil.example"),
+            ("body_split_domain", "Summary", "Sign in at **evil**.example/login", ".example"),
         ]
     )
     def test_defangs_urls_and_domains(self, _name: str, title: str, content: str, link_text: str):
@@ -224,7 +225,7 @@ class TestRenderSectionHtml(SimpleTestCase):
             citation_map=citation_map,
         )
         self.assertIn("/project/42/ai-observability/traces/trace-abc", html)
-        self.assertIn("12345678...", html)
+        self.assertIn("12345678...", html.replace("\u200b", ""))
 
     def test_renders_lists(self):
         html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
@@ -783,7 +784,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         deliver_slack_report(
             self._make_report_run(title="Re-authenticate at https://evil.example/login"),
             [{"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH"}],
-            evaluation_name="Sign in at https://name.example <https://name.example|here>",
+            evaluation_name="@here sign in at https://name.example <https://name.example|here>",
             evaluation_id="eval-1",
             team_id=7,
             project_id=1,
@@ -796,6 +797,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertNotIn("https://evil.example", header["text"]["text"])
         self.assertNotIn("https://name.example", header["text"]["text"])
         self.assertNotIn("<https://name.example", context["elements"][0]["text"])
+        self.assertTrue(context["elements"][0]["verbatim"])
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.integrations.IntegrationManager")

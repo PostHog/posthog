@@ -17,7 +17,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.helpers.email_utils import defang_urls, sanitize_email_string
+from posthog.helpers.email_utils import defang_urls, sanitize_email_fragment, sanitize_email_string
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
@@ -64,7 +64,7 @@ class _CitationLinksMarkdownIt(MarkdownIt):
 
 
 def _defang(token: Token) -> str:
-    return sanitize_email_string(token.content)
+    return sanitize_email_fragment(token.content)
 
 
 _slack_converter = SlackMarkdownConverter()
@@ -502,7 +502,8 @@ def deliver_slack_report(
                 },
                 {
                     "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": period_line}],
+                    # Verbatim, so an evaluation name such as `@here` is not parsed into a broadcast mention.
+                    "elements": [{"type": "mrkdwn", "text": period_line, "verbatim": True}],
                 },
                 *_render_metrics_slack_blocks(content.metrics),
                 {"type": "divider"},

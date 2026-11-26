@@ -194,7 +194,11 @@ _ZWSP = "​"
 
 
 def _defang_match(match: "re.Match[str]") -> str:
-    return match.group(0).replace(".", f".{_ZWSP}").replace(":", f":{_ZWSP}")
+    return _break_separators(match.group(0))
+
+
+def _break_separators(value: str) -> str:
+    return value.replace(".", f".{_ZWSP}").replace(":", f":{_ZWSP}")
 
 
 def sanitize_email_string(value: str) -> str:
@@ -218,6 +222,12 @@ def sanitize_email_string(value: str) -> str:
     (the ZWSP is invisible) but the link is no longer clickable.
     """
     return _defang(html.escape(_clean(value)))
+
+
+def sanitize_email_fragment(value: str) -> str:
+    """`sanitize_email_string` for one piece of rendered markup, such as a markdown text node. A domain can span two
+    pieces (`**evil**.com`), where neither looks like a URL, so every `.` and `:` is broken."""
+    return _break_separators(html.escape(_clean(value)))
 
 
 def defang_urls(value: str) -> str:
