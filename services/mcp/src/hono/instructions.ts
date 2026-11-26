@@ -51,10 +51,10 @@ export type ExecToolState = Pick<
     | 'requestContext'
     | 'sessionContext'
     | 'toolFeatureFlags'
-    | 'apiKeyScopes'
-    | 'oauthClientId'
-    | 'taskOriginProduct'
-> & { allTools: readonly { name: string }[] }
+> &
+    Partial<Pick<ResolvedState, 'apiKeyScopes' | 'oauthClientId' | 'taskOriginProduct'>> & {
+        allTools: readonly { name: string }[]
+    }
 
 /** Tool availability accounts for the client's scopes and selected features. */
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
