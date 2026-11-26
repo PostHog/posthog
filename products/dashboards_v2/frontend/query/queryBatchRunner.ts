@@ -4,9 +4,9 @@ import { getDashboardV2QueryBatchCreateUrl } from 'products/dashboards/frontend/
 import type { QueryBatchRequestApi } from 'products/dashboards/frontend/generated/api.schemas'
 
 import type { TimeRange } from '../dashboard/document/dashboardTypes'
-import type { DataFrame, QueryRequest, QueryResult, RunQuery } from '../widgets/chart/vizTypes'
 import { type Frame, type QueryBatchLine, readNdjson } from './queryBatchLines'
 import { QueryBatchTimer, startBoardLoad } from './queryBatchTiming'
+import type { DataFrame, QueryRequest, QueryResult, RunQuery } from './queryTypes'
 
 const NO_ANSWER = 'No answer came back for this query'
 // The endpoint answers 429 while this person's earlier batches still hold its slots, which frees up within seconds.

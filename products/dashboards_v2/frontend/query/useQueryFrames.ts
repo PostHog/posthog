@@ -1,8 +1,8 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 
-import { RefreshContext } from '../../refreshContext'
-import type { QueryRequest, QueryResult, RunQuery } from '../vizTypes'
+import { WidgetHostContext } from '../widgets/core/widgetHostContext'
 import { cachedResult, runCachedQuery } from './queryCache'
+import type { QueryRequest, QueryResult, RunQuery } from './queryTypes'
 
 export type QueryFrames =
     | { status: 'loading' }
@@ -54,7 +54,7 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
     // An edit rebuilds the request objects, so the queries run again only when their content changes.
     const queryKeys = requests.map((request) => JSON.stringify(request))
     const keysKey = JSON.stringify(queryKeys)
-    const refresh = useContext(RefreshContext)
+    const { refresh, timing } = useContext(WidgetHostContext)
     const [results, setResults] = useState<QueryFrames[]>(() => queryKeys.map((key) => initial(runQuery, key, refresh)))
     const resultKeys = useRef(queryKeys)
     useEffect(() => {
@@ -77,17 +77,30 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
                 ? previous
                 : next
         })
-        keys.forEach((key, index) =>
+        keys.forEach((key, index) => {
+            const cached = cachedResult(runQuery, key, refresh)
+            const ended = timing?.started(!!cached && !cached.stale)
             runCachedQuery(runQuery, key, refresh).then(
-                (result) => !cancelled && show(index, { status: 'ready', refreshing: false, ...result }),
-                (error: unknown) =>
-                    !cancelled &&
-                    show(index, { status: 'error', message: error instanceof Error ? error.message : String(error) })
+                (result) => {
+                    ended?.('success')
+                    if (!cancelled) {
+                        show(index, { status: 'ready', refreshing: false, ...result })
+                    }
+                },
+                (error: unknown) => {
+                    ended?.('error')
+                    if (!cancelled) {
+                        show(index, {
+                            status: 'error',
+                            message: error instanceof Error ? error.message : String(error),
+                        })
+                    }
+                }
             )
-        )
+        })
         return () => {
             cancelled = true
         }
-    }, [keysKey, runQuery, refresh])
+    }, [keysKey, runQuery, refresh, timing])
     return results
 }

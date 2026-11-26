@@ -3,7 +3,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
-import type { SavedWidget } from '../dashboard/document/dashboardTypes'
+import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
 
 type WidgetErrorState = {
     failed: boolean
