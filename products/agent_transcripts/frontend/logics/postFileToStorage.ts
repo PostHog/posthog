@@ -2,6 +2,8 @@ import type { PresignedUploadApi } from '../generated/api.schemas'
 
 export class StorageUploadError extends Error {}
 
+const STORAGE_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000
+
 export interface PostFileToStorageOptions {
     presignedUpload: PresignedUploadApi
     file: File
@@ -30,6 +32,7 @@ export function postFileToStorage({
 
         const request = new XMLHttpRequest()
         request.open('POST', presignedUpload.upload_url)
+        request.timeout = STORAGE_UPLOAD_TIMEOUT_MS
 
         request.upload.addEventListener('progress', (event) => {
             if (event.lengthComputable && event.total > 0) {
@@ -45,6 +48,7 @@ export function postFileToStorage({
         })
         request.addEventListener('error', () => reject(new StorageUploadError('The upload to storage failed')))
         request.addEventListener('abort', () => reject(new StorageUploadError('The upload to storage was canceled')))
+        request.addEventListener('timeout', () => reject(new StorageUploadError('The upload to storage timed out')))
 
         signal?.addEventListener('abort', () => request.abort())
 

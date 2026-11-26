@@ -3,6 +3,7 @@
 from typing import Any
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -28,6 +29,11 @@ SUBMITTED_EVENT = "agent transcript submitted"
 APPROVED_EVENT = "agent transcript approved"
 CHANGES_REQUESTED_EVENT = "agent transcript changes requested"
 DECLINED_EVENT = "agent transcript declined"
+
+COMPLETE_UPLOAD_CLAIM_KEY_PREFIX = "agent_transcripts:complete_upload:"
+# Long enough to download and scan the largest allowed file. A call that dies without releasing the
+# claim blocks that upload only until this expires.
+COMPLETE_UPLOAD_CLAIM_SECONDS = 5 * 60
 
 
 def get_for_organization(organization_id: UUID) -> AgentTranscriptSubmission | None:
@@ -67,6 +73,7 @@ def start_upload(data: StartUploadInput) -> PresignedUpload:
     staging_key = storage.build_staging_key(data.organization_id)
     presigned_upload = storage.presign_upload(staging_key)
 
+    superseded_staging_key: str | None = None
     with transaction.atomic():
         submission, created = AgentTranscriptSubmission.objects.select_for_update().get_or_create(
             organization_id=data.organization_id,
@@ -82,11 +89,15 @@ def start_upload(data: StartUploadInput) -> PresignedUpload:
             if not transitions.is_allowed(status, SubmissionAction.START_UPLOAD):
                 raise InvalidSubmissionState(status, SubmissionAction.START_UPLOAD)
 
+            superseded_staging_key = submission.staging_key
             submission.status = SubmissionStatus.PENDING_UPLOAD
             submission.agent = data.agent
             submission.original_filename = filename
             submission.staging_key = staging_key
             submission.save(update_fields=["status", "agent", "original_filename", "staging_key", "updated_at"])
+
+    if superseded_staging_key is not None:
+        storage.delete_quietly(superseded_staging_key)
 
     return presigned_upload
 
@@ -101,6 +112,21 @@ def complete_upload(data: CompleteUploadInput) -> AgentTranscriptSubmission:
     if not transitions.is_allowed(status, SubmissionAction.COMPLETE_UPLOAD) or staging_key is None:
         raise InvalidSubmissionState(status, SubmissionAction.COMPLETE_UPLOAD)
 
+    # Each call downloads and scans the whole file, so a second call for the same upload fails fast
+    # instead of repeating that work while the first one runs.
+    claim_key = f"{COMPLETE_UPLOAD_CLAIM_KEY_PREFIX}{staging_key}"
+    if not cache.add(claim_key, True, timeout=COMPLETE_UPLOAD_CLAIM_SECONDS):
+        raise InvalidSubmissionState(status, SubmissionAction.COMPLETE_UPLOAD)
+
+    try:
+        return _promote_staged_upload(data, submission, staging_key)
+    finally:
+        cache.delete(claim_key)
+
+
+def _promote_staged_upload(
+    data: CompleteUploadInput, submission: AgentTranscriptSubmission, staging_key: str
+) -> AgentTranscriptSubmission:
     # Check the stored size before downloading, so an oversize object is never read into memory.
     size_bytes = storage.object_size(staging_key)
     if size_bytes is None:
@@ -117,8 +143,11 @@ def complete_upload(data: CompleteUploadInput) -> AgentTranscriptSubmission:
             _discard_staged_upload(submission.organization_id, staging_key)
         raise
 
+    # The upload form for the staging key stays valid until it expires, so the object there can change
+    # after the read above. Writing the bytes that passed the checks keeps unchecked bytes out of review.
+    content_type = content.content_type_for(submission.original_filename)
     storage_key = storage.build_storage_key(data.organization_id, submission.original_filename)
-    storage.copy(staging_key, storage_key)
+    storage.write(storage_key, transcript, content_type)
 
     previous_storage_key: str | None = None
     with transaction.atomic():
@@ -132,7 +161,7 @@ def complete_upload(data: CompleteUploadInput) -> AgentTranscriptSubmission:
             submission.storage_key = storage_key
             submission.staging_key = None
             submission.size_bytes = len(transcript)
-            submission.content_type = content.content_type_for(submission.original_filename)
+            submission.content_type = content_type
             submission.submitted_by_id = data.user_id
             submission.submitted_at = timezone.now()
             submission.review_message = None
@@ -215,11 +244,14 @@ def delete_transcript_file(organization_id: UUID) -> AgentTranscriptSubmission:
     if submission.storage_key is None or submission.file_deleted_at is not None:
         return submission
 
-    storage.delete(submission.storage_key)
+    deleted_storage_key = submission.storage_key
+    storage.delete(deleted_storage_key)
 
-    AgentTranscriptSubmission.objects.filter(id=submission.id, file_deleted_at__isnull=True).update(
-        file_deleted_at=timezone.now(), updated_at=timezone.now()
-    )
+    # A replacement upload can commit while the delete runs. Its file is still stored, so only the
+    # row that still points at the deleted key is marked.
+    AgentTranscriptSubmission.objects.filter(
+        id=submission.id, storage_key=deleted_storage_key, file_deleted_at__isnull=True
+    ).update(file_deleted_at=timezone.now(), updated_at=timezone.now())
     submission.refresh_from_db()
     return submission
 

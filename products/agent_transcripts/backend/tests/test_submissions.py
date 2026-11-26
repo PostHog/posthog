@@ -23,6 +23,7 @@ from products.agent_transcripts.backend.facade.contracts import (
     UploadRejected,
 )
 from products.agent_transcripts.backend.facade.enums import SubmissionStatus, TranscriptAgent, UploadRejectionReason
+from products.agent_transcripts.backend.logic import storage
 from products.agent_transcripts.backend.models import AgentTranscriptSubmission
 from products.agent_transcripts.backend.tests.base import TRANSCRIPT_BYTES, TranscriptStorageTestCase, stored_bytes
 from products.agent_transcripts.backend.tests.test_content import FAKE_GITHUB_TOKEN
@@ -85,6 +86,52 @@ class TestUploadFlow(TranscriptStorageTestCase):
         assert submission.staging_key is None
         assert stored_bytes(staged.staging_key) is None
         capture.assert_not_called()
+
+    @patch(CAPTURE_PATH)
+    def test_complete_upload_stores_the_bytes_it_checked(self, _capture: MagicMock) -> None:
+        staged = self.stage_upload()
+        read_stored_object = storage.read
+
+        def read_then_upload_again(key: str) -> bytes | None:
+            checked = read_stored_object(key)
+            object_storage.write(key, f"token {FAKE_GITHUB_TOKEN}\n".encode())
+            return checked
+
+        with patch.object(storage, "read", side_effect=read_then_upload_again):
+            self._complete()
+
+        submission = AgentTranscriptSubmission.objects.get(id=staged.id)
+        assert stored_bytes(submission.storage_key) == TRANSCRIPT_BYTES
+        assert stored_bytes(staged.staging_key) is None
+
+    @patch(CAPTURE_PATH)
+    def test_second_complete_upload_fails_fast_while_the_first_runs(self, _capture: MagicMock) -> None:
+        self.stage_upload()
+        read_stored_object = storage.read
+        read_keys: list[str] = []
+
+        def read_and_complete_again(key: str) -> bytes | None:
+            read_keys.append(key)
+            if len(read_keys) == 1:
+                with self.assertRaises(InvalidSubmissionState):
+                    self._complete()
+            return read_stored_object(key)
+
+        with patch.object(storage, "read", side_effect=read_and_complete_again):
+            state = self._complete()
+
+        assert state.status == SubmissionStatus.SUBMITTED
+        assert len(read_keys) == 1
+
+    def test_new_upload_discards_the_superseded_staged_file(self) -> None:
+        first = self.stage_upload()
+        replacement = b'{"role": "assistant", "content": "the whole conversation"}\n'
+
+        second = self.stage_upload(data=replacement)
+
+        assert second.staging_key != first.staging_key
+        assert stored_bytes(first.staging_key) is None
+        assert stored_bytes(second.staging_key) == replacement
 
     def test_complete_upload_without_a_file_keeps_the_upload_open(self) -> None:
         api.start_upload(
@@ -297,6 +344,21 @@ class TestReview(TranscriptStorageTestCase):
         assert deleted.file_available is False
         assert api.get_transcript_download_url(self.organization.id) is None
         assert stored_bytes(submission.storage_key) is None
+
+    def test_file_delete_leaves_a_replacement_upload_unmarked(self) -> None:
+        submission = self._submitted()
+        replacement_key = f"{self.folder}/{self.organization.id}/replacement/conversation.jsonl"
+        delete_stored_object = storage.delete
+
+        def delete_while_a_replacement_commits(key: str) -> None:
+            delete_stored_object(key)
+            AgentTranscriptSubmission.objects.filter(id=submission.id).update(storage_key=replacement_key)
+
+        with patch.object(storage, "delete", side_effect=delete_while_a_replacement_commits):
+            result = api.delete_transcript_file(self.organization.id)
+
+        assert result.file_deleted_at is None
+        assert AgentTranscriptSubmission.objects.get(id=submission.id).storage_key == replacement_key
 
     def test_list_submissions_filters_by_status(self) -> None:
         self._submitted()

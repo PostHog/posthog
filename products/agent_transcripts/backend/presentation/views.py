@@ -8,9 +8,12 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import PersonalApiKeyRateThrottle
 
 from ..facade import api
 from ..facade.contracts import (
@@ -34,9 +37,14 @@ from .serializers import (
 
 SECRET_DESCRIPTIONS: dict[SecretKind, str] = {
     SecretKind.POSTHOG_PERSONAL_API_KEY: "a PostHog personal API key",
+    SecretKind.POSTHOG_SECRET_KEY: "a PostHog secret key",
+    SecretKind.POSTHOG_OAUTH_TOKEN: "a PostHog OAuth token",
     SecretKind.PROVIDER_API_KEY: "an AI provider API key",
     SecretKind.AWS_ACCESS_KEY_ID: "an AWS access key ID",
     SecretKind.GITHUB_TOKEN: "a GitHub token",
+    SecretKind.GITLAB_TOKEN: "a GitLab token",
+    SecretKind.GOOGLE_API_KEY: "a Google API key",
+    SecretKind.SLACK_TOKEN: "a Slack token",
     SecretKind.PRIVATE_KEY: "a private key",
 }
 
@@ -110,10 +118,42 @@ ERROR_RESPONSES = {
 }
 
 
+class _UploadThrottle(SimpleRateThrottle):
+    """One bucket per organization, shared by both upload steps.
+
+    The default throttles skip session requests, and members upload through the session. This is a plain
+    `SimpleRateThrottle`, so it applies to them, and a second member of the organization gets no new budget.
+    """
+
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        organization_id = PersonalApiKeyRateThrottle.safely_get_organization_id_from_view(view)
+        ident = organization_id or (request.user.pk if request.user.is_authenticated else self.get_ident(request))
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class UploadBurstThrottle(_UploadThrottle):
+    scope = "agent_transcript_upload_burst"
+    rate = "10/minute"
+
+
+class UploadSustainedThrottle(_UploadThrottle):
+    scope = "agent_transcript_upload_sustained"
+    rate = "40/day"
+
+
+UPLOAD_ACTIONS = frozenset({"start_upload", "complete_upload"})
+
+
 class AgentTranscriptViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """The organization's transcript of its signup conversation with an AI agent. Any member can submit it."""
 
     scope_object = "INTERNAL"
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action in UPLOAD_ACTIONS:
+            return [*super().get_throttles(), UploadBurstThrottle(), UploadSustainedThrottle()]
+
+        return super().get_throttles()
 
     @extend_schema(
         description="The organization's transcript submission as its members see it.",

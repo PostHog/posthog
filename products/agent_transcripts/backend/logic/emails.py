@@ -108,7 +108,7 @@ def _send(email: DecisionEmail) -> None:
         subject=SUBJECTS[template_name],
         template_name=template_name,
         template_context={
-            **template_variables(template_name, email),
+            **template_variables(template_name, email, submitter),
             **get_email_team_and_org_context(organization=organization),
         },
         use_http=True,
@@ -117,7 +117,21 @@ def _send(email: DecisionEmail) -> None:
     message.send()
 
 
-def template_variables(template_name: str, email: DecisionEmail) -> dict[str, object]:
+def submission_url(submitter: User, organization_id: UUID) -> str:
+    """A link to the submission page inside one of the organization's projects.
+
+    The page shows the submission of the submitter's current organization. A project in the address
+    makes the server switch the submitter into that project's organization first.
+    """
+    team_ids = list(submitter.teams.filter(organization_id=organization_id).values_list("id", flat=True))
+    if not team_ids:
+        return f"{settings.SITE_URL}{SUBMISSION_PAGE_PATH}"
+
+    team_id = submitter.current_team_id if submitter.current_team_id in team_ids else team_ids[0]
+    return f"{settings.SITE_URL}/project/{team_id}{SUBMISSION_PAGE_PATH}"
+
+
+def template_variables(template_name: str, email: DecisionEmail, submitter: User) -> dict[str, object]:
     """The variables each template reads. The Workflows template with the same key reads the same names."""
     variables: dict[str, object] = {"retention_days": TRANSCRIPT_RETENTION_DAYS}
 
@@ -128,6 +142,6 @@ def template_variables(template_name: str, email: DecisionEmail) -> dict[str, ob
     if template_name in (CHANGES_REQUESTED_TEMPLATE, DECLINED_TEMPLATE):
         variables["review_message"] = email.review_message or ""
     if template_name == CHANGES_REQUESTED_TEMPLATE:
-        variables["submission_url"] = f"{settings.SITE_URL}{SUBMISSION_PAGE_PATH}"
+        variables["submission_url"] = submission_url(submitter, email.organization_id)
 
     return variables

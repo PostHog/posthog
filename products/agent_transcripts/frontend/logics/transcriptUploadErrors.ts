@@ -18,6 +18,7 @@ export const STORAGE_UPLOAD_FAILED_CODE = 'storage_upload_failed'
 export const UNKNOWN_ERROR_CODE = 'unknown'
 
 const BYTES_PER_MEGABYTE = 1024 * 1024
+const FIRST_SERVER_ERROR_STATUS = 500
 
 const STORAGE_UPLOAD_FAILED_DETAIL = "Couldn't send the file. Check your connection, then upload the file again."
 const UNKNOWN_ERROR_DETAIL = "Couldn't upload the transcript. Try again, and if it keeps failing, contact support."
@@ -75,4 +76,8 @@ export function transcriptUploadErrorFrom(error: unknown): TranscriptUploadError
     }
 
     return { code: UNKNOWN_ERROR_CODE, detail: UNKNOWN_ERROR_DETAIL }
+}
+
+export function isServerRefusal(error: unknown): boolean {
+    return error instanceof ApiError && error.status !== undefined && error.status < FIRST_SERVER_ERROR_STATUS
 }

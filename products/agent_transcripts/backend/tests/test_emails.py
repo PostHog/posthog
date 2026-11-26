@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.organization import Organization
 from posthog.models.user import User
 
 from products.agent_transcripts.backend.facade import api
@@ -25,7 +26,6 @@ CUSTOMER_MESSAGE = "Upload the whole conversation, from the first prompt to the 
 INTERNAL_NOTE = "Only the last few messages were in the file."
 RETENTION_SENTENCE = f"{TRANSCRIPT_RETENTION_DAYS} days after upload"
 MERCH_LINK = f"https://posthog.com/merch?coupon={MERCH_CODE}"
-SUBMISSION_LINK = f"{settings.SITE_URL}/agent-transcript"
 MERCH_VALUE = f"${MERCH_CODE_VALUE_USD}"
 
 
@@ -92,7 +92,7 @@ class TestDecisionEmails(APIBaseTest):
                 "changes_requested",
                 _request_changes,
                 "Your transcript needs changes",
-                [CUSTOMER_MESSAGE, SUBMISSION_LINK],
+                [CUSTOMER_MESSAGE],
                 ["merch", INTERNAL_NOTE],
             ),
             (
@@ -126,3 +126,16 @@ class TestDecisionEmails(APIBaseTest):
             assert text in html_body
         for text in unexpected_text:
             assert text.lower() not in html_body.lower()
+
+    @parameterized.expand([("in_the_submission_organization", False), ("in_another_organization", True)])
+    def test_changes_requested_link_opens_the_submission_organization(self, _name: str, switched_away: bool) -> None:
+        if switched_away:
+            Organization.objects.bootstrap(self.submitter, name="Another organization")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            _request_changes(self.organization.id, self.user.id)
+
+        email = mail.outbox[0]
+        assert isinstance(email, mail.EmailMultiAlternatives)
+        html_body = str(email.alternatives[0][0])
+        assert f'href="{settings.SITE_URL}/project/{self.team.id}/agent-transcript"' in html_body

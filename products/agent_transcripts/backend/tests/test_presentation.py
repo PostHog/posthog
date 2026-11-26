@@ -12,6 +12,7 @@ from products.agent_transcripts.backend.facade.contracts import (
     TRANSCRIPT_RETENTION_DAYS,
 )
 from products.agent_transcripts.backend.facade.enums import SubmissionStatus, TranscriptAgent
+from products.agent_transcripts.backend.presentation.views import UploadBurstThrottle
 from products.agent_transcripts.backend.tests.base import TRANSCRIPT_BYTES, TranscriptStorageTestCase
 from products.agent_transcripts.backend.tests.test_content import FAKE_GITHUB_TOKEN
 from products.agent_transcripts.backend.tests.test_submissions import CAPTURE_PATH, MERCH_CODE
@@ -100,3 +101,14 @@ class TestAgentTranscriptAPI(TranscriptStorageTestCase):
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["code"] == "invalid_state"
+
+    def test_upload_steps_share_one_throttle_per_organization(self) -> None:
+        burst_limit, _ = UploadBurstThrottle().parse_rate(UploadBurstThrottle.rate)
+        assert burst_limit is not None
+        upload = {"filename": "conversation.md", "size_bytes": len(TRANSCRIPT_BYTES), "agent": TranscriptAgent.OTHER}
+        for _ in range(burst_limit):
+            assert self.client.post(self._url("start_upload"), upload).status_code == status.HTTP_200_OK
+
+        response = self.client.post(self._url("complete_upload"))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS

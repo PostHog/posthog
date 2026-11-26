@@ -21,7 +21,12 @@ import type { CustomerSubmissionStateApi, TranscriptAgentEnumApi } from '../gene
 import { agentTranscriptSubmissionLogic } from '../logics/agentTranscriptSubmissionLogic'
 import { AgentTranscriptRequestVariant, agentTranscriptRequestVariant } from '../logics/agentTranscriptVariant'
 import { postFileToStorage } from '../logics/postFileToStorage'
-import { TranscriptUploadError, checkTranscriptFile, transcriptUploadErrorFrom } from '../logics/transcriptUploadErrors'
+import {
+    TranscriptUploadError,
+    checkTranscriptFile,
+    isServerRefusal,
+    transcriptUploadErrorFrom,
+} from '../logics/transcriptUploadErrors'
 
 /** Where an upload is: asking for an upload form, sending the file to storage, or waiting for the server's checks. */
 export type TranscriptUploadStep = 'starting' | 'sending' | 'checking'
@@ -223,7 +228,14 @@ export const agentTranscriptSceneLogic = kea<agentTranscriptSceneLogicType>([
                 // Leaving the page aborts the upload, and that failure is not one to show or count.
                 breakpoint()
 
+                const completionMayHaveSucceeded = values.uploadStep === 'checking' && !isServerRefusal(error)
                 actions.uploadTranscriptFailure(transcriptUploadErrorFrom(error))
+
+                // The server can commit the upload and the response still not arrive. A retry then finds
+                // the transcript already in review and fails, so reload the submission to show its status.
+                if (completionMayHaveSucceeded) {
+                    actions.loadSubmission()
+                }
             }
         },
         uploadTranscriptFailure: ({ error }) => {

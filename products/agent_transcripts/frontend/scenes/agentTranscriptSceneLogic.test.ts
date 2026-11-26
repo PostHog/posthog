@@ -18,6 +18,7 @@ const MAX_SIZE_BYTES = 1024
 
 const STORAGE_ACCEPTED_STATUS = 204
 const STORAGE_REFUSED_STATUS = 403
+const GATEWAY_ERROR_STATUS = 502
 
 const NOT_STARTED: CustomerSubmissionStateApi = {
     status: null,
@@ -152,6 +153,25 @@ describe('agentTranscriptSceneLogic', () => {
         expect(logic.values.uploadError).toEqual({ code, detail: expect.stringMatching(detail) })
         expect(logic.values.isUploading).toBe(false)
         expect(posthog.capture).toHaveBeenCalledWith(UPLOAD_FAILED_EVENT, { code, variant: 'test' })
+    })
+
+    it('shows the review status when the server commits the upload but its response is lost', async () => {
+        useUploadEndpointMocks([200, PRESIGNED_UPLOAD])
+        let committed = false
+        useMocks({
+            get: { [SUBMISSION_URL]: () => [200, committed ? { ...NOT_STARTED, status: 'submitted' } : NOT_STARTED] },
+            post: {
+                [COMPLETE_UPLOAD_URL]: () => {
+                    committed = true
+                    return [GATEWAY_ERROR_STATUS]
+                },
+            },
+        })
+
+        await mountAndUpload(transcriptFile('session.jsonl', 10))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.submission).toEqual(expect.objectContaining({ status: 'submitted' }))
     })
 
     it.each<[string, File, string]>([

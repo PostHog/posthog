@@ -3,6 +3,14 @@
 import re
 from pathlib import PurePosixPath
 
+from posthog.models.utils import (
+    HEATMAP_SCREENSHOT_SECRET_PREFIX,
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    OAUTH_REFRESH_TOKEN_PREFIX,
+    PERSONAL_API_KEY_PREFIX,
+    SECRET_API_TOKEN_PREFIX,
+)
+
 from ..facade.contracts import ALLOWED_TRANSCRIPT_EXTENSIONS, MAX_TRANSCRIPT_SIZE_BYTES, UploadRejected
 from ..facade.enums import SecretKind, UploadRejectionReason
 
@@ -20,11 +28,25 @@ CONTENT_TYPE_BY_EXTENSION: dict[str, str] = {
 
 _UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9._-]+")
 
+
+def _posthog_token_pattern(*prefixes: str) -> re.Pattern[str]:
+    alternatives = "|".join(re.escape(prefix) for prefix in prefixes)
+    return re.compile(rf"(?<![A-Za-z0-9_])(?:{alternatives})[A-Za-z0-9]{{20,}}")
+
+
 # Credentials that must not reach our storage. Each pattern needs the token's own prefix and a
 # realistic length, so prose that only mentions a prefix does not match. PostHog project tokens
 # (`phc_`) are public by design and are not in this list.
 SECRET_PATTERNS: tuple[tuple[SecretKind, re.Pattern[str]], ...] = (
-    (SecretKind.POSTHOG_PERSONAL_API_KEY, re.compile(r"(?<![A-Za-z0-9_])phx_[A-Za-z0-9]{20,}")),
+    (SecretKind.POSTHOG_PERSONAL_API_KEY, _posthog_token_pattern(PERSONAL_API_KEY_PREFIX)),
+    (
+        SecretKind.POSTHOG_SECRET_KEY,
+        _posthog_token_pattern(SECRET_API_TOKEN_PREFIX, HEATMAP_SCREENSHOT_SECRET_PREFIX),
+    ),
+    (
+        SecretKind.POSTHOG_OAUTH_TOKEN,
+        _posthog_token_pattern(OAUTH_ACCESS_TOKEN_PREFIX, OAUTH_REFRESH_TOKEN_PREFIX),
+    ),
     # OpenAI, Anthropic and similar keys. The lookahead asks for a digit, which random keys have and
     # kebab-case names that start with `sk-` usually do not.
     (SecretKind.PROVIDER_API_KEY, re.compile(r"(?<![A-Za-z0-9_-])sk-(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{20,}")),
@@ -33,6 +55,9 @@ SECRET_PATTERNS: tuple[tuple[SecretKind, re.Pattern[str]], ...] = (
         SecretKind.GITHUB_TOKEN,
         re.compile(r"(?<![A-Za-z0-9_])(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})"),
     ),
+    (SecretKind.GITLAB_TOKEN, re.compile(r"(?<![A-Za-z0-9_-])glpat-[A-Za-z0-9_-]{20,}")),
+    (SecretKind.GOOGLE_API_KEY, re.compile(r"(?<![A-Za-z0-9_-])AIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])")),
+    (SecretKind.SLACK_TOKEN, re.compile(r"(?<![A-Za-z0-9_-])xox[a-z]-[A-Za-z0-9-]{10,}")),
     (SecretKind.PRIVATE_KEY, re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")),
 )
 

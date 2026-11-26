@@ -79,9 +79,9 @@ def read(key: str) -> bytes | None:
         raise TranscriptStorageUnavailable("Could not read the uploaded file") from error
 
 
-def copy(source_key: str, target_key: str) -> None:
+def write(key: str, data: bytes, content_type: str) -> None:
     try:
-        object_storage.copy(source_key, target_key)
+        object_storage.write(key, data, extras={"ContentType": content_type})
     except ObjectStorageError as error:
         raise TranscriptStorageUnavailable("Could not store the uploaded file") from error
 

@@ -41,7 +41,12 @@ class UploadRejectionReason(LabeledStrEnum):
 
 class SecretKind(LabeledStrEnum):
     POSTHOG_PERSONAL_API_KEY = "posthog_personal_api_key", "PostHog personal API key"
+    POSTHOG_SECRET_KEY = "posthog_secret_key", "PostHog secret key"
+    POSTHOG_OAUTH_TOKEN = "posthog_oauth_token", "PostHog OAuth token"
     PROVIDER_API_KEY = "provider_api_key", "AI provider API key"
     AWS_ACCESS_KEY_ID = "aws_access_key_id", "AWS access key ID"
     GITHUB_TOKEN = "github_token", "GitHub token"
+    GITLAB_TOKEN = "gitlab_token", "GitLab token"
+    GOOGLE_API_KEY = "google_api_key", "Google API key"
+    SLACK_TOKEN = "slack_token", "Slack token"
     PRIVATE_KEY = "private_key", "Private key"
