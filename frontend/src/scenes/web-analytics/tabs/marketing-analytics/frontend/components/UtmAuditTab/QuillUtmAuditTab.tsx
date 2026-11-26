@@ -3,9 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import {
     Button,
+    Card,
+    CardContent,
     Item,
     ItemContent,
     ItemDescription,
+    Skeleton,
     Tabs,
     TabsContent,
     TabsList,
@@ -14,6 +17,7 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    cn,
 } from '@posthog/quill'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -21,7 +25,6 @@ import type { HealthTab } from '../../logic/utmAuditLogic'
 import { QuillOptionSelect } from '../common/QuillOptionSelect'
 import { IntegrationSettingsModal } from '../settings/IntegrationSettingsModal'
 import { QuillUtmAuditSettingsTab } from './QuillUtmAuditSettingsTab'
-import { QuillUtmAuditStatCard } from './QuillUtmAuditStatCard'
 
 export function QuillUtmAuditTab({
     loading,
@@ -105,13 +108,25 @@ export function QuillUtmAuditTab({
             ) : (
                 <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
                     {stats.map((stat) => (
-                        <QuillUtmAuditStatCard
-                            key={stat.label}
-                            label={stat.label}
-                            value={stat.value}
-                            loading={loading}
-                            alert={stat.alert}
-                        />
+                        <Card key={stat.label} size="sm">
+                            <CardContent className="flex flex-col gap-1">
+                                <Text size="xs" variant="muted" render={<div />}>
+                                    {stat.label}
+                                </Text>
+                                {loading ? (
+                                    <Skeleton className="h-7 w-12" />
+                                ) : (
+                                    <Text
+                                        size="lg"
+                                        weight="semibold"
+                                        className={cn('tabular-nums', stat.alert && 'text-warning-foreground')}
+                                        render={<div />}
+                                    >
+                                        {stat.value.toLocaleString()}
+                                    </Text>
+                                )}
+                            </CardContent>
+                        </Card>
                     ))}
                 </div>
             )}

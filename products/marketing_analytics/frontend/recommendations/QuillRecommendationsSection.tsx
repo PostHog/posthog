@@ -1,11 +1,11 @@
 import { useRef } from 'react'
 
-import { Button, Popover, PopoverContent, Text } from '@posthog/quill'
+import { IconLightBulb } from '@posthog/icons'
+import { Button, Popover, PopoverContent, Spinner, Text } from '@posthog/quill'
 
 import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { QuillRecommendationsIdle } from './QuillRecommendationsIdle'
-import { QuillRecommendationsLoading } from './QuillRecommendationsLoading'
 import { QuillRecommendationsSummary } from './QuillRecommendationsSummary'
 
 export function QuillRecommendationsSection({
@@ -31,7 +31,11 @@ export function QuillRecommendationsSection({
                 {shownState === 'recommendations' ? (
                     <QuillRecommendationsSummary onOpen={() => onOpenFirstRule('button')} />
                 ) : shownState === null ? (
-                    <QuillRecommendationsLoading />
+                    <Button variant="outline" disabledReason="Loading recommendations">
+                        <IconLightBulb />
+                        <span>Recommendations</span>
+                        <Spinner />
+                    </Button>
                 ) : (
                     <QuillRecommendationsIdle state={shownState} />
                 )}

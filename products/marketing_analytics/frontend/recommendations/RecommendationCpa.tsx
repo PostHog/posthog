@@ -5,6 +5,7 @@ import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analyt
 
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
+import { RecommendationCpaValues } from './RecommendationCpaValues'
 import { BENCHMARK_SOURCE_DESCRIPTIONS, BENCHMARK_SOURCE_LABELS } from './recommendations'
 
 export interface RecommendationCpaSummary {
@@ -45,22 +46,14 @@ export function RecommendationCpa({
     }
     return (
         <span className="flex flex-wrap items-center gap-x-2 text-xs text-secondary">
-            {summary.cpa !== null && (
-                <span className="tabular-nums" translate="no">
-                    {summary.cpa}
-                </span>
-            )}
-            <span className="inline-flex items-center gap-1">
-                <span>
-                    <span className="tabular-nums" translate="no">
-                        {summary.benchmark}
-                    </span>
-                    <span>{summary.source}</span>
-                </span>
-                <Tooltip title={summary.tooltip}>
-                    <IconInfo className="shrink-0 text-sm" />
-                </Tooltip>
-            </span>
+            <RecommendationCpaValues
+                summary={summary}
+                info={
+                    <Tooltip title={summary.tooltip}>
+                        <IconInfo className="shrink-0 text-sm" />
+                    </Tooltip>
+                }
+            />
         </span>
     )
 }
