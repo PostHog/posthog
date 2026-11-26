@@ -80,6 +80,9 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("trace_spans", "select * from posthog.trace_spans", {"tracing"}),
+            ("placeholder_table", "select * from {table}", None),
+            ("placeholder_join", "select * from events join {table} on 1", None),
+            ("placeholder_outside_from", "select * from events where {filters}", set()),
             (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",

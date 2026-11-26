@@ -624,6 +624,31 @@ class TestDeniedTableError(BaseTest):
             else:
                 database.get_table(table_name)
 
+    @parameterized.expand(
+        [
+            ("key_with_tracing_scope", ["tracing:read"], False),
+            ("key_without_tracing_scope", ["insight:read"], True),
+            ("shared_link", None, True),
+        ]
+    )
+    def test_trace_tables_follow_principal_scopes(self, _name: str, scopes: list[str] | None, denied: bool) -> None:
+        from posthog.auth import ProjectSecretAPIKeyUser
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+        from posthog.models.sharing_configuration import SharingConfiguration
+        from posthog.shared_link_user import SharedLinkUser
+
+        if scopes is None:
+            principal = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+        else:
+            key = ProjectSecretAPIKey.objects.create(
+                team=self.team, label="trace-tables", secure_value="sha256$" + "e" * 64, scopes=scopes
+            )
+            principal = ProjectSecretAPIKeyUser(key)
+
+        database = Database.create_for(team=self.team, user=principal)
+
+        assert ("trace_spans" not in database.tables.children["posthog"].children) is denied
+
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""
         database = Database.create_for(team=self.team, user=self.user)

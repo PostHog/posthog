@@ -291,6 +291,9 @@ def queried_access_controlled_resources(
         except BaseHogQLError:
             return None  # unparseable -> fail closed
 
+        if _has_placeholder_table(select):
+            return None  # the table is unknown until the placeholder expands -> fail closed
+
         table_names = set(get_table_names(select))
         system_scopes = {
             **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
@@ -406,6 +409,24 @@ def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) ->
     return scopes | {
         parent for child, parent in RESOURCE_FALLBACK_MAP.items() if child in scopes and child not in bypassed_scopes
     }
+
+
+def _has_placeholder_table(select) -> bool:
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    class _PlaceholderTableFinder(TraversingVisitor):
+        found = False
+
+        def visit_join_expr(self, node: ast.JoinExpr) -> None:
+            if isinstance(node.table, ast.Placeholder):
+                self.found = True
+            super().visit_join_expr(node)
+
+    finder = _PlaceholderTableFinder()
+    finder.visit(select)
+    return finder.found
 
 
 def _data_warehouse_table_names(value) -> Iterator[str]:

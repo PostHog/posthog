@@ -734,10 +734,10 @@ def _scoped_system_tables() -> Mapping[str, PostgresTable | ScopedLazyTable]:
 def access_controlled_posthog_tables() -> Mapping[str, APIScopeObject]:
     """`posthog.<name>` table -> the resource that gates it, for ClickHouse tables holding one product's data.
 
-    Unlike scoped system tables, these only deny a user whose access to the resource is none. Userless
-    and synthetic principals keep reading them: product query runners and alerts run without a user,
-    and their own API permissions gate the request. Same process-static invariant as
-    _scoped_system_tables.
+    Unlike scoped system tables, these only deny a user whose access to the resource is none, and stay
+    readable without a user: product query runners and alerts run without one, and their own API
+    permissions gate the request. Synthetic and shared-link principals read them only when their scopes
+    cover the resource. Same process-static invariant as _scoped_system_tables.
     """
     posthog_node = build_database_root_node().children["posthog"]
     return MappingProxyType(
@@ -837,6 +837,12 @@ def _compute_system_table_access_decision(
         }
         if user is None:
             denied_by_access_control.difference_update(allowed_system_table_names)
+        else:
+            # A shared link runs HogQL its creator wrote, so exempting it would let a member denied the
+            # resource read the table through their own share.
+            denied_by_access_control |= {
+                name for name, scope in access_controlled_posthog_tables().items() if scope not in readable_scopes
+            }
         return None, unentitled | denied_by_access_control
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)

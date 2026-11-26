@@ -86,8 +86,10 @@ This is a `QueryError` (`posthog/hogql/errors.py`), so it's exposed to the user.
 
 A ClickHouse table under `posthog.` that holds one product's data can declare an `access_scope` too: `posthog.trace_spans` and `posthog.trace_attributes` declare `"tracing"`.
 `access_controlled_posthog_tables()` collects them, and the same decision removes them for a user whose access to that resource is `none`, with the same `You don't have access to table` error.
-Unlike system tables, they stay readable without a user and for synthetic and shared-link principals: product query runners and alerts read them without a user, and the product's API permissions gate those requests.
-They also partition the query cache by their scope.
+Unlike system tables, they stay readable without a user: product query runners and alerts read them without one, and the product's API permissions gate those requests.
+Synthetic and shared-link principals read them only when their scopes cover the resource, so a member denied it cannot read it through their own shared insight.
+They also partition the query cache by their scope, including when a structured query names one in a warehouse node.
+A raw HogQL query with a placeholder in a `FROM` or `JOIN` position partitions on every scope, since the table it reads is unknown until the placeholder expands.
 
 ### Object-level access
 
