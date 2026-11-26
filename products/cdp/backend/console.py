@@ -20,11 +20,14 @@ from posthog.admin.console.tools import (
     ConsoleTool,
     FieldGroup,
     Filters,
+    GroupRow,
     Link,
     Links,
     Live,
     Notice,
     Page,
+    Progress,
+    ProgressPart,
     Row,
     Stat,
     Stats,
@@ -36,12 +39,17 @@ from posthog.exceptions_capture import capture_exception
 from products.cdp.backend.presentation.hog_invocations.rerun import RERUN_MAX_WINDOW_DAYS
 from products.cdp.backend.services.invocation_replay import (
     DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
+    OUTCOME_LABELS,
+    OUTCOME_MAX_RUNS,
+    OUTCOME_WAIT,
     SKIP_REASON_LABELS,
     WORKFLOWS_TEMPLATE_KEY,
+    OutcomeStatus,
     ReplayCriteria,
     ReplayOverlapError,
     ReplayPlan,
     can_release_replay,
+    get_replay_outcome,
     get_replay_state,
     plan_replay,
     release_replay_claim,
@@ -80,7 +88,10 @@ STATUS_LABELS: dict[str, tuple[str, Tone]] = {
     "failed": ("Failed", Tone.DESTRUCTIVE),
 }
 STATUS_REFRESH_SECONDS = 3
-STATUS_LIVE_KEYS = ("status", "progress", "requests")
+OUTCOME_REFRESH_SECONDS = 30
+OUTCOME_WAIT_MINUTES = int(OUTCOME_WAIT.total_seconds() // 60)
+STATUS_LIVE_KEYS = ("status", "progress", "requests", "outcome")
+OUTCOME_TONES: dict[str, Tone] = {"succeeded": Tone.SUCCESS, "failed": Tone.DESTRUCTIVE}
 
 
 def _split_list(raw: str) -> list[str]:
@@ -93,6 +104,25 @@ def _as_utc(value: datetime) -> datetime:
 
 def _count(value: int, singular: str, plural: str | None = None) -> str:
     return f"{value:,} {singular if value == 1 else (plural or singular + 's')}"
+
+
+def _delivery_progress(counts: dict[OutcomeStatus, int], *, planned: int, sending: bool, waiting: bool) -> Progress:
+    queued = sum(counts.values())
+    # The counts hold only the runs of requests that went out, so on their own they read as complete too early.
+    total = max(planned, queued)
+    unsent = total - queued if sending else 0
+    delivered = counts.get("succeeded", 0)
+    failed = counts.get("failed", 0)
+    text = f"{delivered:,} of {_count(total, 'run')} delivered"
+    return Progress(
+        text=f"{text}, {failed:,} failed again" if failed else text,
+        total=total,
+        parts=(
+            ProgressPart(count=delivered, tone=Tone.SUCCESS),
+            ProgressPart(count=failed, tone=Tone.DESTRUCTIVE),
+        ),
+        moving=counts.get("running", 0) + counts.get("waiting", 0) + unsent if waiting else 0,
+    )
 
 
 def _result_summary(result: dict[str, Any]) -> str:
@@ -109,6 +139,9 @@ def _result_summary(result: dict[str, Any]) -> str:
 
 
 class ReplayFiltersForm(forms.Form):
+    # Only the rendered form sends this. A link written by hand leaves it out, and then a field it does not
+    # name keeps its default, so a missing safety check stays on instead of reading as an unticked box.
+    filters_submitted = forms.CharField(widget=forms.HiddenInput, required=False, initial="1")
     window_start = forms.DateTimeField(help_text="UTC, inclusive. For example 2026-10-22 11:30:00.")
     window_end = forms.DateTimeField(
         help_text=f"UTC, exclusive. At most {RERUN_MAX_WINDOW_DAYS} days after the start, because older runs are deleted."
@@ -168,6 +201,17 @@ class ReplayFiltersForm(forms.Form):
         label="Skip functions that already failed this way before the window",
         help_text="Looks at the day before the window. Those failures have a cause of their own, like a revoked key.",
     )
+
+    @classmethod
+    def from_query(cls, query: QueryDict) -> "ReplayFiltersForm":
+        if query.get("filters_submitted"):
+            return cls(query)
+        data = query.copy()
+        for name, field in cls.base_fields.items():
+            if name in data or field.initial in (None, "", False):
+                continue
+            data[name] = "on" if field.initial is True else field.initial
+        return cls(data)
 
     def clean_team_ids(self) -> list[int]:
         try:
@@ -453,7 +497,67 @@ class ReplayStatus:
             ),
         )
 
-    def live(self, key: str) -> Live:
+    def outcome_live(self) -> Live | None:
+        try:
+            outcome = get_replay_outcome(self.fingerprint)
+        except Exception as error:
+            # The rest of the status page, including the resend release, must stay usable when ClickHouse is not.
+            capture_exception(error)
+            return Live(
+                key="outcome",
+                block=Notice(
+                    text="The delivery of the replayed runs could not be loaded. Reload the page to try again.",
+                    tone=Tone.DESTRUCTIVE,
+                ),
+            )
+        if outcome is None:
+            if self.state["invocation_count"] > OUTCOME_MAX_RUNS:
+                return None
+            if self.refresh_seconds:
+                # The page only refreshes blocks it already has, so the table needs a place before any run is queued.
+                return Live(
+                    key="outcome",
+                    block=Notice(text="The delivery of the replayed runs shows once a request queues runs."),
+                    refresh_seconds=OUTCOME_REFRESH_SECONDS,
+                )
+            return Live(
+                key="outcome",
+                block=Notice(
+                    text="This page has no delivery results for this replay. "
+                    "Check the requests below, and the runs in hog_invocation_results."
+                ),
+            )
+        rows: list[Row | GroupRow] = [
+            Row(cells=(Cell(text=OUTCOME_LABELS[status], tone=OUTCOME_TONES.get(status)), Cell(text=f"{count:,}")))
+            for status, count in outcome.counts.items()
+        ]
+        if outcome.errors:
+            rows.append(GroupRow(text="Latest errors of runs that failed again"))
+            rows.extend(
+                Row(cells=(Cell(text=error, mono=True), Cell(text=f"{count:,}"))) for error, count in outcome.errors
+            )
+        refresh_seconds = None if outcome.settled and not self.refresh_seconds else OUTCOME_REFRESH_SECONDS
+        return Live(
+            key="outcome",
+            block=Table(
+                title="Delivery of the replayed runs",
+                columns=("Latest attempt", "Runs"),
+                numeric_columns=(1,),
+                rows=tuple(rows),
+                progress=_delivery_progress(
+                    outcome.counts,
+                    planned=self.state["invocation_count"],
+                    sending=bool(self.refresh_seconds),
+                    waiting=refresh_seconds is not None,
+                ),
+            ),
+            refresh_seconds=refresh_seconds,
+        )
+
+    def live(self, key: str) -> Live | None:
+        return self.outcome_live() if key == "outcome" else self.block_live(key)
+
+    def block_live(self, key: str) -> Live:
         blocks: dict[str, Callable[[], Stats | Notice | Table]] = {
             "status": self.stats,
             "progress": self.progress_notice,
@@ -473,7 +577,7 @@ class ReplayFailedRunsTool(ConsoleTool):
     def _filters_form(self, request: HttpRequest) -> ReplayFiltersForm | None:
         if "window_start" not in request.GET:
             return None
-        return ReplayFiltersForm(request.GET)
+        return ReplayFiltersForm.from_query(request.GET)
 
     def _send(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
         assert form is not None
@@ -684,7 +788,7 @@ class ReplayFailedRunsTool(ConsoleTool):
                 )
             )
         state = status.state
-        blocks: list[Block] = [status.live("status")]
+        blocks: list[Block] = [status.block_live("status")]
         if state.get("detail"):
             blocks.append(
                 Notice(
@@ -703,7 +807,7 @@ class ReplayFailedRunsTool(ConsoleTool):
                 )
             )
         elif status.in_progress:
-            blocks.append(status.live("progress"))
+            blocks.append(status.block_live("progress"))
         if state["status"] == "done" and status.failed and not status.can_release:
             blocks.append(
                 Notice(
@@ -714,8 +818,34 @@ class ReplayFailedRunsTool(ConsoleTool):
                     tone=Tone.DESTRUCTIVE,
                 )
             )
+        outcome = status.outcome_live()
+        if (
+            outcome is None
+            and state["invocation_count"] > OUTCOME_MAX_RUNS
+            and any(result.get("may_have_queued") for result in status.results)
+        ):
+            blocks.append(
+                Notice(
+                    text=(
+                        f"Delivery is not tracked for a replay of more than {OUTCOME_MAX_RUNS:,} runs. "
+                        "Check the runs in hog_invocation_results."
+                    )
+                )
+            )
+        if outcome is not None:
+            blocks.append(outcome)
+        if outcome is not None and isinstance(outcome.block, Table):
+            blocks.append(
+                Notice(
+                    text=(
+                        "Each run's latest attempt, read from its run history. A run with no new attempt yet is still "
+                        "queued, or the rerun found it no longer failed and skipped it. The table stops refreshing "
+                        f"{OUTCOME_WAIT_MINUTES} minutes after the last request."
+                    )
+                )
+            )
         if status.results or status.refresh_seconds:
-            blocks.append(status.live("requests"))
+            blocks.append(status.block_live("requests"))
         blocks.append(Notice(text=f"Plan {fingerprint}, sent by {state['actor']}."))
         blocks.append(start_new)
         return Page(blocks=tuple(blocks))

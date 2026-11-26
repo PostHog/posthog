@@ -1,7 +1,6 @@
-import time
 import dataclasses
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -11,9 +10,13 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
+    AsyncJobTimeoutError,
+    JobStatus,
     ResumableSourceManager,
     SourceResponse,
+    WorkerShuttingDownError,
     make_tracked_session,
+    poll_until_done,
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.sumo_logic.settings import (
@@ -396,6 +399,7 @@ def _submit_and_poll_search_job(
     start_ms: int,
     end_ms: int,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> tuple[str, int]:
     """Submit a search job for [start_ms, end_ms) and poll it to completion.
 
@@ -409,20 +413,32 @@ def _submit_and_poll_search_job(
     job_id = str(job["id"])
     job_url = f"{host}/v1/search/jobs/{job_id}"
 
-    deadline = time.monotonic() + SEARCH_JOB_MAX_WAIT_SECONDS
-    while True:
+    def check() -> JobStatus[int]:
         status = fetch("GET", job_url)
         state = status.get("state")
         if state == "DONE GATHERING RESULTS":
-            return job_id, int(status.get("messageCount", 0))
+            return JobStatus(done=True, result=int(status.get("messageCount", 0)))
         if state == "CANCELLED":
             raise ValueError(f"Sumo Logic search job {job_id} was cancelled")
-        if time.monotonic() > deadline:
-            _delete_search_job(fetch, host, job_id, logger)
-            raise SumoLogicRetryableError(
-                f"Sumo Logic search job {job_id} did not complete within {SEARCH_JOB_MAX_WAIT_SECONDS}s"
-            )
-        time.sleep(SEARCH_JOB_POLL_INTERVAL_SECONDS)
+        return JobStatus(message=str(state))
+
+    try:
+        message_count = poll_until_done(
+            check,
+            interval=SEARCH_JOB_POLL_INTERVAL_SECONDS,
+            budget_seconds=SEARCH_JOB_MAX_WAIT_SECONDS,
+            safe_point=safe_point,
+        )
+    except AsyncJobTimeoutError:
+        _delete_search_job(fetch, host, job_id, logger)
+        raise SumoLogicRetryableError(
+            f"Sumo Logic search job {job_id} did not complete within {SEARCH_JOB_MAX_WAIT_SECONDS}s"
+        ) from None
+    except WorkerShuttingDownError:
+        # The resume state does not keep the job, so free it for the org's limit of concurrent search jobs.
+        _delete_search_job(fetch, host, job_id, logger)
+        raise
+    return job_id, message_count
 
 
 def _fetch_search_job_messages(
@@ -482,7 +498,10 @@ def _get_log_rows(
 
     while pending:
         window_start, window_end = pending.popleft()
-        job_id, message_count = _submit_and_poll_search_job(fetch, host, query, window_start, window_end, logger)
+        # Every earlier window is yielded and the staged cursor is the start of this one, so the poll is a safe point.
+        job_id, message_count = _submit_and_poll_search_job(
+            fetch, host, query, window_start, window_end, logger, resumable_source_manager.safe_point
+        )
 
         if message_count >= SEARCH_JOB_MAX_MESSAGES and (window_end - window_start) > min_window_ms:
             _delete_search_job(fetch, host, job_id, logger)

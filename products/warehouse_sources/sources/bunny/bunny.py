@@ -30,6 +30,7 @@ from products.warehouse_sources.sources.sdk import (
     frozen,
     make_tracked_session,
     parse_datetime_value,
+    reach_safe_point,
     rest_api_resource,
     validate_via_probe,
 )
@@ -107,7 +108,7 @@ class BunnyLogHasMorePaginator(OffsetPaginator):
 
 
 def _paginator_for(config: BunnyEndpointConfig) -> BasePaginator:
-    if config.charts is not None:
+    if config.charts is not None or not config.paginated:
         return SinglePagePaginator()
     if config.logging_api:
         return BunnyLogHasMorePaginator(limit=PER_PAGE)
@@ -151,6 +152,8 @@ def _request_params(
         # once per sync (see `_log_date_to`) rather than left to the API's own default of "now",
         # so the window a run walks cannot grow while it walks it.
         return {**config.params, LOG_DATE_FROM_PARAM: date_from, LOG_DATE_TO_PARAM: date_to}
+    if not config.paginated:
+        return dict(config.params)
     return {config.page_size_param: PER_PAGE, **config.params}
 
 
@@ -298,6 +301,64 @@ def _fanout_list_pages(access_key: str, config: BunnyEndpointConfig) -> Iterator
                 yield [{**call.injected, **row} for row in page]
 
 
+def _heatmap_rows(body: Any, injected: dict[str, Any]) -> list[dict[str, Any]]:
+    """One row per timeline segment of a video heatmap, in segment order.
+
+    Segments the API leaves out had no attention, so no row is invented for them.
+    """
+    heatmap = body.get("heatmap") if isinstance(body, dict) else None
+    if not isinstance(heatmap, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw_segment, intensity in heatmap.items():
+        try:
+            segment = int(raw_segment)
+        except (TypeError, ValueError):
+            continue
+        rows.append({**injected, "segment": segment, "intensity": intensity})
+    return sorted(rows, key=lambda row: row["segment"])
+
+
+def _video_heatmap_pages(access_key: str, config: BunnyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """Walk every video of every library, then ask for that video's heatmap with the library key."""
+    if config.parent is None:
+        raise ValueError(f"Per-video endpoint '{config.name}' needs a parent")
+    videos = BUNNY_ENDPOINTS[config.parent.endpoint]
+    if videos.parent is None:
+        raise ValueError(f"Per-video endpoint '{config.name}' needs a fan-out parent")
+    for call in _endpoint_calls(access_key, videos):
+        library_id = call.injected[videos.parent.id_column]
+        for page in call.client.paginate(
+            call.path,
+            params=_request_params(videos),
+            data_selector=videos.items_selector,
+            data_selector_required=True,
+            paginator=_paginator_for(videos),
+        ):
+            for video in page:
+                guid = video.get(config.parent.id_field)
+                if not guid:
+                    continue
+                injected = {**call.injected, config.parent.id_column: guid}
+                rows: list[dict[str, Any]] = []
+                try:
+                    for bodies in call.client.paginate(
+                        config.path.format(id=library_id, video=guid), paginator=SinglePagePaginator()
+                    ):
+                        for body in bodies:
+                            rows.extend(_heatmap_rows(body, injected))
+                except HTTPError as error:
+                    # A video deleted after the list page was read answers 404. Skip it.
+                    if error.response is None or error.response.status_code != 404:
+                        raise
+                if rows:
+                    yield rows
+                else:
+                    # Many videos have no heatmap data, so many requests in a row can return no
+                    # rows. This table stages no cursor, so a stop here loses nothing.
+                    reach_safe_point()
+
+
 def _log_pages(
     access_key: str, config: BunnyEndpointConfig, db_incremental_field_last_value: Any, date_to: str
 ) -> Iterator[list[dict[str, Any]]]:
@@ -383,6 +444,9 @@ def bunny_source(
         timestamp_column = config.timestamp_column
         date_from = _date_from(db_incremental_field_last_value)
         return _source_response(config, lambda: _chart_pages(access_key, config, timestamp_column, date_from))
+
+    if config.per_video:
+        return _source_response(config, lambda: _video_heatmap_pages(access_key, config))
 
     if config.logging_api:
         date_to = _log_date_to()

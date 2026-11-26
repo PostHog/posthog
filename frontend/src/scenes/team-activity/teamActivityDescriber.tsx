@@ -173,7 +173,10 @@ const TEAM_PROPERTIES_MAPPING: Record<
     | 'heatmaps_screenshot_allowed_hostnames'
     | 'conversations_signing_secret'
     | 'conversations_signing_secret_previous'
-    | 'events_retention_months',
+    | 'events_retention_months'
+    // Retired fields (#66179) kept so historical activity log entries still render.
+    | 'secret_api_token'
+    | 'secret_api_token_backup',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
@@ -291,16 +294,18 @@ const TEAM_PROPERTIES_MAPPING: Record<
         }
     },
     session_recording_masking_config: (change) => {
-        const maskAllInputsBefore = isObject(change.before) ? change.before.maskAllInputs : !!change.before
-        const maskAllInputsAfter = isObject(change.after) ? change.after.maskAllInputs : !!change.after
+        // posthog-js masks inputs unless maskAllInputs is explicitly false.
+        const inputsMasked = (value: unknown): boolean => !isObject(value) || value.maskAllInputs !== false
+        const maskAllInputsBefore = inputsMasked(change.before)
+        const maskAllInputsAfter = inputsMasked(change.after)
         const maskAllInputsChanged = maskAllInputsBefore !== maskAllInputsAfter
 
         const blockSelectorBefore = isObject(change?.before) ? change?.before.blockSelector : undefined
         const blockSelectorAfter = isObject(change?.after) ? change?.after.blockSelector : undefined
         const blockSelectorChanged = blockSelectorBefore !== blockSelectorAfter
 
-        const maskTextSelectorBefore = isObject(change?.before) ? change?.before.maskTextSelector : !!change?.before
-        const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : !!change?.after
+        const maskTextSelectorBefore = isObject(change?.before) ? change?.before.maskTextSelector : undefined
+        const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : undefined
         const maskTextSelectorChanged = maskTextSelectorBefore !== maskTextSelectorAfter
 
         const descriptions = []
@@ -323,6 +328,24 @@ const TEAM_PROPERTIES_MAPPING: Record<
                     {change?.action === 'created' ? 'set' : 'changed'} blocking selector to "{blockSelectorAfter}"
                 </>
             )
+        }
+
+        const mobileFlag = (value: unknown, key: 'maskAllText' | 'maskAllImages'): boolean =>
+            isObject(value) && isObject(value.mobile) && !!value.mobile[key]
+
+        for (const [key, label] of [
+            ['maskAllText', 'text'],
+            ['maskAllImages', 'images'],
+        ] as const) {
+            const before = mobileFlag(change.before, key)
+            const after = mobileFlag(change.after, key)
+            if (before !== after) {
+                descriptions.push(
+                    <>
+                        {after ? 'enabled' : 'disabled'} masking all {label} in mobile session replay
+                    </>
+                )
+            }
         }
 
         return descriptions.length
@@ -515,6 +538,8 @@ const TEAM_PROPERTIES_MAPPING: Record<
         const lists = [
             ['blocked_hosts', 'blocked domains for feature flag requests'],
             ['blocked_ips', 'blocked IP addresses for feature flag requests'],
+            ['allowed_hosts', 'allowed domains for feature flag requests'],
+            ['allowed_ips', 'allowed IP addresses for feature flag requests'],
         ] as const
         for (const [field, label] of lists) {
             const beforeEntries = (before[field] ?? []) as string[]

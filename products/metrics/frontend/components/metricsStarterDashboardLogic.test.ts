@@ -158,6 +158,7 @@ describe('metricsStarterDashboardLogic', () => {
                 { name: 'b', metricName: 'posthog.derived.spans.requests', ...rate },
             ],
             formula: 'a / b',
+            dateRange: { date_from: '-6h' },
         })
         expect((insights[4].query as any).clauses).toEqual([
             {

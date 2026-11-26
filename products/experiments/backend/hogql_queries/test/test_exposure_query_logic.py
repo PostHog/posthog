@@ -51,15 +51,15 @@ class TestGetExposureEventAndProperty:
                 EXPERIMENT_EXPOSURE_EVENT,
                 (EXPERIMENT_EXPOSURE_EVENT, "$feature_flag_response"),
             ),
-            # An explicit $experiment_exposure config keeps its event either side of the rollout,
+            # An explicit $experiment_exposure config keeps its event either side of the cutoff,
             # with the variant on $feature_flag_response since the event duplicates flag calls.
             (
-                "explicit_rollout_event_config",
+                "explicit_experiment_exposure_config",
                 _event_config("$experiment_exposure"),
                 DEFAULT_EXPOSURE_EVENT,
                 (EXPERIMENT_EXPOSURE_EVENT, "$feature_flag_response"),
             ),
-            # Custom events and actions are untouched by the rollout.
+            # Custom events and actions are untouched by the cutoff.
             (
                 "custom_event",
                 _event_config("checkout_started"),
@@ -81,7 +81,7 @@ class TestGetExposureEventAndProperty:
             ),
         ]
     )
-    def test_resolves_default_exposure_against_the_rollout_event(
+    def test_resolves_default_exposure_against_the_passed_default_event(
         self, _name, exposure_criteria, default_exposure_event, expected
     ):
         assert (
@@ -212,7 +212,7 @@ class TestGetExposureConfigParamsForBuilder:
     )
     def test_refuses_warehouse_native_exposure_as_a_query_error(self, _name, exposure_criteria):
         with pytest.raises(ExposedHogQLError, match="cannot be calculated yet"):
-            get_exposure_config_params_for_builder(exposure_criteria, Team(id=1, project_id=1), None)
+            get_exposure_config_params_for_builder(exposure_criteria, None)
 
 
 class TestGetTestAccountsFilter:

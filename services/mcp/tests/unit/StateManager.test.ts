@@ -42,6 +42,10 @@ describe('StateManager', () => {
         stateManager = new StateManager(cache, {} as ApiClient)
     })
 
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
     it.each([
         {
             lookup: 'organization',
@@ -162,11 +166,9 @@ describe('StateManager', () => {
 
         await (stateManager as any)._reportException(error, 'default_org_project_projects_list_failed')
 
-        expect(capture).toHaveBeenCalledWith(
-            error,
-            undefined,
-            expect.objectContaining({ suppress_analytics: suppressed === true })
-        )
+        expect(capture).toHaveBeenCalledWith(error, {
+            properties: expect.objectContaining({ suppress_analytics: suppressed === true }),
+        })
         expect(lookup).not.toHaveBeenCalled()
         capture.mockRestore()
     })
@@ -888,44 +890,65 @@ describe('StateManager', () => {
             })
         })
 
-        it('does not capture a 404 from the scoped-org projects lookup', async () => {
-            // A misconfigured key pointed at a deleted or inaccessible org makes
-            // the org-nested projects endpoint return 404 on every retry. This
-            // is a recoverable user-config state, so it must not flood error
-            // tracking — the agent recovers via switch-project/switch-organization.
-            const scopedOrgApiKey = {
-                ...mockApiKey,
-                scoped_organizations: ['org-3'],
-            }
+        it.each([
+            {
+                error: new PostHogPermissionError({ detail: 'Project access denied.', url: '', method: 'GET' }),
+                captures: 0,
+            },
+            {
+                error: new PostHogApiError({ status: 404, statusText: 'Not Found', body: '', url: '', method: 'GET' }),
+                captures: 0,
+            },
+            {
+                error: new PostHogApiError({
+                    status: 429,
+                    statusText: 'Too Many Requests',
+                    body: '',
+                    url: '',
+                    method: 'GET',
+                }),
+                captures: 0,
+            },
+            {
+                error: new PostHogApiError({
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    body: '',
+                    url: '',
+                    method: 'GET',
+                }),
+                captures: 1,
+            },
+        ])(
+            'falls back to org-only context after a failed project lookup ($error.message)',
+            async ({ error, captures }) => {
+                const scopedOrgApiKey = {
+                    ...mockApiKey,
+                    scoped_organizations: ['org-3'],
+                }
 
-            const mockApi = stateManager as any
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
-            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
-            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
-
-            mockApi._api = {
-                organizations: () => ({
-                    projects: () => ({
-                        list: vi.fn().mockResolvedValue({
-                            success: false,
-                            error: new PostHogApiError({
-                                status: 404,
-                                statusText: 'Not Found',
-                                body: '{"detail":"Organization not found."}',
-                                url: 'https://app.posthog.com/api/organizations/org-3/projects/',
-                                method: 'GET',
+                const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+                const api = {
+                    organizations: () => ({
+                        projects: () => ({
+                            list: vi.fn().mockResolvedValue({
+                                success: false,
+                                error,
                             }),
                         }),
                     }),
-                }),
+                } as unknown as ApiClient
+                const manager = new StateManager(cache, api)
+                vi.spyOn(manager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+                vi.spyOn(manager, 'getUser').mockResolvedValue(mockUser)
+
+                const result = await manager.setDefaultOrganizationAndProject()
+
+                expect(result.organizationId).toBe('org-3')
+                expect(result.projectId).toBeUndefined()
+                expect(captureException).toHaveBeenCalledTimes(captures)
             }
-
-            const result = await stateManager.setDefaultOrganizationAndProject()
-
-            expect(result.organizationId).toBe('org-3')
-            expect(result.projectId).toBeUndefined()
-            expect(reportSpy).not.toHaveBeenCalled()
-        })
+        )
     })
 
     describe('getOrgID', () => {
@@ -1457,6 +1480,60 @@ describe('StateManager', () => {
             expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
             expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
         })
+
+        describe('with an empty answer cached', () => {
+            const empty = { hasSources: false, hasRepositories: false }
+            let request: ReturnType<typeof vi.fn>
+
+            beforeEach(async () => {
+                vi.useFakeTimers()
+                request = vi
+                    .fn()
+                    .mockResolvedValueOnce({ has_sources: false, has_repositories: false })
+                    .mockResolvedValueOnce({ has_sources: true, has_repositories: false })
+                ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(empty)
+            })
+
+            afterEach(() => {
+                vi.useRealTimers()
+            })
+
+            it('keeps it for 59 minutes', async () => {
+                vi.advanceTimersByTime(59 * 60 * 1000)
+
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(empty)
+            })
+
+            it('reads as unknown after a failed refresh, and retries a minute later', async () => {
+                vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+                request.mockReset()
+                request
+                    .mockRejectedValueOnce(new Error('Synthetic availability failure'))
+                    .mockResolvedValueOnce({ has_sources: true, has_repositories: false })
+                vi.advanceTimersByTime(61 * 60 * 1000)
+
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toBeUndefined()
+                vi.advanceTimersByTime(59 * 1000)
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toBeUndefined()
+                vi.advanceTimersByTime(2 * 1000)
+
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual({
+                    hasSources: true,
+                    hasRepositories: false,
+                })
+            })
+
+            it('reads it again once it is cleared', async () => {
+                await stateManager.clearBusinessKnowledgeContent('42')
+                const nextRequest = new StateManager(cache, (stateManager as any)._api)
+
+                expect(await nextRequest.getOrFetchBusinessKnowledgeContent('42')).toEqual({
+                    hasSources: true,
+                    hasRepositories: false,
+                })
+            })
+        })
     })
 
     describe('getOrFetchMetricCatalog', () => {
@@ -1464,7 +1541,7 @@ describe('StateManager', () => {
             vi.useRealTimers()
         })
 
-        it('keeps an empty catalog for ten minutes, then re-reads it so a newly saved metric counts', async () => {
+        it('keeps an empty catalog for an hour, then re-reads it so a newly saved metric counts', async () => {
             vi.useFakeTimers()
             const request = vi
                 .fn()
@@ -1473,7 +1550,7 @@ describe('StateManager', () => {
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
-            vi.advanceTimersByTime(9 * 60 * 1000)
+            vi.advanceTimersByTime(59 * 60 * 1000)
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
             vi.advanceTimersByTime(61 * 1000)
 
@@ -1483,20 +1560,25 @@ describe('StateManager', () => {
             )
         })
 
-        it('drops a cached empty catalog when its refresh fails', async () => {
+        it('drops a cached empty catalog when its refresh fails, and retries a minute later', async () => {
             vi.useFakeTimers()
             vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
             const request = vi
                 .fn()
                 .mockResolvedValueOnce({ has_metrics: false })
-                .mockRejectedValue(new Error('Synthetic metric availability failure'))
+                .mockRejectedValueOnce(new Error('Synthetic metric availability failure'))
+                .mockResolvedValueOnce({ has_metrics: true })
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
-            vi.advanceTimersByTime(10 * 60 * 1000 + 1000)
+            vi.advanceTimersByTime(60 * 60 * 1000 + 1000)
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            vi.advanceTimersByTime(59 * 1000)
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            vi.advanceTimersByTime(2 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: true })
         })
 
         it('reads a failed lookup as unknown', async () => {

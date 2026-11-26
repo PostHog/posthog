@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import type { CohortType } from '~/types'
 
+import type { MessageCategoryApi } from 'products/messaging/frontend/generated/api.schemas'
 import {
     hogFlowsSchedulesList,
     hogFlowsSchedulesPartialUpdate,
@@ -190,9 +191,7 @@ export interface sendCalendarLogicMeta {
             typeFilter: CalendarTypeFilter
         ) => CalendarSend[]
         sendsByDay: (sends: CalendarSend[], timezone: string) => Record<string, CalendarSend[]>
-        messageCategoryNames: (
-            categories: import('products/messaging/frontend/generated/api.schemas').MessageCategoryApi[]
-        ) => Record<string, string>
+        messageCategoryNames: (categories: MessageCategoryApi[]) => Record<string, string>
     }
 }
 

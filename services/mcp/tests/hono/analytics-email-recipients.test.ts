@@ -5,7 +5,7 @@ const { batches } = vi.hoisted(() => ({ batches: [] as string[] }))
 vi.mock('@/lib/posthog', async () => {
     const { PostHogMCP } = await import('@posthog/mcp-analytics')
     const client = new PostHogMCP('phc_test', {
-        host: 'https://capture.example.com',
+        host: 'https://capture.posthog.invalid',
         flushAt: 1,
         flushInterval: 0,
         disableCompression: true,
@@ -31,6 +31,7 @@ function makeState(): ResolvedState {
         } as any,
         context: { stateManager: {} } as any,
         useSingleExec: true,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,
@@ -52,6 +53,7 @@ function makeState(): ResolvedState {
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
         renderUiEnabled: false,
+        stepSeconds: {},
     }
 }
 

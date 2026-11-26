@@ -8,6 +8,7 @@ import httpx
 import structlog
 from anthropic import APIError
 from django_redis.exceptions import ConnectionInterrupted
+from pydantic import TypeAdapter, ValidationError
 from redis.exceptions import RedisError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -21,7 +22,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 
-from ...merge_check.check import UNDECIDED_REASONS, run_merge_check
+from ...merge_check.check import run_merge_check
 from ...merge_check.deadline import CheckDeadline, CheckDeadlineExceeded, DeadlineGitHub, deadline_http
 from ...merge_check.judge import judge_client
 from ...merge_check.sources import (
@@ -49,7 +50,7 @@ MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 ADD_DOCS_CHECK_WAITER_SIGNAL = "add_docs_check_waiter"
 DOCS_CHECK_WAITERS_PER_TELL = 50
-REUSED_REPORT_TTL = timedelta(hours=6)
+DEFERRED_REPORT_TTL = timedelta(minutes=30)
 MERGE_CHECK_RETRYABLE_ERRORS = (
     *GITHUB_READ_ERRORS,
     httpx.HTTPError,
@@ -58,6 +59,7 @@ MERGE_CHECK_RETRYABLE_ERRORS = (
     CheckDeadlineExceeded,
 )
 SITEMAP_TIMEOUT_SECONDS = 30
+merge_check_report_json = TypeAdapter(MergeCheckReport)
 
 
 LEGACY_MERGE_CHECK_REPOSITORY = "PostHog/posthog"  # inputs started before pushes named the repository
@@ -126,10 +128,34 @@ def record_unchecked_merge(
     return submit_verdict(inputs, verdict)
 
 
+def record_judged_merge_check_failed(
+    inputs: MergeCheckInputs, judged_verdict: AdapterVerdict, failure_reason: MergeCheckFailure
+) -> FinishedDocsCheck:
+    logger.warning(
+        "knowledge_writer_merge_unchecked",
+        commit_sha=inputs.commit_sha,
+        repository=inputs.repository,
+        pull_request_number=inputs.pull_request_number,
+        team_id=inputs.team_id,
+        installation_id=inputs.installation_id,
+        reason=judged_verdict.reason,
+        failure_reason=failure_reason,
+    )
+    intake.capture_verdict(
+        replace(judged_verdict, check_id=inputs.check_id, failure_reason=failure_reason), team_id=inputs.team_id
+    )
+    return FinishedDocsCheck(
+        status="no_docs", failure_reason=failure_reason, pull_request_url=None, reason=judged_verdict.reason
+    )
+
+
 def submit_verdict(inputs: MergeCheckInputs, verdict: AdapterVerdict) -> FinishedDocsCheck:
     outcome = intake.submit(replace(verdict, check_id=inputs.check_id), team_id=inputs.team_id)
     return FinishedDocsCheck(
-        status=outcome.status, failure_reason=verdict.failure_reason, pull_request_url=outcome.pull_request_url
+        status=outcome.status,
+        failure_reason=verdict.failure_reason,
+        pull_request_url=outcome.pull_request_url,
+        reason=verdict.reason,
     )
 
 
@@ -193,13 +219,19 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
         return record_merge_check_failed(inputs, MergeCheckFailure.PULL_REQUEST_NOT_MERGED)
     if report is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.JUDGE_CLIENT_UNAVAILABLE)
+    judged_verdict: AdapterVerdict | None = None
     try:
-        return submit_verdict(inputs, RepoMergeAdapter().assess(report, inputs))
-    except intake.WriterLaunchDeferred:
+        judged_verdict = RepoMergeAdapter().assess(report, inputs)
+        return submit_verdict(inputs, judged_verdict)
+    except Exception as error:
         if not is_final_attempt:
             defer_report(inputs, report)
             refund(merge_check_budget_key(inputs.team_id), MERGE_CHECK_BUDGET)
-        raise
+            raise
+        capture_exception(error, {"commit_sha": inputs.commit_sha})
+        if judged_verdict is None:
+            return record_merge_check_failed(inputs, MergeCheckFailure.RETRIES_EXHAUSTED)
+        return record_judged_merge_check_failed(inputs, judged_verdict, MergeCheckFailure.RETRIES_EXHAUSTED)
 
 
 def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github: GitHubReader) -> LandedChange | None:
@@ -210,60 +242,35 @@ def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github
     return landed_change(inputs.repository, read_pull_request(github, inputs.repository, pull_request_number))
 
 
-def reused_report_key(change: LandedChange) -> str:
-    return (
-        f"knowledge_writer:merge_check_report:{change.repository.lower()}:{change.pull_request_number}:{change.after}"
-    )
-
-
-def judged_report(
-    change: LandedChange, github: GitHubReader, deadline: CheckDeadline, *, is_final_attempt: bool
-) -> MergeCheckReport | None:
-    reused_report = cached_report(reused_report_key(change))
-    if reused_report is not None:
-        return reused_report
-    report = fresh_judged_report(change, github, deadline, is_final_attempt=is_final_attempt)
-    if report is not None and is_reusable(report):
-        cache_report(reused_report_key(change), report)
-    return report
-
-
 def deferred_report_key(check_id: str) -> str:
-    return f"knowledge_writer:merge_check_deferred_report:{check_id}"
+    return f"knowledge_writer:merge_check_deferred_report:v1:{check_id}"
 
 
 def deferred_report(inputs: MergeCheckInputs) -> MergeCheckReport | None:
     if inputs.check_id is None:
         return None
-    return cached_report(deferred_report_key(inputs.check_id))
+    try:
+        stored_report = cache.get(deferred_report_key(inputs.check_id))
+        return None if stored_report is None else merge_check_report_json.validate_json(stored_report)
+    except (ConnectionInterrupted, RedisError, UnicodeDecodeError, ValidationError):
+        logger.warning("knowledge_writer_deferred_report_unavailable", exc_info=True)
+        return None
 
 
 def defer_report(inputs: MergeCheckInputs, report: MergeCheckReport) -> None:
     if inputs.check_id is None:
         return
-    cache_report(deferred_report_key(inputs.check_id), report)
-
-
-def is_reusable(report: MergeCheckReport) -> bool:
-    return not report.low_confidence and report.reason not in UNDECIDED_REASONS
-
-
-def cached_report(key: str) -> MergeCheckReport | None:
     try:
-        return cache.get(key)
+        cache.set(
+            deferred_report_key(inputs.check_id),
+            merge_check_report_json.dump_json(report),
+            timeout=DEFERRED_REPORT_TTL.total_seconds(),
+        )
     except (ConnectionInterrupted, RedisError):
-        logger.warning("knowledge_writer_reused_report_unavailable", exc_info=True)
-        return None
+        logger.warning("knowledge_writer_deferred_report_unavailable", exc_info=True)
 
 
-def cache_report(key: str, report: MergeCheckReport) -> None:
-    try:
-        cache.set(key, report, timeout=REUSED_REPORT_TTL.total_seconds())
-    except (ConnectionInterrupted, RedisError):
-        logger.warning("knowledge_writer_reused_report_unavailable", exc_info=True)
-
-
-def fresh_judged_report(
+def judged_report(
     change: LandedChange, github: GitHubReader, deadline: CheckDeadline, *, is_final_attempt: bool
 ) -> MergeCheckReport | None:
     try:
@@ -313,7 +320,7 @@ class MergeCheckWorkflow:
         self._waiter_ids.append(waiter_id)
 
     @workflow.run
-    async def run(self, inputs: MergeCheckInputs) -> None:
+    async def run(self, inputs: MergeCheckInputs) -> FinishedDocsCheck | None:
         try:
             finished = await workflow.execute_activity(
                 run_merge_check_activity,
@@ -334,6 +341,7 @@ class MergeCheckWorkflow:
             raise
         if finished is not None:
             await self._tell_waiters(finished)
+        return finished
 
     async def _tell_waiters(self, finished: FinishedDocsCheck) -> None:
         told_count = 0

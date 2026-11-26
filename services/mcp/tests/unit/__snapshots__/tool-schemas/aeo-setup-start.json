@@ -3,7 +3,7 @@
     "properties": {
         "activate_paused_prompts": {
             "default": false,
-            "description": "With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on.",
+            "description": "With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on.",
             "type": "boolean"
         },
         "brand": {

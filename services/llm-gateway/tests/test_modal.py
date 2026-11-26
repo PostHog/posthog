@@ -14,7 +14,6 @@ from llm_gateway.modal import (
     ensure_modal_model_configured,
     make_modal_anthropic_call,
     make_modal_responses_call,
-    should_route_glm_to_modal,
 )
 from llm_gateway.modal_routing import send_modal_anthropic_messages
 from llm_gateway.rate_limiting.cost_refresh import ALIAS_METRIC_LABELS, COST_ALIASES
@@ -133,77 +132,6 @@ def test_ensure_modal_model_allowed_rejects_unmapped_model(model: str) -> None:
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["error"]["type"] == "invalid_request_error"
     assert model in exc_info.value.detail["error"]["message"]
-
-
-@pytest.mark.parametrize(
-    ("fraction", "product_fractions", "configured", "expected"),
-    [
-        (0.0, {}, True, False),
-        (1.0, {}, True, True),
-        # Missing credentials beat any fraction.
-        (1.0, {}, False, False),
-        # Per-product override beats the global fraction in both directions.
-        (0.0, {"posthog_code": 1.0}, True, True),
-        (1.0, {"posthog_code": 0.0}, True, False),
-    ],
-)
-def test_should_route_glm_to_modal(
-    fraction: float, product_fractions: dict[str, float], configured: bool, expected: bool
-) -> None:
-    overrides: dict[str, Any] = {
-        "glm_modal_traffic_fraction": fraction,
-        "glm_modal_product_traffic_fractions": product_fractions,
-    }
-    if not configured:
-        overrides["modal_key"] = None
-    settings = _modal_settings(**overrides)
-    assert (
-        should_route_glm_to_modal(GLM_MODEL, product="posthog_code", user_key="user-1", settings=settings) is expected
-    )
-
-
-@pytest.mark.parametrize("product", ["twig", "array"])
-def test_product_aliases_resolve_in_fraction_lookup(product: str) -> None:
-    # Legacy aliases must read posthog_code's per-product fraction, or its ramp/rollback would
-    # silently skip alias traffic.
-    settings = _modal_settings(
-        glm_modal_traffic_fraction=0.0, glm_modal_product_traffic_fractions={"posthog_code": 1.0}
-    )
-    assert should_route_glm_to_modal(GLM_MODEL, product=product, user_key="user-1", settings=settings) is True
-
-
-def test_should_route_only_modal_served_models() -> None:
-    # kimi is CF-allowlisted but has no Modal-served equivalent; routing it to Modal would 404.
-    settings = _modal_settings(glm_modal_traffic_fraction=1.0)
-    assert (
-        should_route_glm_to_modal("@cf/moonshotai/kimi-k2.6", product="posthog_code", user_key="u", settings=settings)
-        is False
-    )
-
-
-def test_partial_fraction_is_sticky_and_monotonic() -> None:
-    # Repeat calls must be identical, and a user routed to Modal at fraction f must stay routed at
-    # any higher fraction — otherwise each ramp-up step would flap migrated users back.
-    fractions = (0.25, 0.5, 0.75)
-    settings = [_modal_settings(glm_modal_traffic_fraction=f) for f in fractions]
-    for user in ("user-1", "user-2", "user-3", "user-4", "user-5"):
-        decisions = [
-            should_route_glm_to_modal(GLM_MODEL, product="posthog_code", user_key=user, settings=s) for s in settings
-        ]
-        assert decisions == sorted(decisions)
-        repeat = [
-            should_route_glm_to_modal(GLM_MODEL, product="posthog_code", user_key=user, settings=s) for s in settings
-        ]
-        assert repeat == decisions
-
-
-def test_partial_fraction_splits_pinned_users() -> None:
-    # Pinned user keys with known buckets ("3" -> ~0.25, "2" -> ~0.96) must land on opposite sides
-    # of fraction 0.5 — a degenerate bucket (constant 0 or 1) passes the monotonicity test above
-    # but fails here.
-    settings = _modal_settings(glm_modal_traffic_fraction=0.5)
-    assert should_route_glm_to_modal(GLM_MODEL, product="posthog_code", user_key="3", settings=settings) is True
-    assert should_route_glm_to_modal(GLM_MODEL, product="posthog_code", user_key="2", settings=settings) is False
 
 
 async def test_modal_anthropic_stream_usage_survives_messages_bridge_to_acompletion() -> None:

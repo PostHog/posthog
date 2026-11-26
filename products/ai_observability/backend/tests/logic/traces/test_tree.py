@@ -92,6 +92,24 @@ def test_events_sharing_a_span_id_each_appear_and_share_children_once(_name: str
     assert all(not node.children for node in tree[1:])
 
 
+@parameterized.expand([("shallow", 3), ("deeper than the recursion limit", 1_500)])
+def test_nests_a_chain_of_spans_to_any_depth(_name: str, depth: int) -> None:
+    chain = [
+        {"uuid": f"s{i}", "span_id": f"s{i}", "parent_id": f"s{i - 1}" if i else None, "timestamp": T0}
+        for i in range(depth)
+    ]
+
+    tree = build_tree(events(*chain), "trace-1")
+
+    reached: list[str] = []
+    level = tree
+    while level:
+        [node] = level
+        reached.append(node.event.id)
+        level = node.children
+    assert reached == [f"s{i}" for i in range(depth)]
+
+
 def test_a_non_finite_latency_does_not_break_ordering() -> None:
     tree = build_tree(
         events(

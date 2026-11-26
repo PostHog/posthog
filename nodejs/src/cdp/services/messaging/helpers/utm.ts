@@ -37,8 +37,11 @@ export const utmValueOverLimit = (raw: unknown): (typeof UTM_KEYS)[number] | und
         : undefined
 
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
-// inside another attribute's value or as part of a longer name like `data-href`.
-const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r >]+)))?/g
+// inside another attribute's value or as part of a longer name like `data-href`. Only ASCII whitespace
+// separates attributes, as in an HTML parser: `\s` would also take a nonbreaking space and misread
+// `x=&nbsp; data-ph-no-utm` (with the raw character) as one attribute that hides the opt-out.
+const ATTRIBUTE_REGEX =
+    /[\t\n\f\r ]([^\t\n\f\r "'<>/=]+)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r >]+)))?/g
 
 type Attribute = RegExpMatchArray
 
@@ -253,6 +256,13 @@ export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, 
     })
 }
 
+// A link signed over its whole query, such as a framework signed route or a presigned storage URL, fails
+// verification once a parameter is added or removed. A sent email cannot be fixed, so these stay as written.
+const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac', '_hash'])
+
+const isSigned = (parsed: URL): boolean =>
+    [...parsed.searchParams.keys()].some((key) => SIGNATURE_PARAMS.has(key.toLowerCase()))
+
 // The run tag always uses the fixed scanner: the legacy one only exists to keep UTM output unchanged for
 // teams outside CDP_EMAIL_UTM_LINK_SCANNER_TEAMS, and the run tag has its own allowlist.
 export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, siteUrl }: WorkflowRunTag): string => {
@@ -261,16 +271,16 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
         return html
     }
     const siteHost = hostOf(siteUrl)
-    const isOnSenderDomain = (parsed: URL): boolean =>
-        parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain
+    const isTaggable = (parsed: URL): boolean =>
+        parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain && !isSigned(parsed)
     return addTagsToEmailLinks(html, {
-        isOptedOut: ({ html: anchor }) => isNeverClickTracked(anchor),
+        isOptedOut: (anchor) => isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor),
         tagUrl: (url) => {
             if (runId !== null) {
-                return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)
+                return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isTaggable)
             }
             const stripped = removeWorkflowRunTag(url)
-            return stripped !== url && parseTaggableUrl(stripped, isOnSenderDomain) ? stripped : null
+            return stripped !== url && parseTaggableUrl(stripped, isTaggable) ? stripped : null
         },
     })
 }

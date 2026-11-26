@@ -19,9 +19,12 @@ import { ApiConfig } from 'lib/api'
 
 import { engineeringAnalyticsCiTimingContext } from '../generated/api'
 import type { CITimingContextApi } from '../generated/api.schemas'
+import type { WorkflowJobApi } from '../generated/api.schemas'
 import { CIContextSelection, contextSelection } from '../lib/ciExplorerContext'
 import type { CIExplorerWorkflow } from '../lib/ciExplorerGraph'
+import type { WorkflowRun } from '../lib/lifecycle'
 import { CIExplorerDrawerTab, CIExplorerLogicProps, CIExplorerView, ciExplorerLogic } from './ciExplorerLogic'
+import type { CIExplorerLocation } from './ciExplorerLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -68,11 +71,11 @@ export interface ciExplorerContextLogicActions {
         value: true
     } // ciExplorerLogic
     loadJobsSuccess: (
-        jobsByRun: Record<string, import('../generated/api.schemas').WorkflowJobApi[]>,
-        payload?: import('../lib/lifecycle').WorkflowRun[] | undefined
+        jobsByRun: Record<string, WorkflowJobApi[]>,
+        payload?: WorkflowRun[] | undefined
     ) => {
-        jobsByRun: Record<string, import('../generated/api.schemas').WorkflowJobApi[]>
-        payload?: import('../lib/lifecycle').WorkflowRun[]
+        jobsByRun: Record<string, WorkflowJobApi[]>
+        payload?: WorkflowRun[]
     } // ciExplorerLogic
     openDrawer: (tab: CIExplorerDrawerTab) => {
         tab: CIExplorerDrawerTab
@@ -84,8 +87,8 @@ export interface ciExplorerContextLogicActions {
         moveCamera: boolean
         nodeId: string | null
     } // ciExplorerLogic
-    setLocation: (location: import('./ciExplorerLogic').CIExplorerLocation) => {
-        location: import('./ciExplorerLogic').CIExplorerLocation
+    setLocation: (location: CIExplorerLocation) => {
+        location: CIExplorerLocation
     } // ciExplorerLogic
     setView: (view: 'activity' | 'overview' | 'timeline') => {
         view: 'activity' | 'overview' | 'timeline'

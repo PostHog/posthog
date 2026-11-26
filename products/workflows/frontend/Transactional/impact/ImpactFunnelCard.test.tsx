@@ -20,6 +20,7 @@ const IMPACT: TransactionalEmailImpactApi = {
     clicked: 2,
     not_clicked: 7,
     untracked: 0,
+    clicks_untracked: 0,
     window_days: 7,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
@@ -55,13 +56,23 @@ describe('ImpactFunnelCard', () => {
         )
     }
 
-    it('keeps the untracked note under an empty period', async () => {
-        answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked: 3 }]
-        renderCard()
+    it.each([
+        { untracked: 0, note: null },
+        { untracked: 3, note: /^3 sends in this period went out with tracking off/ },
+    ])(
+        'says no sends were recorded for an empty period with $untracked untracked sends',
+        async ({ untracked, note }) => {
+            answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked }]
+            renderCard()
 
-        expect(await screen.findByText('No sends of this email were recorded in this period.')).toBeInTheDocument()
-        expect(screen.getByText(/^3 sends in this period went out with tracking off/)).toBeInTheDocument()
-    })
+            expect(await screen.findByText('No sends of this email were recorded in this period.')).toBeInTheDocument()
+            if (note) {
+                expect(screen.getByText(note)).toBeInTheDocument()
+            } else {
+                expect(screen.queryByText(/tracking off/)).not.toBeInTheDocument()
+            }
+        }
+    )
 
     it('draws opens and clicks that arrived before their sends', async () => {
         answer = [
@@ -86,12 +97,7 @@ describe('ImpactFunnelCard', () => {
     })
 
     it.each([
-        [
-            'every click went untracked',
-            { opened: 0, clicked: 0, untracked: 10 },
-            'No clicks were recorded in this period.',
-            '',
-        ],
+        ['no tracked send was clicked', { clicked: 0 }, 'No clicks were recorded in this period.', ''],
         [
             'no clicked send could be followed',
             { clicked: 2 },
@@ -120,6 +126,40 @@ describe('ImpactFunnelCard', () => {
             )
         }
     )
+
+    it.each([
+        [
+            'every send went untracked',
+            { opened: 0, untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with tracking off.',
+        ],
+        [
+            'every send went untracked but an open was recorded',
+            { opened: 1, untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
+        ],
+        [
+            'every send went out with click tracking off',
+            { clicks_untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with click tracking off.',
+        ],
+    ])('says why no send is compared when %s', async (_, counts, reason) => {
+        answer = [
+            200,
+            {
+                ...IMPACT,
+                clicked: 0,
+                not_clicked: 0,
+                ...counts,
+                after_click: { sends: 0, converted: 0 },
+                without_click: { sends: 0, converted: 0 },
+            },
+        ]
+        renderCard()
+        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+
+        expect((await screen.findByText(reason)).closest('p')).toHaveTextContent(new RegExp(`^${reason}$`))
+    })
 
     it('says why no conversion is counted when no send in either group could be followed', async () => {
         answer = [

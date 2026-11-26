@@ -33,7 +33,7 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { findMountedCodeEditorWithin, subscribeToMountedCodeEditors } from 'lib/monaco/mountedCodeEditors'
 
-import { ComponentPanelContext } from './componentPanelContext'
+import { ComponentPanelContext, useComponentPanelState } from './componentPanelContext'
 import {
     CANVAS_COMPONENT_PANEL_VISIBILITY,
     ComponentPanel,
@@ -125,6 +125,7 @@ export function NotebookComponentShell({
     insertParagraphAfterNode,
     moveFocusToAdjacentNode,
 }: NotebookComponentShellProps): JSX.Element {
+    const parentPanelState = useComponentPanelState()
     const definition = getMarkdownNotebookComponentDefinition(registry, node.tagName)
     const runStatus = useNotebookComponentRunStatus(node)
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
@@ -617,6 +618,33 @@ export function NotebookComponentShell({
         },
         [setBlockRef]
     )
+
+    if (parentPanelState?.outputOnly) {
+        return (
+            <div ref={setShellRef} contentEditable={false}>
+                {errors.length ? (
+                    <div className="MarkdownNotebook__component-errors">
+                        {errors.map((error) => (
+                            <div key={error}>{error}</div>
+                        ))}
+                    </div>
+                ) : null}
+                {ViewComponent ? (
+                    <NotebookComponentPanelErrorBoundary node={node} panel="results">
+                        <ViewComponent
+                            node={node}
+                            mode="view"
+                            notebookMode="view"
+                            updateProps={updateProps}
+                            deleteNode={deleteNode}
+                        />
+                    </NotebookComponentPanelErrorBoundary>
+                ) : (
+                    <UnknownComponentView node={node} />
+                )}
+            </div>
+        )
+    }
 
     if (isJupyterCell && jupyter) {
         const isRunning = !!runHandler?.isRunning

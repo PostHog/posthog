@@ -1,0 +1,12 @@
+diff --git a/index.js b/index.js
+index 8d97974ed83398e175526716efc562700abf6765..ee4cf48d04a4369d71f953655c4ba2979e60e2a4 100644
+--- a/index.js
++++ b/index.js
+@@ -42,6 +42,7 @@ class Base {
+ 		z._handle.close = hc;
+ 		z.removeAllListeners("error");
+ 		if(error) {
++			z.once("error", () => void 0);
+ 			z.reset();
+ 			z[kError] = null;
+ 			throw error;

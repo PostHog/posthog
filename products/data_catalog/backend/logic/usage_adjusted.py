@@ -144,6 +144,8 @@ class CatalogCall:
     tool: str
     metric_name: str
     failed: bool = False
+    # A search of table or column descriptions, not of the metrics. It shows the agent looked for data, not for a metric.
+    searched_tables: bool = False
 
 
 @frozen
@@ -326,7 +328,12 @@ def fetch_catalog_calls(
             continue
         calls[trace_id].append(
             CatalogCall(
-                trace_id=trace_id, occurred_at=occurred_at, tool=tool, metric_name=metric_name, failed=bool(is_error)
+                trace_id=trace_id,
+                occurred_at=occurred_at,
+                tool=tool,
+                metric_name=metric_name,
+                failed=bool(is_error),
+                searched_tables=tool == _SEARCH_TOOL and _METRICS_TABLE not in searched,
             )
         )
     return calls
@@ -497,7 +504,6 @@ async def detect_adjusted_runs_into_snapshot(
     groups = plan.selection.groups
 
     async with build_async_anthropic_client(
-        product="django",
         ai_product="data_catalog_usage_judge",
         team_id=team_id,
         trace_id=f"data-catalog-usage-{snapshot_id}",

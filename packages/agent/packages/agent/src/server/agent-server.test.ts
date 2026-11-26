@@ -77,7 +77,7 @@ const INBOX_REPORT = {
 
 async function openProduct(
   server: AgentServer,
-  originProduct?: string,
+  interactionOrigin?: string,
   launchOptions: Record<string, unknown> = {},
   source?: TaskSource,
 ): Promise<void> {
@@ -88,7 +88,7 @@ async function openProduct(
   ).openProductSession({
     taskId: "test-task-id",
     runId: "test-run-id",
-    originProduct,
+    interactionOrigin,
     launchOptions,
     source,
   });
@@ -466,7 +466,7 @@ it("links gateway requests to the run span exported after session shutdown", asy
     });
   const mswServer = setupServer(
     ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
-    http.get("https://gateway.us.posthog.com/*", () =>
+    http.get("http://llm-gateway.internal:8080/*", () =>
       HttpResponse.json({ data: [] }),
     ),
   );
@@ -490,7 +490,6 @@ it("links gateway requests to the run span exported after session shutdown", asy
   try {
     vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
     for (const key of [
-      "LLM_GATEWAY_URL",
       "AI_GATEWAY_URL",
       "POSTHOG_API_KEY",
       "POSTHOG_API_URL",
@@ -741,10 +740,26 @@ describe("AgentServer HTTP Mode", () => {
     try {
       await runningServer?.stop();
     } finally {
+      vi.unstubAllEnvs();
       mswServer.resetHandlers();
       await repo?.cleanup();
     }
   });
+
+  const stubRunPolicy = (overrides: Record<string, unknown> = {}) =>
+    vi.stubEnv(
+      "POSTHOG_TASK_RUN_POLICY",
+      JSON.stringify({
+        run_id: "test-run-id",
+        finish_tool: false,
+        finish_report_required: false,
+        report_activity_tool: false,
+        expects_system_prompt: false,
+        thread_link: false,
+        default_client_provenance: null,
+        ...overrides,
+      }),
+    );
 
   const createServer = (
     overrides: Partial<ConstructorParameters<typeof AgentServer>[0]> = {},
@@ -1192,48 +1207,67 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
     }, 30000);
 
-    it.each(["knowledge_writer", "user_created"])(
-      "lets only a %s-origin task push its task branch when createPr is false",
-      async (originProduct) => {
+    it.each<[string, Record<string, true>, Record<string, true>]>([
+      [
+        "a run that reports its activity",
+        { finish_tool: true, report_activity_tool: true },
+        { finishTool: true, reportActivityTool: true },
+      ],
+      [
+        "a run that must finish with a report",
+        { finish_tool: true, finish_report_required: true },
+        { finishTool: true, finishReportRequired: true },
+      ],
+    ])(
+      "passes the launch policy to the session for %s",
+      async (_, policy, expected) => {
         await mkdir("/tmp/workspace", { recursive: true });
-        mswServer.use(
-          http.get(
-            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
-            () =>
-              HttpResponse.json({
-                id: "test-task-id",
-                title: "Test task",
-                description: null,
-                origin_product: originProduct,
-                repository: null,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              }),
-          ),
-        );
+        stubRunPolicy(policy);
 
-        const testServer = createServer({
-          createPr: false,
-        }) as unknown as TestableServer & { start(): Promise<void> };
+        const testServer = createServer() as unknown as {
+          start(): Promise<void>;
+          session: { sessionMeta: Record<string, unknown> } | null;
+        };
         await testServer.start();
-        const prompt = testServer.buildCloudSystemPrompt();
 
-        const isWriter = originProduct === "knowledge_writer";
-        expect(prompt.includes("push only to the branch your task names")).toBe(
-          isWriter,
-        );
-        expect(prompt.includes("Publishing is disabled for this run.")).toBe(
-          !isWriter,
-        );
-        expect(
-          prompt.includes("stop with local changes ready for review"),
-        ).toBe(!isWriter);
-        expect(prompt.includes("Always create the PR as a draft.")).toBe(
-          !isWriter,
-        );
+        const { finishTool, finishReportRequired, reportActivityTool } =
+          testServer.session?.sessionMeta ?? {};
+        expect({
+          finishTool,
+          finishReportRequired,
+          reportActivityTool,
+        }).toEqual(expected);
       },
       30000,
     );
+
+    it("routes the session to the gateway product the server names", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      vi.stubEnv("LLM_GATEWAY_URL", "https://gateway.example.com");
+      stubRunPolicy({ billing_product: "workflows" });
+      mockedClaudeSdk.query.mockClear();
+      await createServer({ runtimeAdapter: "claude" }).start();
+
+      const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+        options: { env?: Record<string, string> };
+      };
+      expect(request?.options?.env?.ANTHROPIC_BASE_URL).toBe(
+        "https://gateway.example.com/workflows",
+      );
+    }, 30000);
+
+    it("reports where the run policy came from with gateway requests", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      mockedClaudeSdk.query.mockClear();
+      await createServer({ runtimeAdapter: "claude" }).start();
+
+      const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+        options: { env?: Record<string, string> };
+      };
+      expect(request?.options?.env?.ANTHROPIC_CUSTOM_HEADERS).toContain(
+        "x-posthog-property-task_run_policy_source: missing_server",
+      );
+    }, 30000);
 
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -4409,6 +4443,7 @@ describe("AgentServer HTTP Mode", () => {
     it.each(["token", "no_token", "cancel", "reconnect"])(
       "handles %s during subscription initialization",
       async (outcome) => {
+        vi.stubEnv("LLM_GATEWAY_URL", undefined);
         const s = createServer({ claudeModelAccess: "own-subscription" });
         const { app } = s as unknown as {
           app: { fetch(request: Request): Promise<Response> | Response };

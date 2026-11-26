@@ -5,8 +5,8 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { CheckIcon, MinusIcon } from 'lucide-react'
 import * as React from 'react'
 
+import { useDisabledControl } from './disabled-reason'
 import { cn } from './lib/utils'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const checkboxIndicatorVariants = cva('quill-checkbox-indicator flex shrink-0 items-center justify-center', {
     variants: {
@@ -65,20 +65,28 @@ const checkboxVariants = cva('quill-checkbox peer flex shrink-0 items-center jus
 
 const Checkbox = React.forwardRef<
     React.ComponentRef<typeof CheckboxPrimitive.Root>,
-    CheckboxPrimitive.Root.Props &
+    Omit<CheckboxPrimitive.Root.Props, 'children'> &
         VariantProps<typeof checkboxVariants> & {
             /** Disables the checkbox and says why in a tooltip. */
             disabledReason?: React.ReactNode
+            /** The label. It wraps the checkbox, so the label also toggles it and shows the disabled reason. */
+            children?: React.ReactNode
         }
->(function Checkbox({ className, size = 'default', disabled, disabledReason, ...props }, ref) {
-    return withTooltip(
+>(function Checkbox({ className, size = 'default', disabled, disabledReason, children, ...props }, ref) {
+    const { rootProps, wrap } = useDisabledControl({
+        disabled,
+        disabledReason,
+        label: children,
+        ariaDescribedBy: props['aria-describedby'],
+    })
+    return wrap(
         <CheckboxPrimitive.Root
             ref={ref}
             data-quill
             data-slot="checkbox"
-            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(checkboxVariants({ size }), className)}
             {...props}
+            {...rootProps}
         >
             <CheckboxPrimitive.Indicator
                 data-slot="checkbox-primitive-indicator"
@@ -90,9 +98,7 @@ const Checkbox = React.forwardRef<
                     <CheckboxIndicator checked size={size ?? 'default'} className="border-none bg-transparent" />
                 )}
             </CheckboxPrimitive.Indicator>
-        </CheckboxPrimitive.Root>,
-        disabledReason,
-        { target: 'inline', focusable: hasTooltipContent(disabledReason) }
+        </CheckboxPrimitive.Root>
     )
 })
 

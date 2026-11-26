@@ -2,15 +2,19 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
+import { Button, Item, ItemActions, ItemContent, ItemDescription } from '@posthog/quill'
 
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import {
     AlertNotificationDestinationEditor,
+    AlertNotificationDestinationEditorProps,
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { destinationMessageAction } from 'products/alerts/frontend/components/destinationMessageAction'
+import { QuillAlertNotificationDestinationEditor } from 'products/alerts/frontend/components/QuillAlertNotificationDestinationEditor'
 import { PlatformAlertDestinationTypeEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import {
@@ -40,6 +44,7 @@ export function PlatformAlertNotifications({
     messageCustomization = false,
 }: PlatformAlertNotificationsProps): JSX.Element {
     const logic = platformAlertDestinationsLogic({ alertId, sourceKind, api })
+    const quillSurface = useQuillSurface()
     const {
         destinations,
         destinationsLoading,
@@ -119,6 +124,71 @@ export function PlatformAlertNotifications({
         onRemove: () => removePendingDestination(index),
     }))
 
+    const editorProps: AlertNotificationDestinationEditorProps<PlatformAlertDestinationTypeEnumApi> = {
+        description:
+            'Each destination gets a notification when the alert fires, resolves, errors, or breaks. PagerDuty gets an incident that opens when the alert fires and resolves when it resolves.',
+        destinations: {
+            showExisting: !!alertId,
+            existingLoading: destinationsLoading,
+            existing,
+            pending,
+            pendingTooltip: alertId
+                ? 'Could not be added. Remove it and add it again.'
+                : 'Added when you create the alert',
+        },
+        notificationType: {
+            options: typeOptions,
+            value: selectedType,
+            onChange: setSelectedType,
+        },
+        slack: {
+            notificationType: PlatformAlertDestinationTypeEnumApi.Slack,
+            integrationsLoading,
+            integrationsFailed,
+            onRetryIntegrations: loadIntegrations,
+            integrations: slackIntegrations,
+            integration: slackIntegration,
+            onIntegrationChange: setSelectedSlackIntegrationId,
+            channelValue: slackChannelValue,
+            onChannelValueChange: setSlackChannelValue,
+        },
+        url: urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined,
+        pagerduty:
+            selectedType === PlatformAlertDestinationTypeEnumApi.Pagerduty
+                ? {
+                      routingKey: pagerDutyRoutingKey,
+                      onRoutingKeyChange: setPagerDutyRoutingKey,
+                      severity: pagerDutySeverity,
+                      onSeverityChange: setPagerDutySeverity,
+                      region: pagerDutyRegion,
+                      onRegionChange: setPagerDutyRegion,
+                  }
+                : undefined,
+        add: { onClick: addSelectedDestination, disabledReason: addDisabledReason },
+    }
+
+    if (quillSurface) {
+        return (
+            <div className="flex flex-col gap-2">
+                {destinationsLoadFailed ? (
+                    <Item tone="destructive" size="sm">
+                        <ItemContent>
+                            <ItemDescription>
+                                Could not load this alert's destinations. Retry before you add or remove any.
+                            </ItemDescription>
+                        </ItemContent>
+                        <ItemActions>
+                            <Button variant="outline" onClick={() => loadDestinations()}>
+                                Retry
+                            </Button>
+                        </ItemActions>
+                    </Item>
+                ) : null}
+                <QuillAlertNotificationDestinationEditor {...editorProps} />
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-2">
             {destinationsLoadFailed ? (
@@ -126,48 +196,7 @@ export function PlatformAlertNotifications({
                     Could not load this alert's destinations. Retry before you add or remove any.
                 </LemonBanner>
             ) : null}
-            <AlertNotificationDestinationEditor
-                description="Each destination gets a notification when the alert fires, resolves, errors, or breaks. PagerDuty gets an incident that opens when the alert fires and resolves when it resolves."
-                destinations={{
-                    showExisting: !!alertId,
-                    existingLoading: destinationsLoading,
-                    existing,
-                    pending,
-                    pendingTooltip: alertId
-                        ? 'Could not be added. Remove it and add it again.'
-                        : 'Added when you create the alert',
-                }}
-                notificationType={{
-                    options: typeOptions,
-                    value: selectedType,
-                    onChange: setSelectedType,
-                }}
-                slack={{
-                    notificationType: PlatformAlertDestinationTypeEnumApi.Slack,
-                    integrationsLoading,
-                    integrationsFailed,
-                    onRetryIntegrations: loadIntegrations,
-                    integrations: slackIntegrations,
-                    integration: slackIntegration,
-                    onIntegrationChange: setSelectedSlackIntegrationId,
-                    channelValue: slackChannelValue,
-                    onChannelValueChange: setSlackChannelValue,
-                }}
-                url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
-                pagerduty={
-                    selectedType === PlatformAlertDestinationTypeEnumApi.Pagerduty
-                        ? {
-                              routingKey: pagerDutyRoutingKey,
-                              onRoutingKeyChange: setPagerDutyRoutingKey,
-                              severity: pagerDutySeverity,
-                              onSeverityChange: setPagerDutySeverity,
-                              region: pagerDutyRegion,
-                              onRegionChange: setPagerDutyRegion,
-                          }
-                        : undefined
-                }
-                add={{ onClick: addSelectedDestination, disabledReason: addDisabledReason }}
-            />
+            <AlertNotificationDestinationEditor {...editorProps} />
         </div>
     )
 }

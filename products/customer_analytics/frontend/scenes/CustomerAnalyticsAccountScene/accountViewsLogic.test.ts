@@ -79,6 +79,8 @@ const tabSettings: AccountDetailTabsConfigApi = {
 }
 const userConfig: UserCustomerAnalyticsConfigApi = {
     pinned_properties: [],
+    pinned_properties_source: { kind: 'personal', roles: [] },
+    available_default_pinned_properties: [],
     task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
     account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
 }
@@ -398,6 +400,26 @@ describe('accountViewsLogic tracking', () => {
         ])
         expect(capture).toHaveBeenCalledWith(AccountsEvents.SqlQueryTileConfigured, { query_length: query.length })
         expect(JSON.stringify(capture.mock.calls)).not.toContain('invented_table')
+    })
+
+    it('clears the SQL error once the query becomes valid', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openTileEditor(view.id, 'sql', 'SQL query', {
+                kind: 'sql_query',
+                config: { query: 'select * from invented_table where org_id = ' },
+                accountId: 'account-one',
+            })
+        }).toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeTruthy()
+
+        await expectLogic(logic, () => {
+            logic.actions.setTileEditorConfig({
+                query: 'select * from invented_table where org_id = {account_external_id}',
+            })
+        })
+            .toDispatchActions(['validateTileEditorConfigSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.tileEditorConfigError).toBeNull()
     })
 
     it('keeps the SQL editor open when the placeholder is only in a comment', async () => {

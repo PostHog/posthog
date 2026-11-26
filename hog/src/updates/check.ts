@@ -10,6 +10,7 @@ import type { Runtime } from '@/core/runtime'
 
 import { detectInstallMethod, selfUpdates, upgradeAdvice, upgradeCommand, type InstallMethod } from './install-method'
 import { fetchManifest, type Manifest } from './manifest'
+import { NoticeList, type Notices } from './notices'
 import { isMeaningfullyBehind, isNewer } from './version'
 
 const CACHE_FILE = 'update-check.json'
@@ -27,6 +28,7 @@ const LatestSchema = z.object({
     version: z.string(),
     publishedAt: z.string(),
     minimumVersion: z.string().optional(),
+    notices: NoticeList.optional(),
 })
 
 const CacheSchema = z.object({
@@ -65,6 +67,7 @@ async function writeCache(runtime: Runtime, manifest: Manifest): Promise<Cache> 
             version: manifest.version,
             publishedAt: manifest.publishedAt,
             ...(manifest.minimumVersion ? { minimumVersion: manifest.minimumVersion } : {}),
+            ...(manifest.notices?.length ? { notices: manifest.notices } : {}),
         },
     }
     await saveCache(runtime, cache)
@@ -194,11 +197,12 @@ export class UpdateCheck {
     }
 
     // A release below minimumVersion warns everyone. The notice is only for a person at a terminal.
-    async finish(options: { mode: Mode; command: string | undefined }): Promise<void> {
+    async finish(options: { mode: Mode; command: string | undefined; notices: Notices }): Promise<void> {
         const latest = await this.pending
         if (!latest || options.command === 'upgrade') {
             return
         }
+        options.notices.add('manifest', latest.notices ?? [])
         const { runtime } = this
         const current = runtime.build.version
 

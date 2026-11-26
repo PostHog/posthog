@@ -1,8 +1,8 @@
 import json
 from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 import structlog
@@ -18,8 +18,10 @@ from products.warehouse_sources.sources.automox.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
+    parse_datetime_or_epoch,
     retry_with_deadline,
 )
 
@@ -33,6 +35,14 @@ REQUEST_TIMEOUT_SECONDS = 60
 # token on user records; paired with the user's ID and email it lets someone impersonate that user
 # to Intercom.
 CREDENTIAL_FIELD_NAMES = frozenset({"access_key", "intercom_hmac"})
+
+# The Audit Trail API rejects a `start_time`/`end_time` range longer than 31 days.
+AUDIT_WINDOW = timedelta(days=30)
+# How far back a full refresh of the audit trail reads.
+AUDIT_DEFAULT_HISTORY = timedelta(days=365)
+# `raw_data` is the raw request payload of the audited call, such as a password change or a new API
+# key, so it can carry secrets in a free-form string that `CREDENTIAL_FIELD_NAMES` cannot scrub.
+AUDIT_DROPPED_FIELDS = frozenset({"_id", "raw_data"})
 
 # Stable prefixes for the auth-failure messages matched by `get_non_retryable_errors` — retrying
 # can never fix a bad key or a misconfigured organization, so syncs stop instead of looping.
@@ -65,6 +75,10 @@ class AutomoxResumeConfig:
     # that page of the parent whose children `page` refers to.
     parent_page: int | None = None
     parent_index: int = 0
+    # Time-windowed endpoints only: the start of the window the interrupted run was on, and the
+    # cursor of the next page inside it (None for the first page of the window).
+    window_start: str | None = None
+    cursor: str | None = None
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -166,9 +180,43 @@ def _flatten_device_inventory(payload: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _report_devices(section: str) -> PayloadTransform:
+    """Take the per-device rows out of a report, which nests them under `<section>.devices`.
+
+    The reference types the needs-attention response as an array of reports while its example is a
+    single report object, so accept either.
+    """
+
+    def transform(payload: Any) -> list[dict[str, Any]]:
+        reports = payload if isinstance(payload, list) else [payload]
+        rows: list[dict[str, Any]] = []
+        for report in reports:
+            body = report.get(section) if isinstance(report, dict) else None
+            devices = body.get("devices") if isinstance(body, dict) else None
+            if isinstance(devices, list):
+                rows.extend(device for device in devices if isinstance(device, dict))
+        return rows
+
+    return transform
+
+
 PAYLOAD_TRANSFORMS: dict[str, PayloadTransform] = {
     "device_inventory": _flatten_device_inventory,
+    "needs_attention_devices": _report_devices("nonCompliant"),
+    "prepatch_devices": _report_devices("prepatch"),
 }
+
+
+def _shape_audit_event(event: dict[str, Any]) -> dict[str, Any]:
+    row = {key: value for key, value in event.items() if key not in AUDIT_DROPPED_FIELDS}
+    metadata = event.get("metadata")
+    # The cursor-style event identifier arrives as `_id` (older responses: `id`); the OCSF
+    # `metadata.uid` is the last fallback.
+    row["id"] = event.get("_id") or event.get("id") or (metadata.get("uid") if isinstance(metadata, dict) else None)
+    # Automox sends `time` as epoch seconds (OCSF specifies milliseconds); read either.
+    event_time = parse_datetime_or_epoch(event.get("time"))
+    row["event_time"] = format_datetime(event_time, "iso_z_micros") if event_time is not None else None
+    return row
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -341,7 +389,10 @@ def _request_params(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if config.paginated:
-        params["page"] = page
+        if config.offset_pagination:
+            params["offset"] = page * config.page_size
+        else:
+            params["page"] = page
         params["limit"] = config.page_size
     params.update(config.extra_params)
     if config.needs_org_id_param and org_id is not None:
@@ -374,15 +425,23 @@ def _iter_pages(
 ) -> Iterator[_EndpointPage]:
     """Walk one endpoint path, yielding a page at a time until the resource is exhausted."""
     page = start_page
+    previous_rows: list[dict[str, Any]] | None = None
     while True:
         url = _build_url(path, _request_params(config, page, org_id, org_uuid, incremental_value))
         rows = _fetch_page(session, config, url, logger, transform)
         if not rows:
             return
+        if config.offset_pagination:
+            # Offset paging only ends on an empty page, so a server that ignored `offset` and sent
+            # the same page again would otherwise loop forever.
+            if rows == previous_rows:
+                logger.warning(f"Automox: {path} returned the same page twice, stopping at page={page}")
+                return
+            previous_rows = rows
 
         # Decide on the raw page length: the caller's filtering can shrink a page without meaning
         # the resource is exhausted.
-        is_last = not config.paginated or len(rows) < config.page_size
+        is_last = not config.paginated or (not config.offset_pagination and len(rows) < config.page_size)
         yield _EndpointPage(number=page, is_last=is_last, rows=rows)
         if is_last:
             return
@@ -452,6 +511,84 @@ def _iter_fan_out_rows(
         skip_parents = 0
 
 
+def _next_audit_cursor(payload: dict[str, Any], events: list[Any]) -> str | None:
+    next_url = (payload.get("metadata") or {}).get("next")
+    if not next_url:
+        return None
+    cursor = parse_qs(urlparse(next_url).query).get("cursor")
+    if cursor:
+        return cursor[0]
+    # `next` is documented as a URL carrying `cursor`, which is the identifier of the page's last
+    # event. Fall back to that identifier rather than dropping the rest of the window.
+    last = events[-1] if events and isinstance(events[-1], dict) else {}
+    return last.get("_id") or last.get("id")
+
+
+def _iter_time_window_rows(
+    session: requests.Session,
+    config: AutomoxEndpointConfig,
+    path: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AutomoxResumeConfig],
+    resume: AutomoxResumeConfig | None,
+    incremental_value: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the Audit Trail API oldest window first, paging each window with its cursor."""
+    now = datetime.now(UTC)
+    cursor: str | None = None
+    window_start: datetime | None = None
+    if resume is not None and resume.window_start is not None:
+        window_start = parse_datetime_or_epoch(resume.window_start)
+        cursor = resume.cursor
+    if window_start is None:
+        window_start = parse_datetime_or_epoch(incremental_value) if incremental_value else None
+    if window_start is None:
+        window_start = now - AUDIT_DEFAULT_HISTORY
+
+    while window_start < now:
+        window_end = min(window_start + AUDIT_WINDOW, now)
+        while True:
+            params = {
+                "start_time": format_datetime(window_start, "iso_z"),
+                # The range is inclusive to the second; an event at the shared boundary second is
+                # read by both windows and deduped on `id` by the merge.
+                "end_time": format_datetime(window_end, "iso_z"),
+                "limit": config.page_size,
+                "sort": "asc",
+                "cursor": cursor,
+            }
+            payload = _fetch_json(session, _build_url(path, params), logger)
+            if not isinstance(payload, dict):
+                raise ValueError(f"Automox API returned a non-object response: path={path}")
+            events = payload.get(config.data_selector or "data") or []
+            if not isinstance(events, list):
+                raise ValueError(f"Automox API returned a non-list event page: path={path}")
+
+            cursor = _next_audit_cursor(payload, events)
+            next_window_start = window_start if cursor else window_end
+            if cursor or next_window_start < now:
+                resumable_source_manager.save_state(
+                    AutomoxResumeConfig(
+                        window_start=format_datetime(next_window_start, "iso_z"),
+                        cursor=cursor,
+                        incremental_param_value=incremental_value,
+                    )
+                )
+
+            rows = [
+                _shape_audit_event(event)
+                for event in _sanitize_rows(config, [e for e in events if isinstance(e, dict)], None)
+            ]
+            if rows:
+                yield rows
+            else:
+                # A quiet window yields nothing, so let a shutting-down worker hand the run over here.
+                resumable_source_manager.safe_point()
+            if cursor is None:
+                break
+        window_start = window_end
+
+
 def get_rows(
     api_key: str,
     organization_id: str | None,
@@ -487,6 +624,18 @@ def get_rows(
 
     path = _resolve_path(config.path, org_id, org_uuid)
     transform = PAYLOAD_TRANSFORMS.get(endpoint)
+
+    if config.cursor_time_windows:
+        yield from _iter_time_window_rows(
+            session=session,
+            config=config,
+            path=path,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+            resume=resume,
+            incremental_value=incremental_value,
+        )
+        return
 
     if config.fan_out is not None:
         yield from _iter_fan_out_rows(

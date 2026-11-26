@@ -76,6 +76,7 @@ class SegmentCohort:
 class TranslationContext:
     step_emails: Mapping[str, ImportedStepEmail] = dataclass_field(default_factory=dict)
     segment_cohorts: Mapping[str, SegmentCohort] = dataclass_field(default_factory=dict)
+    segment_members_imported: bool = False
     # Pre-release steps this team can't enable yet.
     unavailable_templates: frozenset[str] = frozenset()
 
@@ -313,10 +314,16 @@ class _Builder:
         inputs: dict[str, Any] = {}
         if cohort is not None and cohort.cohort_id is not None:
             inputs["cohort_id"] = {"value": cohort.cohort_id}
+            members = (
+                "This import's Contacts step adds the segment's contacts to it once it finishes. If it doesn't finish, "
+                "import Contacts again."
+                if self.context.segment_members_imported
+                else "Import Contacts too to add the people already in the segment."
+            )
             self.note(
                 NoteLevel.APPROXIMATED,
                 f'This step adds people to the static cohort "{cohort.name}", which stands in for the Resend segment. '
-                "PostHog doesn't copy who is already in the segment.",
+                f"{members}",
                 key,
             )
         else:

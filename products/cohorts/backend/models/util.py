@@ -24,6 +24,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
     LimitContext,
+    cap_flag_call_memory_settings,
     get_default_hogql_global_settings,
 )
 from posthog.hogql.database.database import Database
@@ -853,7 +854,14 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
-    """Remove a person from a static cohort in ClickHouse.
+    remove_people_from_static_cohort([person_uuid], cohort_id, team_id=team_id)
+
+
+def remove_people_from_static_cohort(
+    person_uuids: Sequence[uuid.UUID], cohort_id: int, *, team_id: int, wait_for_local_replica: bool = False
+):
+    """Remove people from a static cohort in ClickHouse, in one mutation. A delete per person can pass the table's
+    limit on unfinished mutations.
 
     Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
     synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
@@ -874,6 +882,12 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "mutations_sync": "2",
             "lightweight_deletes_sync": "2",
         }
+    elif wait_for_local_replica:
+        # A person added back right after a queued delete would be lost when the delete ran.
+        ch_settings = {
+            "mutations_sync": "1",
+            "lightweight_deletes_sync": "1",
+        }
     else:
         # Use async mutations in production to avoid replica sync issues
         ch_settings = {
@@ -884,7 +898,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
-            "person_id": str(person_uuid),
+            "person_ids": [str(person_uuid) for person_uuid in person_uuids],
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
@@ -1014,6 +1028,8 @@ def _recalculate_cohortpeople_for_team_hogql(
         )
         if hogql_context is not None:
             settings.update(events_read_settings(hogql_context.uses_new_events_schema()))
+            if hogql_context.cap_flag_call_memory:
+                cap_flag_call_memory_settings(settings)
 
         return sync_execute(
             recalculate_cohortpeople_sql,
@@ -1370,6 +1386,15 @@ def insert_actors_into_cohort_by_query(
 ) -> int:
     """Return how many rows the insert wrote."""
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    settings: dict[str, Any] = {
+        **COHORT_QUERY_TIMEOUT_SETTINGS,
+        **COHORT_QUERY_SPILL_SETTINGS,
+        # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
+        # trims it so the query can be embedded), so the native read settings travel on the INSERT.
+        **events_read_settings(context.uses_new_events_schema()),
+    }
+    if context.cap_flag_call_memory:
+        cap_flag_call_memory_settings(settings)
     written = sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {
@@ -1379,13 +1404,7 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
-        settings={
-            **COHORT_QUERY_TIMEOUT_SETTINGS,
-            **COHORT_QUERY_SPILL_SETTINGS,
-            # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
-            # trims it so the query can be embedded), so the native read settings travel on the INSERT.
-            **events_read_settings(context.uses_new_events_schema()),
-        },
+        settings=settings,
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,
         team_id=team_id,
@@ -1671,6 +1690,51 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
         "delete_cohort_member",
         lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
     )
+
+
+_GET_PERSONS_MAX_IDS = 250
+_REMOVE_MEMBERS_CHUNK_SIZE = 10_000
+
+
+def remove_static_cohort_members(team_id: int, cohort_id: int, person_ids: Sequence[int]) -> None:
+    """Remove people from a static cohort, from ClickHouse first and then Postgres.
+
+    Postgres keeps them until ClickHouse no longer does, so a retry after a failure finds them again.
+    """
+    from posthog.personhog_client.client import get_personhog_client, personhog_call
+    from posthog.personhog_client.proto import DeleteCohortMembersByPersonIdsRequest, GetPersonsRequest
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    if not person_ids or not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    def person_uuids() -> list[uuid.UUID]:
+        uuids: list[uuid.UUID] = []
+        for start in range(0, len(person_ids), _GET_PERSONS_MAX_IDS):
+            ids = list(person_ids[start : start + _GET_PERSONS_MAX_IDS])
+            response = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=ids))
+            uuids.extend(uuid.UUID(person.uuid) for person in response.persons)
+        return uuids
+
+    uuids = personhog_call("get_persons", person_uuids)
+    for start in range(0, len(uuids), _REMOVE_MEMBERS_CHUNK_SIZE):
+        remove_people_from_static_cohort(
+            uuids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE], cohort_id, team_id=team_id, wait_for_local_replica=True
+        )
+
+    def delete_members() -> None:
+        for start in range(0, len(person_ids), _REMOVE_MEMBERS_CHUNK_SIZE):
+            ids = list(person_ids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE])
+            client.delete_cohort_members_by_person_ids(
+                DeleteCohortMembersByPersonIdsRequest(cohort_id=cohort_id, person_ids=ids)
+            )
+
+    personhog_call("delete_cohort_members_by_person_ids", delete_members)
 
 
 _DELETE_BULK_MAX_ITERATIONS = 10_000

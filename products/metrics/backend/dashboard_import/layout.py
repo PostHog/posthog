@@ -126,3 +126,31 @@ def place_screenshot_boxes(boxes: list[RequestedBox]) -> dict[str, GridLayout]:
                 placed[box.key] = packer.place(x=cursor, w=width, h=max(box.layout.h, box.min_h))
                 cursor += width
     return placed
+
+
+def _overlaps_rows(layout: GridLayout, top: int, bottom: int) -> bool:
+    return layout.y < bottom and layout.y + layout.h > top
+
+
+def close_dropped_gaps(kept: list[RequestedBox], dropped: list[GridLayout]) -> dict[str, GridLayout]:
+    """Widen the tiles of a band to fill the grid when a panel in the band got no tile.
+
+    A band is the tiles that share a top row. A band keeps its boxes when a tile from another band
+    reaches into its rows, so that no two tiles overlap.
+    """
+    placed = {box.key: box.layout for box in kept}
+    bands: dict[int, list[RequestedBox]] = {}
+    for box in kept:
+        bands.setdefault(box.layout.y, []).append(box)
+    for top, band in bands.items():
+        bottom = max(box.layout.y + box.layout.h for box in band)
+        crossed = any(box.layout.y != top and _overlaps_rows(box.layout, top, bottom) for box in kept)
+        lost = any(_overlaps_rows(layout, top, bottom) for layout in dropped)
+        if crossed or not lost or sum(box.min_w for box in band) > GRID_COLUMNS:
+            continue
+        band.sort(key=lambda box: box.layout.x)
+        cursor = 0
+        for box, width in zip(band, _fit_widths([box.layout.w for box in band], [box.min_w for box in band])):
+            placed[box.key] = GridLayout(x=cursor, y=top, w=width, h=box.layout.h)
+            cursor += width
+    return placed

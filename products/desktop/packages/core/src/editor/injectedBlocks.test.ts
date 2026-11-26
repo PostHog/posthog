@@ -125,6 +125,18 @@ describe("splitInjectedBlocks", () => {
       },
       text: "fix the flaky test",
     },
+    {
+      // A forked thread ships a pointer under the same tag, not a copy of the messages.
+      name: "a forked Slack thread",
+      content:
+        "<slack_thread_context>\nThread: https://example.slack.com/archives/C1/p1 (channel `C1`, thread ts `1.000`).\nFork point: message ts `2.000`.\n</slack_thread_context>\n\nFork: give me a joke please\n\nContinue the work from the fork point.",
+      block: {
+        kind: "slack-thread",
+        body: "Thread: https://example.slack.com/archives/C1/p1 (channel `C1`, thread ts `1.000`).\nFork point: message ts `2.000`.",
+        attrs: {},
+      },
+      text: "Fork: give me a joke please\n\nContinue the work from the fork point.",
+    },
   ])("peels $name", ({ content, block, text }) => {
     expect(splitInjectedBlocks(content)).toEqual({ blocks: [block], text });
     expect(hasInjectedBlocks(content)).toBe(true);

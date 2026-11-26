@@ -48,15 +48,38 @@ const minuteOf = (at: number): number => at - (at % MINUTE_MS)
 
 const iso = (at: number): string => new Date(at).toISOString()
 
-async function hostScorecardOf(
-    evidence: ReturnType<typeof evidenceOf>,
-    runId: string
-): Promise<z.infer<typeof HostScorecard>> {
+type HostScorecard = z.infer<typeof HostScorecard>
+
+type HostRun = { host: HostScorecard; statuses: Status[]; window: number[] }
+
+async function hostScorecardOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<HostRun> {
+    const { runId, controlRunId } = manifest
+    const paired = manifest.pair === true
     const keys = (await evidence.keys(keyOf(runId, 'evidence/run/'))).filter((key) => key.endsWith('/scorecard.json'))
-    if (keys.length !== 1) {
-        throw new Error(`the host uploaded ${keys.length} runner scorecards, not one`)
+    const read = async (key: string): Promise<HostScorecard> => HostScorecard.parse(parseJSON(await evidence.get(key)))
+    if (keys.length !== (paired ? 2 : 1)) {
+        const reason = keys.length === 1 ? (await read(keys[0])).event.pair_reason : undefined
+        throw new Error(
+            `the host uploaded ${keys.length} runner scorecards, not ${paired ? 'two' : 'one'}${typeof reason === 'string' ? `: ${reason}` : ''}`
+        )
     }
-    return HostScorecard.parse(parseJSON(await evidence.get(keys[0])))
+    const saved = await Promise.all(keys.map(read))
+    const ranAs = (role: string, id: string | undefined): HostScorecard | undefined =>
+        saved.find(({ event }) => event.pair_role === role && event.run_id === id)
+    const host = paired ? ranAs('faulted', runId) : saved[0]
+    if (host === undefined || (paired && ranAs('control', controlRunId) === undefined)) {
+        throw new Error(
+            `the host uploaded runner scorecards that are not one control and one faulted run of run ${runId}`
+        )
+    }
+    return {
+        host,
+        statuses: saved.map(({ event }) => event.status),
+        window: [
+            Math.min(...saved.map(({ event }) => Date.parse(event.started_at))),
+            Math.max(...saved.map(({ event }) => Date.parse(event.ended_at))),
+        ],
+    }
 }
 
 async function capacityOf(aws: Aws, readerId: string, from: number, to: number, expected: number[]): Promise<Capacity> {
@@ -103,7 +126,7 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
         }
     }
     const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
-    const ends = [...minutes.map(({ at }) => at), ...expected.map(minuteOf)]
+    const ends = [...minutes.map(({ at }) => at), ...expected.map((at) => minuteOf(Math.min(Math.max(at, from), to)))]
     const gaps: number[] = []
     for (let at = Math.min(...ends); at <= Math.max(...ends); at += MINUTE_MS) {
         const minute = byMinute.get(at)
@@ -114,7 +137,7 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-type Judged = { scalars: Record<string, number | null>; readerAtT0: number | null; reason?: string }
+type Judged = { scalars: Record<string, number | string[] | null>; readerAtT0: number | null; reason?: string }
 
 function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: CloudProfile['readerAcu']): Judged {
     const t0Minute = minuteOf(t0)
@@ -130,6 +153,12 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
         acu_t0_minute_max: maxima.find(({ at }) => at === t0Minute)?.max ?? null,
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
+        acu_pre_t0_above_idle: minutes
+            .filter(
+                ({ at, max, avg }) =>
+                    at < t0Minute && [max, avg].some((acu) => acu !== undefined && acu > (idleMax ?? Infinity))
+            )
+            .map(({ at }) => iso(at)),
     }
     const readerAtT0 = before.find(({ at }) => at === t0Minute - MINUTE_MS)?.max ?? null
     if (before.length === 0) {
@@ -145,18 +174,20 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
             reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
         }
     }
-    const pre = minutes.filter(({ at }) => at < t0Minute)
-    const above = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading > idleMax))
-    const unshown = pre.filter(
-        ({ max, avg }) => max === undefined && avg !== undefined && avg !== min && avg <= idleMax
-    )
+    const pre = minutes.filter(({ at }) => at < t0Minute && at >= t0Minute - CAPACITY_MINUTES * MINUTE_MS)
+    const above = pre.filter(({ avg }) => avg !== undefined && avg > idleMax)
+    const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
+    const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
+    const unshown = pre.filter(({ max, avg }) => avg === undefined && max !== undefined && max > idleMax)
     const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
     const reasons = [
         above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
+        under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
+        inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
         unshown.length > 0 &&
-            `no reader maximum before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+            `no reader average before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
         missing.length > 0 &&
             `no reader capacity in the ${CAPACITY_MINUTES} minutes before T0 for ${missing.map(iso).join(', ')}`,
         readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,
@@ -222,23 +253,24 @@ export async function report(
     const from = Date.parse(manifest.createdAt)
     const to = controller.now().getTime()
     const reasons = [...end.reasons]
-    const host = await attempt(reasons, 'could not read the runner scorecard', () => hostScorecardOf(evidence, runId))
-    const exitsOfSaved: number[] = host ? [EXIT_CODE[host.event.status], EXIT_CODE.writeFailed] : []
-    if (host && !exitsOfSaved.includes(end.exitCode)) {
-        reasons.push(`the runner exited ${end.exitCode} after it saved a ${host.event.status} scorecard`)
+    const saved = await attempt(reasons, 'could not read the runner scorecard', () =>
+        hostScorecardOf(evidence, manifest)
+    )
+    const host = saved?.host
+    const worst = saved && Math.max(...saved.statuses.map((status) => EXIT_CODE[status]))
+    if (saved && worst !== end.exitCode && end.exitCode !== EXIT_CODE.writeFailed) {
+        const statuses =
+            saved.statuses.length === 1
+                ? `a ${saved.statuses[0]} scorecard`
+                : `${saved.statuses.join(' and ')} scorecards`
+        reasons.push(`the runner exited ${end.exitCode} after it saved ${statuses}`)
     }
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
     if (card.failsOver && host?.event.status === 'passed' && !t0) {
         reasons.push(`the runner recorded no ${FAILOVER_VALVE} request (intentAt), so the reader was not judged`)
     }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
-        capacityOf(
-            controller.aws,
-            `scn-${runId}-reader`,
-            from,
-            to,
-            host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
-        )
+        capacityOf(controller.aws, `scn-${runId}-reader`, from, to, saved?.window ?? [])
     )
     const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
     if (judged?.reason) {
@@ -262,12 +294,22 @@ export async function report(
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
     const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
+    const savedReason = host?.event.status_reason
+    const hostReason =
+        host && host.event.status !== 'passed' && typeof savedReason === 'string' && savedReason
+            ? [`the runner saved a ${host.event.status} scorecard: ${savedReason}`]
+            : []
     const environment = environmentOf(profile, card, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
         card_id: card.id,
         adapters: ADAPTERS,
         ...host?.event,
+        ...(manifest.pair &&
+            reasons.length > 0 && {
+                pair_attribution: 'unjudged',
+                pair_reason: 'the cloud run is invalid, so the pair is not judged',
+            }),
         ...environment,
         reader_acu_at_t0: readerAtT0,
         run_id: runId,
@@ -275,7 +317,8 @@ export async function report(
         target: TARGET,
         started_at: manifest.createdAt,
         status,
-        status_reason: reasons.length > 0 ? reasons.join('; ') : String(host?.event.status_reason ?? ''),
+        status_reason:
+            reasons.length > 0 ? [...reasons, ...hostReason].join('; ') : String(host?.event.status_reason ?? ''),
         ended_at: iso(to),
         duration_s: (to - from) / 1000,
         evidence_dir: `s3://${evidence.name}/${keyOf(runId, 'evidence/')}`,

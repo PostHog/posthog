@@ -29,9 +29,9 @@ from posthog.models.team import Team
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.access import DashboardAccessMethod
-from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.dashboards.backend.presentation.run_insights_output import RUN_INSIGHTS_MIN_TILE_CHARS
 from products.dashboards.backend.presentation.views.dashboard import DashboardsViewSet
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
@@ -138,7 +138,7 @@ class TestDashboardRunInsights(APIBaseTest):
         self._restrict_insight_for_new_member(restricted_id)
 
         with patch(
-            "products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
+            "products.dashboards.backend.presentation.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
             RUN_INSIGHTS_MIN_TILE_CHARS,
         ):
             body = self._run(dashboard_id, refresh="blocking")
@@ -332,7 +332,7 @@ class TestDashboardRunInsights(APIBaseTest):
         )
 
         with patch(
-            "products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
+            "products.dashboards.backend.presentation.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
             RUN_INSIGHTS_MIN_TILE_CHARS,
         ):
             body = self._run(dashboard_id, refresh="blocking")
@@ -373,7 +373,7 @@ class TestDashboardRunInsights(APIBaseTest):
         )
 
         with patch(
-            "products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
+            "products.dashboards.backend.presentation.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
             RUN_INSIGHTS_MIN_TILE_CHARS,
         ):
             body = self._run(dashboard_id, refresh="blocking", max_result_chars="1000000")

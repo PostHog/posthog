@@ -14,6 +14,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_modeling.backend.temporal.activities import (
     UPSTREAM_NAMES_IN_SKIP_REASON,
@@ -31,10 +32,15 @@ from products.data_modeling.backend.temporal.activities import (
 )
 from products.data_modeling.backend.temporal.activities.utils import strip_hostname_from_error
 from products.data_modeling.backend.temporal.metrics import (
+    COMPLETED_STATUS,
+    FAILED_STATUS,
     get_dag_duration_metric,
     get_dag_finished_metric,
     get_dag_node_count_metric,
     get_trino_shadow_start_metric,
+    record_request_to_finish,
+    run_trigger,
+    tag_run_request_on_workflow_span,
     tier_label,
 )
 from products.data_modeling.backend.temporal.workflows.materialize_view import (
@@ -42,6 +48,7 @@ from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
     _is_cancellation,
+    _status_of_run_ended_by,
 )
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, MATERIALIZATION_GATE_ACTIVITY_NAME
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
@@ -194,6 +201,8 @@ class ExecuteDAGInputs:
         shadow: a Trino shadow of a ClickHouse run. Its failures stay in job rows and metrics,
             so it runs no data quality checks and sends no failure notifications.
         manually_triggered_by_id: the user who asked for this run, when a person did.
+        trigger: what started this run, a MaterializationRunTrigger value.
+        requested_at: the ISO 8601 time of the request that started this run, when its start recorded one.
     """
 
     team_id: int
@@ -205,6 +214,8 @@ class ExecuteDAGInputs:
     duckgres_only: bool = False
     shadow: bool = False
     manually_triggered_by_id: int | None = None
+    trigger: str = MaterializationRunTrigger.UNKNOWN.value
+    requested_at: str | None = None
 
     @property
     def properties_to_log(self) -> dict:
@@ -220,6 +231,16 @@ def _serving_engine(inputs: ExecuteDAGInputs) -> str:
         DataModelingJobEngine.MANAGED_WAREHOUSE if inputs.managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
     )
     return engine.value
+
+
+def _dag_status(*, successful_nodes: int, failed_nodes: int, skipped_nodes: int) -> str:
+    if failed_nodes == 0 and skipped_nodes == 0:
+        return COMPLETED_STATUS
+    if successful_nodes == 0 and failed_nodes == 0:
+        return "skipped"
+    if successful_nodes == 0:
+        return FAILED_STATUS
+    return "partial_failure"
 
 
 @dataclasses.dataclass(frozen=False)
@@ -354,6 +375,31 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
+        inputs = dataclasses.replace(
+            inputs, trigger=run_trigger(temporalio.workflow.info().workflow_id, inputs.trigger)
+        )
+        tag_run_request_on_workflow_span(inputs.trigger, inputs.requested_at)
+        engine = _serving_engine(inputs)
+        try:
+            result = await self._preempt_and_execute_dag(inputs)
+        except (Exception, asyncio.CancelledError) as error:
+            ended_status = _status_of_run_ended_by(error)
+            if ended_status is not None:
+                record_request_to_finish(inputs.trigger, inputs.requested_at, engine=engine, status=ended_status)
+            raise
+        record_request_to_finish(
+            inputs.trigger,
+            inputs.requested_at,
+            engine=engine,
+            status=_dag_status(
+                successful_nodes=result.successful_nodes,
+                failed_nodes=result.failed_nodes,
+                skipped_nodes=result.skipped_nodes,
+            ),
+        )
+        return result
+
+    async def _preempt_and_execute_dag(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
         temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
         # NOTE: this should be handled by temporal's cancellation policy but
         # we leave this in to clean up any jobs left in a dirty state
@@ -543,6 +589,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                         manually_triggered_by_id=inputs.manually_triggered_by_id,
                         skip_trino=bool(blocked_trino_upstreams),
+                        trigger=inputs.trigger,
+                        requested_at=inputs.requested_at,
                     )
                     trino_skip = (
                         SkippedDataModelingNode(
@@ -708,14 +756,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             },
         )
         # DAG-level metrics
-        if failed_nodes == 0 and skipped_nodes == 0:
-            dag_status = "completed"
-        elif successful_nodes == 0 and failed_nodes == 0:
-            dag_status = "skipped"
-        elif successful_nodes == 0:
-            dag_status = "failed"
-        else:
-            dag_status = "partial_failure"
+        dag_status = _dag_status(
+            successful_nodes=successful_nodes, failed_nodes=failed_nodes, skipped_nodes=skipped_nodes
+        )
         engine = _serving_engine(inputs)
         tier = tier_label(temporalio.workflow.info().workflow_id)
         get_dag_finished_metric(dag_status, engine, tier=tier).add(1)
@@ -775,6 +818,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     managed_warehouse_only=True,
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                     shadow=True,
+                    trigger=inputs.trigger,
+                    requested_at=inputs.requested_at,
                 ),
                 id=trino_shadow_workflow_id(temporalio.workflow.info().workflow_id, inputs.dag_id),
                 parent_close_policy=ParentClosePolicy.ABANDON,

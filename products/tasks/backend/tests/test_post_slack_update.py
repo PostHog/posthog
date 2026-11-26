@@ -102,6 +102,34 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once()
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
 
+    @parameterized.expand([("deactivated", False, 0, 1), ("unset", None, 1, 0)])
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_pr_opened_card_skips_only_deactivated_organizations(
+        self, _name, is_active, expected_cards, expected_progress_clears, mock_task_run_class, _mock_update_reaction
+    ):
+        organization = Organization.objects.create(name="Org", is_active=is_active)
+        team = Team.objects.create(organization=organization, name="Team")
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+            team_id=team.id,
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+        cards: list[str] = []
+        progress_clears: list[bool] = []
+
+        with (
+            patch.object(
+                SlackThreadHandler, "post_pr_opened", side_effect=lambda pr_url, *args, **kwargs: cards.append(pr_url)
+            ),
+            patch.object(SlackThreadHandler, "delete_progress", side_effect=lambda: progress_clears.append(True)),
+        ):
+            post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        assert len(cards) == expected_cards
+        assert len(progress_clears) == expected_progress_clears
+
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")

@@ -265,6 +265,8 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return ", ".join(labels)
 
     def _calculate(self):
+        # Set here, not in query_date_range, so serving a cached result never runs the per-step lookup.
+        self.query_date_range._earliest_timestamp_fallback = self.context.earliest_timestamp_fallback
         if self._is_compare_active():
             return self._calculate_compare()
         return self._calculate_single_period(self.funnel_class)
@@ -671,10 +673,12 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 interval=self.query.interval,
                 now=datetime.now(),
                 compare_to=compare_filter.compare_to,
+                earliest_timestamp_fallback=self.context.earliest_timestamp_fallback,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
+            earliest_timestamp_fallback=self.context.earliest_timestamp_fallback,
         )

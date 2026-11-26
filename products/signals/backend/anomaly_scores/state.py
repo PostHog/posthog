@@ -23,6 +23,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.artifacts import delete_artifacts
 from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
+    NO_AI_JUDGE,
+    AIJudgeConfig,
     AnomalyScoringConfig,
     ScoringRun,
     resolve_profile,
@@ -146,7 +148,7 @@ def plan_run(
     if not config.train_score_split:
         return RunPlan(queries=queries)
     try:
-        profile = resolve_profile(team, insight)
+        profile = resolve_profile(team, insight, config.ai_judge)
         query = trends_query_for(insight, profile)
         interval = scoring_interval(query)
         scoring = interval_scoring(profile, interval)
@@ -170,13 +172,19 @@ def plan_run(
     return RunPlan(queries=queries, run=ScoringRun.TRAIN, stale_model=due == TrainDue.SOFT)
 
 
-def load_states(team: Team, insights: Collection[Insight]) -> dict[int, TrainedState]:
-    """Insight id to the stored state of the insight's own scoring profile."""
-    profiles = {insight.id: resolve_profile(team, insight).name for insight in insights}
-    if not profiles:
+def load_states(
+    team: Team, insights: Collection[Insight], ai_judge: AIJudgeConfig = NO_AI_JUDGE
+) -> dict[int, TrainedState]:
+    """Insight id to the stored state under the model profile of the insight's scoring profile.
+
+    Profiles that share a model profile read the same row, so a project that moves between them keeps its
+    models. `plan_run` still checks the identity, so a model that the new profile cannot read trains.
+    """
+    model_profiles = {insight.id: resolve_profile(team, insight, ai_judge).model_profile for insight in insights}
+    if not model_profiles:
         return {}
-    rows = AnomalyScoringState.objects.for_team(team.id).filter(insight_id__in=list(profiles))
-    return {row.insight_id: _from_row(row) for row in rows if profiles.get(row.insight_id) == row.profile}
+    rows = AnomalyScoringState.objects.for_team(team.id).filter(insight_id__in=list(model_profiles))
+    return {row.insight_id: _from_row(row) for row in rows if model_profiles.get(row.insight_id) == row.profile}
 
 
 def score_ready_by_insight(
@@ -223,14 +231,16 @@ def score_ready_by_insight(
     return ready
 
 
-def load_state(team: Team, insight: Insight) -> TrainedState | None:
-    return load_states(team, [insight]).get(insight.id)
+def load_state(team: Team, insight: Insight, ai_judge: AIJudgeConfig = NO_AI_JUDGE) -> TrainedState | None:
+    return load_states(team, [insight], ai_judge).get(insight.id)
 
 
-def save_state(team: Team, insight_id: int, profile: str, state: TrainedState) -> None:
+def save_state(team: Team, insight_id: int, model_profile: str, state: TrainedState) -> None:
     """Write the state row. A new artifact blob replaces the previous one, which is deleted after the write."""
     scope = AnomalyScoringState.objects.for_team(team.id)
-    previous_key = scope.filter(insight_id=insight_id, profile=profile).values_list("artifact_key", flat=True).first()
+    previous_key = (
+        scope.filter(insight_id=insight_id, profile=model_profile).values_list("artifact_key", flat=True).first()
+    )
     fields = {
         "interval": state.identity.interval.value,
         "detector_version": state.identity.detector_version,
@@ -244,7 +254,7 @@ def save_state(team: Team, insight_id: int, profile: str, state: TrainedState) -
     }
     # The scope filters on the project's canonical team, and save() writes that team for a new row.
     scope.update_or_create(
-        insight_id=insight_id, profile=profile, defaults=fields, create_defaults={**fields, "team_id": team.id}
+        insight_id=insight_id, profile=model_profile, defaults=fields, create_defaults={**fields, "team_id": team.id}
     )
     if previous_key and previous_key != state.artifact_key:
         try:
@@ -254,9 +264,11 @@ def save_state(team: Team, insight_id: int, profile: str, state: TrainedState) -
             logger.warning("anomaly_scoring_artifact_delete_failed", insight_id=insight_id, exc_info=True)
 
 
-def invalidate_state(team: Team, insight_id: int, profile: str) -> None:
+def invalidate_state(team: Team, insight_id: int, model_profile: str) -> None:
     """Make the next visit of the insight train. The row keeps its blob key, so that train step deletes the blob."""
-    AnomalyScoringState.objects.for_team(team.id).filter(insight_id=insight_id, profile=profile).update(series_keys=[])
+    AnomalyScoringState.objects.for_team(team.id).filter(insight_id=insight_id, profile=model_profile).update(
+        series_keys=[]
+    )
 
 
 def _from_row(row: AnomalyScoringState) -> TrainedState:

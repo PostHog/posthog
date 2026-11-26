@@ -3,6 +3,8 @@ import { useMemo, useState } from 'react'
 import { IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
 import { urls } from '~/scenes/urls'
@@ -13,9 +15,28 @@ import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic
 
 export const PROVIDER_SETTINGS_URL = urls.settings('project-ai-observability', 'ai-observability-byok')
 
-export function getModelPickerFooterActions(hasByokKeys: boolean, onAddKey: () => void): LemonMenuItem[] {
+/** Why the current user cannot add a provider key, or null when they can. */
+export function useAddKeyDisabledReason(): string | null {
+    const restrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    return restrictionReason ? 'Only project admins can add API keys. Ask a project admin to add one.' : null
+}
+
+export function getModelPickerFooterActions(
+    hasByokKeys: boolean,
+    onAddKey: () => void,
+    addKeyDisabledReason: string | null
+): LemonMenuItem[] {
     return [
-        { icon: <IconPlus />, label: 'Add API key', onClick: onAddKey, 'data-attr': 'model-picker-add-api-key' },
+        {
+            icon: <IconPlus />,
+            label: 'Add API key',
+            onClick: onAddKey,
+            disabledReason: addKeyDisabledReason,
+            'data-attr': 'model-picker-add-api-key',
+        },
         ...(hasByokKeys
             ? [
                   {

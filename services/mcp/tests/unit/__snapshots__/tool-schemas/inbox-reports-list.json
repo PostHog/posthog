@@ -18,6 +18,10 @@
             "description": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
             "type": "string"
         },
+        "connected": {
+            "description": "Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me.",
+            "type": "string"
+        },
         "count_only": {
             "default": false,
             "description": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
@@ -62,6 +66,7 @@
             "type": "boolean"
         },
         "limit": {
+            "default": 10,
             "description": "Number of results to return per page.",
             "maximum": 1000,
             "type": "number"
@@ -77,6 +82,14 @@
         "ordering": {
             "description": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_open, ranking_action, ranking_fix. Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by the served ranking model's probability for that public outcome, with unscored reports last in either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking fields need staff or the inbox model sort rollout: other users get a 400.",
             "type": "string"
+        },
+        "plan": {
+            "description": "Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.",
+            "type": "string"
+        },
+        "pr_targets": {
+            "description": "Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.",
+            "type": "boolean"
         },
         "priority": {
             "description": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
@@ -111,6 +124,7 @@
             "type": "string"
         },
         "sort": {
+            "default": "recommended",
             "description": "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended and personal put the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in priority order. With scope=teammate they read the teammate's stored ranking, else yours. They only read the stored ranking and never start a build. With no stored personal ranking, or a teammate outside the organization, they give the priority order. The response's ranker field names the order used, and its ranking_pill field says whether to show score pills.",
             "type": "string"
         },
@@ -147,7 +161,7 @@
             "type": "string"
         },
         "unclaimed": {
-            "description": "Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.",
+            "description": "Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.",
             "type": "boolean"
         },
         "unread": {
@@ -159,7 +173,7 @@
             "type": "boolean"
         },
         "view": {
-            "description": "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.",
+            "description": "Inbox view. `for_you` is the user's own inbox: the open, actionable reports that wait for their input, that they claimed, or that name them as a suggested reviewer. Unless you are a scout run, pass `for_you` when the user does not ask for the whole project. The other views are `actionable`, `needs_input`, `needs_decision` (also every failed report), `monitoring` (the fix shipped and its outcome is being verified), `monitoring_recent` (also the resolved and closed reports whose Monitoring ended in the last 14 days), `resolved`, `closed`, `dismissed` (a person or agent dismissed it, it was merged, or its pull request closed without merging), `held_back` (the safety or actionability judge suppressed it before anyone saw it), `not_actionable`, and `all` (suppressed reports included). Each view applies the matching status, actionability, and pull request filters. Without `view`, the list holds every report in the project except the suppressed ones.",
             "type": "string"
         }
     },

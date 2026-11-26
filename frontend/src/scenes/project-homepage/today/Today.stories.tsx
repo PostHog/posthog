@@ -323,6 +323,14 @@ const DASHBOARDS = [
     { id: 13, name: 'Billing and revenue', last_viewed_at: null, created_at: '2026-09-24T09:00:00Z' },
 ].map((dashboard) => ({ description: '', pinned: false, deleted: false, tags: [], created_by: USER, ...dashboard }))
 
+// MOCK_DEFAULT_TEAM points primary_dashboard at id 1
+const PRIMARY_DASHBOARD = {
+    ...DASHBOARDS[0],
+    id: 1,
+    description: '**Signups**, activation and revenue for the `self-serve` funnel. Reviewed every Monday.',
+    tiles: [],
+}
+
 const REPORTS = [
     makeReport({
         id: 'report-1',
@@ -991,6 +999,7 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, count: NOTEBOOKS.length },
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
+                '/api/projects/:team_id/dashboards/1/': PRIMARY_DASHBOARD,
             },
             post: {
                 '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
@@ -1148,6 +1157,36 @@ export const HomeWithSampleReports: Story = {
 
 export const SampleReportPage: Story = {
     parameters: { pageUrl: `${urls.todayReport('sample-pr')}?sample=1` },
+}
+
+const PERSONAL_REASONS: Record<string, string> = {
+    'report-1': 'You fixed the last two sign-up validation bugs.',
+    'report-3':
+        'You changed the summarize prompt last week, and the cost rose right after that change, so you can best check whether the new prompt causes it.',
+}
+
+export const HomeWithPersonalRanking: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const limit = Number(new URL(request.url).searchParams.get('limit') ?? ALL_REPORTS.length)
+                    return [
+                        200,
+                        {
+                            results: ALL_REPORTS.slice(0, limit).map((report) => ({
+                                ...report,
+                                personal_tier: PERSONAL_REASONS[report.id] ? 'top' : null,
+                                personal_reason: PERSONAL_REASONS[report.id] ?? null,
+                            })),
+                            count: OPEN_REPORT_COUNT,
+                            ranker: 'personal',
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
 }
 
 export const HomeWithReportsOnly: Story = {
@@ -1412,6 +1451,140 @@ export const ProductsPaneProductCard: Story = {
         await userEvent.click(await within(canvasElement).findByLabelText('Products'))
         await userEvent.hover(await sidebarRow(canvasElement, 'Web analytics', 'today-tool'))
         await within(document.body).findByText('For example')
+    },
+}
+
+const railEntry = (
+    id: string,
+    folder: string,
+    name: string,
+    type: string,
+    ref: string,
+    href: string,
+    lastViewedAt?: string
+): Record<string, string> => ({
+    id,
+    path: `Unfiled/${folder}/${name}`,
+    type,
+    ref,
+    href,
+    created_at: '2026-08-01T10:00:00Z',
+    ...(lastViewedAt ? { last_viewed_at: lastViewedAt } : {}),
+})
+
+const RAIL_RECENTS = [
+    railEntry(
+        'rr-1',
+        'Insights',
+        'Checkout conversion by plan',
+        'insight',
+        'ins-1',
+        '/insights/ins-1',
+        '2026-09-28T18:10:00Z'
+    ),
+    railEntry(
+        'rr-2',
+        'Feature flags',
+        'new-onboarding-flow',
+        'feature_flag',
+        '41',
+        '/feature-flags/41',
+        '2026-09-28T17:55:00Z'
+    ),
+    railEntry('rr-3', 'Persons', 'maria.lopez@example.com', 'person', 'p-1', '/person/p-1', '2026-09-28T17:30:00Z'),
+    railEntry(
+        'rr-4',
+        'Dashboards',
+        'Weekly business review',
+        'dashboard',
+        '21',
+        '/dashboard/21',
+        '2026-09-28T16:45:00Z'
+    ),
+    railEntry(
+        'rr-5',
+        'Experiments',
+        'Pricing page layout',
+        'experiment',
+        '8',
+        '/experiments/8',
+        '2026-09-28T15:20:00Z'
+    ),
+    railEntry('rr-6', 'Cohorts', 'Trial users in week one', 'cohort', '5', '/cohorts/5', '2026-09-28T14:05:00Z'),
+    railEntry(
+        'rr-7',
+        'Notebooks',
+        'Q3 activation review',
+        'notebook',
+        'nb-1',
+        '/notebooks/nb-1',
+        '2026-09-28T11:40:00Z'
+    ),
+    railEntry(
+        'rr-8',
+        'Early access',
+        'Session summaries beta',
+        'early_access_feature',
+        'eaf-1',
+        '/early_access_features/eaf-1',
+        '2026-09-27T17:15:00Z'
+    ),
+    railEntry('rr-9', 'Groups', 'Northwind Traders', 'group', 'g-1', '/groups/0/g-1', '2026-09-27T10:30:00Z'),
+    railEntry(
+        'rr-10',
+        'Insights',
+        'Retention by signup source',
+        'insight',
+        'ins-2',
+        '/insights/ins-2',
+        '2026-09-26T16:00:00Z'
+    ),
+]
+
+const RAIL_PINS = [
+    { id: 'rp-1', path: 'Product analytics', type: 'insight', href: '/insights' },
+    { id: 'rp-2', path: 'Session replay', type: 'session_recording_playlist', href: '/replay/home' },
+    { id: 'rp-3', path: 'Feature flags', type: 'feature_flag', href: '/feature-flags' },
+    railEntry('rp-4', 'Insights', 'Daily active users', 'insight', 'ins-3', '/insights/ins-3'),
+    railEntry('rp-5', 'Dashboards', 'Growth overview', 'dashboard', '12', '/dashboard/12'),
+    railEntry('rp-6', 'Insights', 'Signup to paid funnel', 'insight', 'ins-4', '/insights/ins-4'),
+    railEntry('rp-7', 'Feature flags', 'checkout-v2', 'feature_flag', '42', '/feature-flags/42'),
+    railEntry('rp-8', 'Experiments', 'Onboarding checklist', 'experiment', '9', '/experiments/9'),
+    railEntry('rp-9', 'Cohorts', 'Accounts at churn risk', 'cohort', '6', '/cohorts/6'),
+]
+
+// Hovering a rail item opens a card with its newest recents and its pins. Monitor has none, so it opens no card.
+export const RailHoverCard: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/file_system_shortcut/': {
+                    count: RAIL_PINS.length,
+                    next: null,
+                    previous: null,
+                    results: RAIL_PINS,
+                },
+                '/api/environments/:team_id/file_system/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    if (params.get('order_by') === '-last_viewed_at') {
+                        return [200, { results: RAIL_RECENTS, count: RAIL_RECENTS.length }]
+                    }
+                    return [200, { results: LIBRARY, count: LIBRARY.length }]
+                },
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+            FEATURE_FLAGS.RELEASES_AREA,
+            FEATURE_FLAGS.MONITOR_AREA,
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.hover(await within(canvasElement).findByLabelText('Analytics'))
+        await within(document.body).findByText('Daily active users')
     },
 }
 
@@ -1720,4 +1893,61 @@ export const HomeWhileSelfDrivingReviews: Story = {
             },
         }),
     ],
+}
+
+export const HomeWithSelfDrivingNotSetUp: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PRODUCT_AUTONOMY],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/scout/configs/': [],
+            },
+        }),
+    ],
+}
+
+const PHONE_PARAMETERS = {
+    featureFlags: [
+        FEATURE_FLAGS.TODAY_RAIL_NAV,
+        FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+        FEATURE_FLAGS.RELEASES_AREA,
+        FEATURE_FLAGS.MONITOR_AREA,
+        FEATURE_FLAGS.DATA_AREA,
+    ],
+    testOptions: { viewport: { width: 390, height: 844 } },
+}
+
+async function openPhoneMoreSheet(canvasElement: HTMLElement): Promise<HTMLElement> {
+    const more = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>('[data-attr="help-menu-button"]')
+        if (!button) {
+            throw new Error('More tab not rendered yet')
+        }
+        return button
+    })
+    await userEvent.click(more)
+    return await within(document.body).findByText('Edit tabs')
+}
+
+export const PhoneTabBar: Story = { decorators: [keepNumbers([])], parameters: PHONE_PARAMETERS }
+
+export const PhoneMoreSheet: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await openPhoneMoreSheet(canvasElement)
+    },
+}
+
+export const PhoneEditTabs: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await openPhoneMoreSheet(canvasElement))
+        await within(document.body).findByText(/Choose up to/)
+    },
 }

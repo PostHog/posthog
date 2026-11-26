@@ -7,6 +7,7 @@ from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
     RESOLUTION_SOURCE_LINEAGE,
     RESOLUTION_SOURCE_MATERIALIZATION,
+    ResolutionTimeoutError,
     bounded_resolver_factory_for_view,
     get_parents_from_model_query,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "LabelTreeField",
     "ResolutionCycleError",
     "ResolutionDepthExceededError",
+    "ResolutionTimeoutError",
     "bounded_resolver_factory_for_view",
     "get_parents_from_model_query",
 ]
