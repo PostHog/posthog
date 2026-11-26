@@ -99,6 +99,13 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("placeholder_outside_from", "select * from events where {filters}", set()),
             ("variable_placeholder", "select {variables.x} from events", set()),
             ("computed_placeholder", "select {jsonParse('1')} from events", None),
+            ("hogqlx_query_tag", "select * from <HogQLQuery query='select count() from posthog.trace_spans' />", None),
+            ("hogqlx_rendering_tag", "select <Sparkline data={[1, 2]} /> from events", set()),
+            (
+                "table_function_argument",
+                "select * from numbers((select count() from posthog.trace_spans), 1)",
+                {"tracing"},
+            ),
             (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",
