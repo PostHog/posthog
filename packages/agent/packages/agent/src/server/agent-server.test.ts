@@ -53,6 +53,7 @@ import {
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { StoredEntry, StoredNotification, TaskRun } from "../types";
+import { Logger } from "../utils/logger";
 import {
   AgentServer,
   codexProcessCwd,
@@ -66,7 +67,10 @@ import {
 } from "./agent-server";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelayError } from "./credential-relay";
-import type { EventStreamLoss } from "./event-stream-sender";
+import {
+  type EventStreamLoss,
+  TaskRunEventStreamSender,
+} from "./event-stream-sender";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -4021,6 +4025,40 @@ describe("AgentServer HTTP Mode", () => {
       ).toBe("resolved");
       await expect(pending).resolves.toEqual({
         outcome: { outcome: "selected", optionId: "allow_once" },
+      });
+    });
+
+    it("refuses the hidden allow option of an oversized permission request", async () => {
+      const testServer = exposeCloudClient(createServer());
+      testServer.eventStreamSender = new TaskRunEventStreamSender({
+        apiUrl: "http://localhost:8000",
+        projectId: 1,
+        taskId: "task-1",
+        runId: "run-1",
+        token: "ingest-token",
+        logger: new Logger({ debug: false }),
+        maxEventBytes: 1000,
+      });
+      const pending = testServer.relayPermissionToClient({
+        options: [
+          { optionId: "allow_once", kind: "allow_once" },
+          { optionId: "reject_once", kind: "reject_once" },
+        ],
+        toolCall: {
+          toolCallId: "tool-1",
+          rawInput: { diff: "x".repeat(2000) },
+        },
+      });
+      const requestId = [...testServer.pendingPermissions.keys()][0] as string;
+
+      expect(testServer.resolvePermission(requestId, "allow_once")).toBe(
+        "invalid_option",
+      );
+      expect(testServer.resolvePermission(requestId, "reject_once")).toBe(
+        "resolved",
+      );
+      await expect(pending).resolves.toEqual({
+        outcome: { outcome: "selected", optionId: "reject_once" },
       });
     });
 

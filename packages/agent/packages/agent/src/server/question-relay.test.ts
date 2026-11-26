@@ -349,7 +349,12 @@ describe("Question relay", () => {
         const appendRawLine = vi.fn();
         const enqueue = vi.fn();
         const srv = server as TestableAgentServer & {
-          eventStreamSender: { enqueue: typeof enqueue } | null;
+          eventStreamSender: {
+            enqueue: typeof enqueue;
+            rejectOnlyIfOversized: (
+              event: Record<string, unknown>,
+            ) => Record<string, unknown>;
+          } | null;
           resolvePermission: (
             requestId: string,
             optionId: string,
@@ -363,7 +368,10 @@ describe("Question relay", () => {
           hasDesktopConnected: false,
           logWriter: { appendRawLine },
         };
-        srv.eventStreamSender = { enqueue };
+        srv.eventStreamSender = {
+          enqueue,
+          rejectOnlyIfOversized: (event) => event,
+        };
 
         const client = srv.createCloudClient(TEST_PAYLOAD);
         const pending = client.requestPermission({

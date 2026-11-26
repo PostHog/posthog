@@ -239,6 +239,15 @@ export class TaskRunEventStreamSender {
     return this.bufferedEvents.length;
   }
 
+  rejectOnlyIfOversized(
+    event: Record<string, unknown>,
+  ): Record<string, unknown> {
+    if (this.envelopeBytes(event) <= this.maxEventBytes) {
+      return event;
+    }
+    return rejectOnlyPermissionRequest(event) ?? event;
+  }
+
   enqueue(event: Record<string, unknown>): void {
     if (this.stopped) return;
 
@@ -874,15 +883,6 @@ export class TaskRunEventStreamSender {
   private truncateOversizedEvent(
     event: Record<string, unknown>,
   ): Record<string, unknown> | null {
-    const rejectOnlyEvent =
-      event.type === "permission_request"
-        ? rejectOnlyPermissionRequest(event)
-        : null;
-    if (rejectOnlyEvent) {
-      return this.envelopeBytes(rejectOnlyEvent) <= this.maxEventBytes
-        ? rejectOnlyEvent
-        : null;
-    }
     const envelopeOverheadBytes = this.envelopeBytes({}) - "{}".length;
     for (
       let maxStringChars = Math.floor(this.maxEventBytes / 2);

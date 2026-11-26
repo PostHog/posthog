@@ -578,11 +578,10 @@ describe("TaskRunEventStreamSender", () => {
     expect(losses).toEqual([{ reason: "truncated", count: 1 }]);
   });
 
-  it("offers only rejection for a permission request too large to show", async () => {
-    const requestBodies = stubRecordingFetch();
+  it("offers only rejection for a permission request too large to show", () => {
     const sender = createSender({ maxEventBytes: 1000 });
 
-    sender.enqueue({
+    const request = sender.rejectOnlyIfOversized({
       type: "permission_request",
       requestId: "request-1",
       options: [
@@ -608,9 +607,8 @@ describe("TaskRunEventStreamSender", () => {
         ],
       },
     });
-    await sender.stop();
 
-    expect(parseLines(requestBodies[1])[0].event).toEqual({
+    expect(request).toEqual({
       type: "permission_request",
       requestId: "request-1",
       options: [{ kind: "reject_once", optionId: "reject", name: "Reject" }],
@@ -632,20 +630,16 @@ describe("TaskRunEventStreamSender", () => {
     });
   });
 
-  it("keeps the answers of an oversized request that has no reject option", async () => {
-    const requestBodies = stubRecordingFetch();
+  it("keeps an oversized permission request that has no reject option", () => {
     const sender = createSender({ maxEventBytes: 1000 });
-    const options = [{ kind: "allow_once", optionId: "yes", name: "Yes" }];
-
-    sender.enqueue({
+    const request = {
       type: "permission_request",
       requestId: "request-1",
-      options,
+      options: [{ kind: "allow_once", optionId: "yes", name: "Yes" }],
       toolCall: { toolCallId: "tool-1", title: "q".repeat(2000) },
-    });
-    await sender.stop();
+    };
 
-    expect(parseLines(requestBodies[1])[0].event).toMatchObject({ options });
+    expect(sender.rejectOnlyIfOversized(request)).toBe(request);
   });
 
   it.each([

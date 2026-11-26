@@ -6106,21 +6106,26 @@ export class AgentServer {
   }> {
     const requestId = crypto.randomUUID();
     const toolCallId = params.toolCall?.toolCallId as string | undefined;
-
-    this.broadcastEvent({
+    const fullRequest = {
       type: "permission_request",
       requestId,
       options: params.options,
       toolCall: params.toolCall,
-    });
+    };
+    const request =
+      this.eventStreamSender?.rejectOnlyIfOversized(fullRequest) ?? fullRequest;
+    const options = request.options as typeof params.options;
+    const rejectOnly = request !== fullRequest;
+
+    this.broadcastEvent(request);
 
     // Persist the request so a client that connects after the live event can
     // recover the requestId from the log and re-surface the prompt.
     this.persistPermissionLifecycle(POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST, {
       requestId,
       toolCallId,
-      options: params.options,
-      toolCall: params.toolCall,
+      options,
+      toolCall: request.toolCall,
     });
 
     const toolCallMeta = params.toolCall?._meta as
@@ -6130,8 +6135,9 @@ export class AgentServer {
       this.pendingPermissions.set(requestId, {
         resolve,
         toolCallId,
-        optionIds: new Set(params.options.map((option) => option.optionId)),
-        validateOptionIds: toolCallMeta?.codeToolKind !== "question",
+        optionIds: new Set(options.map((option) => option.optionId)),
+        validateOptionIds:
+          rejectOnly || toolCallMeta?.codeToolKind !== "question",
       });
     });
   }
