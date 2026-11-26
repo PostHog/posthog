@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
 import { QuillSearchPerformanceDetail } from './QuillSearchPerformanceDetail'
 import { SEARCH_PLATFORM_LABELS } from './searchPerformance'
@@ -67,12 +68,10 @@ export function SearchPerformanceDetail(): JSX.Element {
             ? ' Ad keywords can match different searches; these organic results are for the same text.'
             : ''
     }`
-    const connectSearchConsoleUrl = urls.dataWarehouseSourceNew(
+    const connectSearchConsoleUrl = marketingSourceConnectUrl(
         'GoogleSearchConsole',
-        `${urls.marketingAnalyticsApp()}?tab=search-performance`,
-        'Marketing analytics',
-        undefined,
-        'marketing_analytics_search_detail'
+        'marketing_analytics_search_detail',
+        `${urls.marketingAnalyticsApp()}?tab=search-performance`
     )
 
     if (todayRailNav) {

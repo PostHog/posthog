@@ -15,6 +15,7 @@ import { nativeSourceDisplayLabel } from 'scenes/web-analytics/tabs/marketing-an
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { QuillSourceSetupPanel } from './QuillSourceSetupPanel'
 import { expandedSourceTypes, sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
 
@@ -27,9 +28,6 @@ const needsAction = (status: SourceConnectionStatus): boolean =>
 
 const manageSourceUrl = (connection: { id: string; manageUrl?: string }): string =>
     connection.manageUrl ?? urls.dataWarehouseSource(`managed-${connection.id}`)
-
-const connectSourceUrl = (sourceType: string): string =>
-    urls.dataWarehouseSourceNew(sourceType, urls.marketingAnalyticsApp(), 'Marketing analytics')
 
 export interface SourceSetupPanelProps {
     state: 'checking' | 'scanning' | 'suggestions' | 'empty' | 'error' | 'waiting' | 'dismissed'
@@ -174,7 +172,7 @@ export function SourceSetupPanel({
                         suggestion.apply?.op === 'open_source_wizard' &&
                         typeof suggestion.apply.kind === 'string' &&
                         suggestion.apply.kind.length > 0
-                            ? connectSourceUrl(suggestion.apply.kind)
+                            ? marketingSourceConnectUrl(suggestion.apply.kind, 'marketing_analytics_source_setup_panel')
                             : null,
                 }))}
                 onDismiss={onDismiss}
@@ -331,10 +329,12 @@ export function SourceSetupPanel({
                                             typeof suggestion.apply.kind === 'string' &&
                                             suggestion.apply.kind.length > 0 && (
                                                 <LemonButton
-                                                    type="primary"
+                                                    type="secondary"
                                                     size="small"
-                                                    to={connectSourceUrl(suggestion.apply.kind)}
-                                                    targetBlank
+                                                    to={marketingSourceConnectUrl(
+                                                        suggestion.apply.kind,
+                                                        'marketing_analytics_source_setup_panel'
+                                                    )}
                                                     data-attr="marketing-onboarding-connect-source"
                                                 >
                                                     Connect

@@ -11,17 +11,16 @@ import { urls } from 'scenes/urls'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { QuillSearchNotice } from './QuillSearchNotice'
 import { SEARCH_PLATFORM_LABELS, SearchPlatform } from './searchPerformance'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
 
 const connectUrl = (source: SearchPlatform): string =>
-    urls.dataWarehouseSourceNew(
+    marketingSourceConnectUrl(
         source,
-        `${urls.marketingAnalyticsApp()}?tab=search-performance`,
-        'Marketing analytics',
-        undefined,
-        'marketing_analytics_search_suggestions'
+        'marketing_analytics_search_suggestions',
+        `${urls.marketingAnalyticsApp()}?tab=search-performance`
     )
 
 const suggestionMessage = (source: SearchPlatform): string =>

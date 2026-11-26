@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
-import { IconExternal } from '@posthog/icons'
 import {
     Button,
     Card,
@@ -105,10 +104,9 @@ export function QuillSearchConsoleSource({
                                         variant="outline"
                                         disabledReason={restrictedReason}
                                         nativeButton={false}
-                                        render={<LinkPrimitive to={source.connectUrl} target="_blank" />}
+                                        render={<LinkPrimitive to={source.connectUrl} />}
                                     >
                                         Connect
-                                        <IconExternal />
                                     </Button>
                                 </div>
                             ))}

@@ -9,12 +9,12 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { QuillSearchConsoleSource } from './QuillSearchConsoleSource'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
@@ -27,7 +27,7 @@ const SEARCH_SOURCES = [
 const SEARCH_SOURCE_TYPES = SEARCH_SOURCES.map((source) => source.type)
 
 const connectUrl = (sourceType: string): string =>
-    urls.dataWarehouseSourceNew(sourceType, urls.marketingAnalyticsApp(), 'Marketing analytics')
+    marketingSourceConnectUrl(sourceType, 'marketing_analytics_search_console_card')
 
 export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -126,7 +126,6 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
                                 size="small"
                                 disabledReason={restrictedReason}
                                 to={connectUrl(source.type)}
-                                targetBlank
                             >
                                 Connect
                             </LemonButton>

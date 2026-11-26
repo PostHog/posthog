@@ -248,13 +248,12 @@ export function QuillSourceSetupPanel({
                                     <div className="flex flex-wrap items-center gap-2">
                                         {suggestion.connectUrl && (
                                             <Button
-                                                variant="primary"
+                                                variant="outline"
                                                 nativeButton={false}
-                                                render={<LinkPrimitive to={suggestion.connectUrl} target="_blank" />}
+                                                render={<LinkPrimitive to={suggestion.connectUrl} />}
                                                 data-attr="marketing-onboarding-connect-source"
                                             >
                                                 Connect
-                                                <IconExternal />
                                             </Button>
                                         )}
                                         {onDismiss && (

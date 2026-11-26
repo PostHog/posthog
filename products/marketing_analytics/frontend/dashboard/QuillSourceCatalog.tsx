@@ -38,7 +38,7 @@ export function QuillSourceCatalog({
     groups: {
         title: string
         tooltip?: string
-        sources: { id: string; label: string; isConnected: boolean }[]
+        sources: { id: string; label: string; isConnected: boolean; connectUrl: string }[]
     }[]
     onSelect: (sourceId: string) => void
     onBack?: () => void
@@ -102,13 +102,14 @@ export function QuillSourceCatalog({
                                 <Button
                                     key={source.id}
                                     variant="outline"
+                                    nativeButton={false}
+                                    render={<LinkPrimitive to={source.connectUrl} />}
                                     onClick={() => onSelect(source.id)}
                                     data-attr="marketing-manual-connect-source"
                                 >
                                     <SourceIcon type={source.id} size="small" disableTooltip />
                                     {source.label}
                                     {source.isConnected && <IconCheckCircle className="text-success-foreground" />}
-                                    <IconExternal className="size-3 text-muted-foreground" />
                                 </Button>
                             ))}
                         </div>

@@ -5,7 +5,7 @@ import { Button } from '@posthog/quill'
 import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { recommendationsConnectGoogleAdsUrl } from './RecommendationsConnectGoogleAdsButton'
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { recommendationsLogic } from './recommendationsLogic'
 
 export function QuillRecommendationsConnectGoogleAdsButton({
@@ -20,7 +20,9 @@ export function QuillRecommendationsConnectGoogleAdsButton({
     return (
         <Button
             variant={quillButtonVariant(type)}
-            render={<LinkPrimitive to={recommendationsConnectGoogleAdsUrl()} />}
+            render={
+                <LinkPrimitive to={marketingSourceConnectUrl('GoogleAds', 'marketing_analytics_recommendations')} />
+            }
             data-attr="marketing-recommendations-connect-google-ads"
             onClick={() => reportRecommendationsActionClicked('connect_google_ads', location)}
         >
