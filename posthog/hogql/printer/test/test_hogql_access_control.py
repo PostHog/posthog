@@ -936,6 +936,118 @@ class TestDeniedTableError(BaseTest):
                 # Caches and async statuses check later readers against this.
                 assert read_scopes == ({"tracing"} if "trace_spans" in view_sql else set())
 
+    @parameterized.expand(
+        [
+            ("upstream_copy_built_before_its_edit", True, [("full_refresh", 10, ["tracing"], "upstream")], True),
+            (
+                "incremental_run_after_upstream_edit",
+                False,
+                [("full_refresh", 10, ["tracing"]), ("incremental", 4, [])],
+                True,
+            ),
+            (
+                "full_refresh_after_upstream_edit",
+                False,
+                [("full_refresh", 10, ["tracing"]), ("full_refresh", 4, [])],
+                False,
+            ),
+            ("upstream_renamed_after_build", False, [("full_refresh", 4, ["tracing"])], True),
+            ("upstream_removed_after_build", False, [("full_refresh", 4, ["tracing"])], True),
+            ("build_before_scopes_were_recorded", False, [("full_refresh", 4, None)], False),
+        ]
+    )
+    def test_materialized_view_is_gated_on_what_its_builds_read(
+        self,
+        name: str,
+        upstream_materialized: bool,
+        jobs: list[tuple],
+        denied: bool,
+    ) -> None:
+        from posthog.hogql.database.database import read_posthog_table_scopes
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.query import create_default_modifiers_for_team
+        from posthog.hogql.resolver import resolve_types
+
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.access_control import AccessControl
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="tracing", access_level="none")
+        now = datetime.now(UTC)
+
+        def materialized(view_name: str, sql: str, edited_at: datetime | None = None) -> DataWarehouseSavedQuery:
+            return DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=view_name,
+                query={"query": sql},
+                columns={"name": "String"},
+                table=DataWarehouseTable.objects.create(
+                    team=self.team,
+                    name=f"{view_name}_backing",
+                    format="Parquet",
+                    url_pattern=f"https://bucket.example.com/{view_name}/*",
+                    columns={"name": "String"},
+                ),
+                is_materialized=True,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
+                last_run_at=now - timedelta(minutes=1),
+                query_updated_at=edited_at,
+            )
+
+        # Every upstream view no longer reads spans, and was last edited before the downstream view's latest build.
+        upstream_sql = "SELECT 'GET /' AS name"
+        upstream = None
+        if upstream_materialized:
+            upstream = materialized("upstream", upstream_sql, edited_at=now - timedelta(minutes=8))
+        elif name == "upstream_renamed_after_build":
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="renamed_upstream", query={"query": upstream_sql}, columns={"name": "String"}
+            )
+        elif name != "upstream_removed_after_build":
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="upstream",
+                query={"query": upstream_sql},
+                columns={"name": "String"},
+                query_updated_at=now - timedelta(minutes=8),
+            )
+        downstream = materialized("slow_spans", "SELECT name FROM upstream")
+        DataWarehouseSavedQuery.objects.filter(team=self.team).update(created_at=now - timedelta(minutes=20))
+        for run_mode, minutes_ago, read_scopes, *built_view in jobs:
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=upstream if built_view else downstream,
+                status=DataModelingJob.Status.COMPLETED,
+                run_mode=run_mode,
+                read_scopes=read_scopes,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=minutes_ago))
+        if upstream_materialized:
+            job = DataModelingJob.objects.create(
+                team=self.team, saved_query=downstream, status=DataModelingJob.Status.COMPLETED, run_mode="full_refresh"
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=4))
+        modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
+        database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
+        context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
+
+        with read_posthog_table_scopes() as read_scopes:
+            if denied:
+                with self.assertRaises(TableAccessDeniedError):
+                    resolve_types(parse_select("SELECT name FROM slow_spans"), context, dialect="clickhouse")
+            else:
+                resolve_types(parse_select("SELECT name FROM slow_spans"), context, dialect="clickhouse")
+                assert read_scopes == set()
+
     @parameterized.expand([("name", True), ("row_count", False)])
     def test_table_rename_after_build_marks_copies_stale(self, field: str, stale: bool) -> None:
         from posthog.hogql.database.database import _virtual_fields_changed_since

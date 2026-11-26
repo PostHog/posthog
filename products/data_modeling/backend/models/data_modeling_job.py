@@ -65,6 +65,11 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     usage_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When usage was last measured. Null means unmeasured."
     )
+    read_scopes = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Access-controlled resources whose tables this run's query read. Null means not recorded.",
+    )
 
     class Meta:
         db_table = "posthog_datamodelingjob"
