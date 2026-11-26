@@ -150052,6 +150052,11 @@ export namespace Schemas {
      */
     basic?: boolean;
     /**
+     * List only templates created by the user with this ID.
+     * @nullable
+     */
+    created_by?: number | null;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -150059,6 +150064,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * List only templates whose name, description or a tag contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string;
+    /**
+     * List only templates that carry at least one of these tags. Repeat the parameter for each tag.
+     * @maxItems 50
+     * @items.maxLength 255
+     */
+    tags?: string[];
     /**
      * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
      * @nullable
