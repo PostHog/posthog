@@ -18,6 +18,7 @@ from django.conf import settings
 from django.db import connection
 
 import structlog
+from celery import current_app
 
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource, MetricsQuery
 
@@ -28,7 +29,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.event_usage import AnalyticsProps
+from posthog.event_usage import AnalyticsProps, report_team_action
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
 from posthog.scopes.catalog import APIScopeObject
@@ -128,6 +129,16 @@ from products.metrics.backend.precompute.promql_plan import (
     read_promql_entries,
     read_raw_tail_entries,
 )
+from products.metrics.backend.precompute.shadow import (
+    BUILDER,
+    PROMQL,
+    SHADOW_CHECK_QUEUE,
+    SHADOW_CHECK_TASK,
+    SHADOW_EVENT,
+    builder_payload,
+    builder_request,
+    compare,
+)
 from products.metrics.backend.precompute.store import TooManySeriesError, TooManyStoredPointsError, merge_entries
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range, series_from_results
@@ -144,7 +155,8 @@ from products.metrics.backend.variables import from_dashboard, from_query, with_
 
 logger = structlog.get_logger(__name__)
 
-# The share of precomputed tile queries that also run raw, to measure how far the two answers are apart.
+# The share of precomputed tile queries that a background task also runs raw, to measure how far the two answers
+# are apart.
 PRECOMPUTE_SHADOW_CHECK_RATE = 0.1
 _PRECOMPUTE_OFF = "precomputing is off for this project"
 
@@ -501,7 +513,7 @@ def run_precomputed_metric_query(
 
 
 def run_planned_metric_query(
-    *, team: Team, request: MetricQueryRequest, record_use: bool = True
+    *, team: Team, request: MetricQueryRequest, record_use: bool = True, check_shadow: bool = True
 ) -> MetricQueryResult | MetricQueryProvenance:
     """`run_precomputed_metric_query` when a precomputed metric covers at least one clause. Otherwise it runs
     nothing and returns the raw provenance, with why each clause has no plan, so the caller picks the raw path.
@@ -532,12 +544,8 @@ def run_planned_metric_query(
         precomputed_until=min(plan.cut for plan in plans),
         reasons=tuple(reasons),
     )
-    shadow = None
-    if random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
-        shadow = _shadow_check(
-            team, provenance, series, lambda: _run_metric_query(team, request, {}, record_query=False)
-        )
-    return MetricQueryResult(series=series, provenance=provenance, shadow=shadow)
+    scheduled = check_shadow and _defer_shadow_check(team, BUILDER, builder_payload(request))
+    return MetricQueryResult(series=series, provenance=provenance, shadow_scheduled=scheduled)
 
 
 def run_precomputed_promql_query(
@@ -548,6 +556,7 @@ def run_precomputed_promql_query(
     date_to: dt.datetime,
     interval: str | None,
     record_use: bool = True,
+    check_shadow: bool = True,
 ) -> MetricQueryResult:
     """`run_promql_range` for a dashboard-v2 tile: a planned query reads its stored buckets and only the newer
     buckets raw. The first long-range tile that needs a precomputed metric creates it and runs raw meanwhile."""
@@ -580,50 +589,75 @@ def run_precomputed_promql_query(
         mode=MetricQueryProvenanceMode.MIXED if plan.cut < plan.last_step else MetricQueryProvenanceMode.PRECOMPUTED,
         precomputed_until=plan.cut,
     )
-    shadow = None
-    if random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
-        shadow = _shadow_check(team, provenance, series, lambda: raw(record_query=False))
-    return MetricQueryResult(series=series, provenance=provenance, shadow=shadow)
+    scheduled = check_shadow and _defer_shadow_check(
+        team,
+        PROMQL,
+        {
+            "promql": promql,
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "interval": interval,
+        },
+    )
+    return MetricQueryResult(series=series, provenance=provenance, shadow_scheduled=scheduled)
 
 
-def _shadow_check(
-    team: Team,
-    provenance: MetricQueryProvenance,
-    series: list[MetricSeries],
-    run_raw: Callable[[], list[MetricSeries]],
-) -> MetricQueryShadowCheck:
-    """Run the query raw as well and measure how far the precomputed answer is from it."""
+def _defer_shadow_check(team: Team, kind: str, payload: dict[str, Any]) -> bool:
+    """Queue a sampled tile's shadow check. The viewer doesn't wait for it, and a queue failure never fails the tile."""
+    if random.random() >= PRECOMPUTE_SHADOW_CHECK_RATE:
+        return False
     try:
-        raw = run_raw()
+        current_app.send_task(SHADOW_CHECK_TASK, args=[team.pk, kind, payload], queue=SHADOW_CHECK_QUEUE)
+    except Exception:
+        logger.exception("metrics_precompute_shadow_check_not_queued", team_id=team.pk)
+        return False
+    return True
+
+
+def run_shadow_check(*, team_id: int, kind: str, payload: dict[str, Any]) -> None:
+    """Run a queued shadow check: the tile's precomputed answer against the same query run raw, reported as an event."""
+    team = Team.objects.filter(pk=team_id).first()
+    if team is None:
+        return
+    if kind == BUILDER:
+        request = builder_request(payload)
+        planned = run_planned_metric_query(team=team, request=request, record_use=False, check_shadow=False)
+        if isinstance(planned, MetricQueryProvenance):
+            return
+        result = planned
+        run_raw = partial(_run_metric_query, team, request, {}, False)
+    else:
+        date_from, date_to = (
+            dt.datetime.fromisoformat(payload["date_from"]),
+            dt.datetime.fromisoformat(payload["date_to"]),
+        )
+        result = run_precomputed_promql_query(
+            team=team,
+            promql=payload["promql"],
+            date_from=date_from,
+            date_to=date_to,
+            interval=payload["interval"],
+            record_use=False,
+            check_shadow=False,
+        )
+        run_raw = partial(
+            run_promql_range, team, payload["promql"], date_from, date_to, payload["interval"], record_query=False
+        )
+    if result.provenance.mode == MetricQueryProvenanceMode.RAW:
+        return
+    try:
+        check = compare(result.series, run_raw())
     except Exception:
         logger.exception("metrics_precompute_shadow_check_failed", team_id=team.pk)
-        return MetricQueryShadowCheck(max_relative_difference=None, mismatched_points=None)
-
-    def points(result: list[MetricSeries]) -> dict[tuple, float | None]:
-        return {(s.clause, tuple(sorted(s.labels.items())), p.time): p.value for s in result for p in s.points}
-
-    precomputed_points, raw_points = points(series), points(raw)
-    differences = [
-        abs(value - raw_value) / max(abs(raw_value), 1e-12)
-        for key, raw_value in raw_points.items()
-        if raw_value is not None and (value := precomputed_points.get(key)) is not None
-    ]
-    check = MetricQueryShadowCheck(
-        max_relative_difference=max(differences, default=0.0),
-        mismatched_points=sum(
-            1
-            for key in precomputed_points.keys() | raw_points.keys()
-            if (precomputed_points.get(key) is None) != (raw_points.get(key) is None)
-        ),
-    )
-    logger.info(
-        "metrics_precompute_shadow_check",
-        team_id=team.pk,
-        mode=provenance.mode.value,
-        max_relative_difference=check.max_relative_difference,
-        mismatched_points=check.mismatched_points,
-    )
-    return check
+        check = MetricQueryShadowCheck(max_relative_difference=None, mismatched_points=None)
+    properties = {
+        "kind": kind,
+        "mode": result.provenance.mode.value,
+        "max_relative_difference": check.max_relative_difference,
+        "mismatched_points": check.mismatched_points,
+    }
+    logger.info("metrics_precompute_shadow_check", team_id=team.pk, **properties)
+    report_team_action(team, SHADOW_EVENT, properties)
 
 
 def _run_metric_query(

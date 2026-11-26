@@ -18,7 +18,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import SharingConfiguration, User
 from posthog.shared_link_user import SharedLinkUser
 
-from products.metrics.backend.facade.api import run_precomputed_promql_query
+from products.metrics.backend.facade.api import run_precomputed_promql_query, run_shadow_check
 from products.metrics.backend.facade.contracts import MetricSeries
 from products.metrics.backend.facade.enums import MetricQueryProvenanceMode, PrecomputedMetricKind
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
@@ -31,6 +31,7 @@ from products.metrics.backend.precompute.promql_plan import (
     histogram_quantile,
     parse_promql,
 )
+from products.metrics.backend.precompute.shadow import SHADOW_EVENT
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.tests._fake_snuffle import FakeSnuffle, fake_snuffle
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
@@ -415,16 +416,30 @@ class TestPrecomputedPromQL(APIBaseTest):
         assert result.provenance.reasons == ("too much stored data to load",)
         assert result.series == self._raw(promql, 7, "hour")
 
-    def test_a_sampled_tile_reports_its_shadow_check(self):
+    def test_a_sampled_tile_queues_a_shadow_check_that_measures_how_far_apart_the_answers_are(self):
         promql = "sum by (model) (sum_over_time(llm_cost_usd[$__interval]))"
         self._precompute(promql, 2, "hour")
 
-        with patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0):
-            result = self._run(promql, 2, "hour")
+        queried_before = len(self.snuffle.queries)
 
-        assert result.shadow is not None
-        assert result.shadow.max_relative_difference == pytest.approx(0.0, abs=EXACT)
-        assert result.shadow.mismatched_points == 0
+        with (
+            patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
+            patch("products.metrics.backend.facade.api.current_app.send_task") as queued,
+        ):
+            result = self._run(promql, 2, "hour")
+        assert result.shadow_scheduled
+        # The request reads only the raw tail. The whole-window raw run waits for the task.
+        assert len(self.snuffle.queries) - queried_before == 1, self.snuffle.queries[queried_before:]
+
+        team_id, kind, payload = queued.call_args.kwargs["args"]
+        with fake_snuffle(self.snuffle), patch("products.metrics.backend.facade.api.report_team_action") as report:
+            run_shadow_check(team_id=team_id, kind=kind, payload=payload)
+
+        event, properties = report.call_args.args[1:]
+        assert event == SHADOW_EVENT
+        assert (properties["kind"], properties["mode"]) == ("promql", result.provenance.mode.value)
+        assert properties["max_relative_difference"] == pytest.approx(0.0, abs=EXACT)
+        assert properties["mismatched_points"] == 0
 
 
 class TestDeltaHistogramLookup(ClickhouseTestMixin, APIBaseTest):
@@ -472,6 +487,7 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
             patch("products.metrics.backend.precompute.gate.posthog_feature_flag_enabled", return_value=True),
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
+            patch("products.metrics.backend.facade.api.current_app.send_task"),
             patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
         ):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
@@ -486,7 +502,7 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
             ("day", "precomputed", "derived"),
         ]
     )
-    def test_a_planned_tile_puts_its_provenance_and_shadow_check_on_query_executed(
+    def test_a_planned_tile_puts_its_provenance_and_queued_shadow_check_on_query_executed(
         self, interval: str, response_mode: str, event_provenance: str
     ):
         snuffle = _snuffle()
@@ -505,8 +521,6 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
         assert response.provenance is not None and response.provenance.mode == response_mode
         assert properties["precompute_provenance"] == event_provenance
         assert properties["precompute_shadow_checked"] is True
-        assert properties["precompute_shadow_max_rel_diff"] == pytest.approx(0.0, abs=EXACT)
-        assert properties["precompute_shadow_mismatched_points"] == 0
 
     def test_a_shared_link_viewer_runs_raw_and_neither_creates_nor_keeps_a_metric_in_use(self):
         viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))

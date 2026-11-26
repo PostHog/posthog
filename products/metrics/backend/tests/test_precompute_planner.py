@@ -14,13 +14,12 @@ from posthog.schema import CachedMetricsQueryResponse, MetricsQuery, MetricsQuer
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.metrics.backend.facade.api import run_metric_query, run_precomputed_metric_query
+from products.metrics.backend.facade.api import run_metric_query, run_precomputed_metric_query, run_shadow_check
 from products.metrics.backend.facade.contracts import (
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
     MetricQueryRequest,
-    MetricQueryShadowCheck,
     MetricSeries,
 )
 from products.metrics.backend.facade.enums import (
@@ -34,6 +33,7 @@ from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQ
 from products.metrics.backend.models import MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import get_or_create_precomputed_metric, leaf_for_clause
 from products.metrics.backend.precompute.fill import fill_precomputed_metrics
+from products.metrics.backend.precompute.shadow import SHADOW_EVENT
 from products.metrics.backend.tests._seeder import batched_seeding, seed_metric, truncate_metrics_tables
 
 NOW = dt.datetime(2026, 11, 12, 12, 7, tzinfo=dt.UTC)
@@ -75,6 +75,9 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
         gate = patch("products.metrics.backend.precompute.gate.posthog_feature_flag_enabled", return_value=True)
         gate.start()
         self.addCleanup(gate.stop)
+        no_shadow = patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 0.0)
+        no_shadow.start()
+        self.addCleanup(no_shadow.stop)
         with batched_seeding():
             self._seed()
 
@@ -190,14 +193,30 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
         assert result.provenance.precomputed_until is not None and result.provenance.precomputed_until < NOW
         self._assert_same_series(result.series, run_metric_query(team=self.team, request=request))
 
-    def test_a_sampled_tile_also_runs_raw_and_measures_how_far_apart_they_are(self):
+    def test_a_sampled_tile_queues_a_shadow_check_that_measures_how_far_apart_the_answers_are(self):
         clause = _counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE)
         self._precompute(clause)
 
-        with patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0):
+        with (
+            patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
+            patch("products.metrics.backend.facade.api.current_app.send_task") as queued,
+        ):
             result = run_precomputed_metric_query(team=self.team, request=self._request(clause, "hour"))
+        assert result.shadow_scheduled
 
-        assert result.shadow == MetricQueryShadowCheck(max_relative_difference=0.0, mismatched_points=0)
+        team_id, kind, payload = queued.call_args.kwargs["args"]
+        with patch("products.metrics.backend.facade.api.report_team_action") as report:
+            run_shadow_check(team_id=team_id, kind=kind, payload=payload)
+
+        assert report.call_args.args[1:] == (
+            SHADOW_EVENT,
+            {
+                "kind": "builder",
+                "mode": result.provenance.mode.value,
+                "max_relative_difference": 0.0,
+                "mismatched_points": 0,
+            },
+        )
 
     def test_stored_data_over_the_points_budget_runs_raw(self):
         clause = _counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE)
@@ -332,6 +351,12 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestMetricsQueryRunnerPrecompute(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        no_shadow = patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 0.0)
+        no_shadow.start()
+        self.addCleanup(no_shadow.stop)
+
     def _run(self, *, flag_on: bool, dashboard_id: int | None, in_audience: bool = True):
         runner = MetricsQueryRunner(
             query=MetricsQuery(
