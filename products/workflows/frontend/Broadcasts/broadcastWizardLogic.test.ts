@@ -558,6 +558,33 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.emailSettings).toMatchObject({ utmTagsEnabled: enabled, utmParams: params })
     })
 
+    it.each([
+        { type: 'function_email' as const, stored: {}, connected: true, sensitive: false },
+        {
+            type: 'function_email' as const,
+            stored: { run_link_tag_enabled: false },
+            connected: false,
+            sensitive: false,
+        },
+        { type: 'function_email' as const, stored: { sensitive: true }, connected: true, sensitive: true },
+        { type: 'function_push' as const, stored: { sensitive: true }, connected: true, sensitive: false },
+    ])(
+        'reads $stored from a saved $type step as connecting clicks to sessions: $connected',
+        async ({ type, stored, connected, sensitive }) => {
+            latest = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+            const emailStep = latest.actions[1]
+            latest.actions[1] = { ...emailStep, type, config: { ...emailStep.config, ...stored } }
+            router.actions.push('/broadcasts/broadcast-1')
+            const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+            draftLogic.mount()
+            await expectLogic(draftLogic).toFinishAllListeners()
+
+            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected })
+            expect(draftLogic.values.emailStepSensitive).toBe(sensitive)
+            draftLogic.unmount()
+        }
+    )
+
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {
         router.actions.push('/broadcasts/new')
         await expectLogic(logic, () => {

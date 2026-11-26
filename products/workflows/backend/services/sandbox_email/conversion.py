@@ -16,6 +16,7 @@ CC_BCC = "cc and bcc"
 TRACKING_OFF = "tracking_enabled: false"
 CLICK_TRACKING_OFF = "click_tracking_enabled: false"
 UTM_TAGS = "utm_tags_enabled"
+RUN_LINK_TAG_OFF = "run_link_tag_enabled: false"
 
 
 def own_only_settings(action: dict[str, Any]) -> list[str]:
@@ -38,6 +39,8 @@ def own_only_settings(action: dict[str, Any]) -> list[str]:
         settings.append(CLICK_TRACKING_OFF)
     if config.get("utm_tags_enabled"):
         settings.append(UTM_TAGS)
+    if config.get("run_link_tag_enabled") is False:
+        settings.append(RUN_LINK_TAG_OFF)
     return settings
 
 
