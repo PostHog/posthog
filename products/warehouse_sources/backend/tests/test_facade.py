@@ -15,6 +15,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.warehouse_sources.backend.facade import api, contracts, hogql, hooks, sources, temporal
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -81,14 +82,16 @@ class TestWarehouseSourcesFacade(BaseTest):
         ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
         newest = ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
         ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Running")
-        self.schema.latest_error = "permission denied for table users"
+        SourceInputsStore.assign(self.source, {"host": "db.example.com", "user": "app", "password": "fake-password"})
+        self.source.save()
+        self.schema.latest_error = "permission denied for table users (password fake-password)"
         self.schema.save()
 
         results = api.list_source_health(self.team.pk)
 
         assert [r.source_type for r in results] == ["Postgres"]
         assert results[0].last_run_at == newest.created_at
-        assert results[0].latest_error == "permission denied for table users"
+        assert results[0].latest_error == "permission denied for table users (password ***)"
 
     @parameterized.expand(
         [

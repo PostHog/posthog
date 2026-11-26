@@ -321,6 +321,8 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
     One correlated probe per source for each of the two lookups, so the cost tracks the number
     of sources rather than the length of the team's job history.
     """
+    from products.warehouse_sources.backend.logic.source_secrets import redact_error_message  # noqa: PLC0415
+
     # Newest schema-level error across the source's non-deleted schemas. Ordered by most
     # recently updated so a consumer sees the freshest failure.
     latest_error = Subquery(
@@ -344,6 +346,8 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
         .only("source_id", "status", "should_sync")
     ):
         active_schemas_by_source[schema.source_id].append(schema)
+    source_rows = list(rows)
+    secrets = _error_redaction_values_by_source(team_id, {row["id"] for row in source_rows if row["latest_error"]})
     return [
         contracts.ExternalDataSourceHealth(
             source_type=row["source_type"],
@@ -351,10 +355,27 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
             prefix=row["prefix"],
             created_at=row["created_at"],
             last_run_at=row["last_run_at"],
-            latest_error=row["latest_error"],
+            latest_error=redact_error_message(row["latest_error"], secrets.get(row["id"], frozenset())),
         )
-        for row in rows
+        for row in source_rows
     ]
+
+
+def _error_redaction_values_by_source(team_id: int, source_ids: set[UUID]) -> dict[UUID, frozenset[str]]:
+    """The stored secrets of each source, read with one inputs query for all of them."""
+    from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore  # noqa: PLC0415
+    from products.warehouse_sources.backend.logic.source_secrets import source_secret_values  # noqa: PLC0415
+
+    if not source_ids:
+        return {}
+    sources = list(_ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids))
+    inputs = SourceInputsStore.load_many(sources)
+    # A source whose inputs don't decode is left out of `inputs`, and its error keeps only the pattern masking.
+    return {
+        source.id: source_secret_values(source.source_type, inputs[source.id])
+        for source in sources
+        if source.id in inputs
+    }
 
 
 def _revenue_source_queryset(
