@@ -3,9 +3,11 @@ import posthog from 'posthog-js'
 
 import {
     EMAIL_DOCUMENT_DESIGN_KEY,
+    EMAIL_DOCUMENT_SECTION_VERSION,
     EMAIL_DOCUMENT_VERSION,
     EmailDocument,
     emailDocumentFromValue,
+    hasSection,
     isEmailDocEmpty,
 } from './emailDocument'
 import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
@@ -23,7 +25,11 @@ export function designForDocument(doc: Record<string, any>, html: string): Recor
     if (isEmailDocEmpty(doc)) {
         return null
     }
-    const document: EmailDocument = { version: EMAIL_DOCUMENT_VERSION, doc, html }
+    const document: EmailDocument = {
+        version: hasSection(doc) ? EMAIL_DOCUMENT_SECTION_VERSION : EMAIL_DOCUMENT_VERSION,
+        doc,
+        html,
+    }
     return { ...emailDocumentToUnlayer(doc), [EMAIL_DOCUMENT_DESIGN_KEY]: document }
 }
 
@@ -97,6 +103,18 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
                 loadDoc(doc)
                 emit('design:loaded')
             }
+        },
+        // Text written in the plain text tab belongs to the person, so edits to the email stop rewriting it. An empty
+        // canvas has no html to keep, so it answers false and the email stays text-only.
+        keepOwnPlainText: ({ quietly = false, checkOnly = false }: { quietly?: boolean; checkOnly?: boolean } = {}) => {
+            if (isEmailDocEmpty(editor.getJSON())) {
+                return false
+            }
+            if (!checkOnly && editor.state.doc.attrs.ownPlainText !== true) {
+                const tr = editor.state.tr.setDocAttribute('ownPlainText', true).setMeta('addToHistory', false)
+                editor.view.dispatch(quietly ? tr.setMeta(AUTOMATIC_CHANGE_META, true) : tr)
+            }
+            return true
         },
         loadDocument: (doc: Record<string, any>) => {
             loadDoc(doc)

@@ -76,6 +76,7 @@ rules:
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
+                              |AEOTeamConfig
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -196,6 +197,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventDefinitionMetadata
                               |EventFilterConfig
                               |EventFilterPipelineOverride
                               |EventStream
@@ -228,6 +230,7 @@ rules:
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
+                              |ExperimentScoreSuiteDefault
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
@@ -376,6 +379,7 @@ rules:
                               |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PropertyDefinitionMetadata
                               |PullRequestAudience
                               |PurgedTicketThread
                               |QuarantineLiftRequest
@@ -758,6 +762,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventStream
@@ -790,6 +795,7 @@ rules:
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
+                        |ExperimentScoreSuiteDefault
                         |ExportedAsset
                         |ExportedRecording
                         |ExternalDataJob
@@ -925,6 +931,7 @@ rules:
                         |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |PullRequestAudience
                         |PurgedTicketThread
                         |QuarantineLiftRequest
@@ -1265,9 +1272,11 @@ rules:
                         |EvaluationContext
                         |EvaluationReport
                         |Event
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventsHealthDaily
+                        |ExperimentScoreSuiteDefault
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1347,6 +1356,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |QueryTabState
                         |QueueJob
                         |QueueSchedulerDecision

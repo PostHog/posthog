@@ -521,8 +521,7 @@ describe('transactional send sealing', () => {
         createInvocationSanitizer(
             {
                 CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: sealing,
-                CDP_SEALED_STATE_KEYS,
+                CDP_SEALED_STATE_KEYS: sealing ? CDP_SEALED_STATE_KEYS : '',
                 ENCRYPTION_SALT_KEYS,
             },
             { isEnabled: () => false }
@@ -552,15 +551,14 @@ describe('transactional send sealing', () => {
         })
     })
 
-    it.each([undefined, ',,'])('refuses to start sealing without its own keys (%p)', (CDP_SEALED_STATE_KEYS) => {
-        expect(() =>
-            createInvocationSanitizer({
-                CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
-                CDP_SEALED_STATE_KEYS,
-                ENCRYPTION_SALT_KEYS,
-            })
-        ).toThrow('CDP_SEALED_STATE_KEYS is not set')
+    it.each([undefined, ',,'])('leaves a send unsealed without a key of its own (%p)', (CDP_SEALED_STATE_KEYS) => {
+        const sanitizer = createInvocationSanitizer({
+            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            CDP_SEALED_STATE_KEYS,
+            ENCRYPTION_SALT_KEYS,
+        })
+        const invocation = send('$transactional_email')
+        expect(sanitizer.seal(invocation)).toBe(invocation)
     })
 
     it.each([

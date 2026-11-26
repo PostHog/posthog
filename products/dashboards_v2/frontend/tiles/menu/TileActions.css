@@ -1,0 +1,20 @@
+/* Pure CSS, so hovering costs no render. */
+.TileActions--hover {
+    opacity: 0;
+    transition: opacity 100ms;
+
+    /* Child selectors, so hovering a section shows its own actions and not those of the tiles inside it. */
+    .quill-card:is(:hover, :focus-within) > &,
+    .quill-card:is(:hover, :focus-within) > .quill-card__header > & {
+        opacity: 1;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+
+    /* A touch screen has no hover, so the actions always show. */
+    @media (hover: none) {
+        opacity: 1;
+    }
+}

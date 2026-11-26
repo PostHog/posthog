@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.ahrefs.settings import (
     ORGANIC_KEYWORD_FIELDS,
     RANK_TRACKER_FIELDS,
     REFDOMAIN_FIELDS,
+    TOP_PAGE_FIELDS,
 )
 from products.warehouse_sources.sources.ahrefs.source import AhrefsSource
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError, SourceInputs
@@ -188,6 +189,20 @@ TARGET = {
             ],
             {
                 "select": [",".join(ORGANIC_KEYWORD_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["sum_traffic:desc"],
+                "date": ["2026-10-13"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
+        (
+            "top_pages",
+            "pages",
+            [{"url": "https://example.com/a", "sum_traffic": 90}, {"url": "https://example.com/b", "sum_traffic": 5}],
+            [{"url": "https://example.com/a", "sum_traffic": 90}, {"url": "https://example.com/b", "sum_traffic": 5}],
+            {
+                "select": [",".join(TOP_PAGE_FIELDS)],
                 "limit": ["1000"],
                 "order_by": ["sum_traffic:desc"],
                 "date": ["2026-10-13"],
@@ -603,6 +618,92 @@ def test_brand_radar_web_pages_read_each_report_linked_to_the_project() -> None:
     assert reports_request.path == "/v3/management/brand-radar-reports"
     assert [request.method for request in page_requests] == ["POST", "POST"]
     assert [json.loads(request.body or b"")["report_id"] for request in page_requests] == ["r-1", "r-2"]
+
+
+BRAND_RADAR_PLATFORMS = ["chatgpt", "google_ai_overviews", "google_ai_mode", "gemini", "perplexity", "copilot", "grok"]
+
+
+@pytest.mark.parametrize(
+    ("last_value", "expected_date_from"),
+    [(None, "2026-04-16"), ("2026-09-01", "2026-08-02")],
+)
+@time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+def test_brand_radar_mentions_history_reads_each_platform_of_each_report(
+    last_value: str | None, expected_date_from: str
+) -> None:
+    reports = [
+        {"report_id": "r-1", "project_id": 123, "settings": {"brands": [{"names": ["Acme", "Acme App"]}]}},
+        {"report_id": "r-other", "project_id": 999, "settings": {"brands": [{"names": ["Other"]}]}},
+        {"report_id": "r-urls", "project_id": 123, "settings": {"brands": [{"url_groups": [{"target": "a.example"}]}]}},
+        {"report_id": "r-2", "project_id": 123, "settings": {"brands": [{"names": ["Beta"]}, {"url_groups": []}]}},
+    ]
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v3/management/brand-radar-reports":
+            return ScriptedResponse(json={"reports": reports})
+        body = json.loads(request.body or b"")
+        if body["data_source"] == ["grok"]:
+            return ScriptedResponse(status=403, json={"error": "Forbidden"})
+        return ScriptedResponse(
+            json={"metrics": [{"date": "2026-10-02", "mentions": 4}, {"date": "2026-10-01", "mentions": 3}]}
+        )
+
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="00123")).run(
+        "brand_radar_mentions_history",
+        answer,
+        incremental_field="date" if last_value else None,
+        db_incremental_field_last_value=last_value,
+    )
+
+    assert result.raised is None
+    assert result.response is not None and result.response.sort_mode is None
+    readable = [platform for platform in BRAND_RADAR_PLATFORMS if platform != "grok"]
+    assert result.rows == [
+        {"date": day, "mentions": mentions, "project_id": "123", "report_id": report_id, "data_source": platform}
+        for report_id in ["r-1", "r-2"]
+        for platform in readable
+        for day, mentions in [("2026-10-01", 3), ("2026-10-02", 4)]
+    ]
+    reports_request, *history_requests = result.requests
+    assert reports_request.path == "/v3/management/brand-radar-reports"
+    assert [json.loads(request.body or b"") for request in history_requests] == [
+        {
+            "output": "json",
+            "report_id": report_id,
+            "brands": brands,
+            "data_source": [platform],
+            "date_from": expected_date_from,
+        }
+        for report_id, brands in [("r-1", [{"names": ["Acme", "Acme App"]}]), ("r-2", [{"names": ["Beta"]}])]
+        for platform in BRAND_RADAR_PLATFORMS
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (403, {"error": "Forbidden"}, "ahrefs_access_denied"),
+        (403, {"error": "API units limit exceeded"}, "ahrefs_quota_exceeded"),
+    ],
+)
+def test_brand_radar_mentions_history_fails_when_no_platform_is_readable(
+    status: int, body: object, expected: str
+) -> None:
+    reports = [{"report_id": "r-1", "project_id": 123, "settings": {"brands": [{"names": ["Acme"]}]}}]
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v3/management/brand-radar-reports":
+            return ScriptedResponse(json={"reports": reports})
+        return ScriptedResponse(status=status, json=body)
+
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+        "brand_radar_mentions_history", answer
+    )
+
+    assert isinstance(result.raised, ValueError)
+    assert str(result.raised) == expected
+    history_requests = len(result.requests) - 1
+    assert history_requests == (len(BRAND_RADAR_PLATFORMS) if expected == "ahrefs_access_denied" else 1)
 
 
 @pytest.mark.parametrize(

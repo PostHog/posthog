@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { feedbackContextUrl } from './ticketMetadata'
+
 export interface RunRef {
     taskId?: string
     runId?: string
@@ -9,7 +11,8 @@ export interface RunRef {
 function feedbackContext(sessionId: string, traceId: string | null, run: RunRef | undefined): Record<string, unknown> {
     return {
         $ai_session_id: sessionId,
-        $ai_trace_id: traceId,
+        ...(traceId ? { $ai_trace_id: traceId } : {}),
+        ai_context_url: feedbackContextUrl({ sessionId, sessionKind: 'task', traceId, run }),
         ai_product: 'posthog_ai',
         agent_runtime: 'sandbox',
         task_id: run?.taskId ?? null,

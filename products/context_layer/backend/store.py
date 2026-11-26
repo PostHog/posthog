@@ -678,7 +678,10 @@ def _dream_may_edit(path: str, *, status: str = "M") -> bool:
     return status == "M" and (
         len(parts) >= 3
         and parts[0] == "projects"
-        and (parts[2] == "overview.md" or (parts[2] == "spaces" and len(parts) == 4))
+        and (
+            parts[2] == "overview.md"
+            or (parts[2] in {"spaces", repo_lint.SLACK_CHANNELS_DIRECTORY} and len(parts) == 4)
+        )
     )
 
 

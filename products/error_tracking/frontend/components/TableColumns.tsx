@@ -6,6 +6,7 @@ import { LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Button, ButtonGroup, SelectTriggerIcon } from 'lib/ui/quill'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,8 +19,10 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDi
 import { QuillAssigneeSelect } from './Assignee/QuillAssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
 import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
+import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueSeveritySelect } from './IssueSeveritySelect'
 import { IssueStatusSelect } from './IssueStatusSelect'
+import { IssueTagsButton } from './IssueTagsButton/IssueTagsButton'
 import { RuntimeIcon } from './RuntimeIcon'
 
 export const IssueListTitleHeader = ({
@@ -70,6 +73,8 @@ export const IssueListTitleColumn = (props: {
     const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
+    const { setIssueTagState } = useActions(issueQueryOptionsLogic)
+    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
 
@@ -127,6 +132,8 @@ export const IssueListTitleColumn = (props: {
                     onStatusChange={(status) => updateIssueStatus(record.id, status)}
                     onSeverityChange={(severity) => updateIssueSeverity(record.id, severity)}
                     onAssigneeChange={(assignee) => updateIssueAssignee(record.id, assignee)}
+                    showTags={hasIssueTags}
+                    onTagClick={(key) => setIssueTagState(key, 'has')}
                 />
             </div>
         </div>
@@ -156,12 +163,16 @@ const IssueMetadata = ({
     onStatusChange,
     onSeverityChange,
     onAssigneeChange,
+    showTags,
+    onTagClick,
 }: {
     record: ErrorTrackingIssue
     severityLoading: boolean
     onStatusChange: (status: ErrorTrackingIssue['status']) => void
     onSeverityChange: (severity: NonNullable<ErrorTrackingIssue['severity']> | null) => void
     onAssigneeChange: (assignee: ErrorTrackingIssue['assignee']) => void
+    showTags: boolean
+    onTagClick: (key: string) => void
 }): JSX.Element => (
     <div className="my-1 flex h-6 items-center text-secondary">
         <ButtonGroup>
@@ -176,6 +187,7 @@ const IssueMetadata = ({
                     </Button>
                 )}
             </QuillAssigneeSelect>
+            {showTags && <IssueTagsButton tags={record.tags} onTagClick={onTagClick} />}
         </ButtonGroup>
     </div>
 )
