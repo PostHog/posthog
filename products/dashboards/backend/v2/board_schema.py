@@ -93,6 +93,12 @@ def check_storable(spec: dict[str, Any]) -> None:
         if isinstance(value, str):
             if "\x00" in value:
                 raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
+            # A lone surrogate such as \ud800 parses into a str that has no UTF-8 form.
+            if not value.isascii():
+                try:
+                    value.encode()
+                except UnicodeEncodeError:
+                    raise BoardSpecInvalid("The board document contains an unpaired surrogate, which cannot be saved.")
         elif isinstance(value, float):
             if not math.isfinite(value):
                 raise BoardSpecInvalid("The board document contains NaN or an infinite number, which cannot be saved.")
