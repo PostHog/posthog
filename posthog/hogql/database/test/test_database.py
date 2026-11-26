@@ -68,6 +68,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.request_scope import SharedDatabases, sharing_databases
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
 from posthog.hogql.database.schema.traffic_type import (
@@ -5162,6 +5163,54 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         else:
             with pytest.raises(TableAccessDeniedError):
                 database.get_table("system.data_deletion_requests")
+
+    @parameterized.expand(
+        [
+            ("same_inputs", {}, True),
+            (
+                "persons_on_events_mode",
+                {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED},
+                False,
+            ),
+            ("session_table_version", {"sessionTableVersion": SessionTableVersion.V3}, False),
+            ("new_events_schema", {"useNewEventsSchema": True}, False),
+        ]
+    )
+    def test_a_sharing_scope_reuses_a_database_only_for_the_same_schema_modifiers(
+        self, _name: str, changed: dict[str, Any], shared: bool
+    ) -> None:
+        base = HogQLQueryModifiers(
+            personsOnEventsMode=PersonsOnEventsMode.DISABLED, sessionTableVersion=SessionTableVersion.V2
+        )
+
+        with sharing_databases(SharedDatabases()):
+            first = Database.create_for(team=self.team, user=self.user, modifiers=base)
+            second = Database.create_for(team=self.team, user=self.user, modifiers=base.model_copy(update=changed))
+
+        assert (first is second) is shared
+
+    @parameterized.expand([("member", False), ("member_with_preloaded_access_control", True)])
+    def test_a_sharing_scope_keeps_an_admins_tables_from_a_member(self, _name: str, preload: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        with sharing_databases(SharedDatabases()):
+            admin_database = Database.create_for(team=self.team, user=self.user)
+            member_database = Database.create_for(
+                team=self.team,
+                user=member,
+                user_access_control=UserAccessControl(user=member, team=self.team) if preload else None,
+            )
+
+        assert "system.data_deletion_requests" in admin_database.get_system_table_names()
+        assert "system.data_deletion_requests" not in member_database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            member_database.get_table("system.data_deletion_requests")
 
     @parameterized.expand(
         [

@@ -10,7 +10,7 @@ import pickletools
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
-from functools import cache, lru_cache
+from functools import cache, lru_cache, partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -65,6 +65,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
+from posthog.hogql.database.request_scope import current_shared_databases, shared_database_key
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
@@ -1945,7 +1946,6 @@ class Database(BaseModel):
         return tables
 
     @staticmethod
-    @tracer.start_as_current_span("create_hogql_database")  # Legacy name to keep backwards compatibility
     def create_for(
         team_id: int | None = None,
         *,
@@ -1964,6 +1964,69 @@ class Database(BaseModel):
         include_flag_evaluations_table: bool | None = None,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
+
+        Inside a `sharing_databases` scope, calls with the same catalog inputs get one shared Database.
+        Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides
+        whether ``posthog.flag_evaluations`` is in the catalog. None follows the mode.
+        """
+        build = partial(
+            Database._build_for,
+            team_id,
+            team=team,
+            user=user,
+            user_access_control=user_access_control,
+            modifiers=modifiers,
+            timings=timings,
+            connection_id=connection_id,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+            build_postgres_foreign_keys=build_postgres_foreign_keys,
+            use_cached_sources=use_cached_sources,
+            trigger=trigger,
+            allowed_system_tables=allowed_system_tables,
+            schema_table_names=schema_table_names,
+            include_flag_evaluations_table=include_flag_evaluations_table,
+        )
+        shared = current_shared_databases()
+        if shared is None:
+            return build()
+        key = shared_database_key(
+            team=team,
+            user=user,
+            user_access_control=user_access_control,
+            modifiers=modifiers,
+            connection_id=connection_id,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+            build_postgres_foreign_keys=build_postgres_foreign_keys,
+            use_cached_sources=use_cached_sources,
+            allowed_system_tables=allowed_system_tables,
+            schema_table_names=schema_table_names,
+            include_flag_evaluations_table=include_flag_evaluations_table,
+        )
+        if key is None:
+            return build()
+        return shared.get_or_build(key, build)
+
+    @staticmethod
+    @tracer.start_as_current_span("create_hogql_database")  # Legacy name to keep backwards compatibility
+    def _build_for(
+        team_id: int | None = None,
+        *,
+        team: Optional[Team] = None,
+        user: Optional[User | SyntheticUser | SharedLinkUser] = None,
+        user_access_control: Optional[UserAccessControl] = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        timings: HogQLTimings | None = None,
+        connection_id: str | None = None,
+        bypass_warehouse_access_control: bool = False,
+        build_postgres_foreign_keys: bool = True,
+        use_cached_sources: bool = False,
+        trigger: str = "direct",
+        allowed_system_tables: Collection[str] | None = None,
+        schema_table_names: set[str] | None = None,
+        include_flag_evaluations_table: bool | None = None,
+    ) -> Database:
+        """Build a query catalog. See create_for.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
         ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides

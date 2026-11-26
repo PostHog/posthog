@@ -14,6 +14,7 @@ import weakref
 from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
 from contextvars import copy_context
 from dataclasses import replace
 from datetime import UTC, datetime, tzinfo
@@ -33,6 +34,7 @@ from pydantic import BaseModel
 from posthog.schema import CacheMissResponse, IntervalType
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.request_scope import SharedDatabases, sharing_databases
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.services.query import (
@@ -53,6 +55,7 @@ from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, Cli
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, dashboard_v2_batch_scope
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.query_cache.results import decoded_size, prefetched_size
@@ -777,12 +780,13 @@ class QueryBatch:
         self._deadline = monotonic() + MAX_STREAM_SECONDS
         self._overflow: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
         self._shares = _share_keys(team.organization_id, user.pk)
+        self._databases = SharedDatabases()
         self._open = _OpenSlot(self._shares)
         if not self._open.acquire():
             raise QueryBatchBusy()
         weakref.finalize(self, _deferred_releases.append, self._open)
         try:
-            with dashboard_v2_batch_scope():
+            with dashboard_v2_batch_scope(), sharing_databases(self._databases):
                 self._read_cache(inputs)
         except BaseException:
             self._open.release()
@@ -794,6 +798,13 @@ class QueryBatch:
         self._watchdog = _Watchdog(self)
         weakref.finalize(self, self._watchdog.cancel)
         self._watchdog.arm(self._next_check() - monotonic())
+
+    def _sharing_databases(self) -> AbstractContextManager[None]:
+        # Read in the worker, as the batch can be built on an event loop. Its kill switch keeps concurrent query
+        # threads from sharing schema state, so planning above, which runs on one thread, shares regardless.
+        if get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            return sharing_databases(self._databases)
+        return nullcontext()
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
@@ -1139,7 +1150,7 @@ class QueryBatch:
             return {"i": index, "error": _FAILED}
         started = monotonic()
         try:
-            with range_based_freshness():
+            with range_based_freshness(), self._sharing_databases():
                 response = process_query_dict(
                     self._team,
                     query.query,
@@ -1273,6 +1284,7 @@ class QueryBatch:
             self._cancelled = True
             self._logql_cancelled.set()
             self._shapes.clear()
+            self._databases.clear()
             active = tuple(self._active)
             admitted, self._admitted = self._admitted, False
         if self._pool is not None:
