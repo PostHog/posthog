@@ -852,6 +852,11 @@ describe('load', () => {
             { ...profile, host: { cpuCeiling: 0.5 } },
         ],
         [
+            'a valve-free drive shorter than the floor whose warm-up is spelled 0s, which runs as one without a warm-up',
+            { ...card, drive: { ...card.drive, for: '35s', warmUp: '0s' }, valves: [] },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
             'a when valve armed at the end of the baseline on a profile with host admission only',
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '30s' }] },
             { ...profile, host: { cpuCeiling: 0.5 } },

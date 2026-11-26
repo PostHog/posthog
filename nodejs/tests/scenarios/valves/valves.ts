@@ -18,6 +18,7 @@ export type ValveContext = {
     teams: number[]
     commits: () => readonly WriterSample[]
     manifest?: RunManifest
+    startedAt?: number
 }
 
 export type ValveDefinition = Definition & {
@@ -228,7 +229,10 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         let armed = entry.at === undefined
         const due = async (): Promise<boolean> => {
             if (entry.at !== undefined) {
-                await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
+                const elapsedMs = context.startedAt === undefined ? 0 : Date.now() - context.startedAt
+                await sleep(Math.max(0, durationMs(entry.at) - elapsedMs), undefined, {
+                    signal: released.signal,
+                }).catch(() => undefined)
                 armed = !released.signal.aborted
                 if (entry.when === undefined || !armed) {
                     return entry.when === undefined

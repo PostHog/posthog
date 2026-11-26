@@ -265,7 +265,7 @@ function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
     }
     const driveMs = stepsOf(card.drive).at(-1)!.toMs
     const tooShort =
-        card.drive.warmUp !== undefined && driveMs < faultFree.ms
+        durationMs(card.drive.warmUp ?? '0s') > 0 && driveMs < faultFree.ms
             ? [
                   `drive.for: the drive ends ${driveMs / 1000}s in, inside ${faultFree.inside}; run it for ${durationTextOf(faultFree.ms)} or longer`,
               ]

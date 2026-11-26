@@ -642,6 +642,7 @@ export function createRunner(
                     teams: seeded.teamIds,
                     commits: probes.commits,
                     manifest,
+                    startedAt: driveStartedAt,
                 })
                 const windowOpen = new AbortController()
                 void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
