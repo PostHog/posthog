@@ -2,14 +2,14 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useId } from 'react'
 
-import { LemonBanner, LemonButton, LemonInputSelect, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { useLinearTeams } from 'lib/integrations/LinearIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
 import { LinearTeamsModalLogicProps, LinearTeamsScope, linearTeamsModalLogic } from '../../logics/linearTeamsModalLogic'
 import { SignalSourceConfig } from '../../types'
+import { LinearTeamsSelect } from './LinearTeamsSelect'
 
 const SCOPE_OPTIONS: LemonRadioOption<LinearTeamsScope>[] = [
     { value: 'all', label: 'All teams', 'data-attr': 'signal-source-linear-teams-all' },
@@ -21,32 +21,6 @@ export interface LinearTeamsModalProps {
     enableOnSave: boolean
     viaSetupWizard: boolean
     onClose: () => void
-}
-
-function LinearTeamsSelect({
-    integrationId,
-    disabled,
-    value,
-    onChange,
-}: {
-    integrationId: number
-    disabled?: boolean
-    value?: string[]
-    onChange?: (value: string[]) => void
-}): JSX.Element {
-    const { options, loading } = useLinearTeams(integrationId)
-    return (
-        <LemonInputSelect
-            mode="multiple"
-            value={value ?? []}
-            onChange={onChange}
-            options={options}
-            loading={loading}
-            disabled={disabled}
-            placeholder="Select teams"
-            data-attr="select-linear-teams"
-        />
-    )
 }
 
 export function LinearTeamsModal({

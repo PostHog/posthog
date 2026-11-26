@@ -247,16 +247,21 @@ function RunSurfaceThread({
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
+    // Stable identity so the feedback surfaces link to the run they are reviewing.
+    const feedbackRun = useMemo(() => ({ taskId, runId: runId ?? undefined }), [taskId, runId])
     // Memoized so the footer keeps a stable element identity across streamed frames.
     const feedbackPrompt = useMemo(
         () =>
             collectsFeedback ? (
-                <FeedbackPromptTrailer sessionId={feedbackSessionId} sessionKind="task" streamKey={streamKey} />
+                <FeedbackPromptTrailer
+                    sessionId={feedbackSessionId}
+                    sessionKind="task"
+                    streamKey={streamKey}
+                    run={feedbackRun}
+                />
             ) : undefined,
-        [collectsFeedback, feedbackSessionId, streamKey]
+        [collectsFeedback, feedbackRun, feedbackSessionId, streamKey]
     )
-    // Stable identity so the memoized trailer rows don't re-render on every streamed frame.
-    const feedbackRun = useMemo(() => ({ taskId, runId: runId ?? undefined }), [taskId, runId])
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (
@@ -306,7 +311,7 @@ function RunSurfaceComposer({
     isStopping?: boolean
     loadingFallback?: ReactNode
 }): JSX.Element | null {
-    const { interaction, streamKey, floatingInputsHeight, setFloatingInputsHeight } = useRunSurfaceContext()
+    const { interaction, streamKey, setFloatingInputsHeight } = useRunSurfaceContext()
     const { pendingPermissionRequest, respondingToPermission, currentRunStatus, runOpening } = useValues(runStreamLogic)
     const skin = useThreadSkin()
     if (interaction !== 'live') {
@@ -340,7 +345,6 @@ function RunSurfaceComposer({
                 approval={approval}
                 showApproval={showApproval}
                 composer={composer}
-                height={floatingInputsHeight}
                 onHeightChange={setFloatingInputsHeight}
             />
         )

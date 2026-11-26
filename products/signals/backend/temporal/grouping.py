@@ -46,7 +46,12 @@ from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import merge_survivor, signal_target_report
 from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.source_issues import open_report_for_source_issue, schedule_source_issue_writeback
+from products.signals.backend.source_issues import (
+    append_source_issues,
+    open_report_for_source_issue,
+    parse_source_issue_url,
+    schedule_source_issue_writeback,
+)
 from products.signals.backend.spend import (
     SignalSpendSummary,
     begin_report_spend,
@@ -895,6 +900,22 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
         )
 
 
+def _record_source_issue(input: "AssignAndEmitSignalInput", report_id: str) -> None:
+    """Record the GitHub issue of an issue signal as a `source_issue` on the report it joins or opens.
+
+    A scout that files a report about an issue finds an earlier report through this record. Without
+    it, a report that grouping opened from the issue's signal is invisible to the scout, and the scout
+    files a second report for the same issue.
+    """
+    url = source_issue_url_for_signal(input.source_product, input.source_type, input.extra)
+    issue = parse_source_issue_url(url) if url else None
+    if issue is None:
+        return
+    append_source_issues(
+        team_id=input.team_id, report_id=report_id, issues=[issue], attribution=ArtefactAttribution.system()
+    )
+
+
 async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSignalInput", report_id: str) -> None:
     # The report names this issue as its source, and the issue only now reached the pipeline, so this
     # is the first moment the writeback may comment on it. Best-effort, like the writeback itself.
@@ -1195,6 +1216,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 source_product=input.source_product,
                 extra=input.extra,
             )
+            _record_source_issue(input, report_id)
 
             ts = input.timestamp or timezone.now()
             # The unique constraint rejects a concurrent attempt for the same signal, which rolls back its count.

@@ -42,5 +42,8 @@ class BatchStepTimer:
             self._seconds[name] = self._seconds.get(name, 0.0) + elapsed
             BATCH_STEP_DURATION_SECONDS.labels(step=name).observe(elapsed)
 
+    def seconds(self, name: BatchStep) -> float | None:
+        return self._seconds.get(name)
+
     def log_fields(self) -> dict[str, int]:
         return {f"{name}_ms": round(seconds * 1000) for name, seconds in self._seconds.items()}

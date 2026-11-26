@@ -13,10 +13,10 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.facade import api as signals_facade
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled, is_slack_app_web_settings_enabled
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_fork_context import get_pending_fork
+from products.slack_app.backend.services.channel_settings import channel_default_integration_ids
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
@@ -26,6 +26,7 @@ SLACK_INTEGRATION_KIND = "slack"
 
 ResolutionSource = Literal[
     "thread",
+    "channel_default",
     "user_default",
     "workspace_default",
     "sole_candidate",
@@ -190,8 +191,9 @@ def resolve_from_candidates(
 ) -> ResolutionResult:
     """Run the routing resolver over a pre-loaded candidate list.
 
-    Precedence: ``thread`` > ``user_default`` > ``workspace_default`` >
-    ``sole_candidate`` > ``needs_picker``.
+    Precedence: ``thread`` > ``channel_default`` > ``user_default`` >
+    ``workspace_default`` > ``sole_candidate`` > ``needs_picker``. ``channel_default`` applies only
+    while the ``slack-app-web-settings`` flag is on.
 
     When ``user`` is provided, defaults whose target is no longer accessible
     silently fall through. When ``user is None`` the resolver trusts saved
@@ -227,10 +229,6 @@ def resolve_from_candidates(
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
                 return ResolutionResult(integration=target, source="thread", candidates=accessible)
 
-        for candidate in accessible:
-            if get_pending_fork(candidate.id, channel, thread_ts) is not None:
-                return ResolutionResult(integration=candidate, source="thread", candidates=accessible)
-
         report_team_id = signals_facade.report_team_id_for_slack_thread(
             team_ids=[candidate.team_id for candidate in accessible],
             slack_workspace_id=slack_team_id,
@@ -241,6 +239,13 @@ def resolve_from_candidates(
             return ResolutionResult(
                 integration=candidates_by_team_id[report_team_id], source="thread", candidates=accessible
             )
+
+    for channel_integration_id in channel_default_integration_ids(slack_team_id, channel):
+        target = candidates_by_id.get(channel_integration_id)
+        if target is None or (accessible_team_ids is not None and target.team_id not in accessible_team_ids):
+            continue
+        if is_slack_app_web_settings_enabled(target):
+            return ResolutionResult(integration=target, source="channel_default", candidates=accessible)
 
     if slack_user_id:
         # One query returns at most two rows: the per-user row and the
@@ -476,6 +481,17 @@ def resolve_user_for_workspace(
         if workspace_result.integration is not None and workspace_result.integration.team_id in accessible_team_ids
         else None
     )
+    if target is None and workspace_result.source == "channel_default":
+        # A channel only suggests a project, so an author who can't open it gets their own default instead.
+        fallback = resolve_from_candidates(
+            reachable_candidates, slack_team_id=slack_team_id, slack_user_id=slack_user_id, user=posthog_user
+        )
+        return UserAndIntegrationsResolution(
+            user=posthog_user,
+            integration=fallback.integration,
+            candidates=reachable_candidates,
+            source=fallback.source,
+        )
     return UserAndIntegrationsResolution(
         user=posthog_user,
         integration=target,

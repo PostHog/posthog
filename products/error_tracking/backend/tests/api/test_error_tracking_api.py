@@ -1,7 +1,7 @@
 import os
 import json
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
@@ -30,33 +30,45 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
+from posthog.redis import get_client
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.token_bucket import Budget, consume
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
+from products.error_tracking.backend.facade.contracts import IssueSummarizeOutcome
 from products.error_tracking.backend.logic import (
+    issue_summaries,
     symbol_sets as symbol_sets_logic,
     team_flags,
 )
 from products.error_tracking.backend.logic.issue_tags import registry
 from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
-from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, JevTaggerConfig
+from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
+from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueSummary,
     ErrorTrackingIssueTag,
     ErrorTrackingRelease,
+    ErrorTrackingSettings,
+    ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
-from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueAssignRequestSerializer
+from products.error_tracking.backend.presentation.views.issues import (
+    SUMMARIZE_ERRORS,
+    ErrorTrackingIssueAssignRequestSerializer,
+)
 from products.error_tracking.backend.presentation.views.symbol_sets import (
     BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
     ErrorTrackingSymbolSetBulkCheckUploadSerializer,
@@ -65,8 +77,11 @@ from products.error_tracking.backend.tests.api.issue_summary_states import (
     STORED_CONTENT,
     SUMMARY_STATES,
     lock_held,
+    summarize_state,
     summary_state,
 )
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -76,7 +91,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     description="The error stops a user from paying.",
     question_version=1,
     enabled_flag="error-tracking-issue-tag-blocks-checkout",
-    taggers=(),
+    taggers=(JevTaggerConfig(instructions="Does this error stop a user from paying?", yes_at=0.8, no_at=0.2),),
 )
 NEEDS_LOGIN = IssueTagDefinition(
     key="needs_login",
@@ -86,6 +101,7 @@ NEEDS_LOGIN = IssueTagDefinition(
     enabled_flag="error-tracking-issue-tag-needs-login",
     taggers=(),
 )
+JEV_YES = TagAnswer(value=True, probability=0.9, model="jev-model", question_version=1, set_by=None)
 
 
 class OversizedReportingUploadHandler(MemoryFileUploadHandler):
@@ -132,6 +148,67 @@ class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
         assert serializer.is_valid() == expected_valid
         if not expected_valid:
             assert "symbol_sets" in serializer.errors
+
+
+class TestSummarizeErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (outcome.value, outcome)
+            for outcome in IssueSummarizeOutcome
+            if outcome
+            not in {IssueSummarizeOutcome.READY, IssueSummarizeOutcome.DISABLED, IssueSummarizeOutcome.ISSUE_MISSING}
+        ]
+    )
+    def test_every_refusal_has_an_error_response(self, _name: str, outcome: IssueSummarizeOutcome) -> None:
+        status_code, error_type, detail = SUMMARIZE_ERRORS[outcome]
+        assert 400 <= status_code < 600 and error_type and detail
+
+
+def _drain_on_demand_budget(test: "TestErrorTracking", _issue: ErrorTrackingIssue, _completions: Mock) -> None:
+    tiny = Budget(burst=1, per_hour=1)
+    test.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_ON_DEMAND_BUDGET", tiny))
+    consume(f"{issue_summaries.ISSUE_SUMMARY_ON_DEMAND_BUDGET_KEY_PREFIX}:{test.team.id}", tiny)
+
+
+SUMMARIZE_REFUSALS: list[tuple[str, Callable[..., object], int, str, str]] = [
+    (
+        "setting_off",
+        lambda test, _issue, _completions: ErrorTrackingSettings.objects.filter(team=test.team).update(
+            ai_issue_summaries_enabled=False
+        ),
+        403,
+        "setting_off",
+        "authentication_error",
+    ),
+    (
+        "out_of_credits",
+        lambda test, _issue, _completions: add_limited_team_tokens(
+            QuotaResource.AI_CREDITS,
+            {test.team.api_token: int(datetime.now(UTC).timestamp()) + 3600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        ),
+        402,
+        "out_of_credits",
+        "invalid_request",
+    ),
+    ("rate_limited", _drain_on_demand_budget, 429, "rate_limited", "throttled_error"),
+    (
+        "in_progress",
+        lambda test, issue, _completions: get_client().set(
+            issue_summaries._lock_key(test.team.id, issue.id), "claim:other"
+        ),
+        409,
+        "in_progress",
+        "invalid_request",
+    ),
+    (
+        "model_fails",
+        lambda _test, _issue, completions: completions.configure_mock(side_effect=TimeoutError("slow")),
+        503,
+        "failed",
+        "server_error",
+    ),
+]
 
 
 class TestErrorTracking(APIBaseTest):
@@ -227,13 +304,9 @@ class TestErrorTracking(APIBaseTest):
                 team=self.team, issue=issue, key=key, value=value, source=source, question_version=1
             )
 
-        with (
-            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
-            patch.object(
-                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+        self._enable_issue_tags(enabled_flags)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
 
         assert response.status_code == 200
         expected: dict[str, object] = {
@@ -267,13 +340,9 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_tag_definitions_lists_the_enabled_tags(
         self, _name: str, enabled_flags: set[str], expected: list[IssueTagDefinition]
     ) -> None:
-        with (
-            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
-            patch.object(
-                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/tag_definitions")
+        self._enable_issue_tags(enabled_flags)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/tag_definitions")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -282,6 +351,123 @@ class TestErrorTracking(APIBaseTest):
                 for definition in expected
             ]
         }
+
+    def test_issue_tag_correction_holds_against_jev_and_logs_the_person(self) -> None:
+        self._enable_issue_tags()
+        issue = self.create_issue()
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+
+        with patch("products.error_tracking.backend.presentation.views.issues.is_impersonated", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/tag",
+                data={"key": BLOCKS_CHECKOUT.key, "applied": False},
+                format="json",
+            )
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "key": BLOCKS_CHECKOUT.key,
+            "label": BLOCKS_CHECKOUT.label,
+            "description": BLOCKS_CHECKOUT.description,
+            "source": "manual",
+            "applied": False,
+        }
+        tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key=BLOCKS_CHECKOUT.key)
+        assert (tag.source, tag.value, tag.set_by_id) == ("manual", False, self.user.id)
+        correction_logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id), user=self.user
+        )
+        assert list(correction_logs.values_list("was_impersonated", flat=True)) == [True]
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_key",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                "unknown_key",
+                False,
+                400,
+                "This project has no enabled tag with this key.",
+            ),
+            (
+                "disabled_key",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                NEEDS_LOGIN.key,
+                False,
+                400,
+                "This project has no enabled tag with this key.",
+            ),
+            (
+                "issue_tags_off",
+                {BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                404,
+                "Issue tags are off for this project.",
+            ),
+            (
+                "other_team_issue",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                True,
+                404,
+                "Issue not found",
+            ),
+            (
+                "malformed_issue_id",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                404,
+                "Issue not found",
+                True,
+            ),
+            (
+                "null_applied",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                400,
+                "This field may not be null.",
+                False,
+                None,
+            ),
+        ]
+    )
+    def test_issue_tag_correction_writes_nothing_when_rejected(
+        self,
+        _name: str,
+        enabled_flags: set[str],
+        key: str,
+        other_team: bool,
+        expected_status: int,
+        expected_detail: str,
+        malformed_id: bool = False,
+        applied: bool | None = True,
+    ) -> None:
+        self._enable_issue_tags(enabled_flags)
+        team = Team.objects.create(organization=self.organization) if other_team else self.team
+        issue = ErrorTrackingIssue.objects.create(team=team)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{'not-a-uuid' if malformed_id else issue.id}/tag",
+            data={"key": key, "applied": applied},
+            format="json",
+        )
+
+        assert (response.status_code, response.json()["detail"]) == (expected_status, expected_detail)
+        assert not ErrorTrackingIssueTag.objects.for_team(team.id).filter(issue=issue).exists()
+
+    def _enable_issue_tags(
+        self, enabled_flags: Collection[str] = (ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag)
+    ) -> None:
+        self.enterContext(patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)))
+        self.enterContext(
+            patch.object(
+                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
+            )
+        )
 
     def test_issue_list_paginates_without_aggregating_all_fingerprints(self) -> None:
         issues = [ErrorTrackingIssue.objects.create(team=self.team) for _ in range(3)]
@@ -460,6 +646,26 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
         return "post", f"issues/{issue.id}/split", {"fingerprints": [{"fingerprint": "fingerprint_two"}]}
 
+    def _issue_tag_correction(self) -> tuple[str, str, dict]:
+        self._enable_issue_tags()
+        issue = self.create_issue(["fingerprint"])
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": False}
+
+    def _issue_tag_repeated_correction(self) -> tuple[str, str, dict]:
+        method, path, data = self._issue_tag_correction()
+        self.client.patch(f"/api/environments/{self.team.id}/error_tracking/{path}", data=data, format="json")
+        return method, path, data
+
+    def _issue_tag_first_answer(self) -> tuple[str, str, dict]:
+        self._enable_issue_tags()
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": True}
+
+    def _issue_tag_confirmation(self) -> tuple[str, str, dict]:
+        method, path, data = self._issue_tag_correction()
+        return method, path, {**data, "applied": True}
+
     @parameterized.expand(
         [
             ("update_without_change", _issue_noop_update, None),
@@ -476,6 +682,35 @@ class TestErrorTracking(APIBaseTest):
                 {"action": "merge", "merged_issue_count": 1},
             ),
             ("split", _issue_split, {"action": "split", "fingerprint_count": 1, "new_issue_count": 1}),
+            (
+                "tag",
+                _issue_tag_correction,
+                {
+                    "action": "tag",
+                    "tag_key": BLOCKS_CHECKOUT.key,
+                    "previous_tag_source": "jev",
+                    "previous_tag_probability": 0.9,
+                    "previous_tag_applied": True,
+                    "tag_applied": False,
+                },
+            ),
+            ("tag_with_the_same_answer", _issue_tag_repeated_correction, None),
+            (
+                "tag_without_a_previous_answer",
+                _issue_tag_first_answer,
+                {
+                    "action": "tag",
+                    "previous_tag_source": None,
+                    "previous_tag_probability": None,
+                    "previous_tag_applied": False,
+                    "tag_applied": True,
+                },
+            ),
+            (
+                "tag_confirming_jev",
+                _issue_tag_confirmation,
+                {"action": "tag", "previous_tag_source": "jev", "previous_tag_applied": True, "tag_applied": True},
+            ),
         ]
     )
     def test_issue_changed_event_counts_actual_changes(
@@ -549,16 +784,25 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
 
-    def test_issue_bulk_rejects_deprecated_status(self):
+    @parameterized.expand(
+        [
+            ("archived_status", "archived", lambda issue_id: [issue_id], None),
+            ("pending_release_status", "pending_release", lambda issue_id: [issue_id], None),
+            ("malformed_id", "resolved", lambda issue_id: [issue_id, "not-a-uuid"], "ids"),
+            ("null_ids", "resolved", lambda issue_id: None, "ids"),
+        ]
+    )
+    def test_issue_bulk_rejects_invalid_input(
+        self, _name: str, bulk_status: str, build_ids: Callable[[str], object], expected_attr: str | None
+    ) -> None:
         issue = self.create_issue()
 
-        for deprecated_status in ("archived", "pending_release"):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
-                data={"ids": [issue.id], "action": "set_status", "status": deprecated_status},
-            )
-            assert response.status_code == 400, response.json()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+            data={"ids": build_ids(str(issue.id)), "action": "set_status", "status": bulk_status},
+        )
 
+        assert (response.status_code, response.json()["attr"]) == (400, expected_attr), response.json()
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
 
@@ -734,6 +978,24 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == 404
 
+    def test_spike_events_issue_ids_filter(self) -> None:
+        issue = self.create_issue(["fingerprint_one"])
+        for spiking_issue in (issue, self.create_issue(["fingerprint_two"])):
+            ErrorTrackingSpikeEvent.objects.create(
+                team=self.team,
+                issue=spiking_issue,
+                detected_at=timezone.now(),
+                computed_baseline=1.0,
+                current_bucket_value=10,
+            )
+        url = f"/api/projects/{self.team.id}/error_tracking/spike_events"
+
+        valid = self.client.get(url, data={"issue_ids": str(issue.id)})
+        malformed = self.client.get(url, data={"issue_ids": f"{issue.id},not-a-uuid"})
+
+        assert [row["issue"]["id"] for row in valid.json()["results"]] == [str(issue.id)]
+        assert (malformed.status_code, malformed.json()["attr"]) == (400, "issue_ids"), malformed.content
+
     @parameterized.expand(SUMMARY_STATES)
     def test_issue_summary_status(
         self,
@@ -741,13 +1003,16 @@ class TestErrorTracking(APIBaseTest):
         flag: bool,
         readable: bool,
         approved: bool,
+        setting: bool,
         stored: bool,
         expected_status: str,
         expected_reason: str | None,
     ) -> None:
         issue = self.create_issue()
 
-        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored):
+        with summary_state(
+            self, issue.id, flag=flag, readable=readable, approved=approved, setting=setting, stored=stored
+        ):
             response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary")
 
         assert response.status_code == 200
@@ -776,6 +1041,55 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == 404
 
+    def _summarize(self, issue_id: object) -> Any:
+        return self.client.post(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summarize")
+
+    def test_summarize_writes_the_summary_once(self) -> None:
+        issue = self.create_issue()
+
+        with summarize_state(self) as completions:
+            first = self._summarize(issue.id)
+            second = self._summarize(issue.id)
+
+        assert first.status_code == 200, first.json()
+        assert first.json()["status"] == "ready"
+        assert {key: first.json()["summary"][key] for key in STORED_CONTENT} == STORED_CONTENT
+        assert second.json() == first.json()
+        assert completions.call_count == 1
+        stored = ErrorTrackingIssueSummary.objects.for_team(self.team.id).get(issue_id=issue.id)
+        assert stored.content == STORED_CONTENT
+
+    @parameterized.expand(SUMMARIZE_REFUSALS)
+    def test_summarize_refusal(
+        self,
+        _name: str,
+        arrange: Callable[..., object],
+        expected_status: int,
+        expected_code: str,
+        expected_type: str,
+    ) -> None:
+        issue = self.create_issue()
+
+        with summarize_state(self) as completions:
+            arrange(self, issue, completions)
+            response = self._summarize(issue.id)
+
+        assert response.status_code == expected_status, response.json()
+        assert (response.json()["code"], response.json()["type"]) == (expected_code, expected_type)
+        assert not ErrorTrackingIssueSummary.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand([("issue", True), ("malformed_id", False)])
+    def test_summarize_outside_the_flag_answers_like_a_missing_route(self, _name: str, real_issue: bool) -> None:
+        issue_id = self.create_issue().id if real_issue else "not-a-uuid"
+
+        with summarize_state(self, flag=False) as completions:
+            response = self._summarize(issue_id)
+        missing_route = self.client.post(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/not_a_route")
+
+        assert (response.status_code, response.json()) == (missing_route.status_code, missing_route.json())
+        assert completions.call_count == 0
+        assert not ErrorTrackingIssueSummary.objects.for_team(self.team.id).exists()
+
     @parameterized.expand(
         [
             ("retrieve", "get", "", None),
@@ -796,6 +1110,60 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == 404, response.content
         assert response.json()["detail"] == "Issue not found"
+
+    @parameterized.expand(
+        [
+            ("release_retrieve", "get", "releases/not-a-uuid"),
+            ("release_update", "patch", "releases/not-a-uuid"),
+            ("release_delete", "delete", "releases/not-a-uuid"),
+            ("stack_frame_retrieve", "get", "stack_frames/not-a-uuid"),
+            ("symbol_set_retrieve", "get", "symbol_sets/not-a-uuid"),
+            ("symbol_set_delete", "delete", "symbol_sets/not-a-uuid"),
+            ("symbol_set_download", "get", "symbol_sets/not-a-uuid/download"),
+        ]
+    )
+    def test_detail_routes_return_404_for_malformed_id(self, _name: str, method: str, path: str) -> None:
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/error_tracking/{path}")
+
+        assert response.status_code == 404, response.content
+
+    @parameterized.expand(
+        [
+            (
+                "release_delete",
+                "delete",
+                "releases",
+                lambda team: ErrorTrackingRelease.objects.create(
+                    team=team, hash_id="hash", version="1.0.0", project="proj"
+                ),
+                status.HTTP_204_NO_CONTENT,
+            ),
+            (
+                "symbol_set_delete",
+                "delete",
+                "symbol_sets",
+                lambda team: ErrorTrackingSymbolSet.objects.create(ref="source_1", team=team, storage_ptr=None),
+                status.HTTP_204_NO_CONTENT,
+            ),
+            (
+                "stack_frame_retrieve",
+                "get",
+                "stack_frames",
+                lambda team: ErrorTrackingStackFrame.objects.create(
+                    raw_id="raw_id", team=team, resolved=True, contents={}
+                ),
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_detail_routes_find_object_by_valid_id(
+        self, _name: str, method: str, route: str, create: Callable[[Team], Any], expected_status: int
+    ) -> None:
+        obj = create(self.team)
+
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/error_tracking/{route}/{obj.id}")
+
+        assert response.status_code == expected_status, response.content
 
     @parameterized.expand(
         [
@@ -1424,10 +1792,11 @@ class TestErrorTracking(APIBaseTest):
         self.assertGreaterEqual(response.json()["deleted"], 1)
         self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists())
 
-    def test_bulk_delete_requires_ids(self) -> None:
+    @parameterized.expand([("missing_ids", {}), ("malformed_id", {"ids": ["not-a-uuid"]})])
+    def test_bulk_delete_rejects_invalid_ids(self, _name: str, data: dict) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_delete",
-            data={},
+            data=data,
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

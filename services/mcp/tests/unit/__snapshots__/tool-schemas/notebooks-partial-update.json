@@ -46,7 +46,7 @@
                         "type": "string"
                     },
                     "type": {
-                        "description": "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'.",
+                        "description": "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'.",
                         "type": "string"
                     },
                     "value": {

@@ -20,6 +20,7 @@ import { warehouseAlertModalLogic } from '../../shared/alerts/warehouseAlertModa
 import { WarehouseAlertsSection } from '../../shared/alerts/WarehouseAlertsSection'
 import { DestinationModal } from '../../shared/components/DestinationModal'
 import { destinationModalLogic } from '../../shared/logics/destinationModalLogic'
+import { WarehouseDestinationDetail } from './WarehouseDestinationDetail'
 import { warehouseDestinationsSceneLogic } from './warehouseDestinationsSceneLogic'
 import { WarehouseDestinationsTable } from './WarehouseDestinationsTable'
 
@@ -33,9 +34,15 @@ export const scene: SceneExport = {
 
 export function WarehouseDestinationsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { destinations, destinationsLoading, loadError, deletingId, hasSources } = useValues(
-        warehouseDestinationsSceneLogic
-    )
+    const {
+        destinations,
+        destinationsLoading,
+        loadError,
+        deletingId,
+        hasSources,
+        selectedDestinationId,
+        selectedDestination,
+    } = useValues(warehouseDestinationsSceneLogic)
     const { loadDestinations, deleteDestination, destinationCreated } = useActions(warehouseDestinationsSceneLogic)
 
     const modalProps = {
@@ -49,6 +56,34 @@ export function WarehouseDestinationsScene(): JSX.Element {
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="Warehouse destinations isn't available for this project yet." />
+    }
+
+    if (selectedDestinationId) {
+        return (
+            <SceneContent>
+                {loadError ? (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: loadDestinations,
+                            loading: destinationsLoading,
+                            'data-attr': 'warehouse-destinations-scene-retry',
+                        }}
+                    >
+                        {loadError}
+                    </LemonBanner>
+                ) : (
+                    <WarehouseDestinationDetail
+                        destinationId={selectedDestinationId}
+                        destination={selectedDestination}
+                        loading={destinationsLoading || destinations === null}
+                        onEdit={openForEdit}
+                    />
+                )}
+                <DestinationModal {...modalProps} />
+            </SceneContent>
+        )
     }
 
     const newDestinationButton = (

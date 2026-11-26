@@ -1,7 +1,11 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Subscriptions',
+    activityDescribers: {
+        [ActivityScope.SUBSCRIPTION]: () =>
+            import('./frontend/activityDescriber').then((module) => module.subscriptionActivityDescriber),
+    },
     scenes: {
         Subscriptions: {
             import: () => import('./frontend/scenes/SubscriptionsScene'),

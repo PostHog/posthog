@@ -6,7 +6,6 @@ import threading
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.dispatch import receiver
 
 import structlog
 from celery import Celery, bootsteps
@@ -27,8 +26,6 @@ from celery.signals import (
     worker_process_shutdown,
     worker_ready,
 )
-from django_structlog.celery import signals
-from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
@@ -102,13 +99,6 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 # Load task modules from all registered Django app configs.
 app.autodiscover_tasks()
 
-# Make sure Redis doesn't add too many connections
-# https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
-app.conf.broker_pool_limit = 0
-
-if app.steps:
-    app.steps["worker"].add(DjangoStructLogInitStep)
-
 task_timings: dict[str, float] = {}
 
 
@@ -174,14 +164,6 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     logging_config.dictConfig(logs.LOGGING)
-
-
-@receiver(signals.bind_extra_task_metadata)
-def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None):
-    import structlog
-
-    if task:
-        structlog.contextvars.bind_contextvars(task_name=task.name)
 
 
 @celeryd_init.connect
@@ -355,6 +337,15 @@ def on_worker_process_shutdown(**kwargs) -> None:
                 logger.warning("posthoganalytics_metrics_flush_timed_out")
     except Exception:
         logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+
+    # Billiard ends a recycled child with os._exit, which skips the atexit flush of the process-lifetime capture clients.
+    from posthog.ph_client import flush_background_capture  # noqa: PLC0415 — keep the SDK off the celery import path
+
+    capture_flush = threading.Thread(
+        target=flush_background_capture, name="posthoganalytics-capture-flush", daemon=True
+    )
+    capture_flush.start()
+    capture_flush.join(timeout=_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS)
 
 
 # Set up clickhouse query instrumentation

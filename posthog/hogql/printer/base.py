@@ -19,7 +19,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
-from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.errors import AmbiguousFieldError, ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.functions.core import validate_function_args
@@ -400,18 +400,18 @@ class BasePrinter(Visitor[str]):
             if node.window_exprs
             else None
         )
-        prewhere = self.visit(node.prewhere) if node.prewhere else None
-        where = self.visit(where) if where else None
+        prewhere = self._visit_filter_condition(node.prewhere) if node.prewhere else None
+        where_sql = self._visit_filter_condition(where) if where else None
         group_by: list[str] | None = None
         if node.group_by:
             if node.group_by_mode == "grouping_sets":
                 group_by = [self.visit(gs) for gs in node.group_by]
             else:
                 group_by = [self.visit(column) for column in node.group_by]
-        having = self.visit(node.having) if node.having else None
+        having = self._visit_filter_condition(node.having) if node.having else None
         if node.qualify is not None:
             self._assert_qualify_supported()
-        qualify = self.visit(node.qualify) if node.qualify else None
+        qualify = self._visit_filter_condition(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         array_join = ""
@@ -436,7 +436,7 @@ class BasePrinter(Visitor[str]):
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
-            f"WHERE{space}" + where if where else None,
+            f"WHERE{space}" + where_sql if where_sql else None,
             (
                 self._render_group_by_all_clause()
                 if node.group_by_mode == "all"
@@ -560,6 +560,15 @@ class BasePrinter(Visitor[str]):
         default no-op — the HogQL and warehouse dialects don't enforce events retention."""
         return None
 
+    def _flag_evaluations_coverage_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor scans of `posthog.flag_evaluations` to its coverage start. The ClickHouse dialect overrides it. The
+        default is a no-op, because only that dialect reads the table."""
+        return None
+
     def _postgres_retention_floor(
         self,
         table_type: ast.TableType | ast.LazyTableType,
@@ -640,6 +649,9 @@ class BasePrinter(Visitor[str]):
             retention_floor = self._events_retention_floor(table_type, node.type)
             if retention_floor is not None:
                 predicate_exprs = [*predicate_exprs, retention_floor]
+            coverage_floor = self._flag_evaluations_coverage_floor(table_type, node.type)
+            if coverage_floor is not None:
+                predicate_exprs = [*predicate_exprs, coverage_floor]
             postgres_floor = self._postgres_retention_floor(table_type, node.type)
             if postgres_floor is not None:
                 predicate_exprs = [*predicate_exprs, postgres_floor]
@@ -743,7 +755,10 @@ class BasePrinter(Visitor[str]):
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
-        return self.visit(node.expr)
+        return self._visit_filter_condition(node.expr)
+
+    def _visit_filter_condition(self, node: ast.Expr) -> str:
+        return self.visit(node)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         if node.op == ast.ArithmeticOperationOp.Add:
@@ -1259,7 +1274,7 @@ class BasePrinter(Visitor[str]):
                 if last_select and last_select.type
                 else None
             )
-        except ResolutionError:
+        except (AmbiguousFieldError, ResolutionError):
             # The name resolves to more than one source: it genuinely needs a table prefix to disambiguate.
             type_with_name_in_scope = None
             name_resolution_ambiguous = True

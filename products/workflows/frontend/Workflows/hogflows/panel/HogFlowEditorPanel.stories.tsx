@@ -365,6 +365,65 @@ EmailHeader.parameters = {
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }
 
+const FILTER_GROUPS_WORKFLOW: HogFlow = {
+    ...PANEL_WORKFLOW,
+    actions: PANEL_WORKFLOW.actions.map((action) =>
+        action.id === 'conditional'
+            ? ({
+                  ...action,
+                  config: {
+                      conditions: [
+                          {
+                              name: 'Paid or enterprise',
+                              filters: {
+                                  properties: {
+                                      type: 'OR',
+                                      values: [
+                                          {
+                                              type: 'AND',
+                                              values: [
+                                                  {
+                                                      key: 'account_stage',
+                                                      value: ['paid'],
+                                                      operator: 'exact',
+                                                      type: 'person',
+                                                  },
+                                                  { key: 'plan', value: ['pro'], operator: 'exact', type: 'person' },
+                                              ],
+                                          },
+                                          {
+                                              type: 'AND',
+                                              values: [
+                                                  {
+                                                      key: 'plan',
+                                                      value: ['enterprise'],
+                                                      operator: 'exact',
+                                                      type: 'person',
+                                                  },
+                                              ],
+                                          },
+                                      ],
+                                  },
+                              },
+                          },
+                          { name: 'Trial account', filters: {} },
+                      ],
+                  },
+              } as HogFlowAction)
+            : action
+    ),
+}
+
+export const ConditionalBranchFilterGroups: StoryFn<PanelStoryProps> = Template.bind({})
+ConditionalBranchFilterGroups.args = { mode: 'build', selectedNodeId: 'conditional', workflow: FILTER_GROUPS_WORKFLOW }
+ConditionalBranchFilterGroups.parameters = {
+    featureFlags: [FEATURE_FLAGS.WORKFLOWS_CONDITION_FILTER_GROUPS],
+    testOptions: { snapshotBrowsers: [] },
+}
+ConditionalBranchFilterGroups.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await within(canvasElement).findAllByText('Add filter group')
+}
+
 export const CohortBranch: StoryFn<PanelStoryProps> = Template.bind({})
 CohortBranch.args = { mode: 'build', selectedNodeId: 'cohort' }
 

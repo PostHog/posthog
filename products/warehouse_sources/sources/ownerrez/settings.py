@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
@@ -51,6 +51,10 @@ class OwnerRezEndpointConfig:
     # When set, each item is exploded into one row per entry of this nested list, with the
     # item's other top-level fields copied onto every row.
     explode_field: Optional[str] = None
+    # Static query params sent on the first request; next_page_url carries them forward.
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    # Row keys removed before load.
+    drop_fields: tuple[str, ...] = ()
 
 
 OWNERREZ_ENDPOINTS: dict[str, OwnerRezEndpointConfig] = {
@@ -149,6 +153,17 @@ OWNERREZ_ENDPOINTS: dict[str, OwnerRezEndpointConfig] = {
         # so this stays full refresh.
         primary_keys=["property_id", "date"],
         partition_key="date",
+    ),
+    "Listings": OwnerRezEndpointConfig(
+        name="Listings",
+        path="/v2/listings",
+        # Rows are keyed by property and carry no modified timestamp, so this stays full refresh.
+        # A personal access token reaches this endpoint only when the account has the WordPress
+        # Plugin + Integrated Websites premium; otherwise every call returns 402.
+        extra_params={"includeAmenities": "true", "includeRooms": "true", "includeBathrooms": "true"},
+        drop_fields=("wifi_password",),
+        primary_keys=["property_id"],
+        partition_key=None,
     ),
 }
 

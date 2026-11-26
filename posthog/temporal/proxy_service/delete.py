@@ -1,21 +1,23 @@
 import json
 import uuid
 import typing as t
-import asyncio
 import datetime as dt
 
-from django.db import connection
+from django.conf import settings
+from django.utils import timezone
 
 import grpc.aio
 import temporalio.common
-from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
+from temporalio.client import Client
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.dataclasses import frozen
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import asyncify, on_asyncify_pool
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     delete_custom_hostname,
@@ -27,6 +29,7 @@ from posthog.temporal.proxy_service.common import (
     UpdateProxyRecordInputs,
     activity_update_proxy_record,
     get_grpc_client,
+    is_cloudflare_proxy,
     is_cloudflare_proxy_by_cname,
     use_gateway_api,
 )
@@ -68,26 +71,32 @@ class DeleteManagedProxyInputs:
         }
 
 
-@activity.defn
-async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
-    """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
-    record matching the expected value.
-    """
-    bind_contextvars(organization_id=inputs.organization_id)
-    logger = LOGGER.bind()
-
-    logger.info(
-        "Deleting proxy record %s",
-        inputs.proxy_record_id,
+async def start_proxy_deletion(
+    temporal: Client, record: ProxyRecord, *, id_conflict_policy: WorkflowIDConflictPolicy
+) -> None:
+    await temporal.start_workflow(
+        "delete-proxy",
+        DeleteManagedProxyInputs(
+            organization_id=record.organization_id,
+            proxy_record_id=record.id,
+            domain=record.domain,
+            target_cname=record.target_cname,
+            root_redirect_url=record.root_redirect_url,
+        ),
+        id=f"proxy-delete-{record.id}",
+        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        id_conflict_policy=id_conflict_policy,
     )
 
-    @sync_to_async
-    def delete_record(proxy_record_id):
-        connection.connect()
-        pr = ProxyRecord.objects.get(id=proxy_record_id)
-        pr.delete()
 
-    await delete_record(inputs.proxy_record_id)
+@activity.defn
+@on_asyncify_pool
+def delete_proxy_record(inputs: DeleteProxyRecordInputs) -> None:
+    from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
+
+    LOGGER.bind(organization_id=inputs.organization_id).info("Deleting proxy record %s", inputs.proxy_record_id)
+    with cloudflare_proxy_lock(inputs.proxy_record_id):
+        ProxyRecord.objects.filter(organization_id=inputs.organization_id, pk=inputs.proxy_record_id).delete()
 
 
 @activity.defn
@@ -124,13 +133,16 @@ async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
         if e.code() == grpc.StatusCode.NOT_FOUND:
-            raise NonRetriableException("not found") from e
+            return
         raise
 
 
 @activity.defn
-async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
+@on_asyncify_pool
+def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
     """Activity that deletes Cloudflare Custom Hostname for a domain."""
+    from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
+
     bind_contextvars(organization_id=inputs.organization_id)
     logger = LOGGER.bind()
     logger.info(
@@ -138,31 +150,51 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
         inputs.domain,
     )
 
-    errors: list[str] = []
+    with cloudflare_proxy_lock(inputs.proxy_record_id):
+        errors: list[str] = []
 
-    # Worker route cleanup intentionally omitted: per-domain routes are no longer created (we
-    # now rely on a single wildcard */* route). Proxies created before this change may have
-    # orphaned per-domain routes; those should be cleaned up via a separate migration script.
-    # Delete Custom Hostname
-    try:
-        hostname = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
-        if hostname:
-            await asyncio.to_thread(delete_custom_hostname, hostname.id)
-            logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
-        else:
-            logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
-    except CloudflareAPIError as e:
-        logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
-        errors.append(f"Custom Hostname deletion failed: {e}")
+        # Worker route cleanup intentionally omitted: per-domain routes are no longer created (we
+        # now rely on a single wildcard */* route). Proxies created before this change may have
+        # orphaned per-domain routes; those should be cleaned up via a separate migration script.
+        # Delete Custom Hostname
+        try:
+            hostname = get_custom_hostname_by_domain(inputs.domain)
+            if hostname:
+                delete_custom_hostname(hostname.id)
+                logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
+            else:
+                logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
+        except CloudflareAPIError as e:
+            logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
+            errors.append(f"Custom Hostname deletion failed: {e}")
 
-    try:
-        await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, None)
-    except CloudflareAPIError as e:
-        logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
-        errors.append(f"Root redirect deletion failed: {e}")
+        try:
+            update_cloudflare_proxy_root_redirect(inputs.domain, None)
+        except CloudflareAPIError as e:
+            logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
+            errors.append(f"Root redirect deletion failed: {e}")
 
-    if errors:
-        raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
+        if errors:
+            raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
+
+
+@activity.defn
+@asyncify
+def record_proxy_deletion_failure(inputs: DeleteManagedProxyInputs) -> None:
+    from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
+
+    with cloudflare_proxy_lock(inputs.proxy_record_id):
+        records = ProxyRecord.objects.filter(
+            organization_id=inputs.organization_id, pk=inputs.proxy_record_id, status=ProxyRecord.Status.DELETING
+        )
+        record = records.first()
+        if record is None:
+            return
+        # Cloudflare reconciliation must still know that the proxy was meant to be deleted.
+        failed_status = ProxyRecord.Status.DELETING if is_cloudflare_proxy(record) else ProxyRecord.Status.ERRORING
+        records.update(
+            status=failed_status, message="Could not delete the proxy. Try again.", updated_at=timezone.now()
+        )
 
 
 @workflow.defn(name="delete-proxy")
@@ -223,17 +255,22 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
             )
 
         except Exception:
-            # Something went wrong - set the record to error state
-            await temporalio.workflow.execute_activity(
-                activity_update_proxy_record,
-                UpdateProxyRecordInputs(
-                    organization_id=inputs.organization_id,
-                    proxy_record_id=inputs.proxy_record_id,
-                    status=ProxyRecord.Status.ERRORING.value,
-                ),
-                start_to_close_timeout=dt.timedelta(seconds=60),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=10,
-                ),
-            )
+            if workflow.patched("record-proxy-deletion-failure"):
+                await temporalio.workflow.execute_activity(
+                    record_proxy_deletion_failure,
+                    inputs,
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=10),
+                )
+            else:
+                await temporalio.workflow.execute_activity(
+                    activity_update_proxy_record,
+                    UpdateProxyRecordInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        status=ProxyRecord.Status.ERRORING.value,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=10),
+                )
             raise

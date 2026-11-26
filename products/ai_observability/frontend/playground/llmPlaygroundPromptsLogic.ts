@@ -394,7 +394,7 @@ export interface llmPlaygroundPromptsLogicActions {
         } | null
     ) => {
         target: {
-            messageIndex?: number | undefined
+            messageIndex?: number
             promptId: string
             type: 'message' | 'response_format' | 'system' | 'tools'
         } | null

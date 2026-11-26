@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -14,12 +16,20 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.scopes.catalog import APIScopeObject
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.signals.backend.agent_instructions import (
+    AGENT_STEERING_MAX_LENGTH,
+    CUSTOM_IMAGE_FIELDS,
+    STEERING_FIELDS,
+    SignalAgentRole,
+    resolve_custom_image_id,
+)
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.implementation_repositories import MAX_IMPLEMENTATION_REPOSITORIES
-from products.signals.backend.models import SignalReport, SignalTeamConfig
+from products.signals.backend.models import SignalReport, SignalTeamConfig, effective_autostart_priority
 from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRIES, SignalTeamConfigSerializer
 from products.signals.backend.views import SignalTeamConfigViewSet
 
@@ -67,7 +77,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.post(self._url(), {field: value}, format="json")
         assert response.status_code == 403, response.content
 
-    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories"])
+    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories", *CUSTOM_IMAGE_FIELDS.values()])
     def test_sandbox_cannot_change_protected_settings(self, field: str) -> None:
         application = OAuthApplication.objects.create(
             client_id=sorted(SANDBOX_OAUTH_APP_CLIENT_IDS)[0],
@@ -87,13 +97,19 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
-        value = ["example/assets"] if field == "implementation_repositories" else "Check product intent."
+        value: object = "Check product intent."
+        if field == "implementation_repositories":
+            value = ["example/assets"]
+        elif field in CUSTOM_IMAGE_FIELDS.values():
+            value = str(uuid4())
         response = self.client.post(self._url(), {field: value}, format="json")
         assert response.status_code == 403, response.content
-        assert (
-            response.json()["detail"]
-            == "Task agents cannot modify steering instructions or implementation repositories."
+        expected_detail = (
+            "API key missing required scope 'llm_skill:write'"
+            if field == "scout_custom_image_id"
+            else "Task agents cannot modify steering instructions, implementation repositories, or default custom images."
         )
+        assert response.json()["detail"] == expected_detail
         assert self.client.get(self._url()).status_code == 200
         self.config.refresh_from_db()
         assert getattr(self.config, field) in (None, [])
@@ -149,6 +165,66 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert (getattr(self.config, field) == value) is (expected == status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            ("key_without_skill_scope", "scout_custom_image_id", False, ["inbox:write", "task:write"], False, 403),
+            (
+                "key_with_skill_scope",
+                "scout_custom_image_id",
+                False,
+                ["inbox:write", "task:write", "llm_skill:write"],
+                False,
+                200,
+            ),
+            (
+                "key_clears_without_skill_scope",
+                "scout_custom_image_id",
+                True,
+                ["inbox:write", "task:write"],
+                False,
+                200,
+            ),
+            ("key_sets_research_image", "research_custom_image_id", False, ["inbox:write", "task:write"], False, 200),
+            ("admin_without_skill_editor", "scout_custom_image_id", False, None, True, 403),
+        ]
+    )
+    def test_default_scout_image_needs_skill_authoring(
+        self, _name: str, field: str, clears: bool, scopes: list[str] | None, deny_skill_editor: bool, expected: int
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        image_id = uuid4()
+        setattr(self.config, field, image_id if clears else None)
+        self.config.save()
+        if scopes:
+            api_key = self.create_personal_api_key_with_scopes(scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def resource_access(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if deny_skill_editor and resource == "llm_skill":
+                return False
+            return real_check(access, resource, required_level)
+
+        with (
+            patch(
+                "products.tasks.backend.facade.api.get_sandbox_custom_image",
+                return_value=SimpleNamespace(private=False),
+            ),
+            patch.object(
+                UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=resource_access
+            ),
+        ):
+            response = self.client.post(self._url(), {field: None if clears else str(image_id)}, format="json")
+
+        assert response.status_code == expected, response.content
+        self.config.refresh_from_db()
+        expected_value = None if clears or expected != 200 else image_id
+        assert getattr(self.config, field) == expected_value
+
     def test_form_encoded_task_run_field_needs_task_scope(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -178,6 +254,57 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert self.config.autostart_enabled is False
         assert self.config.research_instructions == "Check product intent."
 
+    @parameterized.expand(
+        [
+            ("member_changes", OrganizationMembership.Level.MEMBER, "shared", False, 403),
+            ("member_resends_unchanged", OrganizationMembership.Level.MEMBER, "shared", True, 200),
+            ("admin_missing_image", OrganizationMembership.Level.ADMIN, "missing", False, 400),
+            ("admin_private_image", OrganizationMembership.Level.ADMIN, "private", False, 400),
+            ("admin_shared_image", OrganizationMembership.Level.ADMIN, "shared", False, 200),
+        ]
+    )
+    def test_default_custom_images_need_an_admin_and_a_shared_image(
+        self, _name: str, level: int, lookup: str, already_set: bool, expected: int
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        image_id = uuid4()
+        if already_set:
+            for field in CUSTOM_IMAGE_FIELDS.values():
+                setattr(self.config, field, image_id)
+            self.config.save()
+        found = None if lookup == "missing" else SimpleNamespace(private=lookup == "private")
+        body: dict[str, str] = {field: str(image_id) for field in CUSTOM_IMAGE_FIELDS.values()}
+        body["research_instructions"] = "Check product intent."
+
+        with patch("products.tasks.backend.facade.api.get_sandbox_custom_image", return_value=found):
+            response = self.client.post(self._url(), body, format="json")
+
+        assert response.status_code == expected, response.content
+        self.config.refresh_from_db()
+        saved = expected == 200
+        assert all((getattr(self.config, field) == image_id) == saved for field in CUSTOM_IMAGE_FIELDS.values())
+        assert (self.config.research_instructions == "Check product intent.") == saved
+
+    @parameterized.expand(
+        [
+            (SignalAgentRole.SCOUT, None, "scout"),
+            (SignalAgentRole.RESEARCH, None, "research"),
+            (SignalAgentRole.IMPLEMENTATION, None, "implementation"),
+            (SignalAgentRole.SCOUT, "override", "override"),
+        ]
+    )
+    def test_custom_image_resolves_scout_override_then_role_default(
+        self, role: SignalAgentRole, scout_override: str | None, expected: str
+    ) -> None:
+        images = {name: uuid4() for name in ("scout", "research", "implementation", "override")}
+        for agent_role, field in CUSTOM_IMAGE_FIELDS.items():
+            setattr(self.config, field, images[agent_role.value])
+        self.config.save()
+        override: UUID | None = images[scout_override] if scout_override else None
+
+        assert resolve_custom_image_id(self.team.id, role, override) == str(images[expected])
+
     def test_get_config_includes_default_settings(self):
         response = self.client.get(self._url())
         data = response.json()
@@ -187,7 +314,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         for field in STEERING_FIELDS.values():
             assert getattr(self.config, field) is None
             assert data[field] == ""
-        assert data["default_autostart_priority"] == "P4"
+        assert data["default_autostart_priority"] == "P2"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
         assert data["anomaly_scoring_enabled"] is True
@@ -206,7 +333,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.get(self._url())
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
-        assert data["default_autostart_priority"] == "P4"
+        assert data["default_autostart_priority"] == "P2"
         assert data["default_slack_notification_channel"] is None
         assert SignalTeamConfig.objects.filter(team=self.team).exists()
 
@@ -334,6 +461,31 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is sent
 
+    @parameterized.expand(
+        [
+            ("picks_p4", {"default_autostart_priority": "P4"}, True, "P4"),
+            (
+                "picks_p4_with_a_null_switch",
+                {"autostart_enabled": None, "default_autostart_priority": "P4"},
+                True,
+                "P4",
+            ),
+            ("picks_p0", {"default_autostart_priority": "P0"}, None, "P0"),
+            ("turns_prs_off", {"autostart_enabled": False}, False, "P2"),
+            ("turns_prs_on", {"autostart_enabled": True}, True, "P2"),
+            ("other_setting", {"default_slack_notification_channel": "C123|#posthog-signals"}, None, "P4"),
+        ]
+    )
+    def test_first_autonomy_write_stores_the_applied_threshold(self, _name, sent, stored_switch, stored_priority):
+        response = self.client.post(self._url(), data=sent, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self.config.refresh_from_db()
+        assert (self.config.autostart_enabled, self.config.default_autostart_priority) == (
+            stored_switch,
+            stored_priority,
+        )
+
     def test_get_config_defaults_daily_report_limit_fields(self):
         response = self.client.get(self._url())
         data = response.json()
@@ -419,51 +571,45 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is False
 
-    # Each case starts from the model default, so the POST is the only change on the row.
+    # Each case starts from the model default, so the POST is the only change on the row. Setting
+    # the switch on that row also stores the P2 threshold.
     @parameterized.expand(
         [
-            ("threshold", "default_autostart_priority", "P1", "project PR threshold", "changed", "P4", "P1"),
+            (
+                "threshold",
+                "default_autostart_priority",
+                "P1",
+                [("project PR threshold", "changed", "P4", "P1")],
+            ),
             (
                 "slack_threshold",
                 "default_slack_notification_min_priority",
                 "P2",
-                "team Slack minimum priority",
-                "created",
-                None,
-                "P2",
+                [("team Slack minimum priority", "created", None, "P2")],
             ),
-            ("pr_generation", "autostart_enabled", False, "PR generation", "created", None, False),
+            (
+                "pr_generation",
+                "autostart_enabled",
+                False,
+                [("PR generation", "created", None, False), ("project PR threshold", "changed", "P4", "P2")],
+            ),
             (
                 "slack_channel",
                 "default_slack_notification_channel",
                 "C123|#posthog-signals",
-                "team Slack channel",
-                "created",
-                None,
-                "C123|#posthog-signals",
+                [("team Slack channel", "created", None, "C123|#posthog-signals")],
             ),
             (
                 "base_branches",
                 "autostart_base_branches",
                 {"acme/web": "staging"},
-                "base branch overrides",
-                "created",
-                None,
-                {"acme/web": "staging"},
+                [("base branch overrides", "created", None, {"acme/web": "staging"})],
             ),
-            (
-                "pr_state",
-                "default_open_pull_request_ready",
-                True,
-                "PRs open as",
-                "changed",
-                False,
-                True,
-            ),
-            ("anomaly_scoring", "anomaly_scoring_enabled", False, "anomaly scoring", "changed", True, False),
+            ("pr_state", "default_open_pull_request_ready", True, [("PRs open as", "changed", False, True)]),
+            ("anomaly_scoring", "anomaly_scoring_enabled", False, [("anomaly scoring", "changed", True, False)]),
         ]
     )
-    def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, label, action, before, after):
+    def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, changes):
         response = self.client.post(self._url(), data={field: sent}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -476,6 +622,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert entry.detail is not None
         assert entry.detail["changes"] == [
             {"type": "SignalTeamConfig", "action": action, "field": label, "before": before, "after": after}
+            for label, action, before, after in changes
         ]
 
     def test_reading_config_does_not_record_activity(self):
@@ -551,6 +698,23 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert self.config.implementation_repositories == (
             expected if expected_status == status.HTTP_200_OK else stored
         )
+
+
+class TestEffectiveAutostartPriority(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_row", None, "P2"),
+            ("never_chose", SignalTeamConfig(autostart_enabled=None, default_autostart_priority="P4"), "P2"),
+            (
+                "threshold_without_switch",
+                SignalTeamConfig(autostart_enabled=None, default_autostart_priority="P3"),
+                "P3",
+            ),
+            ("switch_on_at_p4", SignalTeamConfig(autostart_enabled=True, default_autostart_priority="P4"), "P4"),
+        ]
+    )
+    def test_threshold(self, _name: str, config: SignalTeamConfig | None, expected: str) -> None:
+        assert effective_autostart_priority(config) == expected
 
 
 class TestSignalTeamConfigSerializerValidation(SimpleTestCase):

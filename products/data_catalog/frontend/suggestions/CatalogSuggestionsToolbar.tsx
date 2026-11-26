@@ -1,14 +1,24 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@posthog/quill'
+import { InputGroup, InputGroupAddon, InputGroupInput, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
-import { warehouseSuggestionsSectionLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsSectionLogic'
+import {
+    ASSIGNEE_FILTERS,
+    AssigneeFilter,
+    warehouseSuggestionsSectionLogic,
+} from 'products/warehouse_suggestions/frontend/warehouseSuggestionsSectionLogic'
 
 import { CatalogSuggestionsFilterMenu } from './CatalogSuggestionsFilterMenu'
 
+const ASSIGNEE_LABELS: Record<AssigneeFilter, string> = {
+    anyone: 'All',
+    me: 'Assigned to me',
+    unassigned: 'Unassigned',
+}
+
 export function CatalogSuggestionsToolbar(): JSX.Element {
-    const { filters } = useValues(warehouseSuggestionsSectionLogic)
+    const { filters, assigneeCounts } = useValues(warehouseSuggestionsSectionLogic)
     const { setFilters } = useActions(warehouseSuggestionsSectionLogic)
 
     return (
@@ -27,6 +37,25 @@ export function CatalogSuggestionsToolbar(): JSX.Element {
                 />
             </InputGroup>
             <CatalogSuggestionsFilterMenu />
+            <ToggleGroup
+                variant="default"
+                aria-label="Assignee"
+                value={[filters.assignee]}
+                onValueChange={(value: string[]) => value[0] && setFilters({ assignee: value[0] as AssigneeFilter })}
+            >
+                {ASSIGNEE_FILTERS.map((assignee) => (
+                    <ToggleGroupItem
+                        key={assignee}
+                        value={assignee}
+                        data-attr={`data-catalog-suggestions-assignee-${assignee}`}
+                    >
+                        {ASSIGNEE_LABELS[assignee]}
+                        <span translate="no" className="tabular-nums text-muted-foreground">
+                            {assigneeCounts[assignee]}
+                        </span>
+                    </ToggleGroupItem>
+                ))}
+            </ToggleGroup>
         </div>
     )
 }

@@ -73,6 +73,11 @@ export type AiResearchV4Config = {
     AI_RESEARCH_V4_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
     /** Image writes to S3, and republished frontier records, in flight at once. */
     AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
+    /** Readers must look up a fetched image in the image index first: replay-data.md, Packed fetched images. */
+    AI_RESEARCH_V4_IMAGE_FETCH_PACK_IMAGES: boolean
+    AI_RESEARCH_V4_IMAGE_FETCH_PACK_LINGER_MS: number
+    AI_RESEARCH_V4_IMAGE_FETCH_PACK_MAX_BYTES: number
+    AI_RESEARCH_V4_IMAGE_FETCH_INDEX_TOPIC: string
     /**
      * Wall time the fetch pass of one poll batch may take.
      *
@@ -167,6 +172,10 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 7,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
+        AI_RESEARCH_V4_IMAGE_FETCH_PACK_IMAGES: false,
+        AI_RESEARCH_V4_IMAGE_FETCH_PACK_LINGER_MS: 2_000,
+        AI_RESEARCH_V4_IMAGE_FETCH_PACK_MAX_BYTES: 16 * 1024 * 1024,
+        AI_RESEARCH_V4_IMAGE_FETCH_INDEX_TOPIC: 'ai_research_v4_index',
         AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS: 24 * 60 * 60 * 1000,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS: Date.parse('2026-10-30T00:00:00Z'),

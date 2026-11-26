@@ -8,6 +8,7 @@ import posthoganalytics
 logger = structlog.get_logger(__name__)
 
 RELEASES_AREA_FLAG = "releases-area"
+RELEASE_OBJECTS_FLAG = "release-objects"
 
 
 class ReleasesGateUnavailable(Exception):
@@ -22,19 +23,21 @@ def is_releases_enabled(
     distinct_id: str,
     email: str | None,
     raise_on_error: bool = False,
+    only_evaluate_locally: bool = False,
+    flag_key: str = RELEASE_OBJECTS_FLAG,
 ) -> bool:
     try:
         enabled = posthoganalytics.feature_enabled(
-            RELEASES_AREA_FLAG,
+            flag_key,
             distinct_id,
             groups={"organization": str(organization_id), "project": str(team_uuid)},
             person_properties={"email": email},
             group_properties={"organization": {"id": str(organization_id)}, "project": {"id": team_id}},
-            only_evaluate_locally=False,
+            only_evaluate_locally=only_evaluate_locally,
             send_feature_flag_events=False,
         )
     except Exception:
-        logger.exception("releases_feature_flag_check_failed", team_id=team_id)
+        logger.exception("releases_feature_flag_check_failed", team_id=team_id, flag_key=flag_key)
         if raise_on_error:
             raise
         return False

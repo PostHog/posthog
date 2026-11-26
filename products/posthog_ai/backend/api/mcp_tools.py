@@ -203,7 +203,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(
                 {
                     "success": False,
-                    "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
+                    "content": f"Tool failed: {e.to_summary().removesuffix('.')}.{e.retry_hint}",
                     "error_type": e.error_type,
                     **({"error_code": e.error_code} if e.error_code else {}),
                 }

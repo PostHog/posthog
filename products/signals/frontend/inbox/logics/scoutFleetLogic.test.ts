@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { ApiError } from 'lib/api-error'
 import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -17,6 +19,7 @@ import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
     signalsScoutConfigRun,
+    signalsScoutConfigStop,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
@@ -34,6 +37,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigRun: jest.fn(),
+    signalsScoutConfigStop: jest.fn(),
     signalsScoutConfigSync: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
@@ -50,6 +54,7 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
 const mockSignalsScoutConfigRun = signalsScoutConfigRun as jest.MockedFunction<typeof signalsScoutConfigRun>
+const mockSignalsScoutConfigStop = signalsScoutConfigStop as jest.MockedFunction<typeof signalsScoutConfigStop>
 const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction<typeof signalsScoutConfigSync>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
@@ -78,6 +83,8 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    report_actions: [],
+    max_report_actions_per_day: 3,
     allowed_mcp_tools: null,
     tool_preset: null,
     last_run_at: null,
@@ -88,6 +95,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    custom_image_id: null,
     precheck_query: null,
     precheck_disabled: false,
     effective_precheck_query: null,
@@ -155,6 +163,7 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigRun.mockReset()
+        mockSignalsScoutConfigStop.mockReset()
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
@@ -171,6 +180,7 @@ describe('scoutFleetLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
     })
 
     it.each([false, true])('keeps the first-report scout out of the normal UI unless staff=%s', async (isStaff) => {
@@ -250,6 +260,23 @@ describe('scoutFleetLogic', () => {
         expect(mockSignalsScoutConfigUpdate).toHaveBeenNthCalledWith(2, String(MOCK_TEAM_ID), BASE_CONFIG.id, later)
     })
 
+    it('shows the refusal the API gives and keeps the saved grant when a report action grant is rejected', async () => {
+        // Only the person a scout's runs act as may grant report actions, and the client cannot tell
+        // who that is, so the API's message is the only place a person learns who can.
+        const refusal =
+            "Only the person this scout's runs act as can grant it report actions. A project admin can only remove them."
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        mockSignalsScoutConfigUpdate.mockRejectedValueOnce(
+            new ApiError(refusal, 403, new Headers(), { detail: refusal, code: 'permission_denied' })
+        )
+
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { report_actions: ['make_it_green'] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledWith(refusal)
+        expect(logic.values.scoutConfigs?.[0].report_actions).toEqual([])
+    })
+
     it('publishes a scout against its canonical project and preserves its tags', async () => {
         const config = { ...BASE_CONFIG, scout_origin: 'custom' as const, tags: ['errors'] }
         logic.actions.loadScoutConfigsSuccess([config])
@@ -317,6 +344,37 @@ describe('scoutFleetLogic', () => {
             .mock.calls.filter(([, properties]) => properties?.action_type === 'run_now')
         expect(runNowEvents.map(([, properties]) => properties?.has_note)).toEqual(capturedHasNote)
         expect(JSON.stringify(runNowEvents)).not.toContain('checkout')
+    })
+
+    it('keeps a stopped run in the stopping state until a poll sees it finish', async () => {
+        jest.useFakeTimers()
+        const live = makeRun({ status: 'in_progress', completed_at: null })
+        mockSignalsScoutConfigStop.mockResolvedValue(live as any)
+        mockSignalsScoutRunsRecentPerScout.mockResolvedValue([live])
+
+        logic.actions.stopScoutRun(BASE_CONFIG.id)
+        await expectLogic(logic).toDispatchActions(['stopScoutRunAccepted', 'loadScoutRunsForSkillSuccess'])
+        expect(logic.values.stoppingScoutRuns).toEqual({ [BASE_CONFIG.id]: live.run_id })
+
+        mockSignalsScoutRunsRecentPerScout.mockResolvedValue([{ ...live, status: 'cancelled' }])
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.stoppingScoutRuns).toEqual({})
+    })
+
+    it.each([
+        ['a run cancelled before it started', () => Promise.resolve(makeRun({ status: 'cancelled' }) as any)],
+        ['a run that already finished', () => Promise.resolve(makeRun() as any)],
+        ['no run in progress', () => Promise.reject({ status: 404 })],
+        ['an unreachable workflow', () => Promise.reject({ status: 503, detail: 'Try again.' })],
+    ])('leaves the stopping state at once for %s', async (_name, respond) => {
+        mockSignalsScoutConfigStop.mockImplementation(respond)
+
+        logic.actions.stopScoutRun(BASE_CONFIG.id)
+        expect(logic.values.stoppingScoutRuns).toEqual({ [BASE_CONFIG.id]: null })
+        await expectLogic(logic).toDispatchActions(['stopScoutRunFinished'])
+
+        expect(logic.values.stoppingScoutRuns).toEqual({})
     })
 
     // The roster is the only consumer of the tag filter, so assert through the rows it renders.
@@ -716,18 +774,41 @@ describe('scoutFleetLogic', () => {
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
-    it('disables every scout chat after the daily cap refusal until its retry time', async () => {
-        jest.useFakeTimers()
-        try {
-            mockSignalsScoutChatTasksCreate.mockRejectedValue(
+    it.each([
+        {
+            refusal: 'the daily cap',
+            makeError: () =>
                 new ApiError('Request was throttled.', 429, new Headers({ 'Retry-After': '3600' }), {
                     code: 'throttled',
-                })
-            )
+                }),
+            code: 'throttled',
+            reason: /^You've reached today's limit for scout chats\. Try again after /,
+        },
+        {
+            refusal: 'the team usage limit',
+            makeError: () =>
+                new ApiError("You've reached your PostHog Desktop usage limit.", 429, new Headers(), {
+                    type: 'rate_limited',
+                    code: 'usage_limit_exceeded',
+                    error: "You've reached your PostHog Desktop usage limit.",
+                    reset_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+                }),
+            code: 'usage_limit_exceeded',
+            reason: /^You've reached your PostHog Desktop usage limit\. Try again after /,
+        },
+    ])('disables every scout chat after $refusal refusal until its retry time', async ({ makeError, code, reason }) => {
+        jest.useFakeTimers()
+        try {
+            mockSignalsScoutChatTasksCreate.mockRejectedValue(makeError())
 
             logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
             await jest.advanceTimersByTimeAsync(0)
-            expect(logic.values.scoutChatDisabledReason).toMatch(/^You've reached today's limit for scout chats/)
+            expect(logic.values.scoutChatDisabledReason).toMatch(reason)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'Scout chat start failed',
+                expect.objectContaining({ chat_type: 'author_scout', status: 429, code, limited: true }),
+                undefined
+            )
 
             logic.actions.startScoutChatTask('fleet_overview', 'fleet overview task')
             await jest.advanceTimersByTimeAsync(0)
@@ -738,6 +819,21 @@ describe('scoutFleetLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it('keeps scout chats disabled after a billing limit refusal with no reset time', async () => {
+        mockSignalsScoutChatTasksCreate.mockRejectedValue(
+            new ApiError('Your organization has been deactivated.', 429, new Headers(), {
+                type: 'billing_limit',
+                code: 'organization_deactivated',
+                error: 'Your organization has been deactivated.',
+            })
+        )
+
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
+
+        expect(logic.values.scoutChatDisabledReason).toEqual('Your organization has been deactivated.')
     })
 
     it('reports roster filtering with the search length, not the term', async () => {

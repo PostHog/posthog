@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
@@ -56,6 +57,7 @@ export function scoutAiContextItems({ scoutId }: ScoutChatContext): AttachedCont
 export interface scoutAiLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    isPhaiSandboxFlagOn: boolean // aiShellLogic
     seed: ComposerSeed | null // composerSeedLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     aiConsentDisabledReason: string | null
@@ -129,6 +131,8 @@ export const scoutAiLogic = kea<scoutAiLogicType>([
 
     connect(() => ({
         values: [
+            aiShellLogic,
+            ['isPhaiSandboxFlagOn'],
             aiConsentLogic,
             ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
             composerSeedLogic({ panelId: REPORT_AI_PANEL_ID }),
@@ -186,6 +190,9 @@ export const scoutAiLogic = kea<scoutAiLogicType>([
 
     listeners(({ actions, values }) => ({
         askScout: ({ question }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             const trimmed = question.trim()
             if (!trimmed || values.isAsking) {
                 return

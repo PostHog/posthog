@@ -12,8 +12,10 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationHogFunctionContext,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
+    HogFunctionType,
     MessageOptOutRecord,
     MinimalLogEntry,
 } from '../../../types'
@@ -25,10 +27,42 @@ import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
-import { isSensitiveMessage } from '../hogflow-sensitivity'
+import { loadMissingPersonProperties, personPropertiesInTemplates } from '../hogflow-person-property-usage'
+import { isClickTrackingEnabled, isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
+import { QueuedSend } from '../transactional-email'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+
+const restoreSavedEmailGuards = (
+    hogFunction: HogFunctionType,
+    savedState: CyclotronJobInvocationHogFunctionContext | undefined,
+    send: QueuedSend | undefined
+): void => {
+    if (!savedState) {
+        return
+    }
+    const preDeploySensitiveEscalation =
+        savedState.sensitive === true &&
+        savedState.clickTrackingEnabled === undefined &&
+        hogFunction.metadata?.sensitive !== true &&
+        send?.tracking.clicks === undefined
+    if (
+        savedState.sensitive ||
+        savedState.trackingEnabled === false ||
+        savedState.clickTrackingEnabled === false ||
+        preDeploySensitiveEscalation
+    ) {
+        hogFunction.metadata = {
+            ...hogFunction.metadata,
+            ...(savedState.sensitive ? { sensitive: true } : {}),
+            ...(savedState.trackingEnabled === false ? { tracking_enabled: false } : {}),
+            ...(savedState.clickTrackingEnabled === false || preDeploySensitiveEscalation
+                ? { click_tracking_enabled: false }
+                : {}),
+        }
+    }
+}
 
 const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
 
@@ -207,6 +241,12 @@ export class HogFunctionHandler implements ActionHandler {
         ) {
             observeMissingVariableReferences(invocation, action, result)
         }
+        // A hold wake and a render retry render the inputs again, so they need the property too.
+        if (!invocation.state.currentAction?.hogFunctionState) {
+            await loadMissingPersonProperties(invocation, result, () =>
+                personPropertiesInTemplates(action.config as { inputs?: unknown; mappings?: unknown })
+            )
+        }
 
         const wokeFromHold =
             !!invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
@@ -226,6 +266,9 @@ export class HogFunctionHandler implements ActionHandler {
 
         if (functionResult.emailSendResult) {
             result.emailSendResult = functionResult.emailSendResult
+        }
+        if (functionResult.parked) {
+            result.parked = true
         }
 
         // Add all logs
@@ -266,10 +309,21 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         if (!functionResult.finished) {
+            const sensitive = isSensitiveMessage(functionResult.invocation)
+            const masterTrackingOff = functionResult.invocation.hogFunction?.metadata?.tracking_enabled === false
+            const emailClickTrackingState =
+                action.type === 'function_email'
+                    ? {
+                          ...(sensitive && masterTrackingOff ? { trackingEnabled: false } : {}),
+                          clickTrackingEnabled:
+                              !(sensitive && masterTrackingOff) && isClickTrackingEnabled(functionResult.invocation),
+                      }
+                    : {}
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = {
                 ...functionResult.invocation.state,
-                ...(isSensitiveMessage(functionResult.invocation) ? { sensitive: true } : {}),
+                ...(sensitive ? { sensitive: true } : {}),
+                ...emailClickTrackingState,
             }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
@@ -500,11 +554,7 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
-        // A send that started protected stays protected through its retries, even if protection is turned off
-        // before the retry runs: the queued message was rendered under protection.
-        if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
-            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
-        }
+        restoreSavedEmailGuards(hogFunction, invocation.state.currentAction?.hogFunctionState, invocation.state.send)
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>

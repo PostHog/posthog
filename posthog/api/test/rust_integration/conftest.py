@@ -131,9 +131,8 @@ class TestDB:
         cur.execute(
             """
             INSERT INTO posthog_person (team_id, uuid, properties, created_at,
-                                        properties_last_updated_at, properties_last_operation,
                                         is_identified, version)
-            VALUES (%s, %s, %s, now(), '{}', '{}', false, 0)
+            VALUES (%s, %s, %s, now(), false, 0)
             RETURNING id
             """,
             (self.team_id, str(uuid.uuid4()), json.dumps(properties)),

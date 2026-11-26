@@ -114,7 +114,7 @@ export function ChatScreen({
     const session = useSession(target)
     const scope = useProjectScope()
     const { aiIncident } = usePostHogStatus(scope?.host)
-    const headerInset = pane.y === 0 ? insets.top + headerHeight : 0
+    const headerInset = Math.max(0, insets.top + headerHeight - pane.y)
     const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()

@@ -35,6 +35,7 @@ import {
     RowFilter,
 } from '~/types'
 
+import { supportsDirectQuery } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import {
     SyncMethodForm,
     SyncMethodFormHandle,
@@ -62,6 +63,7 @@ import {
 import type {
     ExternalDataSchemaApi,
     IncrementalFieldTypeEnumApi,
+    SettableSyncFrequencyEnumApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
@@ -114,9 +116,10 @@ export function ConfigurationTab({
     syncHistoryUrl,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
+    const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters, savingLiveQuery } = useValues(logic)
     const {
         setIsProjectTime,
+        setLiveQueryEnabled,
         updateSchema,
         reloadSchema,
         resyncSchema,
@@ -139,6 +142,13 @@ export function ConfigurationTab({
             return (
                 <DetailsSection
                     schema={schema}
+                    servesLiveQueries={
+                        source?.access_method !== 'direct' &&
+                        !!source?.direct_query_enabled &&
+                        supportsDirectQuery(source.source_type)
+                    }
+                    setLiveQueryEnabled={setLiveQueryEnabled}
+                    savingLiveQuery={savingLiveQuery}
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
@@ -210,6 +220,9 @@ interface FileUploadDetails {
 
 function DetailsSection({
     schema,
+    servesLiveQueries,
+    setLiveQueryEnabled,
+    savingLiveQuery,
     reloadSchema,
     cancelSchema,
     updateSchema,
@@ -218,6 +231,9 @@ function DetailsSection({
     fileUpload,
 }: {
     schema: ExternalDataSourceSchema
+    servesLiveQueries: boolean
+    setLiveQueryEnabled: (enabled: boolean) => void
+    savingLiveQuery: boolean
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
@@ -227,6 +243,7 @@ function DetailsSection({
     fileUpload?: FileUploadDetails
 }): JSX.Element {
     const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
+    const liveQueryOn = !schema.live_query_unavailable_reason && (schema.should_sync || !!schema.live_query_enabled)
 
     return (
         <div>
@@ -313,6 +330,29 @@ function DetailsSection({
                         </SchemaEditorAction>
                     </div>
                 )}
+                {servesLiveQueries && (
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col">
+                            <span>Live query</span>
+                            <span className="text-xs text-muted max-w-md">
+                                Query this table straight from your database without syncing it.
+                            </span>
+                        </div>
+                        <SchemaEditorAction schema={schema}>
+                            <LemonSwitch
+                                checked={liveQueryOn}
+                                label={liveQueryOn ? 'On' : 'Off'}
+                                disabledReason={
+                                    schema.live_query_unavailable_reason ??
+                                    (schema.should_sync ? 'Synced tables can always be queried live' : undefined)
+                                }
+                                loading={savingLiveQuery}
+                                onChange={setLiveQueryEnabled}
+                                data-attr="schema-live-query-switch"
+                            />
+                        </SchemaEditorAction>
+                    </div>
+                )}
                 {fileUpload && (
                     <div className="flex items-center justify-between">
                         <span className="text-muted">File</span>
@@ -333,6 +373,16 @@ function DetailsSection({
                     <span className="text-muted">Last synced</span>
                     {schema.last_synced_at ? (
                         <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                    ) : (
+                        <span className="text-muted">Never</span>
+                    )}
+                </div>
+                <div className="flex items-center justify-between">
+                    <Tooltip title="When the last successful sync started, including syncs that found no new rows. Last synced can stay the same while the source has nothing new.">
+                        <span className="text-muted">Last checked</span>
+                    </Tooltip>
+                    {schema.last_checked_at ? (
+                        <TZLabel time={schema.last_checked_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                     ) : (
                         <span className="text-muted">Never</span>
                     )}
@@ -437,7 +487,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc } = useValues(logic)
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc, source } = useValues(logic)
     const { loadSchemaIncrementalFields, loadSchema, loadSourceConfig } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
@@ -483,6 +533,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         incrementalFieldLookbackSeconds?: number | null
     ): void => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
+        // Set only for a migrated table that this save turns on, from the frequency picked in the confirm dialog.
+        let pendingSelfManagedSyncFrequency: DataWarehouseSyncInterval | undefined
 
         const applyUpdate = async ({
             dropHistoryTable = false,
@@ -506,6 +558,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                             : null,
                     ...((syncType === 'cdc' || syncType === 'incremental') && cdcTableMode
                         ? { cdc_table_mode: cdcTableMode }
+                        : {}),
+                    // The picker offers only the allowed frequencies.
+                    ...(pendingSelfManagedSyncFrequency
+                        ? { sync_frequency: pendingSelfManagedSyncFrequency as SettableSyncFrequencyEnumApi }
                         : {}),
                     ...(dropHistoryTable ? { drop_history_table: true } : {}),
                     ...(copyAccessRulesToHistory ? { copy_access_rules_to_history: true } : {}),
@@ -605,7 +661,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(1, askAboutHistoryThenApply)
+            confirmPendingSelfManagedSync(syncType, (syncFrequency) => {
+                pendingSelfManagedSyncFrequency = syncFrequency
+                askAboutHistoryThenApply()
+            })
             return
         }
 
@@ -629,6 +688,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                     <fieldset disabled={!!accessDisabledReason}>
                         <SyncMethodForm
                             ref={formRef}
+                            sourceType={source?.source_type}
                             hideFooter
                             onSaveDisabledReasonChange={setSaveDisabledReason}
                             saveButtonIsLoading={saving}
@@ -1059,16 +1119,18 @@ function ColumnsAndRowFiltersSection({
                                       ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
                                       : 'No columns discovered yet for this schema.'}
                             </span>
-                            <SchemaEditorAction schema={schema}>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    loading={refreshingSchemas}
-                                    onClick={() => refreshSchemas()}
-                                >
-                                    Pull new schemas
-                                </LemonButton>
-                            </SchemaEditorAction>
+                            {source?.supports_table_discovery !== false && (
+                                <SchemaEditorAction schema={schema}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={refreshingSchemas}
+                                        onClick={() => refreshSchemas()}
+                                    >
+                                        Pull new schemas
+                                    </LemonButton>
+                                </SchemaEditorAction>
+                            )}
                         </div>
                     ) : (
                         <>

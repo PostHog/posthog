@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.sdk import UnknownResourceError
 from products.warehouse_sources.sources.sdk.testing import (
@@ -75,20 +76,26 @@ class TestToRfc3339:
 
 
 class TestUsageDays:
+    @time_machine.travel("2026-11-16T12:00:00Z", tick=False)
     @pytest.mark.parametrize(
-        ("last_value", "expected"),
+        ("watermark_age", "as_string", "expected"),
         [
-            (None, 90),
-            (datetime.now(UTC), 2),
-            (datetime.now(UTC) - timedelta(days=10), 12),
-            ((datetime.now(UTC) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ"), 5),
+            (None, False, 90),
+            (timedelta(0), False, 2),
+            (timedelta(days=10), False, 12),
+            (timedelta(days=3), True, 5),
             # X answers at most 90 days back.
-            (datetime.now(UTC) - timedelta(days=200), 90),
+            (timedelta(days=200), False, 90),
             # A watermark ahead of the worker's clock still asks for at least one day.
-            (datetime.now(UTC) + timedelta(days=5), 1),
+            (timedelta(days=-5), False, 1),
         ],
     )
-    def test_covers_every_day_since_the_watermark(self, last_value: Any, expected: int) -> None:
+    def test_covers_every_day_since_the_watermark(
+        self, watermark_age: timedelta | None, as_string: bool, expected: int
+    ) -> None:
+        last_value: datetime | str | None = None if watermark_age is None else datetime.now(UTC) - watermark_age
+        if as_string and isinstance(last_value, datetime):
+            last_value = last_value.strftime("%Y-%m-%dT%H:%M:%SZ")
         assert usage_days(last_value) == expected
 
 
@@ -296,6 +303,7 @@ class TestTwitterSourceRequests:
 
         assert "start_time" not in requests[0].query
 
+    @time_machine.travel("2026-11-16T12:00:00Z", tick=False)
     @pytest.mark.parametrize(
         ("should_use_incremental_field", "watermark_age", "sends_start_time"),
         [
@@ -338,17 +346,19 @@ class TestTwitterSourceRequests:
         assert result.requests == []
         assert "Add a search query to the source settings to sync this table." in str(result.raised)
 
+    @time_machine.travel("2026-11-16T12:00:00Z", tick=False)
     @pytest.mark.parametrize(
-        ("should_use_incremental_field", "last_value", "expected_days"),
+        ("should_use_incremental_field", "watermark_age", "expected_days"),
         [
             (False, None, "90"),
             (True, None, "90"),
-            (True, datetime.now(UTC) - timedelta(days=3), "5"),
+            (True, timedelta(days=3), "5"),
         ],
     )
     def test_usage_asks_for_the_days_since_the_watermark(
-        self, should_use_incremental_field: bool, last_value: Any, expected_days: str
+        self, should_use_incremental_field: bool, watermark_age: timedelta | None, expected_days: str
     ) -> None:
+        last_value = None if watermark_age is None else datetime.now(UTC) - watermark_age
         body = {
             "data": {
                 "project_id": "p1",

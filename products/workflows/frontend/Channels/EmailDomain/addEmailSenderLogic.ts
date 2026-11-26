@@ -7,14 +7,13 @@ import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
 import { integrationsCreate, integrationsEmailVerifyCreate } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 
-import { openEmailDomainSetupPage } from './openEmailDomainSetupPage'
+import { emailDomainSetupPath, startEmailDomainSetup } from './emailDomainSetupLinks'
 
 export type AddEmailSenderEntry = 'catalog' | 'domain_row'
 
@@ -317,14 +316,14 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
         },
         useNewDomain: () => {
             actions.closeAddSender()
-            openEmailDomainSetupPage('add_sender')
+            startEmailDomainSetup('add_sender')
         },
         finishVerification: () => {
             const senders = values.selectedDomain?.senders ?? []
             const sender = senders.find((candidate) => !isVerifiedSender(candidate)) ?? senders[0]
             actions.closeAddSender()
             if (sender) {
-                router.actions.push(urls.workflowsEmailDomain(sender.id))
+                router.actions.push(emailDomainSetupPath(sender.id))
             }
         },
     })),

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { TRAFFIC } from '../generator/traffic'
+import { BARS } from '../judge/bars'
 import { INVARIANTS } from '../judge/invariants'
 import { MEASUREMENTS } from '../judge/measurements'
 import { VALVES } from '../valves/valves'
@@ -16,6 +17,7 @@ export type Definitions = {
     traffic: TrafficDefinition[]
     invariants: Definition[]
     measurements: Definition[]
+    bars: Definition[]
 }
 
 export const DEFINITIONS: Definitions = {
@@ -23,4 +25,5 @@ export const DEFINITIONS: Definitions = {
     traffic: TRAFFIC,
     invariants: INVARIANTS,
     measurements: MEASUREMENTS,
+    bars: BARS,
 }

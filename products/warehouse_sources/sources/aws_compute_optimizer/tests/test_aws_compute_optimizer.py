@@ -145,6 +145,16 @@ def test_signed_json_request(region: str | None, token: str | None, host: str) -
             ["resource_arn"],
         ),
         (
+            "license_recommendations",
+            "GetLicenseRecommendations",
+            "licenseRecommendations",
+            {
+                "resourceArn": "arn:aws:ec2:eu-west-1:123456789012:instance/i-licensed",
+                "currentLicenseConfiguration": {"licenseName": "SQLServer", "numberOfCores": 4},
+            },
+            ["resource_arn"],
+        ),
+        (
             "recommendation_summaries",
             "GetRecommendationSummaries",
             "recommendationSummaries",
@@ -192,6 +202,7 @@ def test_full_refresh_pagination(
 
 EC2_ARN = "arn:aws:ec2:eu-west-1:123456789012:instance/i-example"
 ECS_ARN = "arn:aws:ecs:eu-west-1:123456789012:service/example/service"
+RDS_ARN = "arn:aws:rds:eu-west-1:123456789012:db:example"
 
 
 @pytest.mark.parametrize(
@@ -240,6 +251,19 @@ ECS_ARN = "arn:aws:ecs:eu-west-1:123456789012:service/example/service"
                 },
             ],
         ),
+        (
+            "rds_database_recommendation_projected_metrics",
+            "GetRDSDatabaseRecommendations",
+            "rdsDBRecommendations",
+            "resourceArn",
+            "lookbackPeriodInDays",
+            {"recommendedDBInstanceClass": "db.r7g.large", "rank": 1},
+            {"name": "CPU", "timestamps": [1735689600, 1735776000], "values": [55.0]},
+            [
+                {"resource_arn": RDS_ARN, "recommended_db_instance_class": "db.r7g.large", "rank": 1, "value": 55.0},
+                {"resource_arn": RDS_ARN, "recommended_db_instance_class": "db.r7g.large", "rank": 1, "value": None},
+            ],
+        ),
     ],
 )
 def test_projected_metrics_fan_out_over_recommendations(
@@ -252,7 +276,7 @@ def test_projected_metrics_fan_out_over_recommendations(
     metric: dict[str, Any],
     expected: list[dict[str, Any]],
 ) -> None:
-    arn = expected[0][transport._column(arn_field)]
+    arn = expected[0][transport.camel_to_snake(arn_field)]
     result = driver().run(
         endpoint,
         [

@@ -2,12 +2,16 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getTagProps } from 'scenes/max/components/MaxChangelog'
 import { ChangelogEntry, maxChangelogLogic } from 'scenes/max/maxChangelogLogic'
+
+import { QuillMaxChangelogSettings } from './QuillMaxChangelogSettings'
 
 export function MaxChangelogSettings(): JSX.Element {
     const { entries, isDismissed, hasEntries } = useValues(maxChangelogLogic)
     const { enableChangelog, dismissChangelog } = useActions(maxChangelogLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleToggle = (checked: boolean): void => {
         if (checked) {
@@ -15,6 +19,17 @@ export function MaxChangelogSettings(): JSX.Element {
         } else {
             dismissChangelog()
         }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillMaxChangelogSettings
+                entries={entries}
+                hasEntries={hasEntries}
+                enabled={!isDismissed}
+                onToggle={handleToggle}
+            />
+        )
     }
 
     if (!hasEntries) {

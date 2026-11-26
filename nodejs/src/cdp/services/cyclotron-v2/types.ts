@@ -11,13 +11,16 @@ export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'fail
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
 export const CYCLOTRON_COUNTER_MAX = 32767
 
-// Past this a job is in a retry loop it will not leave on its own. Set above normal work: live p99 is ~5k and the highest row ~19.5k.
 export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
+export const CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR = 600
 
 export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number
     idleTimeoutMs?: number
+    // Bound how long one query, or the wait for a connection, can take. Unset means no limit.
+    statementTimeoutMs?: number
+    connectionTimeoutMs?: number
 }
 
 export const CyclotronV2JobInitSchema = z.object({
@@ -48,9 +51,22 @@ export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 export type CyclotronV2IdempotentJobInit = {
     job: CyclotronV2JobInit & { id: string }
     fingerprint: string
+    reply?: Record<string, unknown>
 }
 
+export type CyclotronV2IdempotencyKey = { fingerprint: string; reply: Record<string, unknown> | null }
+
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
+
+// Keyed by wait_until_condition action id. `at` is the database clock at write time.
+export type PendingWakeEntry = {
+    kind: 'match' | 'recheck'
+    at: string
+    eventName?: string
+    eventUuid?: string
+    eventTimestamp?: string
+}
+export type PendingWake = Record<string, PendingWakeEntry>
 
 export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
 
@@ -60,6 +76,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    wakeOnPendingWake: z.boolean().optional(),
     queueName: z.string().optional(),
     priority: z.number().int().optional(),
 })
@@ -108,6 +125,7 @@ export interface CyclotronV2DequeuedJob {
     // responsible for terminating it (cancel() plus its own telemetry) instead of
     // executing it.
     readonly cancelRequestedAt: DateTime | null
+    readonly pendingWake: PendingWake | null
 
     ack(): Promise<void>
     fail(): Promise<void>
@@ -201,7 +219,7 @@ export type CyclotronV2CancelUnclaimedResult =
 
 export type CyclotronV2RescheduleUnclaimedResult =
     | { outcome: 'rescheduled'; job: JobRow; rescheduledAt: Date }
-    | { outcome: 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'canceled' | 'claimed' | 'not_found' | 'too_far' }
 
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
@@ -224,7 +242,12 @@ export interface CyclotronV2JobProducer {
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
-    rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
+    rescheduleUnclaimed(
+        teamId: number,
+        id: string,
+        scheduled: Date,
+        options?: { maxAheadOfCreatedMs?: number }
+    ): Promise<CyclotronV2RescheduleUnclaimedResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number
@@ -250,6 +273,7 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMaxMs?: number
     heartbeatTimeoutMs?: number
     releaseWriteHeartbeatLimitMs?: number
+    releaseWriteRetry?: boolean
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
     ownershipReadTimeoutMs?: number

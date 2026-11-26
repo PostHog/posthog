@@ -59,7 +59,7 @@ Export it separately from the component so it can be unit tested without renderi
 Declare it in `frontend/src/lib/constants.tsx` with an owner comment, in the same style as the neighbours:
 
 ```ts
-SQL_INSIGHT_DATE_FILTER_NOTICE: 'sql-insight-date-filter-notice', // owner: #team-product-analytics, gates the notice on SQL insights affected by the date filter resolution fix
+SQL_INSIGHT_DATE_FILTER_NOTICE: 'sql-insight-date-filter-notice', // owner: #team-analytics, gates the notice on SQL insights affected by the date filter resolution fix
 ```
 
 The flag does three jobs: it lets you roll the notice out gradually, it lets you turn it off without a deploy if the copy is wrong or the predicate is too broad, and it is the handle you retire the notice by when it has served its purpose.

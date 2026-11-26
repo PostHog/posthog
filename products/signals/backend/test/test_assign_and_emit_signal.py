@@ -14,6 +14,7 @@ from asgiref.sync import sync_to_async
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -29,6 +30,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.source_issues import open_report_for_source_issue, source_issues_by_report
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
@@ -63,7 +65,7 @@ async def aorganization():
         name=f"SignalsAssignOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -73,7 +75,7 @@ async def ateam(aorganization):
         name=f"SignalsAssignTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest.fixture(autouse=True)
@@ -1165,6 +1167,45 @@ async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_sour
         semantic_match.assert_not_awaited()
     else:
         assert match is semantic
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "joins_existing,source_product,source_type,recorded",
+    [
+        (False, "github", "issue", True),
+        (True, "github", "issue", True),
+        (False, "conversations", "ticket", False),
+    ],
+)
+async def test_github_issue_signal_records_its_issue_on_the_report_it_lands_on(
+    ateam, joins_existing, source_product, source_type, recorded
+):
+    url = "https://github.com/Acme/Widgets/issues/42"
+    if joins_existing:
+        existing = await database_sync_to_async(SignalReport.objects.create)(
+            team=ateam, status=SignalReport.Status.POTENTIAL, title="Exports time out"
+        )
+        match: ExistingReportMatch | NewReportMatch = _existing_match(str(existing.id))
+    else:
+        match = _new_match()
+    input_ = replace(
+        _build_input(ateam.id, match, weight=WEIGHT_THRESHOLD * 0.5, source_product=source_product),
+        source_type=source_type,
+        extra={"html_url": url, "number": 42, "state": "open", "locked": False},
+    )
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    held = await database_sync_to_async(source_issues_by_report)(team_id=ateam.id, report_ids=[result.report_id])
+    found = await database_sync_to_async(open_report_for_source_issue)(team_id=ateam.id, url=url)
+    if recorded:
+        assert held == {result.report_id: [SourceIssue.github("acme/widgets", 42)]}
+        assert found is not None and str(found.id) == result.report_id
+    else:
+        assert held == {}
+        assert found is None
 
 
 @pytest.mark.asyncio

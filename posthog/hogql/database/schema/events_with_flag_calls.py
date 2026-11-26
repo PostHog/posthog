@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -17,6 +16,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
+from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
@@ -135,13 +135,15 @@ class FlagEvaluationsColumns:
 
 
 class EventsWithFlagCallsTable(LazyTable):
-    """`events` with its keyed flag calls read from `posthog.flag_evaluations` instead: since the coverage start on mode
-    1, and every call that table retains on mode 2.
+    """`events` with its keyed flag calls read from `posthog.flag_evaluations` instead, since the coverage start. On
+    mode 2 the flag_evaluations branch has no cutoff of its own. The ClickHouse printer's coverage floor drops rows
+    older than the coverage start, and events holds no older keyed flag call.
 
     Its `fields` is the events table's own dict, so every name binds as it does on `events`.
     """
 
     fields: dict[str, FieldOrTable] = {}
+    person_id_pushdown_default: bool = True
 
     def avoid_asterisk_fields(self) -> list[str]:
         return list(EVENTS_AVOID_ASTERISK_FIELDS)
@@ -195,7 +197,7 @@ class EventsWithFlagCallsTable(LazyTable):
 
         columns = FlagEvaluationsColumns(self, context.database.get_table(["posthog", "flag_evaluations"]))
         only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
-        cutoff = ast.Constant(value=flag_evaluations_coverage_start(datetime.now(UTC)))
+        cutoff = ast.Constant(value=flag_evaluations_coverage_start(context.flag_calls_now()))
         # Property type resolution ran before lazy tables, so the metadata holds the type of each property this query
         # reads, `$feature_flag` among them.
         filters = union_branch_filters(
@@ -272,7 +274,9 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
     the text of a `$feature/<key>` property instead, because it rebuilds that property from `$feature_flags`. It does
     the same for a key that a restriction overlaps, which it reads from the masked document, unless the key is stored
     in `temporary_properties`. Every other read, and every read on the legacy events table, serializes the text.
-    flag_evaluations stores the document as JSON text, so the key's raw text is its JSON value.
+    flag_evaluations stores the document as JSON text, so the key's raw text is its JSON value. Events stores an
+    object or array as a string of its JSON text and reads any string that is a valid JSON object or array as that
+    container, so this does the same.
     """
     # Deferred: restricted_properties imports this module.
     from posthog.hogql.restricted_properties import property_path_overlaps_restriction  # noqa: PLC0415
@@ -296,10 +300,13 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
         PERSON_PROPERTIES_JSON_SUBCOLUMNS if isinstance(owner, VirtualTable) else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
     )
     if key in declared_paths:
-        return serialized
-    # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
+        return ast.Call(name="if", args=[is_json_container_text(read), clone_expr(read), serialized])
+    # Events reads a missing key as NULL. An integer key names a key, not a position.
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
-    return null_if_sentinels(raw, ("", "{}", "null"))
+    text = ast.Call(name="JSONExtractString", args=[clone_expr(raw)])
+    return ast.Call(
+        name="if", args=[is_json_container_text(text), clone_expr(text), null_if_sentinels(raw, ("", "null"))]
+    )
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":

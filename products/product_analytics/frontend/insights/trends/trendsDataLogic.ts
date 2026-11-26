@@ -177,6 +177,7 @@ export interface trendsDataLogicValues {
     getTrendsColor: (dataset: IndexedTrendResult) => string
     getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
     getTrendsHidden: (dataset: IndexedTrendResult) => boolean
+    getTrendsYAxisPosition: (dataset: IndexedTrendResult) => ResultCustomization['yAxisPosition']
     hasBreakdownMore: boolean
     hasPersonsModal: boolean
     hoveredDatasetIndex: number | null
@@ -189,8 +190,8 @@ export interface trendsDataLogicValues {
     movingAverageIntervals: number
     pieChartVizOptions:
         | {
-              disableHoverOffset?: boolean | undefined
-              hideAggregation?: boolean | undefined
+              disableHoverOffset?: boolean
+              hideAggregation?: boolean
           }
         | undefined
     resultCustomizationBy: ResultCustomizationBy
@@ -381,8 +382,8 @@ export interface trendsDataLogicMeta {
         confidenceLevel: (trendsFilter: TrendsFilter | null | undefined) => number
         pieChartVizOptions: (arg: VizSpecificOptions | null | undefined) =>
             | {
-                  disableHoverOffset?: boolean | undefined
-                  hideAggregation?: boolean | undefined
+                  disableHoverOffset?: boolean
+                  hideAggregation?: boolean
               }
             | undefined
         mightContainFractionalNumbers: (
@@ -404,7 +405,7 @@ export interface trendsDataLogicMeta {
                 | Record<string, ResultCustomizationByValue>
                 | Record<number, ResultCustomizationByPosition>
                 | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
@@ -422,6 +423,24 @@ export interface trendsDataLogicMeta {
         getTrendsColor: (
             getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
         ) => (dataset: IndexedTrendResult) => string
+        getTrendsYAxisPosition: (
+            resultCustomizationBy: ResultCustomizationBy,
+            resultCustomizations:
+                | Record<string, ResultCustomizationByValue>
+                | Record<number, ResultCustomizationByPosition>
+                | undefined,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => (dataset: IndexedTrendResult) => ResultCustomization['yAxisPosition']
         getTrendsHidden: (
             resultCustomizationBy: ResultCustomizationBy,
             resultCustomizations:
@@ -1056,6 +1075,30 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
                 }
             },
+        ],
+        getTrendsYAxisPosition: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.querySource],
+            (
+                resultCustomizationBy: ResultCustomizationBy,
+                resultCustomizations:
+                    | Record<string, ResultCustomizationByValue>
+                    | Record<number, ResultCustomizationByPosition>
+                    | undefined,
+                querySource:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | PathsQuery
+                    | PathsV2Query
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | WebOverviewQuery
+                    | WebStatsTableQuery
+                    | null
+            ) =>
+                (dataset: IndexedTrendResult): ResultCustomization['yAxisPosition'] =>
+                    getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations, querySource)
+                        ?.yAxisPosition,
         ],
         getTrendsHidden: [
             (s) => [s.resultCustomizationBy, s.resultCustomizations, s.querySource],

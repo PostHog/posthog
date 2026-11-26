@@ -1,5 +1,11 @@
 .DashboardTileCard {
     min-height: 0;
+
+    // Lemon content in a quill card keeps the app's body text size, not the card's.
+    &[data-quill] [data-not-quill] {
+        font-size: 14px;
+        line-height: 1.5715;
+    }
 }
 
 .CardMeta {
@@ -12,6 +18,11 @@
     max-height: calc(100% - 2rem);
     background: var(--color-bg-surface-primary);
     border-radius: var(--radius);
+
+    // Inside a quill Card the card paints the surface.
+    &.CardMeta--quill {
+        background: none;
+    }
 
     h5 {
         margin-bottom: 0;
@@ -232,6 +243,15 @@
 
 .CardMeta:hover .CardMeta__refresh {
     visibility: visible;
+}
+
+// Opacity, not visibility, so keyboard users can still tab to it. InsightCard.scss reveals it on hover.
+.CardMeta__copy-link {
+    opacity: 0;
+
+    &:focus-visible {
+        opacity: 1;
+    }
 }
 
 // On compact tiles too narrow to fit the icon without overlapping the title, keep it hidden

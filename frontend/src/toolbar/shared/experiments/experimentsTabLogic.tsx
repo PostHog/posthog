@@ -16,11 +16,11 @@ import {
     setSanitizedStyle,
 } from '~/toolbar/shared/experiments/sanitize'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm, WebExperimentVariant } from '~/toolbar/shared/types'
 import { urls } from '~/toolbar/shared/urls'
-import { elementToQuery, isLaunched, joinWithUiHost, percentageDistribution } from '~/toolbar/shared/utils'
+import { elementToQuery, isLaunched, percentageDistribution } from '~/toolbar/shared/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { ToolbarUserIntent } from '../../../types'
@@ -384,7 +384,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 // This property is only used in the editor to undo transforms
                 delete experimentToSave.original_html_state
 
-                const { uiHost } = values
                 const { selectedExperimentId } = values
 
                 const isUpdate = selectedExperimentId && selectedExperimentId !== 'new'
@@ -410,7 +409,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 lemonToast.success('Experiment saved', {
                     button: {
                         label: 'Open in PostHog',
-                        action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
+                        action: () => window.open(toolbarAppUrl(urls.experiment(response.id)), '_blank'),
                     },
                 })
                 breakpoint()

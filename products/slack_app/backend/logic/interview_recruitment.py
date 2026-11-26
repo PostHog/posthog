@@ -26,19 +26,16 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
-from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
-from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, get_state, update_state
+from products.slack_app.backend.logic.message_sentiment import is_unhappy
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.inbox_interactivity import post_response_url
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, section_block
 from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
-from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -70,43 +67,6 @@ _CLICK_EVENTS: dict[str, str] = {
     INTERVIEW_OPT_OUT_ACTION_ID: "slack app interview invites turned off",
 }
 INVITES_OFF_TEXT = "👋 Got it. I won't ask you again."
-
-# Not the `slack_app` product the other classifiers bill under: recruitment serves PostHog, so it
-# must not spend the team's AI credits.
-SENTIMENT_AI_PRODUCT = "slack_app_interview_recruitment"
-# The answer is already in the thread. A slow call only drops the invitation.
-SENTIMENT_TIMEOUT_SECONDS = 5.0
-# A wrong invitation to a calm person costs trust, and a missed one costs nothing, so the bar is high.
-# Tuned in products/slack_app/evals/eval_interview_sentiment.py.
-SENTIMENT_MIN_CONFIDENCE = 0.7
-SENTIMENT_QUESTION_ID = "sentiment"
-UNHAPPY = "unhappy"
-NOT_UNHAPPY = "not_unhappy"
-# The model needs the tone, not the whole message. This also keeps pasted logs out of the call.
-SENTIMENT_MESSAGE_MAX_CHARS = 500
-SENTIMENT_INSTRUCTIONS = (
-    "`message` is what a person wrote to the PostHog assistant in Slack. "
-    "Decide whether the person has an unhappy experience with the assistant or with PostHog. "
-    "Judge the tone and the intent, in any language. Do not judge the topic."
-)
-SENTIMENT_CRITERIA = {
-    UNHAPPY: "The person is frustrated, annoyed, angry, disappointed, or sarcastic about the assistant, "
-    "its answers, or PostHog. Examples: a complaint, a statement that it failed or is useless, "
-    "a repeated request after earlier failures, or a threat to stop using it.",
-    NOT_UNHAPPY: "The person asks, instructs, thanks, or reports something in a neutral or positive tone. "
-    "A calm correction, an urgent request, or a problem in their own product or with other people "
-    "is not unhappiness with the assistant.",
-}
-
-
-@frozen
-class SentimentVerdict:
-    choice: str
-    confidence: float
-
-    @property
-    def is_unhappy(self) -> bool:
-        return self.choice == UNHAPPY and self.confidence >= SENTIMENT_MIN_CONFIDENCE
 
 
 def linked_posthog_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
@@ -149,6 +109,8 @@ class FrustrationInviteRequest:
     signal: FrustrationSignal
     person_message: str | None = None
     trace_id: str | None = None
+    # A verdict the caller already has for ``person_message``, so the model does not run twice.
+    unhappy: bool | None = None
 
 
 def offer_frustration_invite(request: FrustrationInviteRequest) -> bool:
@@ -176,11 +138,19 @@ def offer_frustration_invite(request: FrustrationInviteRequest) -> bool:
     )
     if thread_count < MIN_INTERACTIONS:
         return False
-    if request.signal == "message" and not _is_unhappy(
-        request.person_message or "",
-        team_id=integration.team_id,
-        distinct_id=request.posthog_user.distinct_id if request.posthog_user is not None else None,
-        trace_id=request.trace_id,
+    # Deferred like the other ee imports in this product, so ee stays off the import path of every caller.
+    from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
+
+    if request.signal == "message" and not (
+        request.unhappy
+        if request.unhappy is not None
+        else is_unhappy(
+            request.person_message or "",
+            team_id=integration.team_id,
+            distinct_id=request.posthog_user.distinct_id if request.posthog_user is not None else None,
+            trace_id=request.trace_id,
+            privacy_mode=is_privacy_mode_enabled(integration.team),
+        )
     ):
         return False
 
@@ -246,49 +216,6 @@ def _release_invite(slack_workspace_id: str, slack_user_id: str, reserved_at: da
         update_state(slack_workspace_id, slack_user_id, change)
     except Exception:
         logger.warning("slack_app_interview_invite_release_failed", exc_info=True)
-
-
-def classify_sentiment(
-    message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None
-) -> SentimentVerdict | None:
-    """Ask the decision model whether the person is unhappy with the assistant. ``None`` means no verdict.
-
-    Raises when no System One server is configured or the call fails, so the caller can tell an
-    outage from a refusal.
-    """
-    text = message.strip()[:SENTIMENT_MESSAGE_MAX_CHARS]
-    if not text:
-        return None
-    # No TypeSafe fallback: the message is customer text, and TypeSafe is a third party.
-    client = build_system_one_client(
-        model=DEFAULT_DECISION_MODEL,
-        ai_product=SENTIMENT_AI_PRODUCT,
-        team_id=team_id,
-        distinct_id=distinct_id,
-        trace_id=trace_id,
-        properties={CLASSIFIER_PROPERTY: "interview_sentiment"},
-        timeout=SENTIMENT_TIMEOUT_SECONDS,
-    )
-    result = client.decide(
-        state={"message": text},
-        questions={
-            SENTIMENT_QUESTION_ID: ChoiceQuestion(instructions=SENTIMENT_INSTRUCTIONS, criteria=SENTIMENT_CRITERIA)
-        },
-    )
-    answer = result.answers.get(SENTIMENT_QUESTION_ID)
-    if not isinstance(answer, ChoiceAnswer):
-        return None
-    return SentimentVerdict(choice=answer.choice, confidence=answer.confidence)
-
-
-def _is_unhappy(message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None) -> bool:
-    """Whether the message reads as unhappy. Any failure reads as no, because a missed invitation costs nothing."""
-    try:
-        verdict = classify_sentiment(message, team_id=team_id, distinct_id=distinct_id, trace_id=trace_id)
-    except Exception:
-        logger.warning("slack_app_interview_sentiment_classifier_failed", exc_info=True)
-        return False
-    return verdict is not None and verdict.is_unhappy
 
 
 def frustration_invite_blocks(integration_id: int, invitation_id: str, trace_id: str | None) -> list[dict[str, Any]]:

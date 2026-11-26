@@ -30,8 +30,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arrow_array::{Array, RecordBatch, StringArray, UInt32Array};
+use arrow_array::{Array, ArrayRef, RecordBatch, StringArray, UInt32Array};
 use arrow_cast::{cast_with_options, CastOptions};
+use arrow_row::{RowConverter, SortField};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::filter::filter_record_batch;
 use arrow_select::take::{take, take_record_batch};
@@ -279,6 +280,11 @@ pub struct UpsertOptions {
     /// holds no match is cached, and the files this upsert writes are cached once its
     /// commit lands. `None` probes every candidate file from storage.
     pub probe_cache: Option<Arc<ProbeCache>>,
+    /// Columns that order the versions of a key, compared as a tuple. When set, a source
+    /// row replaces a matched row only if its order value is greater than or equal to the
+    /// stored one; an older source row is not written and the stored row stays. Must not
+    /// be null in the source. Empty replaces every matched row.
+    pub order_columns: Vec<String>,
 }
 
 impl Default for UpsertOptions {
@@ -302,6 +308,7 @@ impl Default for UpsertOptions {
             max_source_bytes: None,
             limits: ProcessLimits::global().clone(),
             probe_cache: Some(ProbeCache::global().clone()),
+            order_columns: Vec::new(),
         }
     }
 }
@@ -327,6 +334,9 @@ pub struct UpsertStats {
     pub rows_updated: usize,
     /// Incoming rows with no existing match.
     pub rows_inserted: usize,
+    /// Incoming rows not written because the matched row has a newer order value (see
+    /// [`UpsertOptions::order_columns`]).
+    pub rows_older_than_main: usize,
     /// Unchanged rows rewritten into new files.
     pub rows_copied: usize,
     /// Rows in the (deduped) source batch.
@@ -538,6 +548,7 @@ struct PartitionOutcome {
     rows_updated: usize,
     rows_copied: usize,
     rows_inserted: usize,
+    rows_older_than_main: usize,
     null_pk_rows: usize,
     carried: usize,
     /// Cache keys of the files this partition removes.
@@ -822,6 +833,9 @@ async fn upsert_with_relax(
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
 ) -> Result<(UpsertStats, DeltaTableState)> {
+    // Before the relax, so a refused batch never makes a metadata commit.
+    let table_schema = RecordBatchWriter::for_table(table)?.arrow_schema();
+    check_order_columns(&source_batches, &source_schema, &table_schema, &opts)?;
     let relax_started = Instant::now();
     let relax = columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
     if relax.is_empty() {
@@ -1049,7 +1063,12 @@ async fn upsert_inner(
     let source_rows: usize = cast.iter().map(RecordBatch::num_rows).sum();
 
     // --- Source-size guard: fail at the front door, not as an OOM mid-rewrite. -------
-    let footprint = source_footprint(&cast, &table_schema, &opts.primary_keys)?;
+    let footprint = source_footprint(
+        &cast,
+        &table_schema,
+        &opts.primary_keys,
+        &opts.order_columns,
+    )?;
     check_source_size(&footprint, resolve_max_source_bytes(opts.max_source_bytes))?;
 
     let batches = Arc::new(cast);
@@ -1163,6 +1182,7 @@ async fn upsert_inner(
         stats.rows_updated += outcome.rows_updated;
         stats.rows_copied += outcome.rows_copied;
         stats.rows_inserted += outcome.rows_inserted;
+        stats.rows_older_than_main += outcome.rows_older_than_main;
         stats.null_pk_rows += outcome.null_pk_rows;
         actions.extend(outcome.actions);
         removed_keys.extend(outcome.removed_keys);
@@ -1170,6 +1190,18 @@ async fn upsert_inner(
     }
 
     let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
+
+    // Every row was older than its stored row, so the rewritten files hold what the live
+    // ones hold: drop them instead of committing a rewrite that changes nothing.
+    if !opts.order_columns.is_empty() && stats.rows_updated + stats.rows_inserted == 0 {
+        delete_uncommitted(table, &actions).await;
+        stats.files_added = 0;
+        stats.files_removed = 0;
+        stats.plan_ms = plan_ms;
+        stats.rewrite_ms = rewrite_ms;
+        stats.version = snapshot.version() as i64;
+        return Ok((stats, snapshot.clone()));
+    }
 
     // --- Commit ----------------------------------------------------------------------
     let committed = commit_partition_overwrite(
@@ -1215,6 +1247,165 @@ async fn upsert_inner(
     Ok((stats, committed.state))
 }
 
+/// Best-effort delete of the files `actions` added, which no commit references.
+async fn delete_uncommitted(table: &DeltaTable, actions: &[Action]) {
+    let store = table.object_store();
+    for action in actions {
+        let Action::Add(add) = action else { continue };
+        let Ok(path) = Path::from_url_path(&add.path) else {
+            continue;
+        };
+        if let Err(e) = object_store::ObjectStoreExt::delete(&store, &path).await {
+            warn!(path = %add.path, error = %e, "could not delete an uncommitted file");
+        }
+    }
+}
+
+fn check_order_columns(
+    source_batches: &[RecordBatch],
+    source_schema: &SchemaRef,
+    table_schema: &SchemaRef,
+    opts: &UpsertOptions,
+) -> Result<()> {
+    for column in &opts.order_columns {
+        if table_schema.index_of(column).is_err() {
+            return Err(Error::SchemaMismatch(format!(
+                "order column '{column}' not found in table schema"
+            )));
+        }
+        let idx = source_schema.index_of(column).map_err(|_| {
+            Error::SchemaMismatch(format!(
+                "order column '{column}' is missing from the source"
+            ))
+        })?;
+        let nulls: usize = source_batches
+            .iter()
+            .map(|b| b.column(idx).logical_null_count())
+            .sum();
+        if nulls > 0 {
+            return Err(Error::Generic(format!(
+                "order column '{column}' holds {nulls} null value(s); a guarded upsert needs one \
+                 on every row"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The order value of every keyed source row of one partition, for the guard in
+/// [`UpsertOptions::order_columns`]. Keys and orders are arrow-row encoded with the table's
+/// types, so stored rows compare as bytes.
+struct OrderGuard {
+    key_converter: RowConverter,
+    order_converter: RowConverter,
+    pk_idx: Vec<usize>,
+    order_idx: Vec<usize>,
+    source: HashMap<Box<[u8]>, SourceOrder>,
+}
+
+struct SourceOrder {
+    order: Box<[u8]>,
+    position: u32,
+}
+
+impl OrderGuard {
+    fn build(
+        source: &PartitionSource,
+        table_schema: &SchemaRef,
+        opts: &UpsertOptions,
+    ) -> Result<Option<Self>> {
+        if opts.order_columns.is_empty() {
+            return Ok(None);
+        }
+        let index = |name: &String| {
+            table_schema
+                .index_of(name)
+                .map_err(|_| Error::SchemaMismatch(format!("column '{name}' not in table schema")))
+        };
+        let pk_idx = opts
+            .primary_keys
+            .iter()
+            .map(index)
+            .collect::<Result<Vec<_>>>()?;
+        let order_idx = opts
+            .order_columns
+            .iter()
+            .map(index)
+            .collect::<Result<Vec<_>>>()?;
+        let converter = |idx: &[usize]| {
+            RowConverter::new(
+                idx.iter()
+                    .map(|i| SortField::new(table_schema.field(*i).data_type().clone()))
+                    .collect(),
+            )
+        };
+        let mut guard = Self {
+            key_converter: converter(&pk_idx)?,
+            order_converter: converter(&order_idx)?,
+            pk_idx,
+            order_idx,
+            source: HashMap::new(),
+        };
+        let mut position = 0u32;
+        for (b, sel) in source.parts() {
+            let n = sel.len(b.num_rows());
+            if n == 0 {
+                continue;
+            }
+            let select = |idx: &[usize]| -> Result<Vec<ArrayRef>> {
+                idx.iter().map(|i| sel.select_array(b.column(*i))).collect()
+            };
+            let keys = select(&guard.pk_idx)?;
+            let matchable: Vec<bool> = (0..n).map(|i| keys.iter().all(|k| k.is_valid(i))).collect();
+            let key_rows = guard.key_converter.convert_columns(&keys)?;
+            let order_rows = guard
+                .order_converter
+                .convert_columns(&select(&guard.order_idx)?)?;
+            for (i, matchable) in matchable.into_iter().enumerate() {
+                if matchable {
+                    guard.source.insert(
+                        key_rows.row(i).as_ref().into(),
+                        SourceOrder {
+                            order: order_rows.row(i).as_ref().into(),
+                            position: position + i as u32,
+                        },
+                    );
+                }
+            }
+            position += n as u32;
+        }
+        Ok(Some(guard))
+    }
+
+    /// Clear the hits of `batch` (a stored batch in the table schema) whose source row is
+    /// older, and return those source rows' positions.
+    fn keep_newer_stored(&self, batch: &RecordBatch, hits: &mut [bool]) -> Result<Vec<u32>> {
+        if !hits.iter().any(|h| *h) {
+            return Ok(Vec::new());
+        }
+        let columns = |idx: &[usize]| -> Vec<ArrayRef> {
+            idx.iter().map(|i| batch.column(*i).clone()).collect()
+        };
+        let keys = self.key_converter.convert_columns(&columns(&self.pk_idx))?;
+        let orders = self
+            .order_converter
+            .convert_columns(&columns(&self.order_idx))?;
+        let mut skipped = Vec::new();
+        for (i, hit) in hits.iter_mut().enumerate() {
+            if !*hit {
+                continue;
+            }
+            if let Some(source) = self.source.get(keys.row(i).as_ref()) {
+                if source.order.as_ref() < orders.row(i).as_ref() {
+                    *hit = false;
+                    skipped.push(source.position);
+                }
+            }
+        }
+        Ok(skipped)
+    }
+}
+
 /// A landed [`commit_partition_overwrite`].
 pub(crate) struct Committed {
     pub(crate) version: i64,
@@ -1239,6 +1430,11 @@ pub(crate) async fn commit_partition_overwrite(
             .iter()
             .filter_map(|a| match a {
                 Action::Add(add) => add.partition_values.get(c).cloned().flatten(),
+                // A file can be removed from a partition that receives no new file.
+                Action::Remove(remove) => remove
+                    .partition_values
+                    .as_ref()
+                    .and_then(|p| p.get(c).cloned().flatten()),
                 _ => None,
             })
             .collect::<HashSet<_>>()
@@ -1350,24 +1546,37 @@ fn source_footprint(
     batches: &[RecordBatch],
     table_schema: &SchemaRef,
     primary_keys: &[String],
+    order_columns: &[String],
 ) -> Result<SourceFootprint> {
     let source_bytes: usize = batches.iter().map(RecordBatch::get_array_memory_size).sum();
     let rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
-    let mut pk_bytes = 0usize;
-    for pk in primary_keys {
-        let idx = table_schema.index_of(pk).map_err(|_| {
-            Error::SchemaMismatch(format!(
-                "primary key column '{pk}' not found in table schema"
-            ))
+    let column_bytes = |name: &String| -> Result<usize> {
+        let idx = table_schema.index_of(name).map_err(|_| {
+            Error::SchemaMismatch(format!("column '{name}' not found in table schema"))
         })?;
-        pk_bytes += batches
+        Ok(batches
             .iter()
             .map(|b| b.column(idx).get_array_memory_size())
-            .sum::<usize>();
+            .sum::<usize>())
+    };
+    let mut pk_bytes = 0usize;
+    for pk in primary_keys {
+        pk_bytes += column_bytes(pk)?;
+    }
+    let mut pk_set_bytes = estimate_pk_set_bytes(pk_bytes, rows);
+    if !order_columns.is_empty() {
+        let mut order_bytes = 0usize;
+        for column in order_columns {
+            order_bytes += column_bytes(column)?;
+        }
+        pk_set_bytes = pk_set_bytes.saturating_add(estimate_pk_set_bytes(
+            pk_bytes.saturating_add(order_bytes),
+            rows,
+        ));
     }
     Ok(SourceFootprint {
         source_bytes,
-        pk_set_bytes: estimate_pk_set_bytes(pk_bytes, rows),
+        pk_set_bytes,
     })
 }
 
@@ -2343,6 +2552,8 @@ impl OutputKeys {
 struct FileOutcome {
     rows_updated: usize,
     rows_copied: usize,
+    /// Source positions the guard kept out, because the stored row is newer.
+    skipped: Vec<u32>,
     remove: Action,
 }
 
@@ -2406,6 +2617,7 @@ async fn filter_file(
     opts: Arc<UpsertOptions>,
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
+    guard: Option<Arc<OrderGuard>>,
 ) -> Result<FileOutcome> {
     let (mut stream, fetch) = open_rewrite_stream(
         &store,
@@ -2418,6 +2630,7 @@ async fn filter_file(
 
     let mut rows_updated = 0usize;
     let mut rows_copied = 0usize;
+    let mut skipped = Vec::new();
     // Pre-decode budget estimate, adapted to the last decoded batch so steady state
     // reserves roughly the right amount up front.
     let mut estimate_bytes = INITIAL_DECODE_ESTIMATE_BYTES;
@@ -2446,7 +2659,10 @@ async fn filter_file(
         };
         let batch = cast_to_schema(&batch, &table_schema)?;
 
-        let hits = pkset.contains_rows(&batch)?;
+        let mut hits = pkset.contains_rows(&batch)?;
+        if let Some(guard) = &guard {
+            skipped.extend(guard.keep_newer_stored(&batch, &mut hits)?);
+        }
         let n_hits = hits.iter().filter(|h| **h).count();
         rows_updated += n_hits;
 
@@ -2467,6 +2683,7 @@ async fn filter_file(
     Ok(FileOutcome {
         rows_updated,
         rows_copied,
+        skipped,
         remove: Action::Remove(f.remove),
     })
 }
@@ -2527,6 +2744,7 @@ async fn rewrite_partition(
     let null_pk_rows = pkset.null_pk_rows;
     // Insert phase done; from here the set is read-only and shared by every reader.
     let pkset = Arc::new(pkset);
+    let guard = OrderGuard::build(&source, &table_schema, opts)?.map(Arc::new);
 
     let writer = StreamingWriter::for_table(table)?;
     let store: Arc<dyn ObjectStore> = table.object_store();
@@ -2652,6 +2870,7 @@ async fn rewrite_partition(
         let opts = opts.clone();
         let budgets = budgets.clone();
         let tx = tx.clone();
+        let guard = guard.clone();
         readers.push(tokio::spawn(async move {
             // Local before global, matching the fixed order used for partitions.
             let _local = sem
@@ -2663,7 +2882,10 @@ async fn rewrite_partition(
             }
             let outcome = async {
                 let _global = opts.limits.acquire_file().await?;
-                filter_file(store, f, pkset, schema, pcol, value, opts, budgets, tx).await
+                filter_file(
+                    store, f, pkset, schema, pcol, value, opts, budgets, tx, guard,
+                )
+                .await
             }
             .await;
             if outcome.is_err() {
@@ -2677,6 +2899,7 @@ async fn rewrite_partition(
 
     let mut rows_updated = 0usize;
     let mut rows_copied = 0usize;
+    let mut skipped: HashSet<u32> = HashSet::new();
     let mut removes: Vec<Action> = Vec::new();
     let mut reader_err: Option<Error> = None;
     for h in readers {
@@ -2687,6 +2910,7 @@ async fn rewrite_partition(
             Ok(Some(o)) => {
                 rows_updated += o.rows_updated;
                 rows_copied += o.rows_copied;
+                skipped.extend(o.skipped);
                 removes.push(o.remove);
             }
             // Stopped because another reader failed; that reader's error is kept below.
@@ -2719,10 +2943,14 @@ async fn rewrite_partition(
     // `write` has copied it into the compressed buffer. Sub-batches are written in
     // batch order and rows in ascending order within each, preserving exactly the row
     // order the eager concat-then-split produced.
+    let mut position = 0u32;
     for (b, sel) in source.parts() {
-        if sel.len(b.num_rows()) == 0 {
+        let rows = sel.len(b.num_rows());
+        if rows == 0 {
             continue;
         }
+        let start = position;
+        position += rows as u32;
         // Written in row slices (zero-copy) rather than one call, so the threshold can
         // be checked *between* slices. The survivor loop above only ever sees survivors,
         // so a batch matching every target row never passes through it; without this a
@@ -2734,7 +2962,15 @@ async fn rewrite_partition(
         let mut offset = 0usize;
         while offset < selected.num_rows() {
             let n = (selected.num_rows() - offset).min(slice_rows);
-            let slice = selected.slice(offset, n);
+            let mut slice = selected.slice(offset, n);
+            // Per slice, so dropping a guarded row copies one slice, not the batch.
+            let first = start + offset as u32;
+            if (first..first + n as u32).any(|p| skipped.contains(&p)) {
+                let keep: arrow_array::BooleanArray = (first..first + n as u32)
+                    .map(|p| Some(!skipped.contains(&p)))
+                    .collect();
+                slice = filter_record_batch(&slice, &keep)?;
+            }
             if let Some(keys) = output_keys.as_mut() {
                 keys.note_write(&pkset, &slice)?;
             }
@@ -2766,7 +3002,11 @@ async fn rewrite_partition(
     // Every source row is written, but a source row that replaced an existing one is an
     // update, not an insert -- the batch is deduped, so each match consumes exactly one
     // source row. Counting the whole slice here double-counted matches as both.
-    let rows_inserted = source.rows.saturating_sub(rows_updated);
+    let rows_older_than_main = skipped.len();
+    let rows_inserted = source
+        .rows
+        .saturating_sub(rows_updated)
+        .saturating_sub(rows_older_than_main);
     let files_added = adds.len();
     let files_removed = removes.len();
 
@@ -2783,6 +3023,7 @@ async fn rewrite_partition(
         rows_updated,
         rows_copied,
         rows_inserted,
+        rows_older_than_main,
         null_pk_rows,
         carried,
         removed_keys,
@@ -3287,11 +3528,23 @@ mod tests {
             AField::new("v", DataType::Int64, false),
         ]));
         let b = part_batch(&["a", "b"]);
-        let fp = source_footprint(std::slice::from_ref(&b), &schema, &["v".to_string()]).unwrap();
+        let fp =
+            source_footprint(std::slice::from_ref(&b), &schema, &["v".to_string()], &[]).unwrap();
         assert_eq!(fp.source_bytes, b.get_array_memory_size());
         assert!(fp.pk_set_bytes >= b.column(1).get_array_memory_size());
+        let guarded = source_footprint(
+            std::slice::from_ref(&b),
+            &schema,
+            &["v".to_string()],
+            &["p".to_string()],
+        )
+        .unwrap();
+        assert!(
+            guarded.pk_set_bytes >= fp.pk_set_bytes * 2,
+            "the order guard's map is counted"
+        );
         // Unknown PK column errors.
-        assert!(source_footprint(&[b], &schema, &["nope".to_string()]).is_err());
+        assert!(source_footprint(&[b], &schema, &["nope".to_string()], &[]).is_err());
     }
 
     // ---- partition file index --------------------------------------------------------

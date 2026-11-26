@@ -10,7 +10,6 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerDisabledReason,
-    ScannerType,
     SweepPauseReason,
     skipped_window_watermarks,
 )
@@ -28,10 +27,10 @@ from products.replay_vision.backend.quota import (
     quota_state_for_cap,
 )
 from products.replay_vision.backend.scanner_access import unrunnable_reason
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.temporal.activities.create_observation import capture_scan_blocked
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import stop_variant_analysis
 from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
-from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK, SWEEP_PAUSE_RECHECK_SOON
@@ -134,7 +133,8 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> None:
         locked = ReplayScanner.objects.select_for_update().filter(pk=scanner.pk, enabled=True, free_only=True).first()
         if locked is None:
             return
-        if locked.scanner_type == ScannerType.EXPERIMENT and not stop_variant_analysis(locked):
+        # Judged on the scope, so a scanner narrowed only by the `scope` column pauses its scouts too.
+        if experiment_id_of(locked) is not None and not stop_variant_analysis(locked):
             record_sweep_outcome(f"{ScannerDisabledReason.FREE_CREDITS_USED}_pause_failed")
             return
         locked.turn_off(ScannerDisabledReason.FREE_CREDITS_USED)
@@ -154,12 +154,6 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> None:
         body += " Its backfill was canceled."
     # Best effort: a turned-off scanner has no next tick to retry a failed send.
     _notify_scanner_viewers(scanner, f'"{scanner.name}" stopped: free credits used', body)
-
-
-@activity.defn
-@track_activity()
-def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
-    return check_scanner_budget(inputs)
 
 
 def check_scanner_budget(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
@@ -182,6 +176,10 @@ def check_scanner_budget(inputs: CheckScannerBudgetInputs) -> CheckScannerBudget
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decisions and the notification stamp cannot straddle a rollover.
     cap = org_credit_cap_for(scanner.team.organization, scanner.team.organization_id)
+    if cap.awaiting_billing_sync:
+        # The zero allowance is a placeholder, so skip without moving the watermark or turning the scanner off.
+        record_sweep_outcome("awaiting_billing_sync")
+        return CheckScannerBudgetOutput(capped=True)
     # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
     if (scanner.has_spend_ceiling or cap.credit_limit is not None) and unrunnable_reason(scanner):
         return CheckScannerBudgetOutput(capped=False)

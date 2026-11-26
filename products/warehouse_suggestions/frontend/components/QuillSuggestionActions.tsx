@@ -37,7 +37,7 @@ export function QuillSuggestionActions({
     loading,
     acceptDataAttr,
 }: QuillSuggestionActionsProps): JSX.Element {
-    const { dismissSuggestion } = useActions(warehouseSuggestionsLogic)
+    const { dismissSuggestion, openDismissDialog } = useActions(warehouseSuggestionsLogic)
 
     return (
         <DropdownMenu>
@@ -79,7 +79,7 @@ export function QuillSuggestionActions({
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     description="It won't be suggested again."
-                    onClick={() => dismissSuggestion(suggestion.id, 'not_useful')}
+                    onClick={() => openDismissDialog(suggestion.id)}
                     data-attr="warehouse-suggestions-dismiss"
                 >
                     <IconX />

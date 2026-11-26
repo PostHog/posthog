@@ -50,7 +50,6 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
     _error_details,
-    _format_timestamp,
     _hosts,
     _make_auth,
 )
@@ -65,6 +64,7 @@ from products.warehouse_sources.sources.sdk import (
     PartitionMode,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
 )
 
 PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "financial_actions", "customers", "instruments")
@@ -270,8 +270,8 @@ def _search_payments(
 ) -> list[dict[str, Any]]:
     body = {
         "query": SEARCH_MATCH_ALL_QUERY,
-        "from": _format_timestamp(window.start),
-        "to": _format_timestamp(window.end),
+        "from": format_datetime(window.start),
+        "to": format_datetime(window.end),
         "limit": SEARCH_PAGE_LIMIT,
     }
     response = session.post(f"{api_base}/payments/search", json=body, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -314,8 +314,8 @@ def _iter_payment_windows(
         if len(payments) >= SEARCH_PAGE_LIMIT:
             logger.error(
                 "Checkout.com payments window is full at the minimum span; some payments in it may be missing",
-                window_start=_format_timestamp(window.start),
-                window_end=_format_timestamp(window.end),
+                window_start=format_datetime(window.start),
+                window_end=format_datetime(window.end),
             )
         payments.sort(key=lambda payment: (str(payment.get("requested_on") or ""), str(payment.get("id") or "")))
         yield window, payments
@@ -830,7 +830,7 @@ def _get_rows(
             # The interrupted window is not checkpointed, so the next attempt or the
             # next scheduled sync re-covers it (merge dedupes overlapping rows).
             break
-        resumable_source_manager.save_state(CheckoutComResumeConfig(search_window_to=_format_timestamp(window.end)))
+        resumable_source_manager.save_state(CheckoutComResumeConfig(search_window_to=format_datetime(window.end)))
         # The cursor skips this window, so the rows of the window go to the pipeline with it.
         if chunk:
             latest_yielded = _latest_incremental_value(schema_name, chunk, latest_yielded)

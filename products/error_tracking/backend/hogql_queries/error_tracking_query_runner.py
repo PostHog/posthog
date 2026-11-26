@@ -9,7 +9,7 @@ import structlog
 
 from posthog.schema import (
     CachedErrorTrackingQueryResponse,
-    ErrorTrackingIssueTagFilter,
+    ErrorTrackingIssueTagsFilter,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
 )
@@ -27,6 +27,7 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.facade.query_utils import trend_volume_resolution
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.applied_issue_tags import applied_issue_tags_query
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
@@ -54,7 +55,8 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     CACHE_VERSION = 4
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, align_volume_buckets_to_midpoint: bool = False, **kwargs) -> None:
+        self.align_volume_buckets_to_midpoint = align_volume_buckets_to_midpoint
         super().__init__(*args, **kwargs)
         self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
         self.query.personId = validate_uuid_param(self.query.personId, "personId")
@@ -87,29 +89,44 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         return self._make_builder(include_recent_issue_state=False)
 
     def _make_builder(self, *, include_recent_issue_state: bool) -> ErrorTrackingQueryBuilder:
+        query = self.query
+        if self.align_volume_buckets_to_midpoint:
+            # Trend buckets can exceed the public schema limit, so derive them without revalidating the query.
+            query = query.model_copy(update={"volumeResolution": trend_volume_resolution(query.volumeResolution)})
         return ErrorTrackingQueryBuilder(
-            self.query,
+            query,
             self.team,
             self.date_from,
             self.date_to,
             include_recent_issue_state=include_recent_issue_state,
-            issue_tag_filter=self._issue_tag_filter,
+            issue_tags_filter=self._issue_tags_filter,
         )
 
     @cached_property
     def _enabled_tag_definitions(self) -> tuple[IssueTagDefinition, ...]:
-        return enabled_issue_tag_definitions(self.team.pk)
+        return enabled_issue_tag_definitions(self.team.pk, self.user)
 
     @cached_property
-    def _issue_tag_filter(self) -> ErrorTrackingIssueTagFilter | None:
-        tag_filter = self.query.issueTag
-        if tag_filter is None or tag_filter.key not in {definition.key for definition in self._enabled_tag_definitions}:
+    def _issue_tags_filter(self) -> ErrorTrackingIssueTagsFilter | None:
+        """The query's tag filter with the deprecated one-tag filter added, and without the keys the user cannot see."""
+        tags = self.query.issueTags or ErrorTrackingIssueTagsFilter()
+        has, has_not = set(tags.has or []), set(tags.hasNot or [])
+        if self.query.issueTag is not None:
+            (has if self.query.issueTag.applied else has_not).add(self.query.issueTag.key)
+        if not has and not has_not:
             return None
-        return tag_filter
+        visible_keys = {definition.key for definition in self._enabled_tag_definitions}
+        has &= visible_keys
+        has_not &= visible_keys
+        if not has and not has_not:
+            return None
+        return ErrorTrackingIssueTagsFilter(has=sorted(has), hasNot=sorted(has_not))
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
+        if self.align_volume_buckets_to_midpoint:
+            payload["align_volume_buckets_to_midpoint"] = True
         # Use a stable marker when the primary read fails so an existing cached result can still load.
         try:
             watermark = latest_issue_state_watermark(self.team.pk)

@@ -290,6 +290,13 @@ def _iter_projects(
             yield org_id, project
 
 
+def _org_team_ids(
+    session: requests.Session, headers: dict[str, str], org_id: str, logger: FilteringBoundLogger
+) -> list[str]:
+    url = _build_url(f"{BUGSNAG_BASE_URL}/organizations/{org_id}/teams", {"per_page": PAGE_SIZE})
+    return [team["id"] for team in _iter_all_pages(session, url, headers, logger)]
+
+
 def _project_pivot_display_ids(
     session: requests.Session, headers: dict[str, str], project_id: str, logger: FilteringBoundLogger
 ) -> list[str]:
@@ -478,6 +485,17 @@ def _resolve_parents(
                 inject={"organization_id": org_id},
             )
             for org_id in _resolve_org_ids(session, headers, logger)
+        ]
+
+    if config.scope == BugsnagScope.PER_ORG_TEAM:
+        return [
+            _FanOutParent(
+                resume_id=f"{org_id}:{team_id}",
+                path_kwargs={"organization_id": org_id, "team_id": team_id},
+                inject={"organization_id": org_id, "team_id": team_id},
+            )
+            for org_id in _resolve_org_ids(session, headers, logger)
+            for team_id in _org_team_ids(session, headers, org_id, logger)
         ]
 
     parents: list[_FanOutParent] = []

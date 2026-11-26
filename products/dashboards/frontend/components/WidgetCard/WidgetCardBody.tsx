@@ -7,8 +7,8 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Button, Skeleton } from '@posthog/quill'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
 
 const HedgehogChart = pngHoggie(chartPng)
@@ -73,6 +73,7 @@ export function WidgetCardBody({
     return (
         <div
             data-slot="widget-card-body"
+            data-not-quill
             className={clsx(
                 '@container/widget-card WidgetCard__body flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
                 padding && 'p-4 pt-2',

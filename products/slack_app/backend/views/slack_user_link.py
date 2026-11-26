@@ -138,11 +138,12 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
     if not is_slack_app_oauth_enabled(workspace_integration):
         return _settings_redirect(error="flag_off")
 
-    search_scopes = is_slack_app_link_search_scopes_enabled(workspace_integration)
+    posthog_user = cast(User, request.user)
+    search_scopes = is_slack_app_link_search_scopes_enabled(workspace_integration, posthog_user.distinct_id)
     callback_state = CallbackState(
         slack_team_id=invite.slack_team_id,
         posthog_team_id=invite.posthog_team_id,
-        posthog_user_id=request.user.id,
+        posthog_user_id=posthog_user.id,
         slack_user_id=invite.slack_user_id,
         channel=invite.channel,
         thread_ts=invite.thread_ts,
@@ -156,8 +157,8 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
             slack_team_id=invite.slack_team_id,
             search_scopes=search_scopes,
             # The same token then connects the person's Slack MCP, so they see one consent screen.
-            mcp_user_scopes=slack_mcp_user_scopes(invite.posthog_team_id, request.user.id)
-            if search_scopes and is_slack_app_slack_mcp_enabled(workspace_integration)
+            mcp_user_scopes=slack_mcp_user_scopes(invite.posthog_team_id, posthog_user.id)
+            if search_scopes and is_slack_app_slack_mcp_enabled(workspace_integration, posthog_user.distinct_id)
             else (),
         )
     except SlackUserOAuthError:
@@ -293,7 +294,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
     request_onboarding(workspace_integration, identity.slack_user_id, may_start=False)
     if state.search_scopes and "search:read.public" in granted_user_scopes(identity.user_scopes):
         start_work_focus(workspace_integration, identity.slack_user_id)
-    if state.search_scopes and is_slack_app_slack_mcp_enabled(workspace_integration):
+    if state.search_scopes and is_slack_app_slack_mcp_enabled(workspace_integration, posthog_user.distinct_id):
         _connect_slack_mcp(workspace_integration, posthog_user, link, identity.slack_user_id)
 
     return _settings_redirect()

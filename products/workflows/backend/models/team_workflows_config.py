@@ -43,7 +43,7 @@ class TeamWorkflowsConfig(models.Model):
     email_sending_tier = models.IntegerField(default=0, db_default=0)
     email_sending_tier_updated_at = models.DateTimeField(null=True, blank=True)
     # When the team was last demoted for dirty rates, an auto-pause, or a HIGH tenant reputation
-    # impact. Separate from email_sending_tier_updated_at so promotions and staff writes do not arm
+    # impact, or suspended by staff or AWS. A team with this set never gets the trusted floor. Separate from email_sending_tier_updated_at so promotions and staff writes do not arm
     # the demotion cooldown, and a demotion does not have to share its anchor with the dwell clock.
     email_sending_tier_demoted_at = models.DateTimeField(null=True, blank=True)
     # Staff override. While set, automatic promotion and demotion both skip this team, so a team
@@ -58,6 +58,9 @@ class TeamWorkflowsConfig(models.Model):
     # bulk apply rewrites the steps whose values still follow them. Off by default.
     email_utm_tags_enabled = models.BooleanField(default=False, db_default=False)
     email_utm_params = models.JSONField(default=dict, db_default={}, blank=True)
+    # Tracked email links carry ph_workflow_run=<run id>, so a click joins the session it starts.
+    # The CDP email worker reads this flag, and a team that has no row is tagged.
+    email_workflow_run_link_tag_enabled = models.BooleanField(default=True, db_default=True)
 
     # Overrides for AI tasks created by workflows. Null keeps the product defaults;
     # zero pauses new task creation at that scope.

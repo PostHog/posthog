@@ -28,7 +28,6 @@ from products.signals.backend.implementation_pr import fetch_implementation_pr_s
 from products.signals.backend.models import AutonomyPriority, SignalReport, SignalReportArtefact
 from products.signals.backend.personal_ranking.config import CandidatePool, PersonalRankingConfig, candidate_pools
 from products.signals.backend.ranking.access import can_view_inbox_ranking
-from products.signals.backend.ranking.inbox_sort import InboxRanker, resolve_recommended_arm
 from products.signals.backend.ranking.report_predictions import ReportPredictions, read_report_predictions
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_claims import reports_claimed_for_user
@@ -47,7 +46,7 @@ EXCLUDED_STATUSES: tuple[str, ...] = (
     SignalReport.Status.CLOSED,
     SignalReport.Status.DELETED,
 )
-# The recommended order is computed here, so the `for_you` pool reads at most this many reports to sort.
+# The priority order is computed here, so the `for_you` pool reads at most this many reports to sort.
 _FOR_YOU_SCAN_LIMIT = 300
 _TITLE_MAX_CHARS = 200
 
@@ -77,9 +76,7 @@ class Candidate:
 
 # Compares field by field in declaration order, so the order of the fields is the sort order.
 @frozen(order=True)
-class _RecommendedSortKey:
-    unscored: bool
-    highest_score_first: float
+class _PrioritySortKey:
     priority_rank: int
     status_rank: int
     newest_first: float
@@ -116,11 +113,10 @@ def load_predictions(team_id: int, report_ids: Sequence[str]) -> dict[str, Repor
     return {report_id: read_report_predictions(scores.get(report_id), edits.get(report_id)) for report_id in report_ids}
 
 
-def _recommended_for_you(team: Team, user: User, since: datetime.datetime, size: int) -> list[str]:
-    """`for_you` reports created since `since`, in the order of `sort=recommended` for this person.
+def _for_you_by_priority(team: Team, user: User, since: datetime.datetime, size: int) -> list[str]:
+    """`for_you` reports created since `since`, in the priority order of the inbox list.
 
-    The view sorts in the database. This reads the person's variant without an exposure, because the
-    person is not looking at the inbox, and sorts the few `for_you` reports in Python.
+    The view sorts in the database. This sorts the few `for_you` reports in Python.
     """
     reports = list(
         reports_for_person(team.id, user)
@@ -130,23 +126,17 @@ def _recommended_for_you(team: Team, user: User, since: datetime.datetime, size:
     )
     if not reports:
         return []
-    ranker = resolve_recommended_arm(team, user, send_feature_flag_events=False).ranker
-    return recommended_order(team.id, ranker, reports)[:size]
+    return priority_order(team.id, reports)[:size]
 
 
-def recommended_order(team_id: int, ranker: InboxRanker, reports: Sequence[SignalReport]) -> list[str]:
-    """Report ids in the order the list view gives `sort=recommended` for `ranker`."""
+def priority_order(team_id: int, reports: Sequence[SignalReport]) -> list[str]:
+    """Report ids in the priority order the list view gives `sort=priority`."""
     ids = [str(report.id) for report in reports]
     priorities = latest_report_priorities(team_id, ids)
-    predictions = load_predictions(team_id, ids) if ranker != "priority" else {}
 
-    def sort_key(report: SignalReport) -> _RecommendedSortKey:
+    def sort_key(report: SignalReport) -> _PrioritySortKey:
         report_id = str(report.id)
-        score = predictions[report_id].probability(ranker) if ranker != "priority" else None
-        return _RecommendedSortKey(
-            # Unscored reports sort after every scored report.
-            unscored=ranker != "priority" and score is None,
-            highest_score_first=-score if score is not None else 0.0,
+        return _PrioritySortKey(
             priority_rank=_priority_rank(priorities.get(report_id)),
             status_rank=0 if report.status == SignalReport.Status.READY else 1,
             newest_first=-report.updated_at.timestamp(),
@@ -171,7 +161,7 @@ def _pool_ids(
 ) -> list[str]:
     match pool.source:
         case "for_you_recommended":
-            return _recommended_for_you(team, user, now - datetime.timedelta(days=config.window_days), pool.size)
+            return _for_you_by_priority(team, user, now - datetime.timedelta(days=config.window_days), pool.size)
         case "for_you_updated":
             return _ids(reports_for_person(team.id, user).order_by("-updated_at", "id"), pool.size)
         case "assigned":

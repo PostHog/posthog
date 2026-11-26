@@ -42,7 +42,7 @@ class DirectSnowflakeTable(DirectSQLTable):
                 escape_snowflake_identifier(self.snowflake_table_name),
             ]
         )
-        return ".".join(parts)
+        return self.project_allowed_columns(".".join(parts), escape_snowflake_identifier)
 
     def to_printed_postgres(self, context) -> str:
         raise QueryError("Direct Snowflake tables cannot be printed into Postgres SQL")

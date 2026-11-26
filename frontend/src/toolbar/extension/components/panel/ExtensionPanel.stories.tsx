@@ -51,7 +51,12 @@ const meta: Meta<StoryArgs> = {
             storage: {
                 posthogUiHost: uiHost,
                 posthogToolbarTokens: {
-                    [`${uiHost}|${MOCK_TEAM_ID}`]: { accessToken: 'pha_story', refreshToken: null, clientId: 'story' },
+                    [`${uiHost}|${MOCK_TEAM_ID}`]: {
+                        accessToken: 'pha_story',
+                        refreshToken: null,
+                        clientId: 'story',
+                        project: { teamId: MOCK_TEAM_ID, projectId: MOCK_TEAM_ID },
+                    },
                 },
             },
         })

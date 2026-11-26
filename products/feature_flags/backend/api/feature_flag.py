@@ -46,7 +46,6 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
@@ -69,7 +68,6 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
-    TeamSecretTokenAuthentication,
     WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -89,7 +87,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -119,7 +117,7 @@ from products.approvals.backend.policies import lock_approval_policies
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
@@ -182,7 +180,11 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
-from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
+from products.feature_flags.backend.reserved_variant_keys import (
+    reserved_variant_key,
+    reserved_variant_key_message,
+    variant_keys,
+)
 from products.feature_flags.backend.rollback_reason import RollbackReason, RollbackReasonContext
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
@@ -191,6 +193,7 @@ from products.feature_flags.backend.session_recording_links import (
     teams_gating_replay_on_flag,
 )
 from products.feature_flags.backend.types import PropertyFilterType
+from products.feature_flags.backend.usage_dashboard import update_feature_flag_dashboard
 from products.feature_flags.backend.user_blast_radius import (
     get_person_blast_radius_v2,
     get_user_blast_radius,
@@ -289,7 +292,7 @@ def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
 def _mark_filters_enforced_rejection(serializer: serializers.Serializer) -> None:
     """Marks a rejection as coming from a switch-gated tier, so the counter can tell it apart
     from the checks that rejected long before enforcement (cohort existence, circular
-    dependencies, regex, size cap, the early_exit gate, the serde guard). Without the split,
+    dependencies, regex, size cap, the serde guard). Without the split,
     the rejected series is dominated by those and says nothing about the flip's impact."""
     root = serializer.root if serializer.root is not None else serializer
     root._filters_enforced_rejection = True  # type: ignore[attr-defined]
@@ -333,8 +336,6 @@ def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
-
-EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
 # Gates enforcement of `feature_flag:write` on cross-resource flag mutations
 # (Survey / Early Access Feature endpoints). Kept off during the migration grace
@@ -557,6 +558,11 @@ def _validate_behavioral_cohort_for_feature_flag(
         if cohort.cohort_type != CohortType.REALTIME:
             raise serializers.ValidationError(
                 detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
+                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            )
+        if not cohort.realtime_enabled:
+            raise serializers.ValidationError(
+                detail=f"Realtime is off for cohort '{cohort.name}', so feature flags can't target it. Open the cohort's page to turn realtime on, or to see why it can't be turned on.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(
@@ -835,6 +841,19 @@ def check_flag_limits_for_team(
         )
 
 
+class _JSONNullResponse(Response):
+    # DRF renders Response(None) as an empty body, and the SDKs' JSON parsers reject an empty body.
+    # This response renders the JSON literal null. Its .data stays None, so the Rust shadow comparison,
+    # which reads .data, still sees no payload.
+    def __init__(self) -> None:
+        super().__init__(None, headers={"Content-Type": "application/json"})
+
+    # django-stubs types rendered_content as str, but DRF's Response returns bytes from it.
+    @property
+    def rendered_content(self) -> bytes:  # type: ignore[override]
+        return b"null"
+
+
 # Default per-key and per-team cap for remote_config. Both throttles below respect
 # per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
 REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
@@ -1036,26 +1055,56 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
-    multivariate = filters.get("multivariate")
-    if not isinstance(multivariate, dict):
+def _iter_raw_condition_properties(properties: object) -> Iterator[object]:
+    # Classifies each node the way parse_property_group_data does at that position, but yields each property
+    # as sent. The parser drops a property it can't build, so a check over its output never sees an unknown or
+    # missing type. A node that this walk reads as a group but the parser builds as a property skips the check.
+    if isinstance(properties, dict) and "type" in properties and "values" in properties:
+        yield from _iter_raw_group_values(properties["values"])
+    elif isinstance(properties, list):
+        # The parser builds every item of a top-level list as a property, even an item with a "values" key.
+        yield from properties
+    elif isinstance(properties, dict):
+        # The parser reads any other dict as legacy {key: value} filters and builds each key as an event property.
+        yield from ({"key": key, "type": "event"} for key in properties)
+    elif properties:
+        yield properties
+
+
+def _iter_raw_group_values(values: object) -> Iterator[object]:
+    if not isinstance(values, list):
+        if values:
+            yield values
         return
-    variants = multivariate.get("variants")
-    if not isinstance(variants, list):
-        return
-    for variant in variants:
-        if isinstance(variant, dict) and isinstance(variant.get("key"), str):
-            yield variant["key"]
+    for item in values:
+        # Inside a group, the parser reads an item with "type" and "values" as a nested group, and it rejects
+        # a group type other than AND or OR.
+        if isinstance(item, dict) and "type" in item and "values" in item:
+            yield from _iter_raw_group_values(item["values"])
+        else:
+            yield item
 
 
-def _reserved_variant_key(filters: dict, *, stored: Mapping[str, Any]) -> str | None:
-    """The first `multivariate.variants[].key` in `filters` that a write may not store over `stored`, if any.
-
-    Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
-    rollout switch.
-    """
-    held = set(_variant_keys(stored))
-    return next((key for key in _variant_keys(filters) if is_reserved_variant_key(key, held=held)), None)
+def _validate_blast_radius_property_types(condition: object) -> None:
+    # Sizing runs the caller's condition as a query, so it accepts only the property types a saved flag accepts.
+    # The check sits here and not in user_blast_radius.py, because workflows size event and hogql filters
+    # through those helpers.
+    if not isinstance(condition, dict):
+        raise exceptions.ValidationError({"condition": "The condition must be an object."})
+    supported = ", ".join(sorted(_RUST_PROPERTY_TYPES))
+    for prop in _iter_raw_condition_properties(condition.get("properties")):
+        prop_type = prop.get("type") if isinstance(prop, dict) else None
+        if not isinstance(prop_type, str):
+            raise exceptions.ValidationError(
+                {"filters": f"Each release condition property needs a type. Use one of: {supported}."}
+            )
+        if prop_type not in _RUST_PROPERTY_TYPES:
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Property type '{prop_type}' isn't supported in release conditions. "
+                    f"Use one of: {supported}."
+                }
+            )
 
 
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
@@ -1573,6 +1622,31 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
             self.child.context.pop(CONDITION_COHORTS_CONTEXT_KEY, None)
 
 
+class _TeamDashboardIdField(serializers.PrimaryKeyRelatedField):
+    """The id of a live dashboard of the serializer's team, checked through the dashboards facade.
+
+    The validated value is the id, not a dashboard row. Without a `team_id` in the context, every id
+    is rejected. Errors keep the codes and messages of `PrimaryKeyRelatedField`, because API clients
+    read them: an id that is not a live dashboard of the team fails with `does_not_exist`.
+    """
+
+    def get_queryset(self) -> QuerySet[Any]:
+        # DRF refuses a writable related field that has neither a queryset nor its own get_queryset.
+        return super().get_queryset()
+
+    def to_internal_value(self, data: object) -> int:
+        if isinstance(data, bool) or not isinstance(data, int | float | str):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        try:
+            dashboard_id = int(data)
+        except ValueError:
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        team_id = self.context.get("team_id")
+        if not team_id or dashboards_api.unknown_dashboard_ids([dashboard_id], team_id=team_id):
+            self.fail("does_not_exist", pk_value=data)
+        return dashboard_id
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1613,11 +1687,7 @@ class FeatureFlagSerializer(
             "Usage charts are on the flag's Usage tab. The API does not create these dashboards."
         ),
     )
-    analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
-        many=True,
-        required=False,
-        queryset=Dashboard.objects.all(),
-    )
+    analytics_dashboards = _TeamDashboardIdField(many=True, required=False)
     is_used_in_replay_settings = serializers.SerializerMethodField()
     is_eligible_for_experiment = serializers.BooleanField(
         read_only=True,
@@ -2282,15 +2352,6 @@ class FeatureFlagSerializer(
                 f"cannot be written to it. {hint} to change other fields.",
                 code="v1_filters_on_v2_flag",
             )
-        reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
-        if reserved_variant_key is not None:
-            message = (
-                "Variant keys can't be empty. Enter a key for each variant."
-                if reserved_variant_key == ""
-                else f"The variant key {reserved_variant_key} is reserved. Choose another key."
-            )
-            raise serializers.ValidationError(message, code="reserved_variant_key")
-
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a
             # create resolves and validates it in validate(), an update in update() under the lock.
@@ -2302,6 +2363,12 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError(
                 "filters.version is reserved. Remove it from the request.", code="reserved_config_version"
             )
+
+        # Only a v1 document reaches this check, which runs on the raw request ahead of every validation tier, so the
+        # rejection does not depend on the #50084 rollout switch. The v2 writer checks its own documents.
+        reserved_key = reserved_variant_key(filters, held=set(variant_keys(stored_filters)))
+        if reserved_key is not None:
+            raise serializers.ValidationError(reserved_variant_key_message(reserved_key), code="reserved_variant_key")
 
         self._validate_stored_config_format()
 
@@ -2428,19 +2495,6 @@ class FeatureFlagSerializer(
         # clear-targeting request — do not unify this with the update path in either direction.
         if self.context["request"].method == "POST" and not merged["groups"]:
             raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
-
-        # Gate enabling early_exit behind the feature-flag-early-exit flag. The UI hides
-        # the toggle, but the public REST API, MCP tools, and terraform provider all reach
-        # this validator — without the gate they could persist early_exit before server-side
-        # local evaluation honors it. Only block newly turning it on: leaving an existing
-        # truthy value unchanged (or turning it off) always passes, so flags created while
-        # the feature was enabled keep working if access is later revoked.
-        early_exit = merged.get("early_exit")
-        previously_enabled = (
-            bool((self.instance.filters or {}).get("early_exit")) if self.instance is not None else False
-        )
-        if early_exit and not previously_enabled and not self._is_early_exit_enabled():
-            raise serializers.ValidationError("early_exit is not available for this organization.")
 
         # A running experiment reads its variants from this flag, so a save that drops any
         # of its variant keys (a rename counts: it's a drop plus an add) breaks the
@@ -2690,26 +2744,6 @@ class FeatureFlagSerializer(
                 dependencies.add(flag_key)
         return dependencies
 
-    def _is_early_exit_enabled(self) -> bool:
-        try:
-            request = self.context.get("request")
-            if not request:
-                return False
-            user = getattr(request, "user", None)
-            if user is None or user.is_anonymous:
-                return False
-            return feature_enabled_or_false(
-                EARLY_EXIT_FLAG,
-                user.distinct_id,
-                groups={"organization": str(user.organization.id)},
-                group_properties={"organization": {"id": str(user.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.exception("Failed to check early exit flag")
-            return False
-
     def _check_flag_circular_dependencies(self, filters):
         """Check for circular dependencies in feature flag conditions."""
 
@@ -2854,9 +2888,9 @@ class FeatureFlagSerializer(
         self._attempt_set_evaluation_contexts(evaluation_contexts, instance)
 
         if analytics_dashboards is not None:
-            for dashboard in analytics_dashboards:
-                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
-                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+            for dashboard_id in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- the analytics_dashboards field accepts only dashboard ids of this team
+                FeatureFlagDashboards.objects.get_or_create(dashboard_id=dashboard_id, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
@@ -3062,9 +3096,9 @@ class FeatureFlagSerializer(
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         if analytics_dashboards is not None:
-            for dashboard in analytics_dashboards:
-                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
-                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+            for dashboard_id in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- the analytics_dashboards field accepts only dashboard ids of this team
+                FeatureFlagDashboards.objects.get_or_create(dashboard_id=dashboard_id, feature_flag=instance)
 
         # The linked feature flag is the source of truth for variants and aggregation group type;
         # experiment reads derive these from the flag (see ExperimentBaseSerializer).
@@ -3413,8 +3447,6 @@ USAGE_DASHBOARD_DESCRIPTION_PREFIX = "This dashboard was generated by the featur
 
 
 def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
-    from posthog.helpers.dashboard_templates import update_feature_flag_dashboard
-
     if not old_key:
         return
 
@@ -3953,7 +3985,8 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Search by feature flag key or name (case-insensitive). "
-            "Spaces, underscores, and hyphens count as the same separator."
+            "Spaces, underscores, and hyphens count as the same separator. "
+            "The words of the term must appear together and in order, so a shorter term matches more flags."
         ),
     )
     type = serializers.ChoiceField(
@@ -4547,7 +4580,8 @@ class FeatureFlagViewSet(
                 required=False,
                 description=(
                     "Search by feature flag key or name. Case insensitive. "
-                    "Spaces, underscores, and hyphens count as the same separator."
+                    "Spaces, underscores, and hyphens count as the same separator. "
+                    "The words of the term must appear together and in order, so a shorter term matches more flags."
                 ),
             ),
             OpenApiParameter(
@@ -6009,6 +6043,10 @@ class FeatureFlagViewSet(
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
         condition = request.data.get("condition") or {}
+        _validate_blast_radius_property_types(condition)
+        # The query also reads filter_test_accounts, which adds the team's test account filters,
+        # and the check above doesn't see those.
+        condition = {"properties": condition.get("properties")}
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):
@@ -6580,10 +6618,8 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TeamSecretTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
-        permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     @ip_restrictions_exempt_for_secret_keys
@@ -6613,17 +6649,19 @@ class FeatureFlagViewSet(
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
-        # fetches (legacy team secret token or feature-flag-scoped PSAK, both phs_…) count. Session
-        # and personal-key requests are the app's own preview/decrypt feature, not customer usage,
+        # fetches (feature-flag-scoped PSAK, phs_…) count. Session and personal-key requests are
+        # the app's own preview/decrypt feature, not customer usage,
         # and a session-authenticated GET would otherwise let a cross-site request inflate the team's
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.has_encrypted_payloads:
-            payloads = feature_flag.filters.get("payloads", {})
+        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return Response(payloads.get("true") or None)
+            # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
+            if not feature_flag.active:
+                return _JSONNullResponse()
+            return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication

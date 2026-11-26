@@ -62,7 +62,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "deepseek-ai/deepseek-v4-flash-0731",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -105,7 +105,7 @@ describe("BaseAcpAgent", () => {
       const agent = new TestAcpAgent({} as AgentSideConnection);
       const result = await agent.getModelConfigOptions(
         requestedModel,
-        "https://gateway.us.posthog.com/posthog_code",
+        "https://ai-gateway.us.posthog.com",
         "token",
       );
 
@@ -144,7 +144,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "zai-org/glm-5.3",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -179,7 +179,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "claude-sonnet-5",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -204,7 +204,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "anthropic/claude-sonnet-5",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -217,9 +217,75 @@ describe("BaseAcpAgent", () => {
     );
   });
 
+  it("keeps a saved session on retired moonshotai/kimi-k3", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValue([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+    ]);
+
+    const agent = new TestAcpAgent({} as AgentSideConnection);
+    const result = await agent.getModelConfigOptions(
+      "moonshotai/kimi-k3",
+      "https://ai-gateway.us.posthog.com",
+      "token",
+    );
+
+    expect(result.currentModelId).toBe("moonshotai/kimi-k3");
+    expect(result.options).toContainEqual(
+      expect.objectContaining({
+        value: "moonshotai/kimi-k3",
+        description: "Custom model",
+      }),
+    );
+  });
+
+  it("offers retired moonshotai/kimi-k3 only to the session that runs it", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValue(
+      ["claude-opus-4-8", "moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro"].map(
+        (id) => ({
+          id,
+          owned_by: id.startsWith("claude") ? "anthropic" : "modal",
+          context_window: 1_000_000,
+          supports_streaming: true,
+          supports_vision: false,
+          allowed: true,
+        }),
+      ),
+    );
+
+    const agent = new TestAcpAgent({} as AgentSideConnection);
+    const fresh = await agent.getModelConfigOptions(
+      undefined,
+      "https://ai-gateway.us.posthog.com",
+      "token",
+    );
+    const saved = await agent.getModelConfigOptions(
+      "moonshotai/kimi-k3",
+      "https://ai-gateway.us.posthog.com",
+      "token",
+    );
+
+    expect(fresh.options.map((option) => option.value)).toEqual(
+      expect.arrayContaining(["claude-opus-4-8", "moonshotai/kimi-k3.1-pro"]),
+    );
+    expect(fresh.options).not.toContainEqual(
+      expect.objectContaining({ value: "moonshotai/kimi-k3" }),
+    );
+    expect(saved.currentModelId).toBe("moonshotai/kimi-k3");
+    expect(saved.options).toContainEqual(
+      expect.objectContaining({ value: "moonshotai/kimi-k3" }),
+    );
+  });
+
   it.each([
-    "moonshotai/kimi-k3",
-    "deepseek-ai/deepseek-v4-flash-0731",
+    "moonshotai/kimi-k3.1-pro",
+    "deepseek-ai/deepseek-v4.1-flash-1017",
     "deepseek-ai/deepseek-v4.1-flash-1017-fast",
     "zai-org/glm-5.3",
     "zai-org/glm-5.3-flash",
@@ -241,7 +307,7 @@ describe("BaseAcpAgent", () => {
       const warn = vi.spyOn(agent.logger, "warn");
       const result = await agent.getModelConfigOptions(
         savedModel,
-        "https://gateway.us.posthog.com/posthog_code",
+        "https://ai-gateway.us.posthog.com",
         "token",
       );
 

@@ -2,14 +2,11 @@ from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import exceptions, serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import serializers
 from rest_framework.response import Response
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.api.user_settings_viewset import UserSettingsViewSet
 from posthog.models import Team, User, UserHomeSettings
-from posthog.permissions import APIScopePermission
-from posthog.rate_limit import UserAuthenticationThrottle
 
 
 class PinnedSceneTabSerializer(serializers.Serializer):
@@ -113,35 +110,8 @@ class PinnedSceneTabsSerializer(serializers.Serializer):
         responses={200: PinnedSceneTabsSerializer},
     ),
 )
-class UserHomeSettingsViewSet(viewsets.GenericViewSet):
-    scope_object = "user"
+class UserHomeSettingsViewSet(UserSettingsViewSet):
     serializer_class = PinnedSceneTabsSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    throttle_classes = [UserAuthenticationThrottle]
-    queryset = User.objects.filter(is_active=True)
-    lookup_field = "uuid"
-
-    def get_object(self) -> User:
-        lookup_value = self.kwargs[self.lookup_field]
-        request_user = cast(User, self.request.user)
-
-        if lookup_value == "@me":
-            self.check_object_permissions(self.request, request_user)
-            return request_user
-
-        if not request_user.is_staff:
-            raise exceptions.PermissionDenied(
-                "As a non-staff user you're only allowed to access the `@me` user instance."
-            )
-
-        return super().get_object()
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(id=self.request.user.id)
-        return queryset
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -163,9 +133,7 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         homepage_provided = "homepage" in serializer.validated_data
         homepage_payload = serializer.validated_data.get("homepage") if homepage_provided else None
 
-        team = instance.current_team
-        if not team:
-            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
+        team = self._current_team(instance)
 
         pinned_tabs = self._get_settings(instance, team)
 
@@ -184,9 +152,7 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         return self._get_response(instance)
 
     def _get_response(self, instance: User) -> Response:
-        team = instance.current_team
-        if not team:
-            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
+        team = self._current_team(instance)
 
         pinned_tabs = self._get_settings(instance, team)
 
@@ -207,6 +173,10 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
                 "homepage": homepage,
             }
         )
+
+    def _current_team(self, instance: User) -> Team:
+        self._current_team_id(instance, "Current team is required to manage pinned scene tabs.")
+        return cast(Team, instance.current_team)
 
     def _sanitize_tabs(self, tabs: Iterable[Optional[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
         sanitized_tabs: list[dict[str, Any]] = []

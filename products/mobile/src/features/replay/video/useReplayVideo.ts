@@ -59,7 +59,7 @@ function nextPollDelay(error: unknown): number {
     return Math.max(REPLAY_VIDEO_POLL_MS, (retryAfterSeconds ?? 0) * 1000)
 }
 
-async function waitForRender(exportId: number, signal: AbortSignal): Promise<ReplayVideoExport> {
+export async function waitForRender(exportId: number, signal: AbortSignal): Promise<ReplayVideoExport> {
     let failures = 0
     let delay = REPLAY_VIDEO_POLL_MS
     for (;;) {
@@ -87,7 +87,7 @@ async function waitForRender(exportId: number, signal: AbortSignal): Promise<Rep
 }
 
 /** The render's start on the device clock. `created_at` is a server time. */
-function renderStartedAt(asset: ReplayVideoExport): number {
+export function renderStartedAt(asset: ReplayVideoExport): number {
     const created = Date.parse(asset.created_at)
     return Number.isNaN(created) ? Date.now() : created - serverOffsetMs()
 }

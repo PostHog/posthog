@@ -59,6 +59,18 @@ Circular dependencies fail with a query error. Soft saves skip column inference 
 Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
 AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
 
+## Embedding text
+
+`embedText(text, model)` requires string literals for both arguments and a team in the query context.
+For example, use `embedText('example text', 'text-embedding-3-small-1536')`.
+A missing or invalid model raises a HogQL `QueryError` that lists the valid model names.
+Other argument validation failures also raise `QueryError`, so query APIs and AI SQL validation can expose them to the caller.
+
+## Person query limits
+
+Queries that join from `persons` apply their row limit after the join.
+The persons V2 deduplication optimization only pushes a limit into the inner person scan when no join can filter or reshape those rows.
+
 ## Disabling projection optimization
 
 Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
@@ -182,15 +194,19 @@ For non-nullable materialized columns, patterns above 16,384 characters skip the
 
 ## ClickHouse query errors
 
-`posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
-For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.
-Parsing, array, regular expression, scalar subquery, JOIN, and LIMIT errors use these explanations where raw details cannot be exposed safely.
-Unrecognized error codes stay internal.
+HogQL query API errors include metadata diagnostics with the same `values` bindings used for execution.
+A missing column reports that column's error even when the query contains placeholders.
+When a field name matches multiple sources, the SQL editor highlights the field and lists the qualified names you can use. Give unnamed subqueries an alias to qualify their fields.
 
-Do not assume an error code makes its raw message safe. ClickHouse can append expressions and query context after the initial exception.
-Those messages can contain storage credentials, signed URLs, settings, or source data values, including values that a shared insight does not otherwise reveal.
-Check both the throw sites and the exception enrichment paths before allowing raw text.
-Keep importable exception classes when adding a fixed explanation, and test the wrapped message as well as its string representation.
+The query API and `execute-sql` translate ClickHouse failures using the numeric driver code.
+For a query that a caller can correct, set `ErrorCodeMeta.user_safe` in `posthog/errors.py` to an explanation and a concrete SQL change.
+For an internal failure, add guidance to `INTERNAL_CH_ERROR_USER_MESSAGES` when the code identifies a recovery step.
+The default response gives support the registered error name or, for a newer code, its number.
+Query polling can reconstruct this guidance from the stored error code.
+
+ClickHouse can append generated SQL, storage URLs, settings, and source values to any server exception.
+Build public explanations from fixed text. When adding context, use caller-visible query metadata or a bounded set of known values.
+Keep the original exception available for error reporting and preserve importable exception classes that callers catch for recovery.
 
 ## AST nodes
 
@@ -298,6 +314,21 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 A `FieldTraverser` can use `..` to reach its parent table, followed by the target field.
 The resolver raises a `QueryError` if there is no parent or if the chain ends at `..`.
 
+Direct reads of custom properties on `posthog.ai_events` use their event property definitions for Boolean, numeric, and DateTime conversions, as `events` does.
+Properties mapped to native String AI columns and unconverted Duration values stay strings.
+Direct property aliases in subqueries and CTEs expose their converted types.
+CTE comparisons on untyped person and group aliases use the original field even when another column changes type.
+Type inference also sees those converted types in `UNION ALL` projections and in direct arguments to `coalesce` and `ifNull`.
+
+On `posthog.ai_events`, direct property reads keep their stored strings in string-compatible `if` and `CASE` branches and in aggregates such as `any` and `max`.
+For numeric ordering, use an explicit conversion such as `max(toFloat(properties.score))`. A CTE column that already carries a converted type keeps that type through these expressions.
+
+`LIKE`, regex functions such as `match`, and other string-only functions can raise ClickHouse error 43 (`ILLEGAL_TYPE_OF_ARGUMENT`) when a property definition converts their input to another type.
+Use `toString(properties.score)` when a string comparison or function should read the converted value as text.
+
+When HogQL compiles to ClickHouse, `toFloatOrZero` and `toIntOrZero` stringify inputs HogQL identifies as non-strings. For example, `toIntOrZero(3.5)` parses `'3.5'` and returns `0`.
+Two-argument `toFloatOrDefault` and `toIntOrDefault` keep native numeric inputs, including decimal truncation for integer conversions.
+
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
 An equality or inequality between a Boolean constant and a String or untyped property compares with the string `'true'` or `'false'`, because ClickHouse cannot compare text with a Boolean.
@@ -306,17 +337,26 @@ Numeric and Boolean properties on the native table compare as text when a string
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
 DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
-For String and untyped properties, constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
-Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
-Empty property names, including nested path segments, use bound `getSubcolumn` calls because ClickHouse rejects empty SQL identifiers.
-Bound sub-object paths escape backticks with backslashes rather than SQL identifier quoting.
+The native table stores every object and array as a string of JSON text with no whitespace and with the keys of every object sorted.
+Two events that hold the same object therefore hold the same string, so grouping by the property or comparing it compares the content.
+A single-property read returns that text, and a constant starting with `[` or `{` compares with it like any other constant.
+A read of a value inside an object or an array extracts it from the property's text, as the legacy table extracts it from the raw document.
+`IS NULL` and `IS NOT NULL` on a String or untyped property test the path without reading its value.
+Whole-document reads put each stored object and array back and still remove declared defaults.
+A string that is a valid JSON object or array reads as that object or array, because nothing records whether the cleaner stored it or the SDK sent that text.
+An empty property name uses a bound `getSubcolumn` call because ClickHouse rejects empty SQL identifiers.
 A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
 A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.
+A call with more path after the first key, such as `JSONExtractString(properties, 'details', 'name')`, runs on the stored text of that key.
 String, floating-point and Boolean extraction skip the serialization as well: they read the native value and apply the function's conversion and missing-value rules, independently of property-definition types. A stored floating-point value keeps the parser for string extraction, because JSON number formatting decides the result. It reads as false for Boolean extraction and as `Double` for `JSONType`, because the serialized form of an integral value is an integer token.
 Integer extraction keeps ClickHouse's JSON parser on the serialized value, because its coercion rules cost more SQL than the parse saves.
 `JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
 Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
 This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
+A JSON function with a constant first key reads the stored value after grouping, as it does before grouping, when its result depends on the stored type or on the content of an object or array.
+The key's text cannot give that result, because it reads a Bool, a number, an object and an array as a string.
+The extraction of one key as a string, an integer or a float returns the same result from the text, so it keeps the general reader.
+A function that reads the stored value is valid after grouping only inside a grouping key, as on the legacy table, where it reads the `properties` column.
 A whole properties document cannot be a grouping key: HogQL rejects `GROUP BY properties` on both events tables, whether the document is named directly, by select-list position, through an alias, inside a tuple key, under GROUP BY ALL, or as a column of a subquery, CTE, view or union.
 The native table reads a key as a subcolumn, which ClickHouse does not accept as a function of the grouped document, so a key read after `GROUP BY properties` works on the legacy table only; rejecting the key everywhere keeps a query from changing behavior at the switch.
 Group by the keys the query reads, or by `uuid` for one row per event; an expression over the document such as `toString(properties)` is not rejected.
@@ -326,9 +366,10 @@ A property key is exported as its stored value and the outer read keeps its own 
 A key that a JSON function parses, as in `JSONExtractRaw(t.properties, 'key')`, is exported as its JSON text instead, so an object or an array is not quoted a second time.
 A user-written `toJSONString(t.properties.key)` exports the JSON text for a key without a property definition and the stored value for a key with one, so the definition's conversion applies before the serialization as in a direct read.
 In the clauses of a grouped query that run after grouping, the select list, `GROUP BY`, `HAVING` and `ORDER BY`, every key is exported as its stored value, because a direct read there serializes the value too, and a `GROUP BY` key then shares its column with the serialized read of the same key.
+A key under a JSON function that reads the stored value after grouping is exported as its JSON text there too.
 The whole `properties` document is exported only where the outer query reads it whole, and each wrapped table decides this on its own.
-Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
-Native queries disable forward-slash escaping so object and array text retains `/`.
+Raw SQL property readers return the stored text, so they do not depend on ClickHouse's `output_format_json_escape_forward_slashes` setting.
+Native queries disable forward-slash escaping so a rebuilt document retains `/`.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
 

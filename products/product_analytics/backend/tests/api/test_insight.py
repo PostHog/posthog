@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -49,6 +50,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
@@ -58,6 +60,13 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
+from posthog.helpers.feature_flag_usage_insights import (
+    FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
+    FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+    FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
+    FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+    FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+)
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -73,6 +82,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.facade.access import DashboardAccessMethod
+from products.dashboards.backend.facade.api import apply_dashboard_template
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
@@ -103,6 +113,11 @@ PAGEVIEW_QUERY_ANALYTICS_PROPERTIES = {
     # No `breakdown_type` or `filter_test_accounts`: the query sets neither, and both are reported only
     # when present. `test_insight_model.py` covers what they report for a query that does set them.
     "has_formula": False,
+}
+
+SQL_INSIGHT_QUERY = {
+    "kind": "DataVisualizationNode",
+    "source": {"kind": "HogQLQuery", "query": "select event from events limit 1"},
 }
 
 
@@ -414,10 +429,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
 
     def test_dashboard_template_insights_default_to_saved(self) -> None:
-        from posthog.helpers.dashboard_templates import create_dashboard_from_template
-
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
-        create_dashboard_from_template("DEFAULT_APP", dashboard)
+        apply_dashboard_template(
+            team_id=self.team.id, dashboard_id=dashboard.id, template_key="DEFAULT_APP", user_id=None
+        )
 
         insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
         self.assertGreater(insights.count(), 0)
@@ -449,14 +464,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
     def test_hide_feature_flag_insights_filter(self) -> None:
-        from posthog.helpers.dashboard_templates import (
-            FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
-            FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
-            FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
-            FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-            FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-        )
-
         generated = [
             (
                 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
@@ -622,6 +629,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=None,
                 analytics_props=ANY,
                 allow_raw_results=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
             record_outcome.assert_not_called()
 
@@ -645,6 +653,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -708,6 +717,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -2371,6 +2381,36 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertNotIn("code", response)
         self.assertEqual(response["result"], None)
         self.assertEqual(response["query_status"]["query_async"], True)
+
+    @parameterized.expand(
+        [
+            ("api_key_sql", True, SQL_INSIGHT_QUERY, "10"),
+            ("api_key_trends", True, default_pageview_query(), "60"),
+            ("session_sql", False, SQL_INSIGHT_QUERY, "600"),
+        ]
+    )
+    def test_refresh_time_limit_depends_on_access_method(self, _name, uses_api_key, query, expected_limit):
+        insight = Insight.objects.create(team=self.team, query=query)
+        headers = {}
+        if uses_api_key:
+            key = self.create_personal_api_key_with_scopes(["insight:read", "query:read"])
+            headers = {"authorization": f"Bearer {key}"}
+            self.client.logout()
+
+        with (
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST",
+                {self.team.pk + 1},
+            ),
+            self.capture_select_queries() as queries,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking", headers=headers
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        limits = {limit for sql in queries for limit in re.findall(r"max_execution_time=(\d+)", sql)}
+        assert limits == {expected_limit}
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(

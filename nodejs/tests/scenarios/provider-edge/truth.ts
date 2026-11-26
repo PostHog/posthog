@@ -11,9 +11,11 @@ export type TruthMessage = Omit<SesMessage, 'attachments'> & { attachments: Trut
 export type TruthRecord = {
     seq: number
     at: string
-    kind: 'ses.send' | 'webhook'
+    kind: 'ses.send' | 'ses.feedback' | 'webhook'
     unitId?: string
     actionId?: string
+    flowId?: string
+    invocationId?: string
     status: number
     fault?: string
     detail: {
@@ -21,6 +23,7 @@ export type TruthRecord = {
         error?: string
         errorType?: string
         request?: { method: string; host: string; path: string }
+        feedback?: { snsMessageId: string; sesMessageId: string; bouncedRecipients: string[] }
     }
 }
 

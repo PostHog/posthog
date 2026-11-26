@@ -609,6 +609,21 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Tell PostHog staff about the application. On a declined review, or one where staff asked for changes, the note asks for another review. A blocked application cannot send one.
+ * @summary Send a note on the app's provisioning review
+ */
+export const oauthApplicationsReviewNoteCreateBodyNoteMax = 4000
+
+export const OauthApplicationsReviewNoteCreateBody = /* @__PURE__ */ zod.object({
+    note: zod
+        .string()
+        .max(oauthApplicationsReviewNoteCreateBodyNoteMax)
+        .describe(
+            'What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.'
+        ),
+})
+
+/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
@@ -667,13 +682,6 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Manage experiment configuration for this project.
  */
 export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PURE__ */ zod
@@ -691,13 +699,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
@@ -724,7 +725,11 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
  * Submit a one-column HogQL query for event deletion.
  */
 export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    query: zod
+        .string()
+        .describe(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL."
+        ),
     variables: zod
         .record(
             zod.string(),
@@ -744,7 +749,11 @@ export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
  * Validate a one-column HogQL query and count the selected event UUIDs.
  */
 export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    query: zod
+        .string()
+        .describe(
+            "HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL."
+        ),
     variables: zod
         .record(
             zod.string(),
@@ -1343,10 +1352,10 @@ export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
 export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
     image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
     purpose: zod
-        .enum(['email', 'canvas', 'experiment'])
+        .enum(['email', 'canvas', 'experiment', 'conversations'])
         .optional()
         .describe(
-            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.'
         ),
 })
 
@@ -1365,7 +1374,9 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 export const workloadTrustPoliciesCreateBodyNameMax = 200

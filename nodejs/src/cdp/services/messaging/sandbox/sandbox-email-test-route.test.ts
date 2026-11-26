@@ -22,7 +22,7 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction, SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
 import { RecipientTokensService } from '../recipient-tokens.service'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_SERVER_ERROR, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxCaps, claimSandboxCaps } from './sandbox-caps'
@@ -165,11 +165,17 @@ describe('sandbox email test sends', () => {
             }),
         ])
         await waitForExpect(() =>
-            expect(capturedAnalytics).toEqual([
+            expect(capturedFor(world.team.uuid)).toEqual([
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
-                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: true },
+                    properties: {
+                        team: world.team.uuid,
+                        workflow_id: hogFlow.id,
+                        action_id: 'email',
+                        is_test: true,
+                        source: 'test',
+                    },
                     groups: expect.objectContaining({
                         project: world.team.uuid,
                         organization: world.team.organization_id,
@@ -215,6 +221,22 @@ describe('sandbox email test sends', () => {
             reason: 'not_member',
         })
         expect(world.ses.delivered).toEqual([])
+        await waitForExpect(() =>
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email blocked', 'test'],
+            ])
+        )
+    })
+
+    it('reports a send SES rejected as failed', async () => {
+        world.ses.replyNext(SES_REJECTED)
+
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'ses_rejected' })
+        await waitForExpect(() =>
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email failed', 'test'],
+            ])
+        )
     })
 
     it('skips the test when the worker has sending off', async () => {
@@ -453,7 +475,9 @@ describe('sandbox email test sends', () => {
         expect(world.ses.delivered).toEqual([])
         expect(failedRun.result.logs.map(({ level, message }) => [level, message])).toContainEqual([
             'error',
-            expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
+            expect.stringContaining(
+                'failed to render: The rendered email from the PostHog test sender is missing a recipient, subject'
+            ),
         ])
     })
 

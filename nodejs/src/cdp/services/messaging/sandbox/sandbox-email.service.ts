@@ -138,6 +138,10 @@ export class SandboxEmailService {
         if (!authorization.ok) {
             return refusal(authorization.reason)
         }
+        const tenantBeforeRecipient = admitTenant(authorization.tenant, this.deps.now?.() ?? new Date())
+        if (!tenantBeforeRecipient.ok) {
+            return refusal(tenantBeforeRecipient.reason)
+        }
         const recipientCheck = await this.checkRecipient(request, [
             email.data.to.email,
             address,
@@ -147,9 +151,9 @@ export class SandboxEmailService {
         if (!recipientCheck.ok) {
             return refusal(recipientCheck.reason)
         }
-        const tenant = admitTenant(authorization.tenant, this.deps.now?.() ?? new Date())
-        if (!tenant.ok) {
-            return refusal(tenant.reason)
+        const tenantAfterRecipient = admitTenant(authorization.tenant, this.deps.now?.() ?? new Date())
+        if (!tenantAfterRecipient.ok) {
+            return refusal(tenantAfterRecipient.reason)
         }
         const caps = await this.deps.claimCaps({
             organizationId: authorization.organizationId,

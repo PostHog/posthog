@@ -4,11 +4,13 @@ import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
 
 
 class TestClassifyPostgresCDCError:
@@ -32,6 +34,17 @@ class TestClassifyPostgresCDCError:
             (
                 "ssl_required",
                 psycopg.OperationalError("server does not support SSL, but SSL was required"),
+                CDCErrorCategory.SSL_REQUIRED,
+            ),
+            (
+                # `_connect_to_postgres` converts the raw psycopg OperationalError above into this
+                # type before the CDC path ever sees it, so the connection must still classify as
+                # SSL_REQUIRED even though it's no longer a psycopg exception.
+                "ssl_required_wrapped_error",
+                SSLRequiredError(
+                    "SSL/TLS connection is required but your database does not support it. "
+                    "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+                ),
                 CDCErrorCategory.SSL_REQUIRED,
             ),
             (
@@ -185,6 +198,11 @@ class TestClassifyPostgresCDCError:
             (
                 "ssh_gateway_session_failure_is_non_retryable",
                 BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
+                CDCErrorCategory.SSH_TUNNEL_FAILED,
+            ),
+            (
+                "ssh_gateway_closed_before_banner_is_a_tunnel_failure",
+                SSHGatewayClosedBeforeBannerError(),
                 CDCErrorCategory.SSH_TUNNEL_FAILED,
             ),
             (

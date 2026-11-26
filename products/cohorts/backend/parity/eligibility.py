@@ -2,8 +2,7 @@
 
 Predicts, per cohort, the `class` label the processor reports in
 `cohort_eligibility_total` (single_leaf / stage2_composable / stage2_composable_ref /
-excluded_*), plus the max behavioral window in days (used by the classifier's soundness
-check and missed-emission probe cutoff).
+excluded_*), plus the max behavioral window in days.
 Mirrors `rust/cohort-stream-processor/src/filters/{leaf_classifier,tree,cohort_graph}.rs`
 and `src/stage1/pick_state.rs` + `src/stage2/eligibility.rs` — including known quirks
 (e.g. a string `time_value` reads as absent), because the screen must predict what the
@@ -35,6 +34,8 @@ EXCLUDED_HAS_COHORT_REF = "excluded_has_cohort_ref"
 EXCLUDED_CYCLE_DETECTED = "excluded_cycle_detected"
 EXCLUDED_UNRESOLVED_REF = "excluded_unresolved_ref"
 EXCLUDED_HAS_DROPPED_LEAF = "excluded_has_dropped_leaf"
+# A leaf drop label. `realtime_state.py` reports it as an unsupported time range, so return it for nothing else.
+UNSUPPORTED_STATE_VARIANT = "unsupported_state_variant"
 # HogVM RETURN, which the catalog loader appends to every stored program before loading it.
 _OP_RETURN = 38
 # Not a processor metric class: the Rust loader skips these cohorts entirely.
@@ -124,7 +125,7 @@ def _is_absolute_datetime(raw: str) -> bool:
 
 # A resolved eviction window: kind is "days" (whole-day sliding), "seconds" (sub-day
 # sliding), or "explicit" (absolute calendar range, permanent membership). `days` is the
-# window length in days for the soundness check (fractional for "seconds", inf for "explicit").
+# window length in days (fractional for "seconds", inf for "explicit").
 @dataclass(frozen=True)
 class _Window:
     kind: Literal["days", "seconds", "explicit"]
@@ -362,7 +363,7 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
         return "malformed_leaf"
     window = _behavioral_window_days(node, value)
     if window is None:
-        return "unsupported_state_variant"
+        return UNSUPPORTED_STATE_VARIANT
     return _Leaf(kind="behavioral", negated=_explicit_negation(node), window_days=window)
 
 

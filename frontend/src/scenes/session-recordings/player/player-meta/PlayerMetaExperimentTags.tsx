@@ -56,7 +56,7 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
     return (
         <span
             data-not-quill
-            className="flex flex-row items-center gap-x-1 shrink-0"
+            className="flex flex-row flex-wrap items-center gap-x-1 gap-y-0.5 shrink-0 max-w-full"
             data-attr="replay-experiment-context-chip"
         >
             <Tooltip title={seenTooltip}>

@@ -15,6 +15,7 @@ const KPIS: KPIData = {
     toolCalls: metric(1480),
     errorRatePct: metric(9),
     p95LatencyMs: metric(3525),
+    users: metric(40),
 }
 
 const tool = (over: Partial<ToolRow> = {}): ToolRow => ({

@@ -6,6 +6,7 @@ from django.utils import timezone
 from posthog.models.utils import UUIDModel, build_unique_relationship_check
 
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH
+from products.dashboards.backend.facade.enums import DashboardTileBadge
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
@@ -51,11 +52,6 @@ class ButtonTile(UUIDModel):
 
     class Meta:
         db_table = "posthog_buttontile"
-
-
-class DashboardTileBadge(models.TextChoices):
-    WINNER = "winner", "Winner"
-    CHEEKY_HOG = "cheeky-hog", "Cheeky hog"
 
 
 class DashboardTileManager(models.Manager):

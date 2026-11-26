@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickWorkflow,
     capture_activity_summary_tick_activity,
@@ -96,6 +98,10 @@ from products.signals.backend.temporal.grouping import (
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
+from products.signals.backend.temporal.grouping_record_cleanup import (
+    SignalGroupingRecordCleanupWorkflow,
+    delete_expired_grouping_records_activity,
+)
 from products.signals.backend.temporal.grouping_v2 import (
     TeamSignalGroupingV2Workflow,
     assigned_signal_ids_activity,
@@ -108,6 +114,11 @@ from products.signals.backend.temporal.inbox_notification import (
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
+)
+from products.signals.backend.temporal.monitor_pr import (
+    MonitorPRWorkflow,
+    fail_monitored_pr_activity,
+    research_monitored_pr_activity,
 )
 from products.signals.backend.temporal.monitoring_assessment import (
     MonitoringAssessmentWorkflow,
@@ -139,6 +150,7 @@ from products.signals.backend.temporal.spend import (
     confirm_signal_spend_activity,
     update_signal_spend_activity,
 )
+from products.signals.backend.temporal.spend_cleanup import SignalSpendCleanupWorkflow, delete_expired_spend_activity
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
@@ -160,13 +172,19 @@ from products.signals.backend.temporal.summary import (
     revert_report_to_candidate_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
+    MonitorPRWorkflow,
     MonitoringAssessmentWorkflow,
     UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
+    SignalGroupingRecordCleanupWorkflow,
+    SignalSpendCleanupWorkflow,
     BufferSignalsWorkflow,
     SignalEmitterWorkflow,
     SignalReportSummaryWorkflow,
@@ -185,8 +203,12 @@ WORKFLOWS = [
     SignalReportInboxNotificationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
+    research_monitored_pr_activity,
+    fail_monitored_pr_activity,
     assigned_signal_ids_activity,
+    delete_expired_grouping_records_activity,
+    delete_expired_spend_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     poll_monitoring_assessment_activity,
@@ -280,7 +302,7 @@ SELF_DRIVING_WORKFLOWS = [
     AnomalyScoringTickWorkflow,
     AnomalyScoringDueListRefreshWorkflow,
 ]
-SELF_DRIVING_ACTIVITIES = [
+SELF_DRIVING_ACTIVITIES: list[ActivityDefinition] = [
     score_inbox_reports_activity,
     plan_activity_summary_tick_activity,
     update_activity_summary_pair_activity,

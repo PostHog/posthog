@@ -1,5 +1,7 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -53,10 +55,15 @@ def filters(*leaves: dict) -> dict:
     return {"properties": {"type": "AND", "values": list(leaves)}}
 
 
-@override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+@override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all", REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=14)
 class TestRealtimeReadiness(BaseTest):
     def _cohort(self, **kwargs) -> Cohort:
-        defaults = {"team": self.team, "cohort_type": CohortType.REALTIME, "filters": filters(BEHAVIORAL_LEAF)}
+        defaults = {
+            "team": self.team,
+            "cohort_type": CohortType.REALTIME,
+            "realtime_enabled_at": timezone.now(),
+            "filters": filters(BEHAVIORAL_LEAF),
+        }
         return Cohort.objects.create(**{**defaults, **kwargs})
 
     def _run(
@@ -103,10 +110,18 @@ class TestRealtimeReadiness(BaseTest):
         readiness = resolve_realtime_readiness([cohort]).get(cohort.id)
         return readiness.state if readiness else None
 
-    def test_unstamped_cohort_with_no_run_needs_attention_rather_than_building(self) -> None:
+    @parameterized.expand(
+        [
+            ("behavioral_leaf", {}),
+            ("legacy_event_condition_in_groups", {"filters": {}, "groups": [{"action_id": 3, "days": 7}]}),
+        ]
+    )
+    def test_unstamped_cohort_with_no_run_needs_attention_rather_than_building(
+        self, _name: str, definition: dict[str, Any]
+    ) -> None:
         # The whole point of deriving from a run row: a refused, lost, or never-triggered backfill
         # must not read as work in progress, or the progress bar never ends.
-        assert self._state(self._cohort()) == CohortRealtimeState.NEEDS_ATTENTION
+        assert self._state(self._cohort(**definition)) == CohortRealtimeState.NEEDS_ATTENTION
 
     @parameterized.expand(
         [
@@ -130,7 +145,7 @@ class TestRealtimeReadiness(BaseTest):
     @parameterized.expand(
         [
             # The keys are set with `nx=True` and each kind has its own handler, so a cohort
-            # created with one leaf kind and edited to add the other inside the five-minute
+            # created with one leaf kind and edited to add the other inside the debounce
             # countdown carries a different trigger per kind. The edit is the one that decides.
             (
                 "created",
@@ -155,8 +170,8 @@ class TestRealtimeReadiness(BaseTest):
     def test_debounced_save_reads_as_a_build_before_its_run_exists(
         self, _name: str, triggers: dict[str, str], expected: str
     ) -> None:
-        # The run-creation task waits five minutes. Without the debounce key, every cohort would
-        # read as needs_attention for those five minutes, right after the save that asked for it.
+        # The run-creation task waits out a countdown. Without the debounce key, every cohort would
+        # read as needs_attention during the countdown, right after the save that asked for it.
         leaves = [BEHAVIORAL_LEAF] + ([PERSON_LEAF] if len(triggers) > 1 else [])
         cohort = self._cohort(filters=filters(*leaves))
         for kind, trigger in triggers.items():
@@ -287,6 +302,68 @@ class TestRealtimeReadiness(BaseTest):
         )
         assert self._state(cohort) == CohortRealtimeState.BUILDING
 
+    @parameterized.expand(
+        [
+            (
+                "person_run_scanning",
+                "last_backfill_events_at",
+                CohortBackfillKind.PERSON_PROPERTY,
+                CohortBackfillRunStatus.SEEDING,
+                CohortBackfillTrigger.COHORT_CREATED,
+                CohortRealtimeState.BUILDING,
+                CohortHistoryBuildPhase.SCANNING,
+            ),
+            (
+                "person_edit_queued",
+                "last_backfill_events_at",
+                CohortBackfillKind.PERSON_PROPERTY,
+                None,
+                CohortBackfillTrigger.COHORT_EDITED,
+                CohortRealtimeState.REBUILDING,
+                CohortHistoryBuildPhase.WAITING,
+            ),
+            (
+                "behavioral_run_checking",
+                "last_backfill_person_properties_at",
+                CohortBackfillKind.BEHAVIORAL,
+                CohortBackfillRunStatus.RECONCILING,
+                CohortBackfillTrigger.COHORT_CREATED,
+                CohortRealtimeState.BUILDING,
+                CohortHistoryBuildPhase.CHECKING,
+            ),
+            (
+                "person_run_blocked",
+                "last_backfill_events_at",
+                CohortBackfillKind.PERSON_PROPERTY,
+                CohortBackfillRunStatus.BLOCKED,
+                CohortBackfillTrigger.COHORT_CREATED,
+                CohortRealtimeState.NEEDS_ATTENTION,
+                None,
+            ),
+        ]
+    )
+    def test_a_stamped_kind_leaves_the_cohort_to_the_kind_still_building(
+        self,
+        _name: str,
+        stamp_field: str,
+        other_kind: str,
+        other_run_status: str | None,
+        other_trigger: str,
+        expected_state: CohortRealtimeState,
+        expected_phase: CohortHistoryBuildPhase | None,
+    ) -> None:
+        cohort = self._cohort(filters=filters(BEHAVIORAL_LEAF, PERSON_LEAF), **{stamp_field: timezone.now()})
+        if other_run_status is None:
+            get_redis_client().set(cohort_backfill_pending_key(cohort.id, other_kind), other_trigger, ex=300)
+        else:
+            self._participate(
+                self._run(status=other_run_status, kind=other_kind, trigger=other_trigger, cohort=cohort), cohort
+            )
+
+        readiness = resolve_realtime_readiness([cohort])[cohort.id]
+        assert readiness.state == expected_state
+        assert (readiness.build.phase if readiness.build else None) == expected_phase
+
     def test_a_run_for_a_kind_the_filters_no_longer_need_decides_nothing(self) -> None:
         # A person run left over from an earlier definition is not something this cohort waits on,
         # so neither its progress nor its being blocked describes the cohort.
@@ -401,28 +478,149 @@ class TestRealtimeReadiness(BaseTest):
     @parameterized.expand(
         [
             ("static", {"is_static": True, "cohort_type": CohortType.STATIC}, (CohortRealtimeState.STATIC, None, None)),
-            ("not_realtime", {"cohort_type": CohortType.BEHAVIORAL}, (CohortRealtimeState.DAILY, None, None)),
+            (
+                "not_realtime",
+                {"cohort_type": CohortType.BEHAVIORAL, "realtime_enabled_at": None},
+                (CohortRealtimeState.DAILY, None, None),
+            ),
+            # Past the pipeline's cap, and the limit reported is the plan's, which is the one a person can raise.
             (
                 "history_over_limit",
                 {
                     "cohort_type": None,
+                    "realtime_enabled_at": None,
                     "filters": filters({**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year"}),
                 },
-                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 400),
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
+            ),
+            # The save refuses unsupported criteria before it checks history, so shortening the window would not help.
+            (
+                "unsupported_criteria_and_history_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "filters": filters(
+                        {**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year", "bytecode_error": "Unsupported"}
+                    ),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.UNSUPPORTED_CRITERIA, None),
+            ),
+            (
+                "members_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": filters({**BEHAVIORAL_LEAF, "bytecode": ["_H", 1]}),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.MEMBERS_OVER_LIMIT, None),
+            ),
+            # The save refuses a criterion with both, and what is stored can't say which of the two is stale, so
+            # naming a later check would send a person to fix something that leaves the cohort daily.
+            (
+                "criterion_with_bytecode_and_an_error",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": {
+                        **filters(
+                            {
+                                **BEHAVIORAL_LEAF,
+                                "time_value": 2,
+                                "time_interval": "year",
+                                "bytecode": ["_H", 1],
+                                "bytecode_error": "Unsupported",
+                            }
+                        ),
+                        "filterTestAccounts": True,
+                    },
+                },
+                (CohortRealtimeState.DAILY, None, None),
+            ),
+            # Past the plan but within the pipeline's cap, so the history is not what keeps it daily.
+            (
+                "daily_past_the_plan_within_the_cap",
+                {
+                    "cohort_type": CohortType.BEHAVIORAL,
+                    "realtime_enabled_at": None,
+                    "filters": filters({**BEHAVIORAL_LEAF, "time_value": 30}),
+                },
+                (CohortRealtimeState.DAILY, None, None),
+            ),
+            (
+                "realtime_off_past_the_plan",
+                {"realtime_enabled_at": None, "filters": filters({**BEHAVIORAL_LEAF, "time_value": 15})},
+                (CohortRealtimeState.OFF, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
+            ),
+            (
+                "realtime_off_within_its_plan",
+                {"realtime_enabled_at": None, "filters": filters({**BEHAVIORAL_LEAF, "time_value": 15})},
+                (CohortRealtimeState.OFF, None, None),
+                60,
             ),
             # Neither kind of criteria decides anything: the realtime evaluator has no leaf to key
             # membership on, and the flag API does not gate on a cohort reference either.
             ("cohort_reference_only", {"filters": filters(COHORT_LEAF)}, None),
+            (
+                "realtime_off",
+                {"realtime_enabled_at": None, "last_backfill_events_at": timezone.now()},
+                (CohortRealtimeState.OFF, None, None),
+            ),
+            (
+                "person_properties_with_realtime_off",
+                {"realtime_enabled_at": None, "filters": filters(PERSON_LEAF)},
+                (CohortRealtimeState.PERSON_PROPERTIES, None, None),
+            ),
         ]
     )
     def test_cohorts_outside_the_realtime_path(
-        self, _name: str, kwargs: dict, expected: tuple[str, str | None, int | None] | None
+        self,
+        _name: str,
+        kwargs: dict,
+        expected: tuple[str, str | None, int | None] | None,
+        plan_history_days: int | None = None,
     ) -> None:
+        if plan_history_days is not None:
+            self.organization.available_product_features = [
+                {"key": "realtime_cohorts_history", "name": "Realtime cohorts history", "limit": plan_history_days}
+            ]
+            self.organization.save()
         cohort = self._cohort(**kwargs)
         readiness = resolve_realtime_readiness([cohort]).get(cohort.id)
         assert (
             (readiness.state, readiness.reason, readiness.history_limit_days) if readiness is not None else None
         ) == expected
+
+    @parameterized.expand(
+        [
+            ("west_of_utc_a_day_behind", "America/Los_Angeles", datetime(2026, 11, 26, 4, 0, tzinfo=UTC), None, None),
+            (
+                "east_of_utc_a_day_ahead",
+                "Pacific/Auckland",
+                datetime(2026, 11, 25, 12, 0, tzinfo=UTC),
+                CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT,
+                14,
+            ),
+        ]
+    )
+    def test_an_off_cohort_is_judged_on_the_team_day(
+        self, _name: str, team_timezone: str, now: datetime, reason: str | None, history_limit_days: int | None
+    ) -> None:
+        self.team.timezone = team_timezone
+        self.team.save()
+        cohort = self._cohort(
+            realtime_enabled_at=None, filters=filters({**BEHAVIORAL_LEAF, "explicit_datetime": "2026-11-11"})
+        )
+
+        with time_machine.travel(now, tick=False):
+            readiness = resolve_realtime_readiness([cohort])[cohort.id]
+
+        assert (readiness.state, readiness.reason, readiness.history_limit_days) == (
+            CohortRealtimeState.OFF,
+            reason,
+            history_limit_days,
+        )
 
     def test_a_person_property_cohort_is_targetable_and_names_no_readiness_moment(self) -> None:
         # Flags read person properties off the person as they evaluate, so this cohort is
@@ -485,13 +683,16 @@ class TestRealtimeReadiness(BaseTest):
             readiness = resolve_realtime_readiness(cohorts)
         assert len(readiness) == 6
 
-    def test_a_page_of_settled_cohorts_reads_no_backfill_rows(self) -> None:
-        # Stamped, static and daily cohorts are the steady state, so the common page costs nothing.
+    @parameterized.expand([("on_static_and_daily", 0, 0), ("with_cohorts_that_are_off", 2, 1)])
+    def test_a_page_of_settled_cohorts_reads_no_backfill_rows(self, _name: str, off: int, queries: int) -> None:
+        # Stamped, static and daily cohorts are the steady state, so the common page costs nothing. Cohorts that
+        # are off are judged against the plan, which costs one read of the organization for the whole page.
         settled = [
             self._cohort(last_backfill_events_at=timezone.now()),
             self._cohort(is_static=True, cohort_type=CohortType.STATIC),
             self._cohort(cohort_type=CohortType.BEHAVIORAL),
+            *(self._cohort(realtime_enabled_at=None) for _ in range(off)),
         ]
 
-        with self.assertNumQueries(0):
-            assert len(resolve_realtime_readiness(settled)) == 3
+        with self.assertNumQueries(queries):
+            assert len(resolve_realtime_readiness(settled)) == 3 + off

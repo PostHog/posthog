@@ -740,7 +740,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         modes: [AgentMode.ErrorTracking],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Found issues'
+                const issues = toolCall.result?.ui_payload?.search_error_tracking_issues?.issues
+                if (!Array.isArray(issues)) {
+                    return 'Searched issues'
+                }
+                return issues.length > 0 ? 'Found issues' : 'No issues found'
             }
             return 'Searching issues...'
         },

@@ -53,7 +53,7 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     rows = (
         checks_in_window.annotate(
             mentioned=Case(
-                When(mention_filter(target_domains), then=Value(True)),
+                When(mention_filter(), then=Value(True)),
                 default=Value(False),
                 output_field=BooleanField(),
             )

@@ -27,7 +27,7 @@ class TestGetOrCreateTeamExtension(BaseTest):
             ("revenue_analytics_config", "filter_test_accounts", True),
             ("marketing_analytics_config", "attribution_window_days", 14),
             ("customer_analytics_config", "account_group_type_index", 2),
-            ("workflows_config", "capture_workflows_engagement_events", True),
+            ("workflows_config", "email_tracking_consent_mode", "opt_in"),
             ("feature_flag_policy_config", "require_tags", True),
         ]
     )

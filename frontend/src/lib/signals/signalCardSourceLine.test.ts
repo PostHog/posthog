@@ -20,4 +20,16 @@ describe('signalCardSourceLine', () => {
     ])('%s', (_name, source_product, source_type, extra, expected) => {
         expect(signalCardSourceLine({ source_product, source_type, extra })).toBe(expected)
     })
+
+    test.each([
+        [{ 'signals-scout-apm': 'Checkout latency' }, 'Scout · Checkout latency'],
+        [{}, 'Scout · APM'],
+    ])('a scout finding prefers the name the team set: %o', (scoutNames, expected) => {
+        const signal = {
+            source_product: 'signals_scout',
+            source_type: 'finding',
+            extra: { skill_name: 'signals-scout-apm' },
+        }
+        expect(signalCardSourceLine(signal, scoutNames)).toBe(expected)
+    })
 })

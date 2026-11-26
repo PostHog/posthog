@@ -158,6 +158,71 @@ class TestFanOut:
         assert result.raised is None
         assert result.rows == [{"project_name": "p1", "billing_group_id": "bg1"}]
 
+    def test_two_level_from_project_injects_project_and_service(self) -> None:
+        # service_integrations fans out project -> services -> integrations; the path takes `{project}`
+        # but the row column is `project_name`, and the same integration repeats under each service.
+        result = _driver().run(
+            "service_integrations",
+            route(
+                {
+                    "/project": [ScriptedResponse(json={"projects": [{"project_name": "p1"}]})],
+                    "/project/p1/service": [
+                        ScriptedResponse(json={"services": [{"service_name": "pg1"}, {"service_name": "graf1"}]})
+                    ],
+                    "/project/p1/service/pg1/integration": [
+                        ScriptedResponse(json={"service_integrations": [{"service_integration_id": "i1"}]})
+                    ],
+                    "/project/p1/service/graf1/integration": [
+                        ScriptedResponse(json={"service_integrations": [{"service_integration_id": "i1"}]})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"service_integration_id": "i1", "project_name": "p1", "service_name": "pg1"},
+            {"service_integration_id": "i1", "project_name": "p1", "service_name": "graf1"},
+        ]
+
+    def test_service_plans_flattens_plans_across_service_types(self) -> None:
+        # The response is keyed by service type; each plan must become its own row.
+        result = _driver().run(
+            "service_plans",
+            route(
+                {
+                    "/project": [ScriptedResponse(json={"projects": [{"project_name": "p1"}]})],
+                    "/project/p1/service_types": [
+                        ScriptedResponse(
+                            json={
+                                "service_types": {
+                                    "pg": {
+                                        "description": "PostgreSQL",
+                                        "service_plans": [{"service_type": "pg", "service_plan": "hobbyist"}],
+                                    },
+                                    "kafka": {
+                                        "description": "Kafka",
+                                        "service_plans": [
+                                            {"service_type": "kafka", "service_plan": "startup-2"},
+                                            {"service_type": "kafka", "service_plan": "business-4"},
+                                        ],
+                                    },
+                                    "flink": {"description": "Flink", "service_plans": []},
+                                }
+                            }
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"service_type": "pg", "service_plan": "hobbyist", "project_name": "p1"},
+            {"service_type": "kafka", "service_plan": "startup-2", "project_name": "p1"},
+            {"service_type": "kafka", "service_plan": "business-4", "project_name": "p1"},
+        ]
+
 
 class TestFailLoud:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])

@@ -1,15 +1,21 @@
 import socket
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import pytest
 from unittest import mock
 
 import psycopg
+import pyarrow as pa
 
 from posthog.integrations import IntegrationNotFound, IntegrationReader
 from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
 
 from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient, PostgreSQLConnectionError
-from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import DestinationRunContext
+from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    DestinationBatchContext,
+    DestinationRunContext,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
     MISSING_INTEGRATION_DETAIL,
@@ -21,11 +27,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (
     ACCESS_RULE_DETAIL,
     AUTHENTICATION_FAILED_DETAIL,
+    CONNECT_TIMEOUT_DETAIL,
     HOST_NOT_FOUND_DETAIL,
     IPV6_ONLY_HOST_DETAIL,
     NETWORK_UNREACHABLE_DETAIL,
+    PERMISSIONS_DETAIL,
     UNKNOWN_DATABASE_DETAIL,
     PostgresDestinationWriter,
+    UnrelatedTableExistsError,
     connect_configuration_error_detail,
     host_configuration_error_detail,
 )
@@ -269,35 +278,51 @@ class TestWriterClient:
         connect.assert_not_called()
 
     @pytest.mark.parametrize(
-        ("_name", "error", "expected_error", "expected_attempts"),
+        ("_name", "error", "expected_error", "expected_attempts", "expected_message"),
         [
             (
                 "configuration_error_stops_at_once",
                 psycopg.OperationalError(_attempt_failed('FATAL:  password authentication failed for user "loader"')),
                 DestinationConfigurationError,
                 1,
+                f"Prod: {DESTINATION_CONFIGURATION_ERROR_MARKER}. {AUTHENTICATION_FAILED_DETAIL}",
             ),
             (
                 "transient_error_keeps_its_retries",
                 psycopg.OperationalError(_attempt_failed("FATAL:  sorry, too many clients already")),
                 PostgreSQLConnectionError,
                 5,
+                None,
+            ),
+            (
+                "timeout_keeps_its_retries_and_hides_the_host",
+                psycopg.errors.ConnectionTimeout("connection timeout expired"),
+                PostgreSQLConnectionError,
+                5,
+                CONNECT_TIMEOUT_DETAIL,
             ),
         ],
     )
     @pytest.mark.asyncio
     async def test_connect_retries_only_transient_errors(
-        self, _name: str, error: Exception, expected_error: type[Exception], expected_attempts: int
+        self,
+        _name: str,
+        error: Exception,
+        expected_error: type[Exception],
+        expected_attempts: int,
+        expected_message: str | None,
     ) -> None:
         with (
             mock.patch("socket.getaddrinfo", return_value=_addrinfo(V4)),
             mock.patch.object(psycopg.AsyncConnection, "connect", side_effect=error) as connect,
             mock.patch("asyncio.sleep", new_callable=mock.AsyncMock),
-            pytest.raises(expected_error),
+            pytest.raises(expected_error) as caught,
         ):
             await _open(_FixedClientWriter(HOST))
 
         assert connect.call_count == expected_attempts
+        if expected_message is not None:
+            assert str(caught.value) == expected_message
 
     @pytest.mark.asyncio
     async def test_an_error_inside_the_connection_is_not_reclassified(self) -> None:
@@ -314,3 +339,86 @@ class TestWriterClient:
                 raise failure
 
         assert caught.value is failure
+
+
+async def _batches() -> AsyncIterator[pa.RecordBatch]:
+    yield pa.RecordBatch.from_pydict({"id": [1]})
+
+
+def _incremental_ctx() -> DestinationRunContext:
+    # Incremental, so `finalize_run` only drops the merge stage: the same call this suite
+    # makes fail, in both methods, without needing to fake a full refresh's table checks.
+    return DestinationRunContext(
+        team_id=1,
+        schema_id="schema",
+        source_id="source",
+        job_id="job",
+        run_uuid="run",
+        destination_id="destination",
+        destination_type="Postgres",
+        destination_name="Prod",
+        table_name="orders",
+        sync_type="incremental",
+        integration_id=1,
+    )
+
+
+class _ConnectedClientWriter(PostgresDestinationWriter):
+    """Points the writer at an already-connected client, skipping `_make_client`."""
+
+    def __init__(self, ctx: DestinationRunContext, client: PostgreSQLClient) -> None:
+        super().__init__(ctx)
+        self._fake = client
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[PostgreSQLClient]:
+        yield self._fake
+
+
+@pytest.mark.asyncio
+class TestWriteErrors:
+    """A customer's own database can refuse a write it has already accepted a connection for,
+
+    for example a role without CREATE on the schema's database. That has to stop the run on
+    its first attempt, the same as a connection the database never accepted, rather than
+    retrying a permission problem only the customer can fix.
+    """
+
+    @pytest.mark.parametrize("finalize", [False, True], ids=["write_batch", "finalize_run"])
+    async def test_a_privilege_error_is_a_configuration_error(self, finalize: bool) -> None:
+        ctx = _incremental_ctx()
+        client = mock.AsyncMock(spec=PostgreSQLClient)
+        writer = _ConnectedClientWriter(ctx, client)
+        error = psycopg.errors.InsufficientPrivilege("permission denied for database fake-secret")
+        client.adelete_table.side_effect = error
+
+        with (
+            mock.patch.object(writer, "_table_exists", return_value=False),
+            mock.patch.object(writer, "_ensure_table", side_effect=error),
+            pytest.raises(DestinationConfigurationError) as caught,
+        ):
+            if finalize:
+                await writer.finalize_run(ctx)
+            else:
+                await writer.write_batch(
+                    _batches(), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False)
+                )
+
+        assert caught.value.detail == PERMISSIONS_DETAIL
+        assert caught.value.__cause__ is error
+        assert str(caught.value).startswith(f"{ctx.destination_name}:")
+
+    async def test_an_unrelated_write_error_propagates_unchanged(self) -> None:
+        ctx = _incremental_ctx()
+        client = mock.AsyncMock(spec=PostgreSQLClient)
+        writer = _ConnectedClientWriter(ctx, client)
+        error = UnrelatedTableExistsError("fake-secret")
+
+        with (
+            mock.patch.object(writer, "_table_exists", return_value=False),
+            mock.patch.object(writer, "_ensure_table", side_effect=error),
+            pytest.raises(UnrelatedTableExistsError) as caught,
+        ):
+            await writer.write_batch(_batches(), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False))
+
+        assert caught.value is error

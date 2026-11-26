@@ -125,7 +125,7 @@ Empty object: `{}`.
 | Field             | Required | Notes                                                                          |
 | ----------------- | -------- | ------------------------------------------------------------------------------ |
 | `provider`        | yes      | One of `openai`, `anthropic`, `gemini`, `openrouter`, `fireworks`, `azure_openai`, `together_ai`. |
-| `model`           | yes      | Model id, e.g. `gpt-5-mini`. Validate against `llma-evaluation-judge-models`.  |
+| `model`           | yes      | Model id, e.g. `gpt-6-luna`. Validate against `llma-evaluation-judge-models`.  |
 | `provider_key_id` | no       | UUID of an `ok`-state key for the same provider, or `null` to use the active team key. |
 
 `provider` and `model` are required. Pin `provider_key_id` to run on one specific key, or set it to `null`
@@ -225,7 +225,7 @@ and `item.output` when exact structure matters.
   "evaluation_config": { "prompt": "Return true if the assistant's reply stays on the user's topic, false if it changes subject. Return N/A if the user did not ask a question." },
   "output_type": "boolean",
   "output_config": { "allows_na": true },
-  "model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null },
+  "model_configuration": { "provider": "openai", "model": "gpt-6-luna", "provider_key_id": null },
   "target": "generation",
   "target_config": {},
   "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],

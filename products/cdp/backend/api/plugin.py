@@ -19,6 +19,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPOrganizationPropertyAccessPermission, CDPPropertyAccessPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.event_usage import report_user_action
@@ -223,6 +224,20 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
+def _config_from_request(request: request.Request) -> dict:
+    if "config" not in request.data:
+        return {}
+    config = request.data["config"]
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError:
+            raise ValidationError({"config": "Must be a JSON object."})
+    if not isinstance(config, dict):
+        raise ValidationError({"config": "Must be a JSON object."})
+    return config
+
+
 class PlainRenderer(renderers.BaseRenderer):
     format = "txt"
 
@@ -345,7 +360,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [PluginsAccessLevelPermission]
+    permission_classes = [PluginsAccessLevelPermission, CDPOrganizationPropertyAccessPermission]
     hide_api_docs = True
 
     def dangerously_get_permissions(self):
@@ -713,7 +728,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
-        _fix_formdata_config_json(self.context["request"], validated_data)
+        validated_data["config"] = _config_from_request(self.context["request"])
 
         validated_data["web_token"] = generate_random_token()
 
@@ -794,6 +809,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
+    permission_classes = [CDPPropertyAccessPermission]
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
     hide_api_docs = True

@@ -88,11 +88,14 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
         slack_cls_mock.return_value = instance
         return instance
 
+    @patch("products.slack_app.backend.analytics.ph_background_capture")
     @patch("products.slack_app.backend.api.SlackIntegration")
-    def test_bot_joined_posts_onboarding_and_claims_dedupe(self, slack_cls):
+    def test_bot_joined_posts_onboarding_and_claims_dedupe(self, slack_cls, capture_factory):
         instance = self._mock_slack(slack_cls)
 
-        result = route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
+        result = route_posthog_code_event_to_relevant_region(
+            self._request(), self._event(inviter="U_INVITER"), self.SLACK_TEAM_ID
+        )
 
         assert result == ROUTE_HANDLED_LOCALLY
         instance.client.chat_postMessage.assert_called_once()
@@ -101,6 +104,10 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
         assert any(block.get("type") == "actions" for block in call_kwargs["blocks"])
         # Dedupe slot is held so a Slack retry won't double-post.
         assert cache.get(_channel_onboarding_cache_key(self.SLACK_TEAM_ID, self.CHANNEL_ID)) is True
+        captured = capture_factory.return_value.call_args.kwargs
+        assert captured["event"] == "slack app bot joined channel"
+        assert captured["properties"]["channel_id"] == self.CHANNEL_ID
+        assert captured["properties"]["slack_user_id"] == "U_INVITER"
 
     @parameterized.expand(
         [
@@ -126,8 +133,9 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
             call_kwargs = instance.client.chat_postEphemeral.call_args.kwargs
             assert (call_kwargs["channel"], call_kwargs["user"]) == (self.CHANNEL_ID, "U_INVITER")
 
+    @patch("products.slack_app.backend.analytics.ph_background_capture")
     @patch("products.slack_app.backend.api.SlackIntegration")
-    def test_human_joined_does_not_post(self, slack_cls):
+    def test_human_joined_does_not_post(self, slack_cls, capture_factory):
         instance = self._mock_slack(slack_cls)
 
         result = route_posthog_code_event_to_relevant_region(
@@ -137,6 +145,7 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
         assert result == ROUTE_HANDLED_LOCALLY
         instance.client.chat_postMessage.assert_not_called()
         assert cache.get(_channel_onboarding_cache_key(self.SLACK_TEAM_ID, self.CHANNEL_ID)) is None
+        capture_factory.return_value.assert_not_called()
 
     @patch("products.slack_app.backend.api.SlackIntegration")
     def test_duplicate_delivery_is_idempotent(self, slack_cls):
@@ -147,20 +156,22 @@ class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
 
         instance.client.chat_postMessage.assert_called_once()
 
+    @patch("products.slack_app.backend.analytics.ph_background_capture")
     @patch("products.slack_app.backend.api.SlackIntegration")
-    def test_ext_shared_channel_drops_silently_without_db_touch(self, slack_cls):
-        """Onboarding never posts in externally-shared channels.
+    def test_ext_shared_channel_counts_the_join_without_a_welcome(self, slack_cls, capture_factory):
+        instance = self._mock_slack(slack_cls)
 
-        The drop happens before workspace lookup, so ``SlackIntegration`` is
-        never instantiated — asserting that catches future regressions that
-        reorder the gate behind the DB query.
-        """
         result = route_posthog_code_event_to_relevant_region(
             self._request(), self._event(), self.SLACK_TEAM_ID, is_ext_shared_channel=True
         )
 
         assert result == ROUTE_HANDLED_LOCALLY
-        slack_cls.assert_not_called()
+        instance.client.chat_postMessage.assert_not_called()
+        instance.client.chat_postEphemeral.assert_not_called()
+        assert cache.get(_channel_onboarding_cache_key(self.SLACK_TEAM_ID, self.CHANNEL_ID)) is None
+        captured = capture_factory.return_value.call_args.kwargs
+        assert captured["event"] == "slack app bot joined channel"
+        assert captured["properties"]["is_ext_shared_channel"] is True
 
     @patch("products.slack_app.backend.api.SlackIntegration")
     def test_auth_test_failure_drops_silently(self, slack_cls):

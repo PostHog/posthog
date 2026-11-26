@@ -259,11 +259,13 @@ def _pr_row(
     default_branch: str = "",
     labels: tuple[str, ...] = (),
     title: str | None = None,
+    body: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": 1000 + number,
         "number": number,
         "title": title if title is not None else f"PR {number}",
+        "body": body,
         "state": state,
         "draft": draft,
         "created_at": created_at,

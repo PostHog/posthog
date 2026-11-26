@@ -52,6 +52,7 @@ export interface CodeEditorLogicProps {
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
     globals?: Record<string, any>
+    captureQueryTelemetry?: boolean
     onError?: (error: string | null) => void
     /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
     indexUsage?: boolean
@@ -199,7 +200,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 freshSources: props.metadataFreshSources,
                             },
                             { recursion: false }
-                        )
+                        ),
+                        { captureQueryTelemetry: props.captureQueryTelemetry }
                     )
                     breakpoint()
                     props.onMetadata?.(response)
