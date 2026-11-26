@@ -15,6 +15,7 @@ import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
 
+from posthog.dataclasses import frozen
 from posthog.geoip import get_geoip_location
 from posthog.models import User
 from posthog.session.activity import session_public_id
@@ -57,7 +58,7 @@ class Baseline:
     baseline_at: Optional[datetime]  # when this known-good snapshot was recorded
 
 
-@dataclass
+@frozen
 class Context:
     latitude: Optional[float]
     longitude: Optional[float]
