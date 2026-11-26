@@ -861,27 +861,36 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(deserializeResolverState(state).terminalReason).toEqual('quota_limited')
         })
 
-        it('fails a person audience run queued without a stored audience instead of querying it page by page', async () => {
-            const getAudienceSnapshotPage = jest.fn()
-            const queueLogs = jest.fn()
-            const consumer = buildConsumer(getAudienceSnapshotPage, queueLogs)
-            const job = buildJob({ ...lastAttemptState(), attempts: 0, audienceSnapshot: undefined })
+        it.each([
+            [0, 'This run has no stored audience. Start the run again.'],
+            [
+                2,
+                'This run has no stored audience, so it stopped after enrolling 2 people. Starting it again can send to them a second time.',
+            ],
+        ])(
+            'fails a person audience run queued without a stored audience, %i already enrolled, instead of querying it page by page',
+            async (totalEnqueued, message) => {
+                const getAudienceSnapshotPage = jest.fn()
+                const queueLogs = jest.fn()
+                const consumer = buildConsumer(getAudienceSnapshotPage, queueLogs)
+                const job = buildJob({ ...lastAttemptState(), attempts: 0, totalEnqueued, audienceSnapshot: undefined })
 
-            await consumer.processResolverJob(job)
+                await consumer.processResolverJob(job)
 
-            expect(getAudienceSnapshotPage).not.toHaveBeenCalled()
-            expect(job.bulkCreateAndCheckIn).not.toHaveBeenCalled()
-            expect(queueLogs).toHaveBeenCalledWith(
-                [
-                    expect.objectContaining({
-                        message: 'Batch resolver failed: This run has no stored audience. Start the run again.',
-                    }),
-                ],
-                'hog_flow'
-            )
-            const { state } = job.reschedule.mock.calls[0][0]
-            expect(deserializeResolverState(state).terminalReason).toEqual('audience_query_failed')
-        })
+                expect(getAudienceSnapshotPage).not.toHaveBeenCalled()
+                expect(job.bulkCreateAndCheckIn).not.toHaveBeenCalled()
+                expect(queueLogs).toHaveBeenCalledWith(
+                    [
+                        expect.objectContaining({
+                            message: `Batch resolver failed: ${message}`,
+                        }),
+                    ],
+                    'hog_flow'
+                )
+                const { state } = job.reschedule.mock.calls[0][0]
+                expect(deserializeResolverState(state).terminalReason).toEqual('audience_query_failed')
+            }
+        )
 
         it('keeps the generic reason for a failure that is not a timeout', async () => {
             const queueLogs = jest.fn()

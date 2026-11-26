@@ -506,7 +506,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         job,
                         state,
                         'audience_query_failed',
-                        'This run has no stored audience. Start the run again.'
+                        state.totalEnqueued > 0
+                            ? `This run has no stored audience, so it stopped after enrolling ${state.totalEnqueued} people. Starting it again can send to them a second time.`
+                            : 'This run has no stored audience. Start the run again.'
                     )
                     return
                 }
