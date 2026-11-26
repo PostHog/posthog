@@ -245,7 +245,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ks-q-multi', 0, 30, 24, 16, {
                         type: 'chart',
                         title: 'Several queries in one chart',
-                        description: 'HogQL, a trends query and PromQL, each named by its legend',
+                        description: 'HogQL, a trends query, PromQL and LogQL, each named by its legend',
                         config: {
                             targets: [
                                 {
@@ -272,6 +272,14 @@ export const kitchenSinkDashboard: Dashboard = {
                                     refId: 'C',
                                     query: { language: 'promql', query: 'sum(rate(http_requests_total[5m]))' },
                                     legend: 'Requests per second (PromQL)',
+                                },
+                                {
+                                    refId: 'D',
+                                    query: {
+                                        language: 'logql',
+                                        query: 'sum(count_over_time({service_name="posthog-web-django", level="error"}[5m]))',
+                                    },
+                                    legend: 'Error log lines per 5 minutes (LogQL)',
                                 },
                             ],
                             viz: { type: 'line' },
