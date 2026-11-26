@@ -6,7 +6,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
@@ -37,7 +37,7 @@ export function WarehousePropertiesScene(): JSX.Element {
         return <NotFound object="page" caption="Warehouse properties isn't available for this project yet." />
     }
 
-    const tabs: LemonTab<WarehousePropertiesSceneTab>[] = [
+    const tabs: ConcreteLemonTab<WarehousePropertiesSceneTab>[] = [
         {
             label: 'Persons',
             key: 'persons',
