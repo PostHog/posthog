@@ -93,11 +93,11 @@ This is one more query (count it), bounded to the same 35 days.
 
 The notebook carries the same three charts as `sql` cells, with the prose between them, so a human can rerun each query:
 
-| Cell                      | Shape                                                                                                                                                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prose section             | `cell_type: "markdown"`, `markdown: "## What moved\n\n- ..."`                                                                                                                                                                        |
-| Each chart                | `cell_type: "sql"`, `code: "<the same pinned SQL>"`, `visualization: {"display": "ActionsLineGraph", "chartSettings": {"xAxis": {"column": "day"}, "yAxis": [{"column": "net_revenue"}, {"column": "median_28d"}]}}`                 |
-| The driver table          | `cell_type: "sql"` with the decomposition query and no `visualization`, so it renders as a table with segment, base, current, delta and share                                                                                        |
+| Cell             | Shape                                                                                                                                                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prose section    | `cell_type: "markdown"`, `markdown: "## What moved\n\n- ..."`                                                                                                                                                        |
+| Each chart       | `cell_type: "sql"`, `code: "<the same pinned SQL>"`, `visualization: {"display": "ActionsLineGraph", "chartSettings": {"xAxis": {"column": "day"}, "yAxis": [{"column": "net_revenue"}, {"column": "median_28d"}]}}` |
+| The driver table | `cell_type: "sql"` with the decomposition query and no `visualization`, so it renders as a table with segment, base, current, delta and share                                                                        |
 
 Layout, top to bottom: the hook (one sentence with the measure, the size and the driver), chart 1, the baseline and method, chart 2, the driver table, chart 3, what you ruled out, and the next step for the reader.
 Read `visualization_warnings` on each cell result and fix the axes before you link the notebook from the report.

@@ -4,7 +4,16 @@
     "description": "One record per series the scout judged this run, reported or not, so precision can be measured as the share of filed reports a person keeps, and recall as the moves that went unreported. Subject is `metric:<name>:<measure column>:<period>`.",
     "type": "object",
     "additionalProperties": false,
-    "required": ["bm_record_version", "bm_metric", "bm_measure", "bm_grain", "bm_period", "bm_lens_verdict", "bm_driver_verdict", "bm_decision"],
+    "required": [
+        "bm_record_version",
+        "bm_metric",
+        "bm_measure",
+        "bm_grain",
+        "bm_period",
+        "bm_lens_verdict",
+        "bm_driver_verdict",
+        "bm_decision"
+    ],
     "properties": {
         "bm_record_version": {
             "const": "1",

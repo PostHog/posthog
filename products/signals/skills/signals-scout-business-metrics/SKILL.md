@@ -78,12 +78,12 @@ Say in the close-out how many metrics you skipped as events-live, so the team kn
 
 The grain of the time column sets the lens and the cadence:
 
-| Grain     | Lens                                                                                                               | When you judge it                                                  |
-| --------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| Daily     | Step: latest complete day vs the 28-day median and the same-weekday median. Drift: last 7 days vs the 4 prior weeks | Every run                                                          |
-| Weekly    | Latest closed week vs its trend expectation from the 8 prior weeks                                                   | Once a week, after the week closes                                 |
+| Grain     | Lens                                                                                                                            | When you judge it                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Daily     | Step: latest complete day vs the 28-day median and the same-weekday median. Drift: last 7 days vs the 4 prior weeks             | Every run                                                                           |
+| Weekly    | Latest closed week vs its trend expectation from the 8 prior weeks                                                              | Once a week, after the week closes                                                  |
 | Monthly   | Latest closed month vs its trend expectation from the 6 prior months, and vs the same month a year earlier when 13 months exist | Once a month, from the 5th day after the month closes, so late invoices have posted |
-| Quarterly | Latest closed quarter vs its trend expectation from the 4 prior quarters                                             | Once a quarter, from the 10th day after the quarter closes         |
+| Quarterly | Latest closed quarter vs its trend expectation from the 4 prior quarters                                                        | Once a quarter, from the 10th day after the quarter closes                          |
 
 A metric with several measure columns is several series: score each numeric column, the first one first, at most 5.
 The lenses are trend-adjusted and volatility-aware so steady growth and noise stay quiet; the script computes them, and [`references/driver-analysis.md`](references/driver-analysis.md#detection) explains each field of its verdict.
@@ -111,10 +111,10 @@ A warehouse table sits in object storage, so every scan costs read bytes, and a 
   A third candidate is a `pending:` entry for the next run, with its windows pinned, so it is judged on the same periods.
 - **Size the table before you scan it.** The largest table in `referenced_table_names`, by `row_count` on `system.data_warehouse_tables` (the pre-check rows carry the biggest ones), picks the tier; a materialized view counts as small, a plain view counts as its largest underlying table:
 
-  | Rows in the table | What runs                                                                                                                                                                                                                  |
-  | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | Up to 20M         | The full method.                                                                                                                                                                                                           |
-  | 20M to 200M       | The 2 dimensions with the fewest distinct values, the short base only, no second-level drill-down.                                                                                                                         |
+  | Rows in the table | What runs                                                                                                                                                                                                                                                                                         |
+  | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Up to 20M         | The full method.                                                                                                                                                                                                                                                                                  |
+  | 20M to 200M       | The 2 dimensions with the fewest distinct values, the short base only, no second-level drill-down.                                                                                                                                                                                                |
   | Over 200M         | No raw scan. Watch the measure through its own rows only (the canonical run, or its own dimension column). Else write `pattern:business_metrics:<measure>:too-large` and say in the close-out that a materialized view at the metric's grain by the candidate dimensions would make it watchable. |
 
 - **Memory stays small by construction.** Every query you write groups into at most 20 rows (days, periods or segments) and never by a column with more than 50 distinct values; the aggregation state is what a query holds, and with these rules it is megabytes.

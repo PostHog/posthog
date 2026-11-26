@@ -48,12 +48,12 @@ Feed the script at most 20 segments plus an `other` row.
 
 ## Windows per grain
 
-| Grain     | Series window        | Current (`cur`)        | Base (`base`)                                          | Widen check              |
-| --------- | -------------------- | ---------------------- | ------------------------------------------------------ | ------------------------ |
-| Daily     | 35 complete days     | The latest complete day, or the last 7 days for the drift lens | The 4 same weekdays before it, or the 4 prior weeks | 8 weeks, 63 days in total |
-| Weekly    | 13 closed weeks      | The latest closed week | The 8 prior closed weeks                               | None                     |
-| Monthly   | 13 closed months     | The latest closed month | The 6 prior closed months, plus the same month a year earlier when it exists | None   |
-| Quarterly | 9 closed quarters    | The latest closed quarter | The 4 prior closed quarters                         | None                     |
+| Grain     | Series window     | Current (`cur`)                                                | Base (`base`)                                                                | Widen check               |
+| --------- | ----------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------- |
+| Daily     | 35 complete days  | The latest complete day, or the last 7 days for the drift lens | The 4 same weekdays before it, or the 4 prior weeks                          | 8 weeks, 63 days in total |
+| Weekly    | 13 closed weeks   | The latest closed week                                         | The 8 prior closed weeks                                                     | None                      |
+| Monthly   | 13 closed months  | The latest closed month                                        | The 6 prior closed months, plus the same month a year earlier when it exists | None                      |
+| Quarterly | 9 closed quarters | The latest closed quarter                                      | The 4 prior closed quarters                                                  | None                      |
 
 A period is closed when its end is before today, and for a monthly or quarterly measure also when at least 5 (or 10) days have passed since, so late rows have posted.
 Pin `cur` and `base` to absolute dates in every query, so a `pending:` candidate decomposed later reads the same periods.
@@ -159,6 +159,7 @@ Each run updates it in this order:
 
    For a monthly measure, `toStartOfMonth(<ts>)` from the second-to-last stored month, `LIMIT 14`; weekly and quarterly follow the same pattern.
    For a metric with its own dimension column, add that column to `SELECT` and `GROUP BY` (at most 20 segments by the measure, the rest as `other`), so the entry keeps the per-segment pairs and the decomposition needs no query.
+
 3. **Full fill.** Read the whole window (35 days, or 13 periods) with the same SQL and a wider `WHERE` when the entry does not exist, on every 4th read, or when a re-read period differs from its stored value by more than 5%, because a backfill rewrote history.
    A report's chart 1 is also a full read: when you author, stamp it as this run's fill.
    Note the refill reason on the entry.
@@ -284,15 +285,15 @@ A driver that stays `remembered` or `pending` is not widened; skip the check in 
 
 ## Reading the result
 
-| Shape                                                           | Meaning                                                                                                                                 |
-| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 or 2 segments carry 60% or more of the delta, the others hold | A driver. This is the report.                                                                                                           |
-| Every segment moves by a similar share                          | A global cause: data, capture, a calendar effect or a whole-market move. Not a driver report.                                           |
-| Ratio: the mix effect is larger than the rate effect            | The audience changed, not the behavior. Say so in the report.                                                                           |
-| Ratio: the rate effect is larger                                | The segment itself performs differently. The stronger finding.                                                                          |
-| Two dimensions both explain the move                            | They are probably the same segment (for example, a currency and a country). Report the more specific one and mention the other.         |
+| Shape                                                           | Meaning                                                                                                                                                                                           |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 or 2 segments carry 60% or more of the delta, the others hold | A driver. This is the report.                                                                                                                                                                     |
+| Every segment moves by a similar share                          | A global cause: data, capture, a calendar effect or a whole-market move. Not a driver report.                                                                                                     |
+| Ratio: the mix effect is larger than the rate effect            | The audience changed, not the behavior. Say so in the report.                                                                                                                                     |
+| Ratio: the rate effect is larger                                | The segment itself performs differently. The stronger finding.                                                                                                                                    |
+| Two dimensions both explain the move                            | They are probably the same segment (for example, a currency and a country). Report the more specific one and mention the other.                                                                   |
 | Segments pull both ways (`offsetting`)                          | The net move understates what happened: one segment drove it while another masked part of it. Name both; the one pushing with the move is the finding, the one pulling against it is the context. |
-| No dimension passes                                             | Remember the move. Check it again next run.                                                                                             |
+| No dimension passes                                             | Remember the move. Check it again next run.                                                                                                                                                       |
 
 The script returns `offsetting` when the segments' deltas carry both signs and the net move is under half their gross sum.
 Invented example: a sign-up conversion rate falls 1.6 points; a new low-converting channel grew to 15% of sign-ups (pushing the rate down 4.9 points of mix) while the main channel's own rate rose 1.6 points (pulling it back up).
@@ -307,11 +308,11 @@ A run that judges many series often finds several faces of one change.
 Filed separately they cost the reader the join; filed as one story they are the explanation.
 After gate 3 and before any report, list this run's findings (the series that passed gate 2) with period, direction, driver verdict and top segments, and test each pair with three joins, in this order:
 
-| Join      | Test                                                                                                                                 | Invented example                                                                                              |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Segment   | The same dimension value is the top segment of both, or one finding's driver segment is the other finding's population               | Orders fell, driven by the EU; and refunds rose, driven by the EU                                              |
-| Mechanism | A count moved one way and a rate over that count moved the other, in the same or the next period                                     | Sign-ups +35% and the set-up rate of sign-ups down 10 points: more volume, lower intent                        |
-| Onset     | The same period and direction on measures a person reads together: the stages of one bridge, the products of one revenue series      | Churned MRR up and new MRR down in the same month on the same bridge                                           |
+| Join      | Test                                                                                                                            | Invented example                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Segment   | The same dimension value is the top segment of both, or one finding's driver segment is the other finding's population          | Orders fell, driven by the EU; and refunds rose, driven by the EU                       |
+| Mechanism | A count moved one way and a rate over that count moved the other, in the same or the next period                                | Sign-ups +35% and the set-up rate of sign-ups down 10 points: more volume, lower intent |
+| Onset     | The same period and direction on measures a person reads together: the stages of one bridge, the products of one revenue series | Churned MRR up and new MRR down in the same month on the same bridge                    |
 
 Two findings that pass any join are one story; a story is transitive, so a third finding that joins either member joins the story.
 Time alone never joins: two moves in one month on surfaces nobody reads together (support tickets and warehouse rows) stay two reports.
