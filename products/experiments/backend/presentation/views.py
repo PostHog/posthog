@@ -9,13 +9,11 @@ This will be refactored incrementally in subsequent PRs to match the product arc
 """
 
 import json
-import asyncio
 import logging
 from collections.abc import Mapping
 from dataclasses import fields
 from typing import Any, Literal, cast
 
-from django.conf import settings
 from django.db.models import Prefetch, Q, QuerySet
 from django.utils.text import slugify
 
@@ -64,7 +62,6 @@ from posthog.rate_limit import (
 )
 from posthog.scopes.checks import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.api import (
@@ -87,10 +84,12 @@ from products.experiments.backend.facade.api import (
     get_running_time_target,
     request_metrics_recalculation,
     start_metrics_recalculation_workflow,
+    start_timeseries_recalculation_workflow,
 )
 from products.experiments.backend.facade.contracts import (
     EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
     EXPERIMENT_SETUP_CONTEXT_FLAG,
+    BaselineStats,
     ExperimentBasic,
     ExperimentDetail,
     ExperimentHealthReaderAccess,
@@ -109,7 +108,15 @@ from products.experiments.backend.facade.legacy_migration import (
     experiment_uses_legacy_metrics,
     migrate_experiment as migrate_legacy_experiment,
 )
+from products.experiments.backend.facade.llm_metric_templates import build_template, list_templates
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
+from products.experiments.backend.facade.running_time import (
+    calculate_baseline_value,
+    calculate_running_time_days,
+    calculate_sample_size,
+    calculate_variance,
+    calculate_variance_from_stats,
+)
 from products.experiments.backend.facade.sessions import (
     all_card_session_ids,
     finalize_session_bucket,
@@ -120,18 +127,15 @@ from products.experiments.backend.facade.sessions import (
     get_session_experiment_contexts,
 )
 from products.experiments.backend.facade.setup_context import build_setup_context
-from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
 from products.experiments.backend.facade.warehouse_native_access import (
     validate_warehouse_native_connection_access,
     warehouse_native_connection_id,
 )
-from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
-    ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.presentation.saved_metrics import list_access
@@ -179,14 +183,6 @@ from products.experiments.backend.presentation.serializers import (
     RunningTimeTargetQuerySerializer,
     RunningTimeTargetSerializer,
     ShipVariantSerializer,
-)
-from products.experiments.backend.running_time_calculator import (
-    BaselineStats,
-    calculate_baseline_value,
-    calculate_running_time_days,
-    calculate_sample_size,
-    calculate_variance,
-    calculate_variance_from_stats,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
@@ -1651,24 +1647,7 @@ class EnterpriseExperimentsViewSet(
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:
-            recalculation_id = str(result["id"])
-            try:
-                temporal = sync_connect()
-                asyncio.run(
-                    temporal.start_workflow(
-                        "experiment-timeseries-recalculation-workflow",
-                        ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=recalculation_id),
-                        id=f"experiment-recalculation-{recalculation_id}",
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                    )
-                )
-            except Exception:
-                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                ExperimentTimeseriesRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
-                    status=ExperimentTimeseriesRecalculation.Status.FAILED
-                )
-                raise
+            start_timeseries_recalculation_workflow(str(result["id"]), team_id=self.team.id)
 
         status_code = 200 if is_existing else 201
         return Response(result, status=status_code)
@@ -1853,7 +1832,7 @@ class EnterpriseExperimentsViewSet(
                 denominator_sum=stats.get("denominator_sum"),
                 denominator_sum_squares=stats.get("denominator_sum_squares"),
                 numerator_denominator_sum_product=stats.get("numerator_denominator_sum_product"),
-                step_counts=stats.get("step_counts") or [],
+                step_counts=tuple(stats.get("step_counts") or ()),
             )
 
         baseline_value = data.get("baseline_value")
