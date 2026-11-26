@@ -724,6 +724,18 @@ describe('scenario environment', () => {
                 'postgres://cluster-b/other?password=two',
             ],
             ['bare password setting', 'POSTHOG_DB_PASSWORD', 'one', 'two'],
+            [
+                'keyword-form connection string',
+                'DATABASE_URL',
+                'host=cluster-a user=posthog password=one dbname=posthog',
+                'host=cluster-b user=reader password=two dbname=other',
+            ],
+            [
+                'keyword-form password under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'host=cluster-a password=one',
+                'host=cluster-b PASSWORD = two',
+            ],
             ['URL setting without a scheme', 'POSTHOG_HOST_URL', 'cluster-a:8000/one', 'cluster-b:9000/two'],
             ['broker list', 'KAFKA_HOSTS', 'kafka-a:9092,kafka-b:9092', 'kafka-c:9093'],
             [

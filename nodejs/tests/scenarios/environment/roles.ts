@@ -66,7 +66,7 @@ export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
 const SECRET_OR_PLACE_SETTING =
     /SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|SALT|TOKEN|SIGNING|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_URLS?$|_DSN$|_BROKERS?$|BROKER_LIST$|_DIR$|_LOCATION$/
-const URL_OR_CREDENTIALS_SHAPED = /\/\/|@/
+const URL_OR_CREDENTIALS_SHAPED = /\/\/|@|(PASS(WOR)?D|SECRET|TOKEN|KEY)\s*=/i
 
 const presenceOf = (list: string): string => (list.split(',').some((part) => part.trim()) ? 'set' : '')
 
