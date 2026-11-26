@@ -108,7 +108,12 @@ export async function startEdgeProcess(
                 readQueuedRepliesThen(() => {
                     if (stillWaiting()) {
                         ended ??= new Error(`the provider edge process did not ${what} within ${withinMs} ms`)
-                        kill()
+                        try {
+                            kill()
+                        } catch (error) {
+                            // A process that was not killed sends no exit, so reject the waiting calls here.
+                            end((ended = new Error(`${ended.message}, and could not be killed`, { cause: error })))
+                        }
                     }
                 }),
             withinMs
@@ -167,7 +172,6 @@ export async function startEdgeProcess(
             child.send({ options })
         } catch (error) {
             end(error as Error)
-            kill()
         }
     }
 

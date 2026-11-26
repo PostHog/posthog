@@ -1143,7 +1143,7 @@ Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also 
 
 ## Ashby — gaps
 
-Today (26): `application_feedback`, `application_hiring_team_roles`, `application_history`, `applications`, `archive_reasons`, `candidate_notes`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_events`, `interview_schedules`, `interview_stage_groups`, `interview_stages`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `survey_submissions`, `users`
+Today (30): `application_criteria_evaluations`, `application_feedback`, `application_hiring_team_roles`, `application_history`, `applications`, `archive_reasons`, `candidate_notes`, `candidate_tags`, `candidates`, `close_reasons`, `custom_fields`, `departments`, `interview_events`, `interview_schedules`, `interview_stage_groups`, `interview_stages`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `source_tracking_links`, `sources`, `survey_submissions`, `take_home_assignments`, `users`
 
 Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 
@@ -1157,10 +1157,10 @@ Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 - [x] `applicationHiringTeamRole.list` — membership table linking users to applications by role (recruiter, hiring manager) (medium)
 - [x] `surveySubmission.list` — candidate survey responses (including DEI surveys) tied to applications (medium)
 - [x] `candidate.listNotes` — recruiter notes per candidate, commonly wanted alongside candidates (medium)
-- [ ] `closeReason.list` — lookup resolving why openings/jobs were closed; pairs with the archiveReasons we already sync (medium)
-- [ ] `application.listCriteriaEvaluations` — structured per-criterion scores behind feedback, for calibrated scoring analysis (medium)
-- [ ] `takeHomeAssignment.list` — assignment issue/completion records, a stage most funnels drop out at (medium)
-- [ ] `sourceTrackingLink.list` — resolves attribution links behind the sources table already synced (low)
+- [x] `closeReason.list` — lookup resolving why openings/jobs were closed; pairs with the archiveReasons we already sync (medium)
+- [x] `application.listCriteriaEvaluations` — structured per-criterion scores behind feedback, for calibrated scoring analysis (medium)
+- [x] `takeHomeAssignment.list` — assignment issue/completion records, a stage most funnels drop out at (medium)
+- [x] `sourceTrackingLink.list` — resolves attribution links behind the sources table already synced (low)
 
 Note: `interview_events` is served from the nested `interviewEvents` array that `interviewSchedule.list` already returns in full, rather than fanning `interviewEvent.list` out once per schedule — both carry the same `InterviewEvent` objects.
 
@@ -1989,7 +1989,7 @@ Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API 
 
 ## Bexio — gaps
 
-Today (35): `account_groups`, `accounts`, `bank_accounts`, `bank_payments`, `bills`, `business_years`, `client_services`, `contact_groups`, `contact_relations`, `contacts`, `currencies`, `deliveries`, `expenses`, `invoice_item_positions`, `invoice_payments`, `invoice_reminders`, `invoices`, `items`, `journal_entries`, `manual_entries`, `notes`, `order_item_positions`, `orders`, `outgoing_payments`, `payroll_employees`, `project_states`, `project_types`, `projects`, `purchase_orders`, `quote_item_positions`, `quotes`, `tasks`, `taxes`, `timesheets`, `users`
+Today (44): `account_groups`, `accounts`, `bank_accounts`, `bank_payments`, `bills`, `business_years`, `client_services`, `contact_branches`, `contact_groups`, `contact_relations`, `contacts`, `countries`, `currencies`, `deliveries`, `expenses`, `invoice_item_positions`, `invoice_payments`, `invoice_reminders`, `invoices`, `items`, `journal_entries`, `languages`, `manual_entries`, `notes`, `order_item_positions`, `orders`, `outgoing_payments`, `payment_types`, `payroll_employees`, `project_states`, `project_types`, `projects`, `purchase_orders`, `quote_item_positions`, `quotes`, `salutations`, `task_priorities`, `task_statuses`, `tasks`, `taxes`, `timesheets`, `titles`, `units`, `users`
 
 Diffed against: <https://docs.bexio.com/>
 
@@ -2001,8 +2001,8 @@ Diffed against: <https://docs.bexio.com/>
 - [x] `Payroll employees (GET /4.0/payroll/employees)` — employee roster for HR and labor cost analysis (medium)
 - [x] `Invoice reminders (GET /2.0/kb_invoice/{invoice_id}/kb_reminder)` — dunning history for overdue invoices (medium)
 - [x] `Bank payments (GET /4.0/banking/payments)` — payments sent from the bank accounts we sync (medium)
-- [ ] `Contact lookups: countries, languages, salutations, titles, branches (GET /2.0/country; GET /2.0/language; GET /2.0/salutation; GET /2.0/title; GET /2.0/contact_branch)` — resolve id fields carried on contacts we sync (medium)
-- [ ] `Task and invoice lookups: todo status, todo priority, payment types, units (GET /2.0/todo_status; GET /2.0/todo_priority; GET /2.0/payment_type; GET /2.0/unit)` — resolve ids on tasks, invoices and articles we sync (medium)
+- [x] `Contact lookups: countries, languages, salutations, titles, branches (GET /2.0/country; GET /2.0/language; GET /2.0/salutation; GET /2.0/title; GET /2.0/contact_branch)` — resolve id fields carried on contacts we sync (medium)
+- [x] `Task and invoice lookups: todo status, todo priority, payment types, units (GET /2.0/todo_status; GET /2.0/todo_priority; GET /2.0/payment_type; GET /2.0/unit)` — resolve ids on tasks, invoices and articles we sync (medium)
 
 Note: Extracted all GET and search routes from the OpenAPI embedded in docs.bexio.com and diffed them against the 24 synced tables and the paths in settings.py. Excluded actions (issue, send, cancel), PDFs, files, permissions, document number helpers and single-record GETs. Document positions and payments need one request per parent document and a document type segment in the path. Payroll needs the payroll scope, and the 3.0 and 4.0 APIs paginate differently from 2.0, so check each route.
 
@@ -2630,7 +2630,7 @@ Note (2026-11-19): Diffed the REST pages listed in docs/llms.txt (each served as
 
 ## Bunny — gaps
 
-Today (13): `dns_records`, `dns_zone_statistics`, `dns_zones`, `pull_zone_logs`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_collections`, `video_libraries`, `video_library_statistics`, `videos`
+Today (18): `billing_summary`, `dns_records`, `dns_zone_statistics`, `dns_zones`, `pull_zone_logs`, `pull_zone_optimizer_statistics`, `pull_zone_origin_shield_queue_statistics`, `pull_zone_safehop_statistics`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_collections`, `video_heatmaps`, `video_libraries`, `video_library_statistics`, `videos`
 
 Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 
@@ -2642,10 +2642,10 @@ Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 - [x] `GET /dnszone/{id}/statistics` — DNS query volume per zone, the only usage metric for the DNS product (medium)
 - [x] `GET /library/{libraryId}/collections (Stream API)` — lookup resolving the collection IDs carried on videos (medium)
 - [x] `GET /v2/pullzones/{pullZoneId}/logs (CDN Logging API)` — raw edge access logs — request-level detail for traffic analysis (medium)
-- [ ] `GET /billing/summary` — spend per period per service, needed to tie CDN usage to cost (medium)
-- [ ] `GET /library/{libraryId}/videos/{videoId}/heatmap and /play (Stream API)` — per-video engagement/retention curve; the drop-off analysis people import video data for (medium)
-- [ ] `GET /pullzone/{pullZoneId}/optimizer/statistics` — image optimizer usage per pull zone, a breakdown of the traffic we would otherwise only see in aggregate (low)
-- [ ] `GET /pullzone/{pullZoneId}/safehop/statistics and /originshield/queuestatistics` — origin reliability and shield queue behavior per pull zone (low)
+- [x] `GET /billing/summary` — spend per period per service, needed to tie CDN usage to cost (medium)
+- [x] `GET /library/{libraryId}/videos/{videoId}/heatmap and /play (Stream API)` — per-video engagement/retention curve; the drop-off analysis people import video data for (medium). Built `heatmap` as `video_heatmaps`; `/play` skipped: it returns playback URLs and signed tokens, not table data.
+- [x] `GET /pullzone/{pullZoneId}/optimizer/statistics` — image optimizer usage per pull zone, a breakdown of the traffic we would otherwise only see in aggregate (low)
+- [x] `GET /pullzone/{pullZoneId}/safehop/statistics and /originshield/queuestatistics` — origin reliability and shield queue behavior per pull zone (low)
 
 Note: Bunny splits its API across several specs, all fetched this run: Core (core-api-public-docs.b-cdn.net/docs/v3/public.json), Stream (video.bunnycdn.com/openapi/bunnynet-video-api.public.json), and CDN Logging (logging.bunnycdn.com/docs/all/swagger.json). PostHog syncs only the four top-level zone/library objects — every statistics and child resource in all three specs is missing, so the source currently carries configuration objects but none of the usage data that is the point of a CDN import.
 
@@ -4407,7 +4407,7 @@ Diffed against: <https://api.cyberimpact.com/docs/openapi.yaml>
 - [x] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium) → `mailing_hard_bounces`, `mailing_soft_bounces` (full refresh, fan-out over `sent_mailings`)
 - [x] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium) → `mailing_unsubscribes` (full refresh, fan-out over `sent_mailings`)
 - [x] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low) → `mailing_stopped_recipients` (full refresh, fan-out over `sent_mailings`)
-- [ ] `Member consent (GET /members/{key}/consent)` — consent details per member for compliance reporting; needs fan-out over members (low)
+- [x] `Member consent (GET /members/{key}/consent)` — consent details per member for compliance reporting; needs fan-out over members (low) → `member_consents` (full refresh, fan-out over `members`)
 
 Note: Parsed the OpenAPI spec (34 paths). Existing tables cover members, groups, group members, custom fields, mailing lists, stats, opens, clicks and templates. The missing routes are the other per-mailing recipient lists, which follow the same fan-out as mailing_opens and mailing_clicks. /members/{key}/mailings is a per-member view of data already available per mailing, so it was excluded. Writes, batches, tokens and ping were excluded.
 
@@ -6954,10 +6954,10 @@ Diffed against: <https://developer.getguru.com/reference/authentication>
 - [x] `card verifiers (GET /v1/cards/verifiers, /v1/cards/{id}/verifiers)` — verification ownership per card - drives knowledge-freshness reporting (medium)
 - [x] `team stats (GET /v1/teams/{id}/stats)` — rolled-up workspace counters for trend dashboards (medium)
 - [x] `knowledge alerts (GET /v1/alerts/delegated, /v1/alerts/{id}/stats/summary, /stats/users)` — alert delivery and per-user read state - announcement reach analysis (medium)
-- [ ] `templates (GET /v1/templates)` — lookup for the template a card was created from (medium)
-- [ ] `collection access (GET /v1/collections/{id}/access, GET /v1/groups/{id}/collections)` — group-to-collection permission mapping, a membership-style join across two synced tables (low)
-- [ ] `people (GET /v1/people/{id}, /v1/people/{id}/directreports)` — org chart attributes enriching members (low)
-- [ ] `assistants (GET /v1/assistants)` — AI assistant inventory for answer-quality analysis (low)
+- [x] `templates (GET /v1/templates)` — lookup for the template a card was created from (medium)
+- [x] `collection access (GET /v1/collections/{id}/access, GET /v1/groups/{id}/collections)` — group-to-collection permission mapping, a membership-style join across two synced tables (low)
+- [ ] `people (GET /v1/people/{id}, /v1/people/{id}/directreports)` — org chart attributes enriching members (low) Skipped: no list endpoint; each profile needs one request per member, and the person ID format is not documented.
+- [x] `assistants (GET /v1/assistants)` — AI assistant inventory for answer-quality analysis (low)
 
 Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (openapi.json and sitemap.xml both 404, and the deep-link slug in the payload's doc list returns 404). Endpoint list was extracted from the /reference index page's operation slugs (e.g. getv1groupsgetgroupmembers, getv1teamsanalyticsgetanalytics), which are generated one-per-operation, so the inventory is complete even though field-level shapes were not read.
 
@@ -12303,7 +12303,7 @@ Re-audited 2026-11-19 against <https://help.rapid7.com/insightvm/en-us/api/insig
 
 ## Raygun — gaps
 
-Today (10): `applications`, `customers`, `deployment_error_groups`, `deployments`, `error_groups`, `error_instances`, `error_metrics`, `page_metrics`, `pages`, `sessions`
+Today (11): `applications`, `customers`, `deployment_error_groups`, `deployments`, `error_groups`, `error_instances`, `error_metrics`, `page_metrics`, `pages`, `sessions`, `teams`
 
 Diffed against: <https://api.raygun.com/v3/raygun-openapi-spec.json>
 
@@ -12311,7 +12311,7 @@ Diffed against: <https://api.raygun.com/v3/raygun-openapi-spec.json>
 - [x] `metrics/{application}/errors/time-series` — Raygun's headline error-rate metric, pre-aggregated over time (medium)
 - [x] `applications/{id}/deployments/{id}/error-groups` — Maps error groups to the deployment that introduced them, the core regression-detection join (medium)
 - [x] `metrics/{application}/pages/time-series and /pages/histogram` — Real user monitoring page-load performance over time and its distribution (medium) — time-series only; the histogram is a snapshot over a caller-chosen window with no time dimension, and the time-series percentiles cover the distribution over time
-- [ ] `teams` — Lookup resolving team ownership of applications (low)
+- [x] `teams` — Lookup resolving team ownership of applications (low) — team list only; the v3 team object has no application identifiers and the API has no per-team application listing
 
 Note: Spec URL is not linked from the product docs page; found it by reading the Swagger UI bootstrap at https://api.raygun.com/v3/swagger/index.js. Coverage of the top-level collections is good - the gap is one level down, at error instances and the metrics endpoints.
 

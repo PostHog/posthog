@@ -101,7 +101,6 @@ class TestExplainLogWithOpenAI:
             assert len(result.probable_causes) == 1
             assert result.probable_causes[0].confidence == "high"
             mock_client_class.assert_called_once_with(
-                "django",
                 ai_product="logs",
                 properties={"ai_feature": "explain-log", "team_id": "1"},
                 distinct_id="team-1",

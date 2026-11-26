@@ -1,6 +1,5 @@
 from parameterized import parameterized
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.ratelimits import describe_budgets
@@ -98,8 +97,7 @@ class TestLimitsEndpoint(ProvisioningTestBase):
             self.partner.organization = self.organization if organization_requirement == "linked" else None
             self.partner.save(update_fields=["is_cimd_client", "organization"])
 
-        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", organization_requirement is not None):
-            res = self.client.post(LIMITS_URL, HTTP_AUTHORIZATION=f"Bearer {token}")
+        res = self.client.post(LIMITS_URL, HTTP_AUTHORIZATION=f"Bearer {token}")
 
         assert res.status_code == expected, res.json()
 

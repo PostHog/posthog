@@ -14,7 +14,7 @@ import * as processes from './environment/processes'
 import * as stack from './environment/stack'
 import { main, runCards } from './main'
 import * as evidenceFile from './runner/evidence-file'
-import { controlOf } from './runner/pair'
+import { PairRole, controlOf } from './runner/pair'
 import { RunResult, Runner, createRunner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
 import { startFakeProjectApi } from './scorecard/fake-project-api'
@@ -26,6 +26,18 @@ const DESTINATION_ERRORS = parse(readFileSync(path.join(__dirname, 'cards', 'des
 const PAIRABLE = loadText('pairable', {
     card: stringify({ ...DESTINATION_ERRORS, invariants: [...DESTINATION_ERRORS.invariants, { name: 'no_loss' }] }),
     profile: readFileSync(path.join(PROFILES_DIR, `${DESTINATION_ERRORS.profile}.yaml`), 'utf8'),
+})
+
+const HOST_RUN_ID = '00000000-0000-4000-8000-0000000000aa'
+const CONTROL_RUN_ID = '00000000-0000-4000-8000-0000000000bb'
+
+const hostManifestOf = (runId: string, extra: object = {}): object => ({
+    runId,
+    stackName: `scn-${runId}`,
+    schedules: [],
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    account: '000000000000',
+    ...extra,
 })
 
 const passed = (cardId: string): RunResult => ({
@@ -298,45 +310,147 @@ describe('runCards', () => {
         }
     })
 
-    it('reads the pair again when a saved scorecard cannot be written, and saves the other run with it before publishing', async () => {
-        const api = await startFakeProjectApi()
-        const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
-        const runner = createRunner(fakeEnvironment({ resetFails: false }), runnerEnv(cacheHome, unseedable))
-        const { writeJson } = jest.requireActual<typeof evidenceFile>('./runner/evidence-file')
-        let failed = false
-        jest.spyOn(evidenceFile, 'writeJson').mockImplementation((dir, name, value) => {
-            if (name === 'scorecard.json' && !failed) {
-                failed = true
-                throw new Error('disk full')
-            }
-            writeJson(dir, name, value)
-        })
-
-        let savedAtFirstCapture: { event: { pair_reason: unknown } } | undefined
-        api.onCapture = ({ properties }) => {
-            savedAtFirstCapture ??= parseJSON(
-                readFileSync(
-                    path.join(cacheHome, 'posthog-scenarios', String(properties.pair_faulted_run_id), 'scorecard.json'),
-                    'utf8'
+    it.each<[PairRole, PairRole]>([
+        ['control', 'faulted'],
+        ['faulted', 'control'],
+    ])(
+        'reads the pair again when the %s scorecard cannot be written, and saves the %s run with it before publishing',
+        async (failing, other) => {
+            const api = await startFakeProjectApi()
+            const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
+            const runner = createRunner(fakeEnvironment({ resetFails: false }), runnerEnv(cacheHome, unseedable))
+            const { writeJson } = jest.requireActual<typeof evidenceFile>('./runner/evidence-file')
+            let scorecards = 0
+            jest.spyOn(evidenceFile, 'writeJson').mockImplementation((dir, name, value) => {
+                if (name === 'scorecard.json' && scorecards++ === (failing === 'control' ? 0 : 1)) {
+                    throw new Error('disk full')
+                }
+                writeJson(dir, name, value)
+            })
+            type Runs = { role: PairRole; statusReason: string }[]
+            let savedAtFirstCapture: { event: { pair_runs: Runs } } | undefined
+            api.onCapture = ({ properties }) => {
+                savedAtFirstCapture ??= parseJSON(
+                    readFileSync(
+                        path.join(
+                            cacheHome,
+                            'posthog-scenarios',
+                            String(properties[`pair_${other}_run_id`]),
+                            'scorecard.json'
+                        ),
+                        'utf8'
+                    )
                 )
-            )
+            }
+
+            try {
+                await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
+
+                const readings = [
+                    ...api.captured.map(({ properties }) => properties.pair_runs as Runs),
+                    savedAtFirstCapture?.event.pair_runs ?? [],
+                ]
+                expect(readings.map((runs) => runs.find(({ role }) => role === failing)?.statusReason)).toEqual(
+                    Array(3).fill(expect.stringMatching(/; the evidence could not be written: disk full$/))
+                )
+            } finally {
+                await api.close()
+            }
         }
+    )
+
+    it('names the restart a failed control reset needs in the pair', async () => {
+        const api = await startFakeProjectApi()
+        const runner = createRunner(fakeEnvironment(), runnerEnv(cacheHome, api.credentials))
 
         try {
             await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
 
-            const [control, faulted] = api.captured.map(({ properties }) => properties)
-            const reason = expect.stringMatching(
-                /^the control run is invalid: .*; the evidence could not be written: disk full$/
-            )
-            expect([control.pair_reason, faulted.pair_reason, savedAtFirstCapture?.event.pair_reason]).toEqual([
-                reason,
-                reason,
-                reason,
+            expect(api.captured.map(({ properties }) => properties.pair_reason)).toEqual([
+                expect.stringMatching(/Restart the runner, then run the card again\.$/),
             ])
         } finally {
             await api.close()
         }
+    })
+
+    it('runs a pair under the run ids of the host manifest that asks for the pair', async () => {
+        const api = await startFakeProjectApi()
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID }))
+        )
+        const unseedable = { ...api.credentials, DATABASE_URL: 'postgres://scenario:scenario@127.0.0.1:1/scenario' }
+        const runner = createRunner(
+            fakeEnvironment({ resetFails: false }),
+            runnerEnv(cacheHome, { ...unseedable, SCENARIO_RUN_MANIFEST: manifest })
+        )
+
+        try {
+            await runCards(runner, [PAIRABLE], new AbortController().signal, { pair: true })
+
+            const runs = api.captured.map(({ properties }) => [properties.pair_role, properties.run_id])
+            expect(runs).toEqual([
+                ['control', CONTROL_RUN_ID],
+                ['faulted', HOST_RUN_ID],
+            ])
+        } finally {
+            await api.close()
+        }
+    })
+
+    it('refuses more than one card on a run host before it starts the stack', async () => {
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID }))
+        )
+        jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
+
+        expect(
+            await main(['run', 'destination-errors', 'destination-errors', '--pair'], {
+                SCENARIO_RUN_MANIFEST: manifest,
+            })
+        ).toBe(EXIT_CODE.invalid)
+
+        const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
+        expect(stderr.join('')).toContain('A run host runs one card per manifest')
+    })
+
+    it.each([
+        ['without a control run id', {}],
+        ['with its own run id as the control run id', { controlRunId: HOST_RUN_ID }],
+    ])('refuses a host manifest that asks for a pair %s', (_story, control) => {
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, ...control })))
+
+        expect(() =>
+            createRunner(
+                fakeEnvironment({ resetFails: false }),
+                runnerEnv(cacheHome, { SCENARIO_RUN_MANIFEST: manifest })
+            )
+        ).toThrow(
+            `The run manifest at ${manifest} asks for a pair without a control run id of its own, so it is not used.`
+        )
+    })
+
+    it('takes --pair on a run host whose manifest asks for the pair', async () => {
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify(hostManifestOf(HOST_RUN_ID, { pair: true, controlRunId: CONTROL_RUN_ID }))
+        )
+        jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
+
+        expect(await main(['run', 'destination-errors', '--pair'], { SCENARIO_RUN_MANIFEST: manifest })).toBe(
+            EXIT_CODE.invalid
+        )
+
+        const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
+        expect(stderr.join('')).toMatch(
+            /^destination-errors: --pair needs a card that applies valves and judges no_loss/
+        )
     })
 
     it('says the scorecard was captured when the run is interrupted before it was read back', async () => {

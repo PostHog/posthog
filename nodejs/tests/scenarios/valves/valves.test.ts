@@ -348,36 +348,66 @@ describe('valves', () => {
         expect(run.cloud.promotions).toEqual([])
     })
 
-    it('kills the role an entry names once its offset passes, and records every step', async () => {
+    it.each<[string, string, number | undefined]>([
+        ['from the moment the valves start', '20ms', undefined],
+        ['from the drive start, which passed before the valves started', '1m', -60_000],
+    ])(
+        'kills the role an entry names once its offset, counted %s, passes, and records every step',
+        async (_story, at, startedIn) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = stackOf()
+
+            await valves.start(
+                [kill({ at })],
+                startedIn === undefined ? stack.context : { ...stack.context, startedAt: Date.now() + startedIn }
+            )
+            expect(stack.gone()).toEqual([])
+            await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect(stack.gone()).toEqual([1])
+            expect(valves.timeline()).toEqual([
+                {
+                    valve: 'role.kill',
+                    target: EMAIL_WORKER,
+                    requestedAt: expect.any(String),
+                    intentAt: expect.any(String),
+                    appliedAt: expect.any(String),
+                    observedAt: expect.any(String),
+                    releasedAt: expect.any(String),
+                },
+            ])
+        }
+    )
+
+    it('never kills when its offset comes due only after the drive was due to end, though no release ran', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
 
-        await valves.start([kill({ at: '20ms' })], stack.context)
-        expect(stack.gone()).toEqual([])
-        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
-        await valves.releaseAll()
+        await valves.start([kill({ at: '1m' })], {
+            ...stack.context,
+            startedAt: Date.now() - 60_000,
+            endsAt: Date.now() - 1,
+        })
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
 
-        expect(stack.gone()).toEqual([1])
+        expect(stack.gone()).toEqual([])
         expect(valves.timeline()).toEqual([
-            {
-                valve: 'role.kill',
-                target: EMAIL_WORKER,
-                requestedAt: expect.any(String),
-                intentAt: expect.any(String),
-                appliedAt: expect.any(String),
-                observedAt: expect.any(String),
-                releasedAt: expect.any(String),
-            },
+            expect.objectContaining({ error: 'never applied: released before its offset' }),
         ])
+        await valves.releaseAll()
     })
 
-    it('waits until enough jobs of its teams run on the queue before it kills', async () => {
+    it.each<[string, string | undefined]>([
+        ['', undefined],
+        [', once armed', '20ms'],
+    ])('waits until enough jobs of its teams run on the queue before it kills%s', async (_story, at) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
         stack.run(1)
         stack.run(3, 'hogflow')
 
-        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+        await valves.start([kill({ at, when: RUNNING_ON_EMAIL })], stack.context)
         await stack.nextRead()
         await stack.nextRead()
         expect(stack.gone()).toEqual([])
@@ -387,6 +417,20 @@ describe('valves', () => {
         await valves.releaseAll()
 
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
+    })
+
+    it('kills only once its arming delay passed, though enough jobs ran from the start', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf({ runningJobs: 2 })
+
+        await valves.start([kill({ at: '1s', when: RUNNING_ON_EMAIL })], stack.context)
+        // Without the delay the kill needs no timer, so it lands before this snapshot.
+        // The 1s delay keeps a correct kill out of it, even on a slow runner.
+        const goneBeforeArming = await sleep(50).then(() => stack.gone())
+        await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
+        await valves.releaseAll()
+
+        expect(goneBeforeArming).toEqual([])
     })
 
     const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }
@@ -903,6 +947,21 @@ describe('valves', () => {
                 observed: valves.timeline()[0].observedAt !== undefined,
                 next: await send(),
             }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
+        })
+
+        it('holds no send and kills nothing before its arming delay passes', async () => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = withWorker(true)
+
+            await valves.start([{ ...killAfterAccept, at: '1m' }], stack.context)
+            const answered = await send(stack.worker)
+            await valves.releaseAll()
+
+            expect({
+                answered,
+                sentWhenKilled: stack.sentWhenKilled,
+                error: valves.timeline()[0].error,
+            }).toEqual({ answered: 'sent', sentWhenKilled: [], error: 'never applied: released before its offset' })
         })
 
         it.each<[string, boolean, string]>([

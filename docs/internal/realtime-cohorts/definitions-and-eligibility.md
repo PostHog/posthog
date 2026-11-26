@@ -99,6 +99,8 @@ The API serializer sets `cohort_type = 'realtime'` when all of the following hol
 - on edits, the last known person count is under a size cap.
 
 The cohort API reports which of these kept a `daily` cohort off realtime, as its `realtime.reason` ([what readiness unlocks](completion-and-readiness.md#in-django)).
+The decision does not cover the processor's time range rules, so a cohort can be typed realtime and still have a criterion the pipeline drops for its window.
+The cohort API reports that case as `realtime.reason: unsupported_time_range` on an `off` or `needs_attention` cohort, and a turn-on of an `off` cohort refuses it.
 
 A sliding window counts by its length, with a month as 30 days and a year as 365, the same lengths the Rust evaluator uses.
 An absolute start date counts from its written date to the team's current day, and a range with only an end date always counts as too long.

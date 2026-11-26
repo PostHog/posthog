@@ -413,6 +413,80 @@
                     }
                 ]
             }
+        },
+        {
+            "files": ["products/dashboards_v2/**/*.{ts,tsx}"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            },
+                            {
+                                "name": "monaco-editor",
+                                "message": "Value imports of monaco-editor statically couple ~4 MB of editor code into your chunk. Use `import type`, or render via the lazy facade in lib/monaco/CodeEditor.",
+                                "allowTypeImports": true
+                            },
+                            {
+                                "name": "lib/monaco/CodeEditorImpl",
+                                "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                            },
+                            {
+                                "name": "~/lib/monaco/CodeEditorImpl",
+                                "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                            },
+                            {
+                                "name": "@posthog/brand/hoggies",
+                                "message": "Inline-SVG hoggies bundle up to ~1 MB of JS each. Use the PNG export instead: import * as name from '@posthog/brand/hoggies/png/<name>' and wrap with pngHoggie from lib/brand/hoggies. If you truly need vector output, add an oxlint-disable comment stating why.",
+                                "allowTypeImports": true
+                            },
+                            {
+                                "name": "@posthog/brand/hoggies/svg",
+                                "message": "Inline-SVG hoggies bundle up to ~1 MB of JS each. Use the PNG export instead: import * as name from '@posthog/brand/hoggies/png/<name>' and wrap with pngHoggie from lib/brand/hoggies. If you truly need vector output, add an oxlint-disable comment stating why."
+                            },
+                            {
+                                "name": "@posthog/brand/hoggies/png",
+                                "message": "Import the per-asset stub instead: import * as name from '@posthog/brand/hoggies/png/<name>'. The barrel pulls every hoggie's stub into the graph."
+                            },
+                            {
+                                "name": "storybook/preview-api",
+                                "message": "The withKea decorator renders a story after Storybook clears its hook context, so Storybook preview hooks such as useArgs throw or never fire, and the story renders blank in visual regression runs. Keep story state in React's useState."
+                            },
+                            {
+                                "name": "storybook/test",
+                                "importNames": ["within", "waitFor"],
+                                "message": "Import within and waitFor from @testing-library/dom to use the configured Storybook async timeout."
+                            }
+                        ],
+                        "patterns": [
+                            {
+                                "group": ["@posthog/brand/hoggies/svg/*"],
+                                "message": "Inline-SVG hoggies bundle up to ~1 MB of JS each. Use the PNG export instead: import * as name from '@posthog/brand/hoggies/png/<name>' and wrap with pngHoggie from lib/brand/hoggies. If you truly need vector output, add an oxlint-disable comment stating why."
+                            },
+                            {
+                                "group": ["lib/lemon-ui/**", "~/lib/lemon-ui/**"],
+                                "message": "Dashboards v2 is built on quill only. Use the @posthog/quill component (see packages/quill/packages/primitives/AGENTS.md), or build a quill primitive in products/dashboards_v2."
+                            },
+                            {
+                                "group": [
+                                    "lib/components/TaxonomicFilter/TaxonomicFilter",
+                                    "~/lib/components/TaxonomicFilter/TaxonomicFilter",
+                                    "lib/components/PropertyFilters/**",
+                                    "~/lib/components/PropertyFilters/**"
+                                ],
+                                "message": "Dashboards v2 is built on quill only. Use the @posthog/quill component (see packages/quill/packages/primitives/AGENTS.md), or build a quill primitive in products/dashboards_v2. Filters pick fields with FieldSearch and values with ValueList."
+                            }
+                        ]
+                    }
+                ]
+            }
         }
     ]
 }

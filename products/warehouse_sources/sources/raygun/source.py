@@ -41,6 +41,7 @@ Grant the token these read scopes for the tables you want to sync:
 - `deployments:read` and `cr.errors:read` — Deployment error groups
 - `metrics:errors` — Error metrics
 - `metrics:pages` — Page metrics
+- `teams:read` — Teams
 """
 
 

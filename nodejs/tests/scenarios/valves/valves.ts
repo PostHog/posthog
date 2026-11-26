@@ -19,6 +19,8 @@ export type ValveContext = {
     commits: () => readonly WriterSample[]
     manifest?: RunManifest
     seed?: number
+    startedAt?: number
+    endsAt?: number
 }
 
 type EntryContext = ValveContext & { pick?: string }
@@ -191,8 +193,8 @@ export const VALVES: ValveDefinition[] = [
 
 const POLL_MS = 1000
 
-function neverAppliedOf({ when }: ValveEntry): string {
-    if (when === undefined) {
+function neverAppliedOf({ when }: ValveEntry, armed: boolean): string {
+    if (when === undefined || !armed) {
         return 'never applied: released before its offset'
     }
     return when.name === 'edge_accepted'
@@ -236,10 +238,19 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             })
         }
 
+        const ended = (): boolean =>
+            released.signal.aborted || (context.endsAt !== undefined && Date.now() >= context.endsAt)
+        let armed = entry.at === undefined
         const due = async (): Promise<boolean> => {
             if (entry.at !== undefined) {
-                await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
-                return true
+                const elapsedMs = context.startedAt === undefined ? 0 : Date.now() - context.startedAt
+                await sleep(Math.max(0, durationMs(entry.at) - elapsedMs), undefined, {
+                    signal: released.signal,
+                }).catch(() => undefined)
+                armed = !ended()
+                if (entry.when === undefined || !armed) {
+                    return entry.when === undefined
+                }
             }
             if (entry.when!.name === 'edge_accepted') {
                 boundary = await context.environment.actuate({ kind: 'edge.fault', rule: heldAnswerRule() })
@@ -262,11 +273,11 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             record.error = (error as Error).message
             return false
         })
-        if (!isDue || released.signal.aborted) {
+        if (!isDue || ended()) {
             record.error ??= withProbeFailure(
                 isDue && entry.when?.name === 'edge_accepted'
                     ? 'never applied: the drive ended before the valve applied'
-                    : neverAppliedOf(entry)
+                    : neverAppliedOf(entry, armed)
             )
             await releaseBoundary()
             return

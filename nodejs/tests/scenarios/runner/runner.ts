@@ -45,6 +45,7 @@ import {
     baselineOf,
     janitorResetsOf,
     measure,
+    phasesOf,
     startSampler,
 } from '../judge/measurements'
 import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
@@ -61,7 +62,7 @@ import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
-import { JudgedRun, Offered, ScorecardPair, controlOf, pairOf } from './pair'
+import { JudgedRun, Offered, PairRole, ScorecardPair, controlOf, pairOf } from './pair'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import {
     Admission,
@@ -93,6 +94,8 @@ export type RunTarget = { name: Target; open(loaded: LoadedCard, runId: string):
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError' | 'pair'>
 
+export type RunWindow = { from: string; to: string }
+
 export type RunResult = {
     runId: string
     status: Status
@@ -103,6 +106,8 @@ export type RunResult = {
     stored?: true
     storeError?: string
     pair?: ScorecardPair
+    warmUp?: RunWindow
+    baseline?: RunWindow
     cardId: string
     cardHash: string
     profileHash: string
@@ -338,6 +343,22 @@ const admittedWindowOf = (
         ? { startedAt: first.startedAt, endedAt: first.endedAt }
         : firstStepOf(window, stepsOf(drive))
 
+const runWindowOf = (from: number, to: number): RunWindow => ({
+    from: new Date(from).toISOString(),
+    to: new Date(to).toISOString(),
+})
+
+function windowsOf(
+    drive: DriveWindow,
+    timeline: readonly ValveTimelineEntry[]
+): Pick<RunResult, 'warmUp' | 'baseline'> {
+    const { baseline } = phasesOf(drive, timeline)
+    return {
+        ...(drive.warmedAt !== undefined && { warmUp: runWindowOf(drive.startedAt, baseline.from) }),
+        baseline: runWindowOf(baseline.from, baseline.to),
+    }
+}
+
 function cdpApiUrlsOf(environment: Environment): string[] {
     const urls = environment
         .roles()
@@ -514,18 +535,19 @@ export function createRunner(
     }
 
     const stage = {
-        async judge(loaded: LoadedCard, signal: AbortSignal): Promise<Judged> {
+        async judge(loaded: LoadedCard, signal: AbortSignal, role?: PairRole): Promise<Judged> {
             if (restartRequired !== undefined) {
                 throw restartRequired
             }
             const { card, profile } = loaded
-            if (manifest && ranManifest) {
+            const ownsManifest = manifest !== undefined && role !== 'control'
+            if (ownsManifest && ranManifest) {
                 throw new Error(
                     `This runner already ran run ${manifest.runId} from its run manifest; a run host runs one card per manifest.`
                 )
             }
-            ranManifest = manifest !== undefined
-            const runId = manifest?.runId ?? randomUUID()
+            ranManifest ||= ownsManifest
+            const runId = ownsManifest ? manifest.runId : (manifest?.controlRunId ?? randomUUID())
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const opened = runTarget.open(loaded, runId)
@@ -601,6 +623,7 @@ export function createRunner(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
                 probes = await opened.probes(seeded.teamIds)
+                const offers = await opened.offers()
                 const driveStartedAt = Date.now()
                 live.write({
                     type: 'phase',
@@ -624,10 +647,13 @@ export function createRunner(
                     commits: probes.commits,
                     manifest,
                     seed: card.seed,
+                    startedAt: driveStartedAt,
+                    endsAt: driveStartedAt + durationMs(card.drive.for),
                 })
-                const offers = await opened.offers()
                 const windowOpen = new AbortController()
-                void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
+                void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {
+                    signal: windowOpen.signal,
+                })
                     .then(() => valves.releaseAll())
                     .catch(() => undefined)
                 const liveSignal = AbortSignal.any([signal, judging.signal])
@@ -644,7 +670,7 @@ export function createRunner(
                               samples: () => sampling.sampler.taken(),
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
-                              profile,
+                              admission: loaded.admission,
                               writerCpu: (window) => readWriterCpu(window, liveSignal),
                               targetLimit: opened.limit,
                           },
@@ -663,6 +689,7 @@ export function createRunner(
                 const units = await drive(loaded, seeded, recorder, AbortSignal.any([signal, valves.refusal]), {
                     ...offers,
                     runId,
+                    startedAt: driveStartedAt,
                     halt: watch?.halt,
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
@@ -670,6 +697,9 @@ export function createRunner(
                 const driveWindow: DriveWindow = {
                     startedAt: driveStartedAt,
                     endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
+                    ...(card.drive.warmUp !== undefined && {
+                        warmedAt: driveStartedAt + durationMs(card.drive.warmUp),
+                    }),
                 }
                 driven = driveWindow
                 offered = { targetUnits: units.targetUnits, offeredUnits: units.offeredUnits }
@@ -704,7 +734,7 @@ export function createRunner(
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
-                    profile,
+                    loaded.admission,
                     baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
                     units.steps[0]?.scale
                 )
@@ -755,6 +785,7 @@ export function createRunner(
                 })
                 outcome = {
                     ...verdict,
+                    ...windowsOf(admittedWindowOf(card.drive, driveWindow, units.steps), evidence.timeline),
                     units,
                     convergence,
                     janitorResets,
@@ -824,6 +855,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'faults.json', { seed: card.seed, faults: valves.fired() })
                 writeJson(evidenceDir, 'metrics.json', sampled)
+                if (loaded.admission.load) {
+                    writeJson(evidenceDir, 'load-targets.json', loaded.admission.load)
+                }
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
                 if (writerCpuReads.length > 0) {
                     writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
@@ -886,7 +920,7 @@ export function createRunner(
         },
 
         async runPair(loaded, signal) {
-            const control = await stage.judge(controlOf(loaded), signal)
+            const control = await stage.judge(controlOf(loaded), signal, 'control')
             const faulted = signal.aborted
                 ? { missing: 'the run was interrupted before the faulted run' }
                 : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))
