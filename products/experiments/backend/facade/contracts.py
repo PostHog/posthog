@@ -16,14 +16,12 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome, SharedMetricType
+from products.experiments.backend.facade.enums import MetricSourceRole, RecalculationStartOutcome, SharedMetricType
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from posthog.schema import MaxExperimentSummaryContext
-
-    from products.experiments.backend.metric_events import MetricSourceRole
 
 # Metrics per section (primary/secondary) included in the AI results summary
 MAX_METRICS_TO_SUMMARIZE = 50
@@ -821,7 +819,7 @@ MAX_SESSION_CONTEXT_BATCH = 20
 class SessionMetricSourceHit:
     """One source of a metric with at least one matching event in a session."""
 
-    role: "MetricSourceRole"
+    role: MetricSourceRole
     name: str
     # Position among *all* the metric's sources, data-warehouse ones included, so a funnel step
     # keeps its real step number even when an earlier step has no session events.
@@ -1743,6 +1741,19 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+@frozen
+class BaselineStats:
+    """Sufficient statistics for the control group, mirroring the frontend ``baseline`` object."""
+
+    number_of_samples: int
+    sum: float
+    sum_squares: float = 0.0
+    denominator_sum: float | None = None
+    denominator_sum_squares: float | None = None
+    numerator_denominator_sum_product: float | None = None
+    step_counts: tuple[float, ...] = ()
 
 
 class RunningTimeMode(LabeledStrEnum):
