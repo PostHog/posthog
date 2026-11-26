@@ -1,5 +1,5 @@
 import type { SavedWidget, ContentWidgetParts } from '../dashboard/document/dashboardTypes'
-import type { WidgetSlots } from '../widgets/widgetDefinition'
+import type { WidgetSlots } from '../widgets/core/widgetDefinition'
 
 /**
  * Whether a content tile has anything to put in a part. The header has the title and the widget type's header actions.

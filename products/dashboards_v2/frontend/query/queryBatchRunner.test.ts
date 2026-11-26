@@ -4,9 +4,9 @@ import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import type { QueryRequest } from '../widgets/chart/vizTypes'
 import { BUSY_ERROR, createQueryBatchRunner } from './queryBatchRunner'
 import { QUERY_BATCH_TIMING_EVENT } from './queryBatchTiming'
+import type { QueryRequest } from './queryTypes'
 
 const TIME = { from: 'now-7d', to: 'now' }
 const SQL: QueryRequest = { query: { language: 'hogql', query: 'select 1 as total' }, time: TIME }

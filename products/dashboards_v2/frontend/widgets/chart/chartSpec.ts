@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { type WidgetQuery, timeRangeSchema, widgetQuerySchema } from '../../dashboard/document/dashboardSchema'
 import type { TimeRange } from '../../dashboard/document/dashboardTypes'
-import { UNKNOWN_WIDGET_SIZE, type WidgetSpec } from '../widgetSpec'
+import { UNKNOWN_WIDGET_SIZE, type WidgetSpec } from '../core/widgetSpec'
 import type { VizSpec } from './vizTypes'
 
 /** One of the queries a chart draws together, such as a latency series next to the deploys that explain it. */
@@ -73,6 +73,6 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig, 'chart'>
                     new Set(config.targets?.map((target) => target.refId)).size === (config.targets?.length ?? 0),
                 { message: "Each of a chart's targets needs its own refId", path: ['targets'] }
             ),
-        appearance: { backgroundColor: true },
+        allowedCustomizations: ['backgroundColor'],
     }
 }

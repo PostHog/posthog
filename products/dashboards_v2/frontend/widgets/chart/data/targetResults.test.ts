@@ -1,6 +1,6 @@
+import type { QueryFrames } from '../../../query/useQueryFrames'
 import type { ChartTarget } from '../chartSpec'
 import { type ChartResult, combineTargetResults } from './targetResults'
-import type { QueryFrames } from './useQueryFrames'
 
 const target = (refId: string): ChartTarget => ({ refId, query: { language: 'promql', query: 'up' } })
 const TARGETS = [target('A'), target('B')]

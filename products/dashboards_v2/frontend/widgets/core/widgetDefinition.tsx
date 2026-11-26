@@ -1,11 +1,9 @@
-import posthog from 'posthog-js'
-import type { ComponentType, ReactNode } from 'react'
+import type { ComponentType } from 'react'
 
-import type { ContentWidget, SavedWidget } from '../dashboard/document/dashboardTypes'
-import type { MenuAction } from '../menu/menuAction'
-import { parseOnce } from '../schema/parseOnce'
+import type { ContentWidget, SavedWidget } from '../../dashboard/document/dashboardTypes'
+import type { MenuAction } from '../../menu/menuAction'
+import { parseOnce } from '../../schema/parseOnce'
 import { type WidgetSpec, type WidgetTypeSpec, defineWidgetSpec } from './widgetSpec'
-import { WidgetMessage } from './WidgetView'
 
 export type AddTileOption<Config> = {
     label: string
@@ -30,6 +28,8 @@ export type WidgetDefinition<Config, Type extends string = string> = WidgetSpec<
     Component: ComponentType<WidgetComponentProps<Config>>
     /** Shows while `Component` suspends. Without it, the tile shows `WidgetLoading`. */
     Loading?: ComponentType<{ widget: ContentWidget<Config> }>
+    /** Shown in place of `Component` while the host has no real data. Left out, the widget shows its content. */
+    SampleData?: ComponentType<{ widget: ContentWidget<Config> }>
     /** Controls in the tile's header, beside the title, such as an interval picker or an "Open as insight" button. */
     HeaderExtra?: ComponentType<{ widget: ContentWidget<Config> }>
     Footer?: ComponentType<{ widget: ContentWidget<Config> }>
@@ -51,6 +51,7 @@ export type WidgetType<Type extends string = string> = WidgetTypeSpec<Type> & {
     addTileOptions: { label: string; create: () => SavedWidget }[]
     Component: SavedComponent
     Loading?: SavedPart
+    SampleData?: SavedPart
     HeaderExtra?: SavedPart
     Footer?: SavedPart
     menuActions?: (
@@ -72,17 +73,14 @@ export function defineWidget<Config, const Type extends string>(
         }
         return checkedWidgets.get(widget) ?? null
     }
+    // A widget with an invalid config renders nothing here. `WidgetView` shows why in its place.
     const part = (
-        Part: ComponentType<{ widget: ContentWidget<Config> }> | undefined,
-        invalid: ReactNode
+        Part: ComponentType<{ widget: ContentWidget<Config> }> | undefined
     ): ComponentType<{ widget: SavedWidget }> | undefined =>
         Part &&
         function CheckedPart({ widget }: { widget: SavedWidget }): JSX.Element | null {
             const typed = checked(widget)
-            if (typed) {
-                return <Part widget={typed} />
-            }
-            return <>{invalid}</>
+            return typed && <Part widget={typed} />
         }
     const { menuActions, Component } = definition
     return {
@@ -90,28 +88,17 @@ export function defineWidget<Config, const Type extends string>(
         addTileOptions: definition.addTileOptions,
         Component: function CheckedComponent({ widget, setConfig }) {
             const typed = checked(widget)
-            if (!typed) {
-                return <WidgetMessage>This widget's settings are not valid for its type.</WidgetMessage>
-            }
-            return <Component widget={typed} setConfig={setConfig} />
+            return typed && <Component widget={typed} setConfig={setConfig} />
         },
-        Loading: part(definition.Loading, null),
-        HeaderExtra: part(definition.HeaderExtra, null),
-        Footer: part(definition.Footer, null),
+        Loading: part(definition.Loading),
+        SampleData: part(definition.SampleData),
+        HeaderExtra: part(definition.HeaderExtra),
+        Footer: part(definition.Footer),
         menuActions:
             menuActions &&
             ((actions, context) => {
                 const widget = checked(context.widget)
-                if (!widget) {
-                    return actions
-                }
-                // It runs while the tile renders, outside any error boundary, so a throw here would break the dashboard.
-                try {
-                    return menuActions(actions, { ...context, widget })
-                } catch (error) {
-                    posthog.captureException(error, { tag: 'dashboards-v2-widget' })
-                    return actions
-                }
+                return widget ? menuActions(actions, { ...context, widget }) : actions
             }),
     }
 }

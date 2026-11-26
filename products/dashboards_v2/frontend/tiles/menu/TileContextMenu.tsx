@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
 
 import {
@@ -24,7 +25,7 @@ import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { MenuActionList, type MenuParts } from '../../menu/MenuActionList'
 import { backgroundColorAction, showAction } from '../../presentation/tileAppearance'
-import { findWidget } from '../../widgets/widgetSpec'
+import { findWidget } from '../../widgets/core/widgetSpec'
 
 const CONTEXT_MENU_PARTS: MenuParts = {
     Group: ContextMenuGroup,
@@ -136,13 +137,18 @@ export function useContentTileActions(id: string, widget: SavedWidget): MenuActi
         destructive: true,
         onSelect: () => onEdit({ edit: 'removeTile', id }),
     })
-    const withWidget = definition?.menuActions
-        ? definition.menuActions(actions, {
-              widget,
-              setConfig: (config) => onEdit({ edit: 'setWidgetConfig', id, config }),
-              disabledReason: disabledReasonFor('setWidgetConfig'),
-          })
-        : actions
+    let withWidget = actions
+    // It runs while the tile renders, outside any error boundary, so a throw here would break the dashboard.
+    try {
+        withWidget =
+            definition?.menuActions?.(actions, {
+                widget,
+                setConfig: (config) => onEdit({ edit: 'setWidgetConfig', id, config }),
+                disabledReason: disabledReasonFor('setWidgetConfig'),
+            }) ?? actions
+    } catch (error) {
+        posthog.captureException(error, { tag: 'dashboards-v2-widget' })
+    }
     // The host runs last, so it has the final say on its page, such as hiding an entry a widget type added.
     return tileActions ? tileActions(withWidget, { id, widget }) : withWidget
 }

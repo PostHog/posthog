@@ -5,8 +5,8 @@ import { chartSpec } from '../../widgets/chart/chartSpec'
 import { barSpec } from '../../widgets/chart/viz/bar/barSpec'
 import { lineSpec } from '../../widgets/chart/viz/line/lineSpec'
 import { statSpec } from '../../widgets/chart/viz/stat/statSpec'
+import { defineWidgetSpec } from '../../widgets/core/widgetSpec'
 import { markdownSpec } from '../../widgets/markdown/markdownSpec'
-import { defineWidgetSpec } from '../../widgets/widgetSpec'
 import { dashboardSchema } from './dashboardSchema'
 import type { DashboardProblem } from './validateDashboard'
 import { MAX_SECTION_DEPTH, validateDashboard } from './validateDashboard'
@@ -30,8 +30,15 @@ const nestedSections = (depth: number): unknown =>
           }
 
 describe('validateDashboard', () => {
-    it('accepts the kitchen sink fixture', () => {
-        expect(validateDashboard(kitchenSinkDashboard, SPECS, FILTER_SPECS)).toEqual([])
+    it('flags only the kitchen sink tiles that are broken on purpose', () => {
+        const broken = 'tabs[1].tiles[4].widget.tiles'
+        expect(validateDashboard(kitchenSinkDashboard, SPECS, FILTER_SPECS).map((problem) => problem.path)).toEqual([
+            `${broken}[1].widget.type`,
+            `${broken}[2].widget.config.viz`,
+            `${broken}[3].widget.config.viz`,
+            `${broken}[4].widget.config.text`,
+            `${broken}[5].widget.config.query`,
+        ])
     })
 
     test.each<{ name: string; document: unknown; expected: DashboardProblem[] }>([

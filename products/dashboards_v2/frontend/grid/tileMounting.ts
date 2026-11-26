@@ -17,6 +17,7 @@ const PER_FRAME_WHILE_SCROLLING = 2
 export type TileMountScheduler = {
     /** Calls `onMountedChange` when `element` should mount or unmount its content. Returns the stop function. */
     observe: (element: Element, onMountedChange: (mounted: boolean) => void) => () => void
+    settled: () => boolean
     dispose: () => void
 }
 
@@ -25,6 +26,7 @@ const ALWAYS_MOUNTED: TileMountScheduler = {
         onMountedChange(true)
         return () => {}
     },
+    settled: () => true,
     dispose: () => {},
 }
 
@@ -133,6 +135,7 @@ export function createTileMountScheduler(): TileMountScheduler {
                 mounted.delete(element)
             }
         },
+        settled: () => waiting.size === 0,
         dispose() {
             idle?.cancel()
             idle = null
