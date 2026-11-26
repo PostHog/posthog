@@ -395,6 +395,11 @@ EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE = _set_temporal_task_queue("experimen
 EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-direct-heavy-task-queue"
 )
+# Each activity on this queue holds a worker slot until its scheduled recalculation run closes, so the worker's slot
+# count caps how many scheduled runs are in flight.
+EXPERIMENTS_SCHEDULED_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-scheduled-recalculation-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")

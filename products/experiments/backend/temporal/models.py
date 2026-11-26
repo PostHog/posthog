@@ -279,6 +279,12 @@ SCHEDULED_RECALCULATION_WORKFLOW_NAME = "experiment-scheduled-recalculation-work
 
 
 @frozen
+class ScheduledRecalculationRunInputs:
+    experiment_id: int
+    hour: int
+
+
+@frozen
 class ScheduledRecalculationStartResult:
     """Outcome of one experiment's start attempt, for the coordinator's summary counts."""
 

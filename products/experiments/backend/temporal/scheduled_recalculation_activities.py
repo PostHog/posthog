@@ -5,7 +5,8 @@ A failure skips one experiment and never stops the batch, because the recalculat
 it starts owns its own retries and error reporting.
 """
 
-from datetime import datetime
+import asyncio
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections
@@ -15,6 +16,7 @@ import structlog
 import posthoganalytics
 import temporalio.activity
 from temporalio.client import WorkflowFailureError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.event_usage import groups
 from posthog.sync import database_sync_to_async_pool
@@ -27,7 +29,11 @@ from products.experiments.backend.recalculation.admission import (
     RecalculationWorkflowNotStarted,
     start_metrics_recalculation,
 )
-from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
+from products.experiments.backend.recalculation.runs import get_active_recalculation
+from products.experiments.backend.temporal.models import (
+    ScheduledRecalculationRunInputs,
+    ScheduledRecalculationStartResult,
+)
 from products.experiments.backend.temporal.recalculation.dispatch import metrics_recalculation_workflow_id
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     MIN_TOTAL_EXPOSURES,
@@ -44,6 +50,8 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
 )
 
 logger = structlog.get_logger(__name__)
+
+RUN_WAIT_TIMEOUT = timedelta(minutes=30)
 
 STARTED_EVENT = "experiment scheduled recalculation started"
 SKIPPED_EVENT = "experiment scheduled recalculation skipped"
@@ -223,3 +231,60 @@ async def wait_for_scheduled_recalculation(recalculation_id: str) -> None:
             await handle.result()
         except WorkflowFailureError:
             pass
+
+
+@database_sync_to_async_pool
+def _active_recalculation_id_sync(experiment_id: int) -> str | None:
+    close_old_connections()
+    experiment = Experiment.objects.filter(id=experiment_id, deleted=False).select_related("team").first()
+    if experiment is None:
+        return None
+    active = get_active_recalculation(experiment)
+    return str(active.id) if active is not None else None
+
+
+async def _wait_until_closed(recalculation_id: str) -> None:
+    """Return once the run's workflow is closed, was never started, or this wait lasted RUN_WAIT_TIMEOUT.
+
+    The timeout counts from the start of this wait, not from the start of the run. The slot is freed
+    when the timeout ends, also if the run is still open, so the cap covers each run's first
+    RUN_WAIT_TIMEOUT only.
+    """
+    client = await async_connect()
+    handle = client.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
+    try:
+        await asyncio.wait_for(handle.result(), timeout=RUN_WAIT_TIMEOUT.total_seconds())
+    except WorkflowFailureError:
+        pass
+    except RPCError as error:
+        if error.status != RPCStatusCode.NOT_FOUND:
+            raise
+    except TimeoutError:
+        logger.warning("scheduled_recalculation_wait_timed_out", recalculation_id=recalculation_id)
+
+
+@temporalio.activity.defn
+async def run_scheduled_recalculation(inputs: ScheduledRecalculationRunInputs) -> ScheduledRecalculationStartResult:
+    """Start one scheduled run and hold this worker slot until that run closes.
+
+    The worker's slot count caps how many scheduled runs are in flight, so the activity returns
+    only once a run it may have started is closed, never started, or waited on for
+    RUN_WAIT_TIMEOUT. A retry cannot know whether an earlier attempt started a run, so it waits on
+    the experiment's active run, and starts one only when the experiment has none.
+    """
+    experiment_id = inputs.experiment_id
+    async with Heartbeater(factor=4):
+        if temporalio.activity.info().attempt > 1:
+            active_id = await _active_recalculation_id_sync(experiment_id)
+            if active_id is not None:
+                await _wait_until_closed(active_id)
+                return ScheduledRecalculationStartResult(
+                    experiment_id=experiment_id,
+                    started=False,
+                    recalculation_id=active_id,
+                    skip_reason=SKIP_ACTIVE_RUN,
+                )
+        result = await _start_scheduled_recalculation_sync(experiment_id, inputs.hour)
+        if result.recalculation_id is not None and (result.started or result.skip_reason == SKIP_DISPATCH_UNCERTAIN):
+            await _wait_until_closed(result.recalculation_id)
+        return result
