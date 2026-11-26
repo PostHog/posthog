@@ -44,6 +44,7 @@ A closed section is three rows, enough for its card's header (`GRID.collapsedSec
 Anyone can open or close a section, for their own view only. It is not saved and is not an undo step.
 A section cannot be resized narrower than its tiles need.
 A section moved into a narrower grid gets narrower, and its tiles are placed again to fit.
+A section's tiles can be laid out in 1 to 4 equal columns with Auto layout in its menu (`autoLayout`). Its tiles fill the columns row by row in reading order and keep their heights.
 
 ## Where a tile goes
 
@@ -95,15 +96,17 @@ The components hold no business logic and never import a kea logic, so any page 
 - The view owns only what the screen and a drag decide: the stacked layout on narrow screens, the drop target, and the undo shortcut.
 - The view passes the controller down through context. The drop target has a context of its own, so a drag re-renders only what reads it.
 - `dashboardV2Logic` is the host for the `/dashboard-v2` scene. Another product supplies its own host, and its own header through the `header` slot.
+- When a dashboard can't load, the host can render `DashboardV2Unavailable` (`frontend/dashboard/DashboardV2Unavailable.tsx`) in place of the view. Each problem has a default hedgehog, title and description, and the host can replace any of them or add `actions`, such as a link back to its own list.
 
 ## Narrow screens
 
-Below 768px of canvas width (`GRID.stackBelowPx`), the dashboard is read-only and every tile is full width.
+Below 768px of canvas width (`GRID.stackBelowPx`), every tile is full width and tiles cannot be dragged or resized.
 
 - Tiles stack in reading order: top to bottom, then left to right. Sections stack their own tiles the same way.
 - Text and number tiles keep their height. Line and bar charts stay between 10 and 16 rows, so one chart never fills the screen.
 - The stacked layout is worked out from the saved one each time and is never saved.
-- Every edit is refused, and disabled controls say to open the dashboard on a wider screen.
+- Only arranging tiles (`placeTiles`) is refused. Other edits, such as moving a tile to another tab, still work.
+- A disabled menu entry shows its reason under its label, since a touch screen shows no tooltip.
 
 ## Widgets
 
@@ -115,7 +118,8 @@ A type has two parts, so code outside the browser can use the first without Reac
 - A `WidgetDefinition` (`frontend/widgets/widgetDefinition.ts`) is the spec plus the `Component` that renders it. The controller takes these.
 
 A widget's own fields sit in `config`. The fields every tile has (`type`, `title`, `description`, `refreshedAt`, `parts`) sit beside it.
-A tile's `description` shows in a tooltip on an info icon beside its title, and `parts.description: false` hides the icon.
+A tile's `description` shows in a tooltip on an info icon beside its title.
+A tile is dragged by its header, or by its body when it has no header. A widget marks text people should be able to select with the `TileGrid__text` class, and pressing on it selects instead of dragging.
 
 How the dashboard uses them:
 
@@ -131,7 +135,9 @@ A widget type can also:
 - set what its tile shows while its component suspends with `Loading`. Without it, the tile shows `WidgetLoading`, a skeleton a widget can also render itself while it loads;
 - change its tile's right-click menu: `menuActions` adds entries, and `tileActions(actions, { widget })` receives the whole list to remove, disable, reorder or add entries by `key`.
 
-A host can also pass `tileActions(actions, { id, widget })` on the controller. It runs last, for content tiles and sections, so a page can hide `remove` everywhere or `chart-type` on one dashboard. The order is built-in actions, widget `menuActions`, widget `tileActions`, host `tileActions`. The built-in keys are listed on `TileAction.key`.
+A host can also pass `tileActions(actions, { id, widget })` on the controller. It runs last, for content tiles and sections, so a page can hide `remove` everywhere or `chart-type` on one dashboard. The order is built-in actions, widget `menuActions`, widget `tileActions`, host `tileActions`. The built-in keys are listed on `MenuAction.key`.
+
+The dashboard has its own menu, beside undo and redo. Its built-in action, `download-image`, downloads the active tab as a PNG or WebP image, with every tile drawn first. A host passes `dashboardActions(actions)` on the controller to hide, disable or add entries the same way.
 
 To hide a tab from someone, such as a tab behind a feature flag, the host leaves it out of the dashboard it passes in. Whatever the host passes reaches the browser, so tabs a person may not see are removed where the dashboard is loaded, not in the view.
 
@@ -155,12 +161,45 @@ The query is `{ language, query }` in one of three languages: `hogql` with a Hog
 The data and the way it is drawn are separate, so changing a chart from a line to a bar never runs its query again.
 
 - A kind of chart is a `VizSpec` (`frontend/widgets/chart/vizType.ts`): a label, a size, and a zod schema for its options. A `VizDefinition` adds the component that draws a query result.
-- `createChartWidget({ extraVizTypes, runQuery, states, menuActions })` builds the chart widget type. It draws every built-in kind of chart, so a dashboard saved by another host still renders. A host adds its own kinds with `extraVizTypes` and supplies `runQuery`, so the dashboard never fetches data itself. `runQuery` gets `{ query, time }` and returns `{ frames, fetchedAt?, stale? }`. A query's `language` is `hogql`, `metrics`, `traces`, or `insight` for any node `/query` runs. In the request, `time` is the chart's own `config.time`, or else the range from `TimeRangeContext`, which `DashboardV2View` fills from the dashboard's `time` (default `now-7d` to `now`).
+- `createChartWidget({ extraVizTypes, runQuery, states, menuActions })` builds the chart widget type. It draws every built-in kind of chart, so a dashboard saved by another host still renders. A host adds its own kinds with `extraVizTypes` and supplies `runQuery`, so the dashboard never fetches data itself. `runQuery` gets `{ query, time, filters? }` and returns `{ frames, fetchedAt?, stale? }`. A query's `language` is `hogql`, `metrics`, `traces`, or `insight` for any node `/query` runs. In the request, `time` is the chart's own `config.time`, or else the range from `TimeRangeContext`, which `DashboardV2View` fills from the dashboard's `time` (default `now-7d` to `now`). `filters` holds the dashboard's filters that have a value, and is left out when none do.
 - A query result is a list of `DataFrame`s. A kind of chart only draws rows. Loading, empty and error states come from the kind of chart if it sets them, then from the `states` the host passes to `createChartWidget`, then from built-in ones. The built-in kinds set a skeleton shaped like their chart, and a host's `states` replace the built-in kinds' states but not those of its own kinds. A kind of chart can also decide what counts as empty with `isEmpty`.
 - When a chart's time range or query changes, the tile keeps its last result on screen, faded, until the new one arrives.
 - The add menu has one "Chart" item, which starts as a line chart. The tile's "Chart type" menu switches its kind, and its "Chart options" menu sets the options that kind declares. A chart takes its size from its kind of chart.
 
 To add a kind of chart, write its spec and component in `frontend/widgets/chart/viz/<type>/`. Pass it as `extraVizTypes`, or add it to `DEFAULT_VIZ_TYPES` in `frontend/widgets/chart/createChartWidget.tsx` to ship it with dashboards v2.
+
+## Filters
+
+A filter narrows the data every widget shows, such as one browser or one service. Each piece is separate, so a page takes only the ones it wants.
+
+| Piece                                                     | What it does                                                                                                                                                                             |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FilterSpec`, `FilterDefinition` (`frontend/filters/`)    | A kind of filter. The spec is plain data: add menu items, a zod `configSchema`, and `fieldOf`. The definition adds the `Control` a person picks a value with. Wrap it in `defineFilter`. |
+| `createSelectFilter(fields)` (`frontend/filters/select/`) | A kind that picks one or more values of a field. It saves the field's `key` and `options` in the filter's config.                                                                        |
+| `FiltersContext`                                          | Gives widgets the filters that have a value, the way `TimeRangeContext` gives them the time range. A chart adds them to its request as `filters`, left out when none apply.              |
+| `FilterPill`                                              | One filter's control, with a remove button when the page passes `onRemove`.                                                                                                              |
+| `FitRow`                                                  | Keeps items on one line. Items that don't fit open from a "+N filters" button.                                                                                                           |
+| `AddFilterMenu`                                           | Lists the add menu items of the kinds it gets, and disables a field already added.                                                                                                       |
+| `FilterBar`                                               | The default arrangement: filters with a value first, in a `FitRow`, after `AddFilterMenu`.                                                                                               |
+
+A page without a dashboard can render `FilterPill`s, or a `FilterBar`, and wrap its own widgets in `FiltersContext`.
+
+### Filters on a dashboard
+
+- A host offers a time range picker by passing `timeRange: { value, onChange }` on the controller. `useTimeRangeController(ranges)` builds it, where `ranges` are the quick ranges the picker offers, such as `{ label: 'Last hour', from: 'now-1h' }` for APM. Left out, the picker offers `DEFAULT_QUICK_RANGES`, from the last 24 hours to the last 90 days. The viewer's range overrides the dashboard's saved `time` and is never saved. `TimeRangePicker` (`frontend/time/`) wraps quill's `DateTimePicker`, and saves a quick range as a range relative to now, such as `now-7d`.
+- A host offers filters by passing `filters: { types, values, onValueChange }` on the controller. `useFiltersController(types)` builds it with the values kept in component state; a host that keeps them elsewhere, such as the URL, builds it itself. Left out, the dashboard has no filters.
+- `useDashboardFilters({ types, Bar, time: { ranges } })` builds both parts in one call. Each option left out drops its part, so a host can offer only filters or only a time range. `filters.Bar` replaces `FilterBar`, such as with a bar that has no overflow.
+- A dashboard shows its filter bar only when an editor turns on "Allow filters" in the dashboard menu (`allowFilters`, the `allow-filters` action). It is off by default.
+- Editors add and remove filters. Which filters a dashboard has is saved, as `filters`, and is an undo step. A dashboard has one filter per field (`fieldOf`, such as a select filter's `key`).
+- The value each person picks is not saved and is not an edit. The host keeps it, such as in its logic or the URL, so viewers who cannot edit can still filter.
+- The host's `runQuery` applies the kinds of filter it knows to each query, so the dashboard never builds a query itself.
+- `validateDashboard(document, widgets, filters)` reports a filter of an unknown kind, an invalid config, or a second filter on the same field.
+
+### Analytics filters
+
+`createPropertyFilter({ featured, search })` (`frontend/filters/property/`) filters on any event or person property. A person picks one or more conditions, all of which must hold, such as "is not Chrome" and "contains Safari". Each condition has an operator that fits the property's type (`is`, `is not`, `contains`, `doesn't contain`, `matches`, `is set`, `is not set`, or `>` and `<` for numbers), then values suggested from the project's data or typed text. `featured` are the properties the add menu names, so a product can put the ones it cares about first. `search` adds a menu entry, such as "More properties", that opens `FieldSearch` over the properties its `load` returns, so a product can offer its own custom events. A kind of filter adds an entry like this with `pickerLabel` on its spec and `Picker` on its definition. A filter with no value yet has a dashed outline and reads "Pick a value", because it does not narrow the widgets.
+
+`ANALYTICS_FILTER_TYPES` (`frontend/filters/analytics/`) is a property filter featuring browser, OS, device type and country. `analyticsPropertyFilters(request.filters)` turns property and select filters into property filters a query's `properties` takes.
 
 ## Dashboards as code
 
@@ -171,6 +210,15 @@ The zod schemas in `frontend/dashboard/dashboardSchema.ts` are the only definiti
 - It reports a document that is not a v2 dashboard, an unknown widget type, a missing or misspelled widget field, a tile smaller than its widget's minimum, a tile past the edge of its grid, and an id used twice.
 - Overlaps and gaps are not problems, because loading a dashboard settles them.
 - It needs only specs, so a CI check or an MCP tool can run it without rendering anything.
+
+A widget can show on more than one tile, such as the same chart on two tabs.
+The document stores it once, in `widgets`, and each tile points at it with `{ "ref": "<key>" }`, plus its own `parts` and `appearance`.
+Its type, title, description and config are shared, so changing a chart's query or kind on one tile changes it on every tile.
+Size, position, parts and appearance belong to each tile.
+
+- `loadDashboard(document)` in `frontend/dashboard/sharedWidgets.ts` puts each shared widget back on its tiles, with `ref` set, so the rest of the code sees whole widgets. `saveDashboard(dashboard)` stores them once again and drops any no tile shows.
+- "Also show on tab" in a tile's menu (`addToGrid`) places a second tile for the same widget on another tab. Removing either tile leaves the other.
+- `validateDashboard` reports a tile pointing at a widget the document does not have.
 
 ## Checking a change
 

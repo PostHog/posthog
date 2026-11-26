@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.facade.api import (
     schema_needs_webhook,
     sources_missing_webhook,
     validate_source_prefix,
+    webhook_issues,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_INPUT_KEY,
@@ -115,7 +116,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     PINNED_TABLE_IDS_CONTEXT_KEY,
-    WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY,
+    WEBHOOK_ISSUES_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     ExternalDataSchemaSummarySerializer,
@@ -612,14 +613,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             **self.context,
             "error_redaction_values": self._error_redaction_values(instance),
             PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
-            WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY: {
-                source_id: missing
-                for source_id, missing in self._webhook_missing_by_source(instance).items()
-                if source_id == instance.pk
-            },
         }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(instance.team_id, schemas)
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def _stored_credential_for_update(

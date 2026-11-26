@@ -443,6 +443,12 @@ export const SurveysCreateBody = () => zod.object({
                                 .describe(
                                     'Group type index for this condition set. None means person-level aggregation.'
                                 ),
+                            description: zod
+                                .string()
+                                .nullish()
+                                .describe(
+                                    'Display-only name for this release condition group. It does not affect evaluation.'
+                                ),
                         })
                     )
                     .optional()
@@ -1702,6 +1708,12 @@ export const SurveysPartialUpdateBody = () => zod.object({
                                 .nullish()
                                 .describe(
                                     'Group type index for this condition set. None means person-level aggregation.'
+                                ),
+                            description: zod
+                                .string()
+                                .nullish()
+                                .describe(
+                                    'Display-only name for this release condition group. It does not affect evaluation.'
                                 ),
                         })
                     )

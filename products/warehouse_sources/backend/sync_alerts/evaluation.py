@@ -16,7 +16,9 @@ from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Q, TextField, Value
+from django.db.models.fields.json import KT
+from django.db.models.functions import Coalesce
 
 import structlog
 
@@ -74,6 +76,7 @@ from products.warehouse_sources.backend.sync_alerts.wording import (
     group_by_of,
     source_alerts_url,
 )
+from products.warehouse_sources.backend.temporal.data_imports.organization_state import ORGANIZATION_DEACTIVATED_REASON
 
 logger = structlog.get_logger(__name__)
 
@@ -334,6 +337,12 @@ def _read_sources(team_id: int, checks: Sequence[PlatformAlertCheckInput]) -> _R
         # `deleted` is nullable, and a NULL row is not deleted.
         .exclude(deleted=True)
         .exclude(source__deleted=True)
+        # A deactivated organization's CDC tables are marked failed when the sweep stops capture. The
+        # stop is deliberate and must not alert. Coalesced, so a table with no marker is not dropped.
+        .annotate(
+            _broken_reason=Coalesce(KT("sync_type_config__cdc_broken__reason"), Value(""), output_field=TextField())
+        )
+        .exclude(_broken_reason=ORGANIZATION_DEACTIVATED_REASON)
     )
     if (scoped := _scoped_ids(checks, "source_ids")) is not None:
         query = query.filter(source_id__in=scoped)

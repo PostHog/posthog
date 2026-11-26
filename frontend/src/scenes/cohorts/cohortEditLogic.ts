@@ -86,6 +86,7 @@ import type { CohortRealtimeSwitchAction } from 'products/cohorts/frontend/realt
 import {
     READINESS_GRACE_POLLS,
     REALTIME_POLL_INTERVAL_MS,
+    canTurnOnRealtime,
     isBuildingHistory,
 } from 'products/cohorts/frontend/realtime/realtimeReadiness'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
@@ -932,7 +933,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             (cohort: CohortType, featureFlags: FeatureFlagsSet): CohortRealtimeSwitchAction | null => {
                 switch (cohort.realtime?.state) {
                     case 'off':
-                        return 'turn_on'
+                        return canTurnOnRealtime(cohort.realtime) ? 'turn_on' : null
                     case 'ready':
                     case 'building':
                     case 'rebuilding':

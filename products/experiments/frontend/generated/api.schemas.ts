@@ -398,6 +398,11 @@ export interface FeatureFlagConditionGroupSchemaApi {
      * @nullable
      */
     aggregation_group_type_index?: number | null
+    /**
+     * Display-only name for this release condition group. It does not affect evaluation.
+     * @nullable
+     */
+    description?: string | null
 }
 
 /**
@@ -2377,6 +2382,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `multiple_variants_share` - Multiple Variants Share
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
  * * `metric_cannot_compile` - Metric Cannot Compile
  * * `metric_calculation_failed` - Metric Calculation Failed
  * * `metric_all_zero` - Metric All Zero
@@ -2386,6 +2392,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `unserved_variant_exposures` - Unserved Variant Exposures
+ * * `events_billing_limit` - Events Billing Limit
+ * * `feature_flags_billing_limit` - Feature Flags Billing Limit
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2410,6 +2418,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     MultipleVariantsShare: 'multiple_variants_share',
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
     MetricCannotCompile: 'metric_cannot_compile',
     MetricCalculationFailed: 'metric_calculation_failed',
     MetricAllZero: 'metric_all_zero',
@@ -2419,6 +2428,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     UnservedVariantExposures: 'unserved_variant_exposures',
+    EventsBillingLimit: 'events_billing_limit',
+    FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2488,6 +2499,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
  * * `metric_cannot_compile` - Metric Cannot Compile
  * * `metric_calculation_failed` - Metric Calculation Failed
  * * `metric_all_zero` - Metric All Zero
@@ -2503,6 +2515,8 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `unserved_variant_exposures` - Unserved Variant Exposures
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
+ * * `events_billing_limit` - Events Billing Limit
+ * * `feature_flags_billing_limit` - Feature Flags Billing Limit
  */
 export type ExperimentHealthCheckKeyEnumApi =
     (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
@@ -2519,6 +2533,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     NewFlagNoTraffic: 'new_flag_no_traffic',
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
     MetricCannotCompile: 'metric_cannot_compile',
     MetricCalculationFailed: 'metric_calculation_failed',
     MetricAllZero: 'metric_all_zero',
@@ -2534,6 +2549,8 @@ export const ExperimentHealthCheckKeyEnumApi = {
     UnservedVariantExposures: 'unserved_variant_exposures',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
+    EventsBillingLimit: 'events_billing_limit',
+    FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
 } as const
 
 /**
@@ -2552,6 +2569,7 @@ export interface ExperimentHealthFindingApi {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -2561,6 +2579,8 @@ export interface ExperimentHealthFindingApi {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `unserved_variant_exposures` - Unserved Variant Exposures
+     * * `events_billing_limit` - Events Billing Limit
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2615,6 +2635,7 @@ export interface ExperimentHealthFindingApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -2629,7 +2650,9 @@ export interface ExperimentHealthFindingApi {
      * * `srm` - Srm
      * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share */
+     * * `multiple_variants_share` - Multiple Variants Share
+     * * `events_billing_limit` - Events Billing Limit
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
     check: ExperimentHealthCheckKeyEnumApi
 }
 
@@ -2677,6 +2700,10 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `flag_called` - Whether PostHog has recorded a call of the feature flag
  * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
  * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+ * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+ * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+ * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+ * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
  * * `metric_name` - The name of a metric
  * * `metric_role` - Whether a metric is primary or secondary
  * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -2748,6 +2775,10 @@ export const ExperimentHealthValueKeyEnumApi = {
     FlagCalled: 'flag_called',
     SinceStartHours: 'since_start_hours',
     DailyCalculationEndsAt: 'daily_calculation_ends_at',
+    EventsBillingLimitReached: 'events_billing_limit_reached',
+    EventsBillingLimitEndsAt: 'events_billing_limit_ends_at',
+    FeatureFlagsBillingLimitReached: 'feature_flags_billing_limit_reached',
+    FeatureFlagsBillingLimitEndsAt: 'feature_flags_billing_limit_ends_at',
     MetricName: 'metric_name',
     MetricRole: 'metric_role',
     RatioSide: 'ratio_side',
@@ -2841,6 +2872,10 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `flag_called` - Whether PostHog has recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+     * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+     * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+     * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
      * * `metric_name` - The name of a metric
      * * `metric_role` - Whether a metric is primary or secondary
      * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -2915,6 +2950,10 @@ export interface ExperimentHealthCheckRuleApi {
      * * `flag_called` - Whether PostHog has recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+     * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+     * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+     * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
      * * `metric_name` - The name of a metric
      * * `metric_role` - Whether a metric is primary or secondary
      * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -3002,6 +3041,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -3016,7 +3056,9 @@ export interface ExperimentHealthCheckResultApi {
      * * `srm` - Srm
      * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share */
+     * * `multiple_variants_share` - Multiple Variants Share
+     * * `events_billing_limit` - Events Billing Limit
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
     key: ExperimentHealthCheckKeyEnumApi
     /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string
@@ -3324,7 +3366,7 @@ export interface ExperimentWriteApi {
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
-    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
     /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
@@ -3482,7 +3524,7 @@ export interface ExperimentApi {
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
-    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
     /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
@@ -3636,7 +3678,7 @@ export interface PatchedExperimentWriteApi {
     readonly is_legacy?: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure?: boolean
-    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event?: string
     /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health?: ExperimentHealthApi | null
@@ -5729,6 +5771,13 @@ export type ExperimentsActivityRetrieveParams = {
      * @minimum 1
      */
     page?: number
+}
+
+export type ExperimentsHealthRetrieveParams = {
+    /**
+     * Check a draft as it will be when its launch succeeds. The checks that run only after launch also run, as if the experiment launched now with no exposures, calculation or flag change yet. Has no effect on a launched experiment.
+     */
+    at_launch?: boolean
 }
 
 export type ExperimentsRunningTimeTargetRetrieveParams = {

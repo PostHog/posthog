@@ -1,7 +1,13 @@
 import dataclasses
+from datetime import timedelta
 from enum import StrEnum
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.digest import DigestBatchTotals
+
+from ...facade.contracts import DigestRow
+
+NEW_ITEMS_WINDOW = timedelta(days=7)
 
 
 class DigestOutcome(StrEnum):
@@ -11,6 +17,7 @@ class DigestOutcome(StrEnum):
     DRY_RUN = "dry_run"
     SKIPPED_OPTOUT = "skipped_optout"
     SKIPPED_NO_DATA = "skipped_no_data"
+    SKIPPED_NOTHING_NEW = "skipped_nothing_new"
     FAILED = "failed"
 
 
@@ -24,12 +31,30 @@ class OrgDigestCounts:
     sent: int = 0
     skipped_optout: int = 0
     skipped_no_data: int = 0
+    skipped_nothing_new: int = 0
     failed: int = 0
     team_count: int = 0
     teams_failed: int = 0
     build_duration: float = 0.0
     send_duration: float = 0.0
     skipped_reason: str | None = None
+
+
+@frozen
+class ProjectDigest:
+    """One project's section of the email: its catalog queues and the rows other products add."""
+
+    team_id: int
+    team_name: str
+    rows: list[DigestRow]
+
+    @property
+    def total(self) -> int:
+        return sum(row.count for row in self.rows)
+
+    @property
+    def new_total(self) -> int:
+        return sum(row.new_count for row in self.rows)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,6 +93,7 @@ class OrgBatchPageInput:
 class DigestBatchInput:
     org_ids: list[str]
     dry_run: bool = False
+    new_since: str | None = None
 
 
 @dataclasses.dataclass(frozen=False)
@@ -75,6 +101,7 @@ class DigestBatchResult(DigestBatchTotals):
     emails_sent: int = 0
     emails_skipped_optout: int = 0
     emails_skipped_no_data: int = 0
+    emails_skipped_nothing_new: int = 0
     emails_failed: int = 0
 
 

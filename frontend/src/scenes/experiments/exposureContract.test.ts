@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
@@ -8,6 +10,7 @@ import {
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
+    draftDefaultExposureEvent,
     exposureEventLabel,
     getActivationConfig,
     getExposureEventAndProperty,
@@ -17,7 +20,7 @@ import {
 } from './exposureContract'
 
 describe('exposureContract', () => {
-    it('uses the rollout event for a local draft without a server-resolved event', () => {
+    it('uses the fallback event for a local draft without a server-resolved event', () => {
         expect(resolvedExposureEvent({}, '$experiment_exposure')).toBe('$experiment_exposure')
     })
 
@@ -25,6 +28,15 @@ describe('exposureContract', () => {
         expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' }, '$experiment_exposure')).toBe(
             '$feature_flag_called'
         )
+    })
+
+    it.each([
+        ['no cutoff', null, '$feature_flag_called'],
+        ['a cutoff after now', '2026-09-01T00:00:01+00:00', '$feature_flag_called'],
+        ['a cutoff at now', '2026-09-01T00:00:00+00:00', '$experiment_exposure'],
+        ['a cutoff before now', '2026-08-01T00:00:00+00:00', '$experiment_exposure'],
+    ])('gives a draft launched now with %s the default event the backend resolves', (_name, cutoff, expected) => {
+        expect(draftDefaultExposureEvent(cutoff, dayjs('2026-09-01T00:00:00Z'))).toBe(expected)
     })
 
     it.each([
@@ -92,7 +104,7 @@ describe('exposureContract', () => {
         expect(getExposureEventAndProperty({ featureFlagKey: 'my-flag', exposureCriteria })).toEqual(expected)
     })
 
-    // The rollout swaps the default event server-side, so the default branches must name the
+    // The cutoff swaps the default event server-side, so the default branches must name the
     // resolved event while a custom event stays untouched.
     it.each<[string, ExperimentExposureCriteria | undefined, string | null]>([
         ['no exposure config', undefined, '$experiment_exposure'],

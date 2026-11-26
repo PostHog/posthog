@@ -52,7 +52,6 @@ function createService(
   };
 
   const endpoints: LlmGatewayEndpoints = {
-    messagesUrl: (host) => `${host}/gateway/v1/messages`,
     usageUrl: (host, projectId) =>
       `${host}/api/projects/${projectId}/desktop/usage/`,
     defaultModel: "claude-default",

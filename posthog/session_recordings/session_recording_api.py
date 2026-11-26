@@ -2026,7 +2026,6 @@ class SessionRecordingViewSet(
 
         distinct_id = self._distinct_id_from_request(request)
         client = build_openai_client(
-            "django",
             ai_product="session_replay",
             distinct_id=distinct_id,
             properties={"ai_feature": "ai_regex", "team_id": str(self.team.id)},

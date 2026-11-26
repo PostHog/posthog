@@ -48,6 +48,7 @@ MAX_LOOKBACK = timedelta(days=4)
 TURNED_ON_EVENT = "slack app daily work focus turned on"
 TURNED_OFF_EVENT = "slack app daily work focus turned off"
 TIME_CHANGED_EVENT = "slack app daily work focus time changed"
+RUN_FINISHED_EVENT = "slack app daily work focus run finished"
 # A mention checks the default once a day per person, so a busy thread costs a cache read, and a flag that turns on
 # or a link that gains the search scope is picked up by the next day.
 DEFAULT_ON_CHECK_SECONDS = 24 * 3600
@@ -356,3 +357,9 @@ def turn_on_daily_focus_on_mention(integration: WorkspaceIntegration, slack_user
         f"slack_app:daily_focus_default:{integration.integration_id}:{slack_user_id}", 1, DEFAULT_ON_CHECK_SECONDS
     ):
         turn_on_daily_focus_by_default(integration, slack_user_id, source="mention_default")
+
+
+def report_daily_focus_run(integration: WorkspaceIntegration, slack_user_id: str, outcome: str) -> None:
+    """Every daily run ends here, also a quiet day or a run that cannot send, so adoption counts runs and not only
+    DMs."""
+    capture_slack_event(integration, RUN_FINISHED_EVENT, slack_user_id=slack_user_id, outcome=outcome)

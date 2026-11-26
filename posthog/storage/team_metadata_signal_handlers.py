@@ -25,7 +25,10 @@ from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import clear_team_metadata_cache
 
 from products.cohorts.backend.models.team_access import RealtimeCohortTeamAccess
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import (
+    REQUEST_LIST_FIELDS,
+    TeamFeatureFlagPolicyConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -96,14 +99,14 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
 def update_team_metadata_cache_on_flag_policy_save(
     sender: type[TeamFeatureFlagPolicyConfig], instance: TeamFeatureFlagPolicyConfig, created: bool, **kwargs: Any
 ) -> None:
-    """Refresh the cached team when its request blocklists change, because the flags service reads them from that cache."""
+    """Refresh the cached team when its request lists change, because the flags service reads them from that cache."""
     if not settings.FLAGS_REDIS_URL:
         return
     # The first read of Team.feature_flag_policy_config creates an empty row, and the cache
     # already holds empty lists for a team without a row.
-    if created and not instance.blocked_hosts and not instance.blocked_ips:
+    if created and not any(getattr(instance, field) for field in REQUEST_LIST_FIELDS):
         return
-    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset({"blocked_hosts", "blocked_ips"})):
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset(REQUEST_LIST_FIELDS)):
         return
 
     _enqueue_team_metadata_update_on_commit(instance.team_id)
@@ -126,9 +129,8 @@ def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str)
 
     The flags service trusts a cache hit without a Postgres check.
     Until the entry is gone, the token keeps resolving to the team there.
+    A Celery worker clears the entry, because the process that retires the token can lack FLAGS_REDIS_URL.
     """
-    if not settings.FLAGS_REDIS_URL:
-        return
 
     def enqueue_task() -> None:
         # Imported lazily for the same reason as in _enqueue_team_metadata_update_on_commit.
@@ -154,12 +156,10 @@ def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str)
 
 def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear team metadata cache when a Team is deleted."""
-    if not settings.FLAGS_REDIS_URL:
-        return
-
-    # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
-    kinds = ["redis"] if settings.TEST else None
-    clear_team_metadata_cache(instance, kinds=kinds)
+    if settings.FLAGS_REDIS_URL:
+        # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
+        kinds = ["redis"] if settings.TEST else None
+        clear_team_metadata_cache(instance, kinds=kinds)
     # This clear runs before the commit and does not retry. A refresh in that gap can write the entry back.
     # The S3 copy has no TTL, so a retrying task clears the entry again after the commit.
     enqueue_retired_token_metadata_clear_on_commit(instance.id, instance.api_token)

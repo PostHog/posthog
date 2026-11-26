@@ -1,5 +1,5 @@
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
-import type { TileAction } from '../../tiles/tileAction'
+import type { MenuAction } from '../../dashboard/menuAction'
 import { type WidgetDefinition, type WidgetMenuContext, defineWidget } from '../widgetDefinition'
 import { chartMenuActions } from './chartMenuActions'
 import { type ChartConfig, chartSpec } from './chartSpec'
@@ -46,7 +46,7 @@ export function createChartWidget({
     extraVizTypes?: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
-    menuActions?: (context: WidgetMenuContext<ChartConfig>) => TileAction[]
+    menuActions?: (context: WidgetMenuContext<ChartConfig>) => MenuAction[]
 } = {}): WidgetDefinition {
     const vizTypes = withExtraVizTypes(extraVizTypes, states)
     function Chart({ widget }: { widget: ContentWidget<ChartConfig> }): JSX.Element {

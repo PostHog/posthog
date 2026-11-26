@@ -420,7 +420,7 @@ def _mocked_models(
             "products.alerts.backend.judge.llm.resolve_ai_gateway_config",
             return_value=MagicMock(api_key="phs_test"),
         ),
-        patch("products.alerts.backend.judge.llm.build_ai_gateway_anthropic_client") as build_anthropic,
+        patch("products.alerts.backend.judge.llm.build_anthropic_client") as build_anthropic,
         patch("products.alerts.backend.judge.llm.build_ai_gateway_openai_client") as build_openai,
     ):
         haiku = build_anthropic.return_value.with_options.return_value.messages.parse
